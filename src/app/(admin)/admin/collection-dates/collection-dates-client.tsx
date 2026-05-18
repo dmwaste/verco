@@ -9,6 +9,7 @@ import { SkeletonRow } from '@/components/ui/skeleton'
 import type { ResolvedAuditEntry } from '@/lib/audit/resolve'
 import { AuditTimeline } from '@/components/audit-timeline'
 import { fetchCollectionDateAudit } from './actions'
+import { effectiveCapacity, indexPoolDates } from '@/lib/capacity/effective-capacity'
 
 const PAGE_SIZE = 50
 
@@ -87,7 +88,7 @@ export function CollectionDatesClient({ clientId, isContractorAdmin }: Collectio
     queryFn: async () => {
       let query = supabase
         .from('collection_area')
-        .select('id, code, name')
+        .select('id, code, name, capacity_pool_id, capacity_pool:capacity_pool_id(code, name)')
         .eq('is_active', true)
         .order('code')
       if (clientId) {
@@ -98,6 +99,13 @@ export function CollectionDatesClient({ clientId, isContractorAdmin }: Collectio
     },
   })
 
+  const areaPoolById = new Map(
+    (areas ?? []).map((a) => {
+      const pool = Array.isArray(a.capacity_pool) ? a.capacity_pool[0] : a.capacity_pool
+      return [a.id, { poolId: a.capacity_pool_id ?? null, poolCode: pool?.code ?? null }]
+    }),
+  )
+
   // Fetch collection dates — same tenant-scoping rule. The embedded
   // collection_area is `!inner` so we can filter on its client_id.
   const today = format(new Date(), 'yyyy-MM-dd')
@@ -107,7 +115,7 @@ export function CollectionDatesClient({ clientId, isContractorAdmin }: Collectio
       let query = supabase
         .from('collection_date')
         .select(
-          'id, date, is_open, for_mud, bulk_capacity_limit, bulk_units_booked, bulk_is_closed, anc_capacity_limit, anc_units_booked, anc_is_closed, id_capacity_limit, id_units_booked, id_is_closed, collection_area_id, collection_area!inner(name, code, client_id)',
+          'id, date, is_open, for_mud, bulk_capacity_limit, bulk_units_booked, bulk_is_closed, anc_capacity_limit, anc_units_booked, anc_is_closed, id_capacity_limit, id_units_booked, id_is_closed, collection_area_id, collection_area!inner(name, code, client_id, capacity_pool_id)',
           { count: 'exact' }
         )
         .order('date', { ascending: true })
@@ -127,6 +135,40 @@ export function CollectionDatesClient({ clientId, isContractorAdmin }: Collectio
 
   const dates = datesData?.dates ?? []
   const total = datesData?.total ?? 0
+
+  // For pool-member areas in the visible page, fetch authoritative pool
+  // counters. Per-area `collection_date.*` stays at 0 by design for these
+  // (migration 20260513080000_capacity_pool) — reading direct columns gives
+  // misleading zeros. Indexed by `${poolId}|${date}` because one page can
+  // span multiple pools.
+  const pagePoolIds = Array.from(
+    new Set(
+      dates
+        .map((d) => (d.collection_area as { capacity_pool_id: string | null }).capacity_pool_id)
+        .filter((id): id is string => id !== null),
+    ),
+  )
+  const pageDateIsos = dates.map((d) => d.date)
+  const { data: pagePoolDates } = useQuery({
+    queryKey: ['admin-pool-dates', pagePoolIds.sort().join(','), pageDateIsos.join(',')],
+    enabled: pagePoolIds.length > 0,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from('collection_date_pool')
+        .select(
+          `date, capacity_pool_id,
+           bulk_capacity_limit, bulk_units_booked, bulk_is_closed,
+           anc_capacity_limit, anc_units_booked, anc_is_closed,
+           id_capacity_limit, id_units_booked, id_is_closed`,
+        )
+        .in('capacity_pool_id', pagePoolIds)
+        .in('date', pageDateIsos)
+      return data ?? []
+    },
+  })
+  const poolDateByKey = new Map(
+    (pagePoolDates ?? []).map((p) => [`${p.capacity_pool_id}|${p.date}`, p]),
+  )
 
   function generateBulkDates(): string[] {
     if (!bulkStartDate || bulkCount <= 0) return []
@@ -243,6 +285,10 @@ export function CollectionDatesClient({ clientId, isContractorAdmin }: Collectio
   }
 
   const bulkPreviewDates = showBulkPreview ? generateBulkDates() : []
+  const createAreaPool = createAreaId ? areaPoolById.get(createAreaId) ?? null : null
+  const createAreaIsPooled = createAreaPool?.poolId != null
+  const bulkAreaPool = bulkAreaId ? areaPoolById.get(bulkAreaId) ?? null : null
+  const bulkAreaIsPooled = bulkAreaPool?.poolId != null
 
   return (
     <>
@@ -331,8 +377,13 @@ export function CollectionDatesClient({ clientId, isContractorAdmin }: Collectio
             </div>
           </div>
           {createError && <p className="mt-2 text-sm text-red-600">{createError}</p>}
+          {createAreaIsPooled && (
+            <p className="mt-2 rounded-lg bg-indigo-50 px-3 py-2 text-xs text-indigo-800">
+              This area shares capacity via the <strong>{createAreaPool?.poolCode}</strong> pool. Date rows for pool areas are scheduled via the pool admin — per-date limits here do not apply.
+            </p>
+          )}
           <div className="mt-3 flex gap-2">
-            <button type="button" onClick={handleCreate} disabled={isCreating || !createAreaId || !createDate} className="rounded-lg bg-[#293F52] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">
+            <button type="button" onClick={handleCreate} disabled={isCreating || !createAreaId || !createDate || createAreaIsPooled} className="rounded-lg bg-[#293F52] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">
               {isCreating ? 'Creating...' : 'Create Date'}
             </button>
             <button type="button" onClick={() => setShowCreate(false)} className="rounded-lg border border-gray-200 px-4 py-2 text-sm text-gray-600">Cancel</button>
@@ -401,9 +452,14 @@ export function CollectionDatesClient({ clientId, isContractorAdmin }: Collectio
             </div>
           )}
           {bulkError && <p className="mt-2 text-sm text-red-600">{bulkError}</p>}
+          {bulkAreaIsPooled && (
+            <p className="mt-2 rounded-lg bg-indigo-50 px-3 py-2 text-xs text-indigo-800">
+              This area shares capacity via the <strong>{bulkAreaPool?.poolCode}</strong> pool. Date rows for pool areas are scheduled via the pool admin — per-date limits here do not apply.
+            </p>
+          )}
           <div className="mt-3 flex gap-2">
             {showBulkPreview && (
-              <button type="button" onClick={handleBulkCreate} disabled={isBulkCreating} className="rounded-lg bg-[#293F52] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">
+              <button type="button" onClick={handleBulkCreate} disabled={isBulkCreating || bulkAreaIsPooled} className="rounded-lg bg-[#293F52] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">
                 {isBulkCreating ? 'Creating...' : `Create ${bulkPreviewDates.length} Dates`}
               </button>
             )}
@@ -436,10 +492,14 @@ export function CollectionDatesClient({ clientId, isContractorAdmin }: Collectio
               <tr><td colSpan={8} className="px-4 py-8 text-center text-gray-400">No collection dates found</td></tr>
             ) : (
               dates.map((d) => {
-                const area = d.collection_area as { name: string; code: string }
+                const area = d.collection_area as { name: string; code: string; capacity_pool_id: string | null }
+                const poolId = area.capacity_pool_id ?? null
+                const poolRow = poolId ? poolDateByKey.get(`${poolId}|${d.date}`) ?? null : null
+                const cap = effectiveCapacity(d, poolId, poolRow ? indexPoolDates([poolRow]) : new Map())
                 const isPast = d.date < today
                 const isEditing = editingId === d.id
-                const hasBookings = d.bulk_units_booked > 0 || d.anc_units_booked > 0 || d.id_units_booked > 0
+                const hasBookings = cap.bulk_units_booked > 0 || cap.anc_units_booked > 0 || cap.id_units_booked > 0
+                const isPooled = poolId !== null
 
                 if (isEditing) {
                   return (
@@ -466,7 +526,17 @@ export function CollectionDatesClient({ clientId, isContractorAdmin }: Collectio
                     <td className={`px-4 py-2.5 font-medium ${isPast ? 'text-gray-400' : 'text-[#293F52]'}`}>
                       {format(new Date(d.date + 'T00:00:00'), 'EEE d MMM yyyy')}
                     </td>
-                    <td className="px-4 py-2.5 text-gray-600">{area.code}</td>
+                    <td className="px-4 py-2.5 text-gray-600">
+                      {area.code}
+                      {isPooled && (
+                        <span
+                          className="ml-1.5 rounded-full bg-indigo-50 px-1.5 py-0.5 text-2xs font-semibold text-indigo-700"
+                          title="Capacity shared via pool — limits managed at pool level"
+                        >
+                          pool
+                        </span>
+                      )}
+                    </td>
                     <td className="px-4 py-2.5 text-center">
                       {d.for_mud && <span className="rounded-full bg-[#F3EEFF] px-2 py-0.5 text-2xs font-semibold text-[#805AD5]">MUD</span>}
                     </td>
@@ -480,35 +550,43 @@ export function CollectionDatesClient({ clientId, isContractorAdmin }: Collectio
                     {/* Bulk capacity */}
                     <td className="px-4 py-2.5">
                       <div className="flex items-center gap-1.5">
-                        <div className={`h-1.5 w-16 overflow-hidden rounded-full ${capacityBgColor(d.bulk_units_booked, d.bulk_capacity_limit)}`}>
-                          <div className={`h-full rounded-full ${capacityColor(d.bulk_units_booked, d.bulk_capacity_limit)}`} style={{ width: `${Math.min(100, d.bulk_capacity_limit > 0 ? (d.bulk_units_booked / d.bulk_capacity_limit) * 100 : 0)}%` }} />
+                        <div className={`h-1.5 w-16 overflow-hidden rounded-full ${capacityBgColor(cap.bulk_units_booked, cap.bulk_capacity_limit)}`}>
+                          <div className={`h-full rounded-full ${capacityColor(cap.bulk_units_booked, cap.bulk_capacity_limit)}`} style={{ width: `${Math.min(100, cap.bulk_capacity_limit > 0 ? (cap.bulk_units_booked / cap.bulk_capacity_limit) * 100 : 0)}%` }} />
                         </div>
-                        <span className="text-[11px] text-gray-500">{d.bulk_units_booked}/{d.bulk_capacity_limit}</span>
-                        {d.bulk_is_closed && <span className="rounded bg-red-100 px-1 py-px text-[9px] font-semibold text-red-600">Closed</span>}
+                        <span className="text-[11px] text-gray-500">{cap.bulk_units_booked}/{cap.bulk_capacity_limit}</span>
+                        {cap.bulk_is_closed && <span className="rounded bg-red-100 px-1 py-px text-[9px] font-semibold text-red-600">Closed</span>}
                       </div>
                     </td>
                     {/* ANC capacity */}
                     <td className="px-4 py-2.5">
                       <div className="flex items-center gap-1.5">
-                        <div className={`h-1.5 w-16 overflow-hidden rounded-full ${capacityBgColor(d.anc_units_booked, d.anc_capacity_limit)}`}>
-                          <div className={`h-full rounded-full ${capacityColor(d.anc_units_booked, d.anc_capacity_limit)}`} style={{ width: `${Math.min(100, d.anc_capacity_limit > 0 ? (d.anc_units_booked / d.anc_capacity_limit) * 100 : 0)}%` }} />
+                        <div className={`h-1.5 w-16 overflow-hidden rounded-full ${capacityBgColor(cap.anc_units_booked, cap.anc_capacity_limit)}`}>
+                          <div className={`h-full rounded-full ${capacityColor(cap.anc_units_booked, cap.anc_capacity_limit)}`} style={{ width: `${Math.min(100, cap.anc_capacity_limit > 0 ? (cap.anc_units_booked / cap.anc_capacity_limit) * 100 : 0)}%` }} />
                         </div>
-                        <span className="text-[11px] text-gray-500">{d.anc_units_booked}/{d.anc_capacity_limit}</span>
-                        {d.anc_is_closed && <span className="rounded bg-red-100 px-1 py-px text-[9px] font-semibold text-red-600">Closed</span>}
+                        <span className="text-[11px] text-gray-500">{cap.anc_units_booked}/{cap.anc_capacity_limit}</span>
+                        {cap.anc_is_closed && <span className="rounded bg-red-100 px-1 py-px text-[9px] font-semibold text-red-600">Closed</span>}
                       </div>
                     </td>
                     {/* ID capacity */}
                     <td className="px-4 py-2.5">
                       <div className="flex items-center gap-1.5">
-                        <div className={`h-1.5 w-16 overflow-hidden rounded-full ${capacityBgColor(d.id_units_booked, d.id_capacity_limit)}`}>
-                          <div className={`h-full rounded-full ${capacityColor(d.id_units_booked, d.id_capacity_limit)}`} style={{ width: `${Math.min(100, d.id_capacity_limit > 0 ? (d.id_units_booked / d.id_capacity_limit) * 100 : 0)}%` }} />
+                        <div className={`h-1.5 w-16 overflow-hidden rounded-full ${capacityBgColor(cap.id_units_booked, cap.id_capacity_limit)}`}>
+                          <div className={`h-full rounded-full ${capacityColor(cap.id_units_booked, cap.id_capacity_limit)}`} style={{ width: `${Math.min(100, cap.id_capacity_limit > 0 ? (cap.id_units_booked / cap.id_capacity_limit) * 100 : 0)}%` }} />
                         </div>
-                        <span className="text-[11px] text-gray-500">{d.id_units_booked}/{d.id_capacity_limit}</span>
-                        {d.id_is_closed && <span className="rounded bg-red-100 px-1 py-px text-[9px] font-semibold text-red-600">Closed</span>}
+                        <span className="text-[11px] text-gray-500">{cap.id_units_booked}/{cap.id_capacity_limit}</span>
+                        {cap.id_is_closed && <span className="rounded bg-red-100 px-1 py-px text-[9px] font-semibold text-red-600">Closed</span>}
                       </div>
                     </td>
                     <td className="px-4 py-2.5 text-right">
-                      <button type="button" onClick={() => startEdit(d)} className="mr-2 text-xs font-medium text-[#293F52] hover:underline">Edit</button>
+                      <button
+                        type="button"
+                        onClick={() => startEdit(d)}
+                        disabled={isPooled}
+                        title={isPooled ? 'Capacity managed at pool level' : 'Edit'}
+                        className={`mr-2 text-xs font-medium ${isPooled ? 'cursor-not-allowed text-gray-300' : 'text-[#293F52] hover:underline'}`}
+                      >
+                        Edit
+                      </button>
                       <button type="button" onClick={() => handleShowAudit(d.id)} className="mr-2 text-xs font-medium text-gray-500 hover:underline">History</button>
                       <button
                         type="button"

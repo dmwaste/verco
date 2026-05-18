@@ -22,7 +22,10 @@ export const BOOKING_STATUSES = [
 export type BookingStatus = (typeof BOOKING_STATUSES)[number]
 
 const VALID_TRANSITIONS: ReadonlyMap<BookingStatus, readonly BookingStatus[]> = new Map([
-  ['Pending Payment', ['Submitted', 'Cancelled']],
+  // Pending Payment → Confirmed is the auto-confirm path (Stripe webhook on
+  // payment success). Pending Payment → Submitted is preserved as a safety
+  // net but no production code path writes it.
+  ['Pending Payment', ['Submitted', 'Confirmed', 'Cancelled']],
   ['Submitted', ['Confirmed', 'Cancelled']],
   ['Confirmed', ['Scheduled', 'Cancelled']],
   ['Scheduled', ['Completed', 'Non-conformance', 'Nothing Presented', 'Cancelled']],

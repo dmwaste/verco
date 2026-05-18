@@ -1030,6 +1030,7 @@ export type Database = {
           id_is_closed: boolean
           id_units_booked: number
           is_open: boolean
+          locked_closed: boolean
           updated_at: string
         }
         Insert: {
@@ -1048,6 +1049,7 @@ export type Database = {
           id_is_closed?: boolean
           id_units_booked?: number
           is_open?: boolean
+          locked_closed?: boolean
           updated_at?: string
         }
         Update: {
@@ -1066,6 +1068,7 @@ export type Database = {
           id_is_closed?: boolean
           id_units_booked?: number
           is_open?: boolean
+          locked_closed?: boolean
           updated_at?: string
         }
         Relationships: [
@@ -1093,6 +1096,7 @@ export type Database = {
           id_capacity_limit: number
           id_is_closed: boolean
           id_units_booked: number
+          locked_closed: boolean
           updated_at: string
         }
         Insert: {
@@ -1109,6 +1113,7 @@ export type Database = {
           id_capacity_limit?: number
           id_is_closed?: boolean
           id_units_booked?: number
+          locked_closed?: boolean
           updated_at?: string
         }
         Update: {
@@ -1125,6 +1130,7 @@ export type Database = {
           id_capacity_limit?: number
           id_is_closed?: boolean
           id_units_booked?: number
+          locked_closed?: boolean
           updated_at?: string
         }
         Relationships: [
@@ -2259,6 +2265,7 @@ export type Database = {
         Args: { p_booking_id: string; p_updates: Json }
         Returns: undefined
       }
+      close_imminent_collection_dates: { Args: never; Returns: Json }
       create_booking_with_capacity_check: {
         Args: {
           p_actor_id?: string

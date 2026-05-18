@@ -357,9 +357,17 @@ serve(async (req) => {
     }
 
     // ── 8. Determine initial status ──────────────────────────────────────────
+    //
+    // Auto-confirm (Option B, 2026-05-18): free bookings land directly in
+    // Confirmed — there is no separate staff "Confirm" gate. Paid bookings
+    // still start in Pending Payment; the Stripe webhook flips them straight
+    // to Confirmed on payment success. The Submitted state is preserved in
+    // the enum + state-machine matrix as a safety net for legacy bookings
+    // and any future re-introduced manual gate, but no new code path writes
+    // it.
 
     const requiresPayment = priceResult.total_cents > 0
-    const initialStatus = requiresPayment ? 'Pending Payment' : 'Submitted'
+    const initialStatus = requiresPayment ? 'Pending Payment' : 'Confirmed'
 
     // ── 9. Build items payload for RPC ───────────────────────────────────────
     // Split line items with both free and paid units into separate booking_item

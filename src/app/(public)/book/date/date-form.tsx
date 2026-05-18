@@ -10,6 +10,7 @@ import { BookingCancelLink } from '@/components/booking/booking-cancel-link'
 import { VercoButton } from '@/components/ui/verco-button'
 import { Spinner } from '@/components/ui/spinner'
 import { decodeItems } from '@/lib/booking/search-params'
+import { effectiveCapacity, indexPoolDates } from '@/lib/capacity/effective-capacity'
 import { cn } from '@/lib/utils'
 
 export function DateForm() {
@@ -103,7 +104,10 @@ export function DateForm() {
       const { data } = await supabase
         .from('collection_date_pool')
         .select(
-          'date, bulk_capacity_limit, bulk_units_booked, bulk_is_closed, anc_capacity_limit, anc_units_booked, anc_is_closed',
+          `date,
+           bulk_capacity_limit, bulk_units_booked, bulk_is_closed,
+           anc_capacity_limit, anc_units_booked, anc_is_closed,
+           id_capacity_limit, id_units_booked, id_is_closed`,
         )
         .eq('capacity_pool_id', poolId)
         .gte('date', new Date().toISOString().split('T')[0])
@@ -111,38 +115,17 @@ export function DateForm() {
     },
   })
 
-  const poolByDate = new Map(
-    (poolDates ?? []).map((p) => [p.date, p]),
-  )
+  const poolByDate = indexPoolDates(poolDates ?? [])
 
   // Show loading state if any critical query is loading
   const isLoadingData = neededBucketsLoading || datesLoading || areaLoading || poolDatesLoading
 
-  // Resolve effective capacity for a collection_date row. For pooled areas a
-  // missing pool row means the pool hasn't been scheduled for that date — the
-  // booking RPC would reject it, so treat it as closed in the UI too.
-  function effectiveCapacity(d: { date: string; bulk_capacity_limit: number; bulk_units_booked: number; bulk_is_closed: boolean; anc_is_closed: boolean }) {
-    if (!poolId) {
-      return {
-        bulk_capacity_limit: d.bulk_capacity_limit,
-        bulk_units_booked: d.bulk_units_booked,
-        bulk_is_closed: d.bulk_is_closed,
-        anc_is_closed: d.anc_is_closed,
-      }
-    }
-    const pool = poolByDate.get(d.date)
-    return {
-      bulk_capacity_limit: pool?.bulk_capacity_limit ?? 0,
-      bulk_units_booked: pool?.bulk_units_booked ?? 0,
-      bulk_is_closed: pool?.bulk_is_closed ?? true,
-      anc_is_closed: pool?.anc_is_closed ?? true,
-    }
-  }
-
-  // Filter dates based on needed capacity buckets
+  // Filter dates based on needed capacity buckets. For pooled areas a missing
+  // pool row means the pool hasn't been scheduled for that date — the booking
+  // RPC would reject it, so the shared helper returns it as fully closed.
   const availableDates = (dates ?? []).filter((d) => {
     if (!neededBuckets) return true
-    const cap = effectiveCapacity(d)
+    const cap = effectiveCapacity(d, poolId, poolByDate)
     const { buckets } = neededBuckets
     if (buckets.has('bulk') && cap.bulk_is_closed) return false
     if (buckets.has('anc') && cap.anc_is_closed) return false
@@ -245,7 +228,7 @@ export function DateForm() {
             <div className="grid grid-cols-3 gap-2">
               {availableDates.map((d) => {
                 const isSelected = d.id === selectedDateId
-                const cap = effectiveCapacity(d)
+                const cap = effectiveCapacity(d, poolId, poolByDate)
                 const spotsRemaining = Math.max(
                   0,
                   cap.bulk_capacity_limit - cap.bulk_units_booked
