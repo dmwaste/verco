@@ -450,13 +450,18 @@ async function dispatchSms(
   if (!rendered) return
 
   const start = Date.now()
+  const messagingServiceSid = booking.client.twilio_messaging_service_sid
   const smsLog = (extras: Record<string, unknown>) => {
+    // `messaging_service_sid` is logged on every SMS attempt so misrouting
+    // (wrong tenant SID, or correct SID but wrong sender pool in Twilio)
+    // can be diagnosed from Supabase EF logs without re-querying the DB.
     console.log(
       JSON.stringify({
         event: 'notification_dispatch',
         channel: 'sms',
         booking_id: payload.booking_id,
         type: payload.type,
+        messaging_service_sid: messagingServiceSid,
         duration_ms: Date.now() - start,
         ...extras,
       }),
