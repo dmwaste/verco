@@ -54,6 +54,14 @@ export type NotificationType =
   | 'ncn_raised'
   | 'np_raised'
   | 'completion_survey'
+  | 'collection_reminder'
+
+/**
+ * Per-channel dispatch. notification_log idempotency keys on
+ * (booking_id, notification_type, channel) — sending the email does NOT
+ * block the SMS for the same notification.
+ */
+export type NotificationChannel = 'email' | 'sms'
 
 export type NotificationLogStatus = 'queued' | 'sent' | 'failed'
 
@@ -69,6 +77,7 @@ export type NotificationPayload =
   | { type: 'ncn_raised'; booking_id: string; ncn_id: string; reason: string; notes?: string; photos?: string[]; contractor_fault?: boolean }
   | { type: 'np_raised'; booking_id: string; np_id: string; notes?: string; photos?: string[]; contractor_fault?: boolean }
   | { type: 'completion_survey'; booking_id: string; survey_token: string }
+  | { type: 'collection_reminder'; booking_id: string }
 
 /**
  * Alternative input for the "resume a pre-existing queued row" path.
@@ -130,6 +139,12 @@ export interface BookingClientForDispatch extends ClientBranding {
   custom_domain: string | null
   reply_to_email: string | null
   email_from_name: string | null
+  /**
+   * Twilio Messaging Service SID (`MG…`) — required for SMS dispatch.
+   * Null = tenant not configured for SMS; dispatcher skips the SMS channel
+   * for this tenant and only sends email.
+   */
+  twilio_messaging_service_sid: string | null
 }
 
 export interface BookingItemForDispatch {
@@ -166,13 +181,28 @@ export type SendEmailResult =
   | { ok: true }
   | { ok: false; error: string; status?: number }
 
+// ── SendSMS contract ───────────────────────────────────────────────────────
+
+export interface SendSMSParams {
+  /** Recipient phone in E.164 format (`+61412345678`). */
+  to: string
+  /** Plain-text body. Twilio segments at 160 GSM-7 chars / 70 UCS-2 chars. */
+  body: string
+  /** Messaging Service SID (`MG…`) — per-tenant alpha sender selection. */
+  messagingServiceSid: string
+}
+
+export type SendSMSResult =
+  | { ok: true; messageSid?: string }
+  | { ok: false; error: string }
+
 // ── notification_log row shape ─────────────────────────────────────────────
 
 export interface NotificationLogRow {
   booking_id: string
   contact_id: string | null
   client_id: string
-  channel: 'email'
+  channel: NotificationChannel
   notification_type: NotificationType
   to_address: string
   status: NotificationLogStatus
@@ -182,4 +212,19 @@ export interface NotificationLogRow {
 export interface RenderedEmail {
   subject: string
   html: string
+}
+
+export interface RenderedSMS {
+  /** Plain-text SMS body. Aim for ≤160 GSM-7 chars to stay in one segment. */
+  body: string
+}
+
+/**
+ * Per-notification rendering output. The dispatcher fans out to each
+ * non-null channel — a template that returns both `email` and `sms` will
+ * fire both sends; one that returns only `email` is email-only.
+ */
+export interface RenderedNotification {
+  email?: RenderedEmail
+  sms?: RenderedSMS
 }

@@ -17,6 +17,34 @@ export function formatCollectionDate(iso: string): string {
   })
 }
 
+/**
+ * Compact AU collection date for SMS bodies. Drops the year (year is implied
+ * within the same FY) and the comma — every char counts in a 160-char
+ * segment. Example: "Wed 20 May".
+ */
+export function formatCollectionDateShort(iso: string): string {
+  const date = new Date(`${iso}T00:00:00+08:00`)
+  return date.toLocaleDateString('en-AU', {
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+    timeZone: 'Australia/Perth',
+  })
+}
+
+/**
+ * Build the SMS canonical link for a booking — `verco.au/b/<ref>`.
+ * Resolved by the root-host proxy via `resolve_booking_redirect` RPC, which
+ * 302s the recipient to their tenant's `/booking/<ref>` page.
+ *
+ * Stable across tenant rebrands: if WMRC ever migrates off vvtest.verco.au,
+ * historic SMS links still resolve because the lookup is by ref → live
+ * tenant subdomain, not encoded into the URL.
+ */
+export function buildSmsBookingLink(ref: string): string {
+  return `verco.au/b/${encodeURIComponent(ref)}`
+}
+
 export function escapeHtml(s: string): string {
   return s
     .replace(/&/g, '&amp;')

@@ -9,6 +9,7 @@ import type {
   SendEmailResult,
 } from './templates/types'
 import { renderBookingCreated } from './templates/booking-created'
+import { renderCollectionReminder } from './templates/collection-reminder'
 import {
   renderBookingCancelled,
   type RenderBookingCancelledOptions,
@@ -107,6 +108,7 @@ const RESUMABLE_TYPES: ReadonlySet<NotificationType> = new Set([
   'payment_reminder',
   'payment_expired',
   'np_raised',
+  'collection_reminder',
 ])
 
 // ── Dispatch ───────────────────────────────────────────────────────────────
@@ -360,6 +362,8 @@ function renderTemplate(
     }
     case 'completion_survey':
       return renderCompletionSurvey(booking, appUrl, payload.survey_token)
+    case 'collection_reminder':
+      return renderCollectionReminder(booking, appUrl)
   }
 }
 
@@ -377,6 +381,8 @@ function buildResumablePayload(type: NotificationType, booking_id: string): Noti
       return { type: 'payment_expired', booking_id }
     case 'np_raised':
       return { type: 'np_raised', booking_id, np_id: '' }
+    case 'collection_reminder':
+      return { type: 'collection_reminder', booking_id }
     default:
       throw new Error(`Type '${type}' is not resumable — guard should have caught this`)
   }

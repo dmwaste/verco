@@ -29,7 +29,7 @@ describe('renderCompletionSurvey', () => {
   it('does not contain dispute, reason, or photo blocks', () => {
     // Use a logo-less client so the layout header is a <span> not an <img>,
     // allowing the assertion to confirm the template emits no photo blocks.
-    const booking = makeMockBooking({ client: { slug: 'mock-tenant', custom_domain: null, reply_to_email: 'noreply@mock.wa.gov.au', email_from_name: 'Test', ...mockClientMinimal } })
+    const booking = makeMockBooking({ client: { slug: 'mock-tenant', custom_domain: null, reply_to_email: 'noreply@mock.wa.gov.au', email_from_name: 'Test', twilio_messaging_service_sid: null, ...mockClientMinimal } })
     const { html } = renderCompletionSurvey(booking, APP_URL, 'tok-abc-123')
     expect(html).not.toContain('dispute')
     expect(html).not.toContain('Reason')

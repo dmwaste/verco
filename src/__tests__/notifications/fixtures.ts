@@ -80,6 +80,7 @@ export function makeMockBooking(
       custom_domain: null,
       reply_to_email: 'noreply@mock.wa.gov.au',
       email_from_name: 'City of Mock — Verge Collection',
+      twilio_messaging_service_sid: null,
       ...mockClientMinimal,
     },
     contact: {

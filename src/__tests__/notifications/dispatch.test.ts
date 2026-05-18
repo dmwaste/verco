@@ -130,6 +130,7 @@ describe('dispatch', () => {
           email_footer_html: null,
           reply_to_email: 'verge@kwinana.wa.gov.au',
           email_from_name: 'City of Kwinana — Verge Collection',
+          twilio_messaging_service_sid: null,
         },
       })
       const deps = createMockDispatchDeps({ bookings: { b5: booking } })
@@ -153,6 +154,7 @@ describe('dispatch', () => {
           email_footer_html: null,
           reply_to_email: null,
           email_from_name: null,
+          twilio_messaging_service_sid: null,
         },
       })
       const deps = createMockDispatchDeps({ bookings: { b6: booking } })
