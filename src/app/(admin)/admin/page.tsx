@@ -3,6 +3,7 @@ import { format, startOfWeek, endOfWeek, formatDistanceToNow } from 'date-fns'
 import { BookingStatusBadge } from '@/components/booking/booking-status-badge'
 import Link from 'next/link'
 import type { Database } from '@/lib/supabase/types'
+import { effectiveCapacity, indexPoolDates } from '@/lib/capacity/effective-capacity'
 
 type BookingStatus = Database['public']['Enums']['booking_status']
 
@@ -60,7 +61,13 @@ export default async function AdminDashboardPage() {
       .in('status', ['open', 'in_progress']),
     supabase
       .from('collection_date')
-      .select('id, date, bulk_capacity_limit, bulk_units_booked, anc_capacity_limit, anc_units_booked, collection_area!inner(name, code)')
+      .select(
+        `id, date,
+         bulk_capacity_limit, bulk_units_booked, bulk_is_closed,
+         anc_capacity_limit, anc_units_booked, anc_is_closed,
+         id_capacity_limit, id_units_booked, id_is_closed,
+         collection_area!inner(name, code, capacity_pool_id)`
+      )
       .eq('is_open', true)
       .gte('date', now.toISOString().split('T')[0])
       .order('date', { ascending: true })
@@ -134,6 +141,36 @@ export default async function AdminDashboardPage() {
 
   const upcomingDates = upcomingDatesResult.data ?? []
   const openTickets = openTicketsResult.data ?? []
+
+  // For any pool-member areas in the upcoming-dates list, fetch authoritative
+  // pool counters — per-area `collection_date.*` stays at 0 by design for
+  // pool members (see migration 20260513080000_capacity_pool).
+  const upcomingPoolIds = Array.from(
+    new Set(
+      upcomingDates
+        .map((d) => (d.collection_area as unknown as { capacity_pool_id: string | null }).capacity_pool_id)
+        .filter((id): id is string => id !== null),
+    ),
+  )
+  const upcomingDateIsos = upcomingDates.map((d) => d.date)
+  const { data: upcomingPoolDates } = upcomingPoolIds.length
+    ? await supabase
+        .from('collection_date_pool')
+        .select(
+          `date,
+           bulk_capacity_limit, bulk_units_booked, bulk_is_closed,
+           anc_capacity_limit, anc_units_booked, anc_is_closed,
+           id_capacity_limit, id_units_booked, id_is_closed,
+           capacity_pool_id`,
+        )
+        .in('capacity_pool_id', upcomingPoolIds)
+        .in('date', upcomingDateIsos)
+    : { data: [] }
+
+  // Index pool dates by `${poolId}|${date}` for O(1) lookup per row.
+  const poolDateByKey = new Map(
+    (upcomingPoolDates ?? []).map((p) => [`${p.capacity_pool_id}|${p.date}`, p]),
+  )
 
   // ── MUD reminder block — filter to due-soon (<= 14 days) and decorate ────
   const REMINDER_HORIZON_DAYS = 14
@@ -253,8 +290,12 @@ export default async function AdminDashboardPage() {
             <Link href="/admin/collection-dates" className="text-xs font-medium text-[#00B864]">View all &rarr;</Link>
           </div>
           {upcomingDates.map((d: UpcomingDate) => {
-            const area = d.collection_area as unknown as { name: string; code: string }
-            const pctBulk = d.bulk_capacity_limit > 0 ? (d.bulk_units_booked / d.bulk_capacity_limit) * 100 : 0
+            const area = d.collection_area as unknown as { name: string; code: string; capacity_pool_id: string | null }
+            const pool = area.capacity_pool_id
+              ? poolDateByKey.get(`${area.capacity_pool_id}|${d.date}`) ?? null
+              : null
+            const cap = effectiveCapacity(d, area.capacity_pool_id, pool ? indexPoolDates([pool]) : new Map())
+            const pctBulk = cap.bulk_capacity_limit > 0 ? (cap.bulk_units_booked / cap.bulk_capacity_limit) * 100 : 0
             return (
               <div key={d.id} className="flex items-center justify-between border-b border-gray-100 py-2.5 last:border-b-0 last:pb-0">
                 <div>
@@ -266,12 +307,12 @@ export default async function AdminDashboardPage() {
                 <div className="flex items-center gap-2">
                   <div className="h-1.5 w-20 overflow-hidden rounded-full bg-gray-100">
                     <div
-                      className={`h-full rounded-full ${getCapacityColor(d.bulk_units_booked, d.bulk_capacity_limit)}`}
+                      className={`h-full rounded-full ${getCapacityColor(cap.bulk_units_booked, cap.bulk_capacity_limit)}`}
                       style={{ width: `${Math.min(pctBulk, 100)}%` }}
                     />
                   </div>
                   <span className="text-xs text-gray-500">
-                    {d.bulk_units_booked}/{d.bulk_capacity_limit}
+                    {cap.bulk_units_booked}/{cap.bulk_capacity_limit}
                   </span>
                 </div>
               </div>

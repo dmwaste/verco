@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { checkMudAllowance } from '@/lib/mud/allowance'
 import { MUD_UNITS_PER_SERVICE } from '@/lib/mud/capacity'
+import { effectiveCapacity, indexPoolDates } from '@/lib/capacity/effective-capacity'
 import { MudBookingForm, type ServiceOption, type DateOption } from './mud-booking-form'
 
 interface MudBookingPageProps {
@@ -21,7 +22,7 @@ export default async function MudBookingPage({ params }: MudBookingPageProps) {
       `id, formatted_address, address, is_mud, unit_count, mud_code,
        mud_onboarding_status, waste_location_notes, collection_area_id,
        strata_contact:strata_contact_id(id, first_name, last_name, full_name, mobile_e164, email),
-       collection_area:collection_area_id(id, code, name)`
+       collection_area:collection_area_id(id, code, name, capacity_pool_id)`
     )
     .eq('id', id)
     .single()
@@ -130,31 +131,53 @@ export default async function MudBookingPage({ params }: MudBookingPageProps) {
   const todayIso = today.toISOString().slice(0, 10)
   const horizonIso = new Date(today.getTime() + TWELVE_MONTHS_MS).toISOString().slice(0, 10)
 
-  const { data: dates } = await supabase
-    .from('collection_date')
-    .select(
-      `id, date, for_mud, is_open,
-       bulk_capacity_limit, bulk_units_booked, bulk_is_closed,
-       anc_capacity_limit, anc_units_booked, anc_is_closed,
-       id_capacity_limit, id_units_booked, id_is_closed`
-    )
-    .eq('collection_area_id', area.id)
-    .eq('for_mud', true)
-    .eq('is_open', true)
-    .gte('date', todayIso)
-    .lte('date', horizonIso)
-    .order('date', { ascending: true })
+  const poolId = (area as { capacity_pool_id: string | null }).capacity_pool_id ?? null
 
-  const dateOptions: DateOption[] = (dates ?? []).map((d) => ({
-    id: d.id,
-    date: d.date,
-    bulk_remaining: d.bulk_capacity_limit - d.bulk_units_booked,
-    bulk_closed: d.bulk_is_closed,
-    anc_remaining: d.anc_capacity_limit - d.anc_units_booked,
-    anc_closed: d.anc_is_closed,
-    id_remaining: d.id_capacity_limit - d.id_units_booked,
-    id_closed: d.id_is_closed,
-  }))
+  const [{ data: dates }, { data: poolDates }] = await Promise.all([
+    supabase
+      .from('collection_date')
+      .select(
+        `id, date, for_mud, is_open,
+         bulk_capacity_limit, bulk_units_booked, bulk_is_closed,
+         anc_capacity_limit, anc_units_booked, anc_is_closed,
+         id_capacity_limit, id_units_booked, id_is_closed`
+      )
+      .eq('collection_area_id', area.id)
+      .eq('for_mud', true)
+      .eq('is_open', true)
+      .gte('date', todayIso)
+      .lte('date', horizonIso)
+      .order('date', { ascending: true }),
+    poolId
+      ? supabase
+          .from('collection_date_pool')
+          .select(
+            `date,
+             bulk_capacity_limit, bulk_units_booked, bulk_is_closed,
+             anc_capacity_limit, anc_units_booked, anc_is_closed,
+             id_capacity_limit, id_units_booked, id_is_closed`
+          )
+          .eq('capacity_pool_id', poolId)
+          .gte('date', todayIso)
+          .lte('date', horizonIso)
+      : Promise.resolve({ data: [] }),
+  ])
+
+  const poolByDate = indexPoolDates(poolDates ?? [])
+
+  const dateOptions: DateOption[] = (dates ?? []).map((d) => {
+    const cap = effectiveCapacity(d, poolId, poolByDate)
+    return {
+      id: d.id,
+      date: d.date,
+      bulk_remaining: cap.bulk_capacity_limit - cap.bulk_units_booked,
+      bulk_closed: cap.bulk_is_closed,
+      anc_remaining: cap.anc_capacity_limit - cap.anc_units_booked,
+      anc_closed: cap.anc_is_closed,
+      id_remaining: cap.id_capacity_limit - cap.id_units_booked,
+      id_closed: cap.id_is_closed,
+    }
+  })
 
   return (
     <MudBookingForm
