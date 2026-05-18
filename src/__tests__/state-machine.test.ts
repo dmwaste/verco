@@ -6,9 +6,12 @@ import {
   type BookingStatus,
 } from '@/lib/booking/state-machine'
 
-// All 12 valid transitions from the SQL trigger
+// All valid transitions from the SQL trigger. Pending Payment → Confirmed
+// is the auto-confirm path added 2026-05-18 — Stripe webhook flips paid
+// bookings directly to Confirmed, skipping the legacy Submitted gate.
 const VALID_PAIRS: [BookingStatus, BookingStatus][] = [
   ['Pending Payment', 'Submitted'],
+  ['Pending Payment', 'Confirmed'],
   ['Pending Payment', 'Cancelled'],
   ['Submitted', 'Confirmed'],
   ['Submitted', 'Cancelled'],
@@ -69,6 +72,10 @@ describe('canTransition', () => {
     })
   })
 
+  it('Pending Payment → Confirmed is allowed (auto-confirm path)', () => {
+    expect(canTransition('Pending Payment', 'Confirmed')).toBe(true)
+  })
+
   it('exhaustive cross-product — only valid pairs return true', () => {
     const validSet = new Set(VALID_PAIRS.map(([f, t]) => `${f}→${t}`))
     for (const from of BOOKING_STATUSES) {
@@ -81,8 +88,8 @@ describe('canTransition', () => {
 })
 
 describe('getValidTargets', () => {
-  it('Pending Payment → [Submitted, Cancelled]', () => {
-    expect(getValidTargets('Pending Payment')).toEqual(['Submitted', 'Cancelled'])
+  it('Pending Payment → [Submitted, Confirmed, Cancelled]', () => {
+    expect(getValidTargets('Pending Payment')).toEqual(['Submitted', 'Confirmed', 'Cancelled'])
   })
 
   it('Submitted → [Confirmed, Cancelled]', () => {

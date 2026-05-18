@@ -148,12 +148,15 @@ Authoritative implementation: `supabase/functions/_shared/pricing.ts`. Node extr
 Valid transitions only. The DB trigger `enforce_booking_state_transition` will reject invalid transitions — but never try to force one from application code either.
 
 ```
-Pending Payment → Submitted       (Stripe webhook only)
-Pending Payment → Cancelled       (system: payment expired)
-Submitted       → Confirmed       (client-admin, client-staff, contractor-*)
+(initial)       → Confirmed       (create-booking EF — free path)
+(initial)       → Pending Payment (create-booking EF — paid path)
+Pending Payment → Confirmed       (Stripe webhook on payment success — auto-confirm)
+Pending Payment → Submitted       (legacy — no production code path writes it)
+Pending Payment → Cancelled       (handle-expired-payments cron)
+Submitted       → Confirmed       (admin "Confirm" button — safety net for legacy bookings)
 Submitted       → Cancelled       (any staff role or resident pre-cutoff)
 Confirmed       → Scheduled       (cron: 3:25pm AWST daily — never manual)
-Confirmed       → Cancelled       (any staff role pre-cutoff)
+Confirmed       → Cancelled       (any staff role or resident pre-cutoff)
 Scheduled       → Completed       (field role only)
 Scheduled       → Non-conformance (field role only)
 Scheduled       → Nothing Presented (field role only)
@@ -161,6 +164,8 @@ Scheduled       → Cancelled       (any staff role pre-cutoff)
 Non-conformance → Rebooked        (client-admin, contractor-*)
 Nothing Presented → Rebooked      (client-admin, contractor-*)
 ```
+
+**Bookings skip Submitted by design (auto-confirm, 2026-05-18).** Free bookings land directly in Confirmed; paid bookings flip Pending Payment → Confirmed on Stripe success. The Submitted enum value and `Submitted → Confirmed` transition stay as a safety net for any legacy row or future re-introduced manual gate.
 
 **Never directly set `status = 'Scheduled'` from application code.** The cron handles this.
 

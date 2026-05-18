@@ -165,11 +165,14 @@ async function handleCheckoutCompleted(
     throw new Error(`Failed to update booking_payment: ${paymentUpdateError.message}`)
   }
 
-  // Transition booking: Pending Payment → Submitted
-  // The DB trigger enforce_booking_state_transition validates this transition
+  // Transition booking: Pending Payment → Confirmed (auto-confirm, Option B
+  // from 2026-05-18). The DB trigger enforce_booking_state_transition was
+  // extended in 20260518005936_auto_confirm_allow_pp_to_confirmed to permit
+  // this direct transition — skipping the intermediate Submitted state
+  // avoids twin audit-log entries and a redundant trigger fire.
   const { error: bookingUpdateError } = await supabase
     .from('booking')
-    .update({ status: 'Submitted' })
+    .update({ status: 'Confirmed' })
     .eq('id', payment.booking_id)
     .eq('status', 'Pending Payment')  // Guard: only transition if still Pending Payment
 
@@ -177,7 +180,7 @@ async function handleCheckoutCompleted(
     throw new Error(`Failed to update booking status: ${bookingUpdateError.message}`)
   }
 
-  console.log(`Checkout completed: booking_payment ${payment.id}, booking ${payment.booking_id} → Submitted`)
+  console.log(`Checkout completed: booking_payment ${payment.id}, booking ${payment.booking_id} → Confirmed`)
 
   // Fire booking_created notification on the paid path. Mirrors the
   // free-path call in create-booking/index.ts. Fire-and-forget — failure
