@@ -1,21 +1,37 @@
 import type {
   BookingForDispatch,
   DispatchResult,
+  NotificationChannel,
   NotificationDispatchInput,
   NotificationLogRow,
   NotificationPayload,
   NotificationType,
+  RenderedSMS,
   SendEmailParams,
   SendEmailResult,
+  SendSMSParams,
+  SendSMSResult,
 } from './templates/types.ts'
-import { renderBookingCreated } from './templates/booking-created.ts'
-import { renderCollectionReminder } from './templates/collection-reminder.ts'
+import {
+  renderBookingCreated,
+  renderBookingCreatedSMS,
+} from './templates/booking-created.ts'
+import {
+  renderCollectionReminder,
+  renderCollectionReminderSMS,
+} from './templates/collection-reminder.ts'
 import {
   renderBookingCancelled,
   type RenderBookingCancelledOptions,
 } from './templates/booking-cancelled.ts'
-import { renderNcnRaised, type RenderNcnRaisedOptions } from './templates/ncn-raised.ts'
-import { renderNpRaised, type RenderNpRaisedOptions } from './templates/np-raised.ts'
+import {
+  renderNcnRaised,
+  type RenderNcnRaisedOptions,
+} from './templates/ncn-raised.ts'
+import {
+  renderNpRaised,
+  type RenderNpRaisedOptions,
+} from './templates/np-raised.ts'
 import { renderCompletionSurvey } from './templates/completion-survey.ts'
 import { renderPaymentReminder } from './templates/payment-reminder.ts'
 import { renderPaymentExpired } from './templates/payment-expired.ts'
@@ -28,9 +44,12 @@ export type {
   BookingClientForDispatch,
   BookingItemForDispatch,
   BookingForDispatch,
+  NotificationChannel,
   NotificationLogRow,
   SendEmailParams,
   SendEmailResult,
+  SendSMSParams,
+  SendSMSResult,
 } from './templates/types.ts'
 
 /**
@@ -69,12 +88,26 @@ export type {
 export interface DispatchDeps {
   /** Load full booking context; return null if not found. */
   loadBooking: (booking_id: string) => Promise<BookingForDispatch | null>
-  /** Check idempotency — returns true if (booking_id, type) is already 'sent'. */
-  isAlreadySent: (booking_id: string, type: NotificationType) => Promise<boolean>
+  /**
+   * Check idempotency — returns true if `(booking_id, type, channel)` already
+   * has a `sent` row in `notification_log`. Per-channel: a successful email
+   * does NOT block the SMS for the same notification.
+   */
+  isAlreadySent: (
+    booking_id: string,
+    type: NotificationType,
+    channel: NotificationChannel,
+  ) => Promise<boolean>
   /** Insert a notification_log row; return the new id on success, null on failure. */
   writeLog: (row: NotificationLogRow) => Promise<string | null>
   /** Send an email via SendGrid (or a mock). Never throws. */
   sendEmail: (params: SendEmailParams) => Promise<SendEmailResult>
+  /**
+   * Send an SMS via Twilio (or a mock). Never throws. Only invoked when
+   * the booking has a contact mobile, the tenant has a Twilio Messaging
+   * Service SID, and the notification type has an SMS variant.
+   */
+  sendSMS: (params: SendSMSParams) => Promise<SendSMSResult>
   /** Load a notification_log row by ID for the resume path. Returns null if not found. */
   loadNotificationLog: (id: string) => Promise<{
     booking_id: string
@@ -209,8 +242,8 @@ export async function dispatch(
   const baseLog = { booking_id: payload.booking_id, type: payload.type }
 
   try {
-    // 1. Idempotency check
-    const alreadySent = await deps.isAlreadySent(payload.booking_id, payload.type)
+    // 1. Idempotency check — email channel only. SMS has its own check below.
+    const alreadySent = await deps.isAlreadySent(payload.booking_id, payload.type, 'email')
     if (alreadySent) {
       log({ ...baseLog, status: 'skipped', sendgrid_status: null })
       return { ok: true, skipped: true }
@@ -298,6 +331,12 @@ export async function dispatch(
       ...(sendResult.ok ? {} : { error: sendResult.error }),
     })
 
+    // 7. SMS dispatch — best-effort second channel. Failures are logged and
+    // recorded in notification_log but do NOT change the email DispatchResult.
+    // Eligibility: contact has mobile_e164, tenant has twilio_messaging_service_sid,
+    // and the notification type has an SMS variant (renderSmsTemplate returns non-null).
+    await dispatchSms(deps, payload, booking)
+
     if (sendResult.ok) {
       return { ok: true, sent: true, log_id: logId ?? '' }
     }
@@ -358,6 +397,104 @@ function renderTemplate(
       return renderCompletionSurvey(booking, appUrl, payload.survey_token)
     case 'collection_reminder':
       return renderCollectionReminder(booking, appUrl)
+  }
+}
+
+// ── SMS template dispatch ─────────────────────────────────────────────────
+
+/**
+ * Returns the SMS variant for this notification type, or null when the type
+ * is email-only. Phase 1 covers `booking_created` and `collection_reminder`;
+ * remaining types stay email-only until later phases.
+ */
+function renderSmsTemplate(
+  payload: NotificationPayload,
+  booking: BookingForDispatch,
+): RenderedSMS | null {
+  switch (payload.type) {
+    case 'booking_created':
+      return renderBookingCreatedSMS(booking)
+    case 'collection_reminder':
+      return renderCollectionReminderSMS(booking)
+    case 'booking_cancelled':
+    case 'payment_reminder':
+    case 'payment_expired':
+    case 'ncn_raised':
+    case 'np_raised':
+    case 'completion_survey':
+      return null
+  }
+}
+
+/**
+ * Best-effort SMS dispatch. Runs after the email branch. Eligibility:
+ *
+ *   1. Contact has a `mobile_e164` number
+ *   2. Tenant has a `twilio_messaging_service_sid` (`MG…`) configured
+ *   3. The notification type has an SMS variant (renderSmsTemplate returns non-null)
+ *   4. Idempotency: no prior `sent` row exists for `(booking_id, type, 'sms')`
+ *
+ * Failures are recorded in notification_log (channel='sms') and emit a
+ * structured log line, but do NOT change the email dispatch result. Never
+ * throws — defensive try/catch wraps the whole branch.
+ */
+async function dispatchSms(
+  deps: DispatchDeps,
+  payload: NotificationPayload,
+  booking: BookingForDispatch,
+): Promise<void> {
+  if (!booking.contact?.mobile_e164) return
+  if (!booking.client.twilio_messaging_service_sid) return
+
+  const rendered = renderSmsTemplate(payload, booking)
+  if (!rendered) return
+
+  const start = Date.now()
+  const smsLog = (extras: Record<string, unknown>) => {
+    console.log(
+      JSON.stringify({
+        event: 'notification_dispatch',
+        channel: 'sms',
+        booking_id: payload.booking_id,
+        type: payload.type,
+        duration_ms: Date.now() - start,
+        ...extras,
+      }),
+    )
+  }
+
+  try {
+    const alreadySent = await deps.isAlreadySent(payload.booking_id, payload.type, 'sms')
+    if (alreadySent) {
+      smsLog({ status: 'skipped', twilio_status: null })
+      return
+    }
+
+    const sendResult = await deps.sendSMS({
+      to: booking.contact.mobile_e164,
+      body: rendered.body,
+      messagingServiceSid: booking.client.twilio_messaging_service_sid,
+    })
+
+    await deps.writeLog({
+      booking_id: booking.id,
+      contact_id: booking.contact.id,
+      client_id: booking.client_id,
+      channel: 'sms',
+      notification_type: payload.type,
+      to_address: booking.contact.mobile_e164,
+      status: sendResult.ok ? 'sent' : 'failed',
+      error_message: sendResult.ok ? undefined : sendResult.error,
+    })
+
+    smsLog({
+      status: sendResult.ok ? 'sent' : 'failed',
+      twilio_status: sendResult.ok ? 'accepted' : null,
+      ...(sendResult.ok ? {} : { error: sendResult.error }),
+    })
+  } catch (err) {
+    const error = err instanceof Error ? err.message : String(err)
+    smsLog({ status: 'failed', error: `crashed: ${error}`, twilio_status: null })
   }
 }
 

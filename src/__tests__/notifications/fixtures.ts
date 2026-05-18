@@ -10,6 +10,7 @@
 import { vi } from 'vitest'
 import type {
   ClientBranding,
+  NotificationChannel,
   NotificationType,
 } from '@/lib/notifications/templates/types'
 import type {
@@ -18,6 +19,8 @@ import type {
   NotificationLogRow,
   SendEmailParams,
   SendEmailResult,
+  SendSMSParams,
+  SendSMSResult,
 } from '@/lib/notifications/dispatch'
 
 // ── ClientBranding fixtures (Phase 0) ──────────────────────────────────────
@@ -141,17 +144,23 @@ export interface MockDispatchState {
   bookings?: Record<string, BookingForDispatch>
   /**
    * Existing notification_log rows — the idempotency check reads this.
-   * Structure: list of {booking_id, notification_type, status}.
+   * Structure: list of `{booking_id, notification_type, channel, status}`.
+   * `channel` defaults to 'email' when omitted (back-compat with older tests).
    */
   existingLog?: Array<{
     booking_id: string
     notification_type: NotificationType
     status: 'queued' | 'sent' | 'failed'
+    channel?: NotificationChannel
   }>
   /**
    * What `sendEmail` should return. Default: `{ ok: true }`.
    */
   sendResult?: SendEmailResult
+  /**
+   * What `sendSMS` should return. Default: `{ ok: true, messageSid: 'SM-mock' }`.
+   */
+  smsResult?: SendSMSResult
   /**
    * Queued notification_log rows for the resume-by-log-id path.
    * Keyed by log id.
@@ -167,6 +176,8 @@ export interface MockDispatchState {
 export interface MockDispatchDeps extends DispatchDeps {
   /** Spy on all sendEmail calls. */
   sendEmailMock: ReturnType<typeof vi.fn>
+  /** Spy on all sendSMS calls. */
+  sendSMSMock: ReturnType<typeof vi.fn>
   /** Spy on all writeLog calls. */
   writeLogMock: ReturnType<typeof vi.fn>
   /** All notification_log rows that would have been written in this run. */
@@ -189,24 +200,34 @@ export function createMockDispatchDeps(
     return state.sendResult ?? { ok: true as const }
   })
 
+  const sendSMSMock = vi.fn(async (_params: SendSMSParams) => {
+    return state.smsResult ?? { ok: true as const, messageSid: 'SM-mock' }
+  })
+
   const updateLogStatusMock = vi.fn(async () => {})
 
   return {
     loadBooking: async (booking_id: string) => {
       return state.bookings?.[booking_id] ?? null
     },
-    isAlreadySent: async (booking_id: string, type: NotificationType) => {
+    isAlreadySent: async (
+      booking_id: string,
+      type: NotificationType,
+      channel: NotificationChannel,
+    ) => {
       return (
         state.existingLog?.some(
           (e) =>
             e.booking_id === booking_id &&
             e.notification_type === type &&
+            (e.channel ?? 'email') === channel &&
             e.status === 'sent'
         ) ?? false
       )
     },
     writeLog: writeLogMock,
     sendEmail: sendEmailMock,
+    sendSMS: sendSMSMock,
     loadNotificationLog: async (id: string) => {
       return state.queuedLogs?.[id] ?? null
     },
@@ -216,6 +237,7 @@ export function createMockDispatchDeps(
     writtenLogs,
     writeLogMock,
     sendEmailMock,
+    sendSMSMock,
     updateLogStatusMock,
   }
 }
