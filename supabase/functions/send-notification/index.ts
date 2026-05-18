@@ -4,13 +4,17 @@ import { dispatch } from '../_shared/dispatch.ts'
 import type {
   BookingForDispatch,
   DispatchDeps,
+  NotificationChannel,
   NotificationDispatchInput,
   NotificationLogRow,
   NotificationType,
   SendEmailParams,
   SendEmailResult,
+  SendSMSParams,
+  SendSMSResult,
 } from '../_shared/dispatch.ts'
 import { sendEmail as sendgridSendEmail } from '../_shared/sendgrid.ts'
+import { sendSMS as twilioSendSMS } from '../_shared/twilio.ts'
 
 /**
  * send-notification Edge Function
@@ -164,7 +168,8 @@ serve(async (req) => {
           contact:contact_id ( id, full_name, email, mobile_e164 ),
           client:client_id (
             slug, custom_domain, name, logo_light_url, primary_colour,
-            email_footer_html, reply_to_email, email_from_name
+            email_footer_html, reply_to_email, email_from_name,
+            twilio_messaging_service_sid
           ),
           eligible_properties:property_id ( address, formatted_address ),
           booking_item (
@@ -192,29 +197,19 @@ serve(async (req) => {
           | { id: string; full_name: string; email: string; mobile_e164: string | null }[]
           | null
       )
+      type LoadedClient = {
+        slug: string
+        custom_domain: string | null
+        name: string
+        logo_light_url: string | null
+        primary_colour: string | null
+        email_footer_html: string | null
+        reply_to_email: string | null
+        email_from_name: string | null
+        twilio_messaging_service_sid: string | null
+      }
       const client = pickOne(
-        data.client as
-          | {
-              slug: string
-              custom_domain: string | null
-              name: string
-              logo_light_url: string | null
-              primary_colour: string | null
-              email_footer_html: string | null
-              reply_to_email: string | null
-              email_from_name: string | null
-            }
-          | {
-              slug: string
-              custom_domain: string | null
-              name: string
-              logo_light_url: string | null
-              primary_colour: string | null
-              email_footer_html: string | null
-              reply_to_email: string | null
-              email_from_name: string | null
-            }[]
-          | null
+        data.client as LoadedClient | LoadedClient[] | null
       )
       const property = pickOne(
         data.eligible_properties as
@@ -276,6 +271,7 @@ serve(async (req) => {
           custom_domain: client.custom_domain,
           reply_to_email: client.reply_to_email,
           email_from_name: client.email_from_name,
+          twilio_messaging_service_sid: client.twilio_messaging_service_sid,
         },
         contact: contact
           ? {
@@ -290,13 +286,15 @@ serve(async (req) => {
 
     isAlreadySent: async (
       booking_id: string,
-      type: NotificationType
+      type: NotificationType,
+      channel: NotificationChannel,
     ): Promise<boolean> => {
       const { data } = await supabaseService
         .from('notification_log')
         .select('id')
         .eq('booking_id', booking_id)
         .eq('notification_type', type)
+        .eq('channel', channel)
         .eq('status', 'sent')
         .limit(1)
       return Array.isArray(data) && data.length > 0
@@ -366,6 +364,18 @@ serve(async (req) => {
       })
       if (result.ok) return { ok: true }
       return { ok: false, error: result.error ?? 'Unknown SendGrid error' }
+    },
+
+    sendSMS: async (params: SendSMSParams): Promise<SendSMSResult> => {
+      const result = await twilioSendSMS({
+        to: params.to,
+        body: params.body,
+        messagingServiceSid: params.messagingServiceSid,
+      })
+      if (result.ok) {
+        return { ok: true, messageSid: result.messageSid }
+      }
+      return { ok: false, error: result.error ?? 'Unknown Twilio error' }
     },
 
     appUrl: Deno.env.get('APP_URL') ?? 'https://verco.au',
