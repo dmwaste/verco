@@ -86,6 +86,32 @@ export function BookingsListClient({ isContractorAdmin }: BookingsListClientProp
   const { data: bookingsData, isLoading } = useQuery({
     queryKey: ['admin-bookings', search, statusFilter, areaFilter, typeFilter, page],
     queryFn: async () => {
+      // Multi-column search: match against booking.ref, property formatted_address,
+      // and contact full_name. booking.property_id and booking.contact_id are both
+      // nullable, so we pre-fetch matching ids in two parallel queries and feed
+      // them into .or() as .in(...) clauses. Forcing inner joins on these would
+      // change which bookings appear in unfiltered results, so we keep the joins
+      // as LEFT and do the filter explicitly. Pre-fetch is capped at 500 each so
+      // a very broad query (e.g. "St") can't blow the URL length.
+      let matchingPropertyIds: string[] = []
+      let matchingContactIds: string[] = []
+      if (search) {
+        const [propMatches, contactMatches] = await Promise.all([
+          supabase
+            .from('eligible_properties')
+            .select('id')
+            .ilike('formatted_address', `%${search}%`)
+            .limit(500),
+          supabase
+            .from('contacts')
+            .select('id')
+            .ilike('full_name', `%${search}%`)
+            .limit(500),
+        ])
+        matchingPropertyIds = propMatches.data?.map((r) => r.id) ?? []
+        matchingContactIds = contactMatches.data?.map((r) => r.id) ?? []
+      }
+
       let query = supabase
         .from('booking')
         .select(
@@ -108,7 +134,14 @@ export function BookingsListClient({ isContractorAdmin }: BookingsListClientProp
         query = query.eq('type', typeFilter as BookingType)
       }
       if (search) {
-        query = query.or(`ref.ilike.%${search}%`)
+        const orClauses = [`ref.ilike.%${search}%`]
+        if (matchingPropertyIds.length > 0) {
+          orClauses.push(`property_id.in.(${matchingPropertyIds.join(',')})`)
+        }
+        if (matchingContactIds.length > 0) {
+          orClauses.push(`contact_id.in.(${matchingContactIds.join(',')})`)
+        }
+        query = query.or(orClauses.join(','))
       }
 
       const { data, count } = await query
@@ -224,7 +257,7 @@ export function BookingsListClient({ isContractorAdmin }: BookingsListClientProp
             type="text"
             value={search}
             onChange={(e) => { setSearch(e.target.value); setPage(0) }}
-            placeholder="Search booking ref..."
+            placeholder="Search ref, address, name..."
             aria-label="Search bookings"
             className="w-full border-none bg-transparent text-body-sm text-gray-900 outline-none placeholder:text-gray-300"
           />

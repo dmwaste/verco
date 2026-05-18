@@ -4,13 +4,12 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 
 /**
- * Top-bar search. On Enter (or button click), navigates to
- * `/admin/bookings?search=<query>` — the bookings list already supports
- * the `search` param and filters by booking ref (`ref.ilike.%q%`).
+ * Top-bar search. On Enter, navigates to `/admin/bookings?search=<query>`.
+ * The bookings list filters by booking ref, property formatted_address, and
+ * contact full_name (pre-fetch + .or() pattern — see bookings-list-client).
  *
- * Future scope: unify search across bookings, properties, tickets, contacts
- * — would need a server-side search endpoint. For now the booking-ref
- * route covers the most common "find this booking" need.
+ * Future scope: also surface non-booking matches (e.g. properties without
+ * bookings, tickets) — would need a server-side multi-table search RPC.
  */
 export function AdminSearchBar() {
   const router = useRouter()
@@ -50,7 +49,7 @@ export function AdminSearchBar() {
         type="search"
         value={value}
         onChange={(e) => setValue(e.target.value)}
-        placeholder="Search booking ref..."
+        placeholder="Search ref, address, name..."
         className="w-full bg-transparent text-body-sm text-white outline-none placeholder:text-white/60"
       />
     </form>
