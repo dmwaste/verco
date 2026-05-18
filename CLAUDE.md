@@ -363,44 +363,36 @@ These are absolute. If a task requires crossing one, stop and flag it.
 
 ## 21. Patterns & Gotchas
 
-### Audit trail on new tables
-Attach `audit_trigger_fn()` AFTER INSERT/UPDATE/DELETE in the migration, add columns to `lib/audit/field-labels.ts`, render `<AuditTimeline>` on the detail page (client-only pages need a server action wrapper — see `collection-dates/actions.ts`).
+### Audit trail on new tables — attach `audit_trigger_fn()` AFTER INSERT/UPDATE/DELETE, add cols to `lib/audit/field-labels.ts`, render `<AuditTimeline>` (client pages need a server-action wrapper — see `collection-dates/actions.ts`).
 
-### Tailwind CSS 4 — `tablet:` (1024px) for nav/layout only; `md:` for text/spacing. Theme lives in `@theme inline` in `globals.css`.
+### RLS on new columns — check UPDATE policies exist; writes silently fail without them.
 
-### RLS on new columns — check UPDATE policies exist; writes silently fail without them
+### White-label colours — CSS vars, not hex. Public/field use `--brand` / `--brand-accent` / `--brand-foreground` + `-light`/`-hover`/`-dark` (admin exempt). `text-white` silently fails under Tailwind v4 + Turbopack — use `--brand-foreground` (defaults `#FFFFFF`) with inline `style={{ color }}` fallback (see `VercoButton`).
 
-### White-label colours — use CSS vars, not hex
-Public/field use `--brand`, `--brand-accent`, `--brand-foreground` + derived `-light`/`-hover`/`-dark`; admin exempt. `text-white` silently fails under Tailwind v4 + Turbopack — use `--brand-foreground` (defaults `#FFFFFF`) with inline `style={{ color }}` fallback; `VercoButton` primary does this.
-
-### EFs that access PII accept dual auth (per §20 Red Line #3)
-Server actions MUST NOT use the service role key. EFs needing PII (e.g. `send-notification`) accept EITHER a service role bearer (EF→EF callers) OR a valid user JWT whose `current_user_role()` is in a permitted set. Internal loads always use service role inside the EF — the user's role gates the TRIGGER, not the data access.
+### EFs that access PII accept dual auth (per §20 Red Line #3) — server actions MUST NOT use service role. EFs needing PII (`send-notification`, etc.) accept EITHER a service-role bearer (EF→EF) OR a user JWT whose `current_user_role()` is in a permitted set. Internal loads use service role; the user role gates the trigger.
 
 ### Notification module — use `templates/template-helpers.ts` + `invokeSendNotification` from `src/lib/notifications/invoke.ts`. Resume-by-log-id only for `RESUMABLE_TYPES` in `dispatch.ts`.
 
-### Public-SELECT RLS (`USING(true)`) doesn't tenant-scope — filter in app
-`eligible_properties`, `collection_area`, `collection_date` etc. are cross-tenant readable for the unauthenticated `/book` flow. Server pages must read `x-client-id` from `headers()`, pass `clientId` to client components, and queries must join via embedded `!inner` FK + `.eq('<fk>.client_id', clientId)`. See `book/page.tsx` + `book/address-form.tsx`.
+### Public-SELECT RLS (`USING(true)`) doesn't tenant-scope — filter in app. `eligible_properties`, `collection_area`, `collection_date` etc. are cross-tenant readable for the unauthenticated `/book` flow. Server pages must read `x-client-id` from `headers()`, pass `clientId` to client components, and queries must join via embedded `!inner` FK + `.eq('<fk>.client_id', clientId)`. See `book/page.tsx` + `book/address-form.tsx`.
 
-### Local dev tenant override — `LOCAL_DEV_CLIENT_SLUG`
-Set in `.env.local` to pick which client the proxy resolves (default: first by `created_at`). Avoids `accessible_client_ids()` errors for multi-client contractors.
+### `NEXT_PUBLIC_*` vars are baked at build time — inlined via Docker build-args (`deploy.yml`); Coolify runtime env is a no-op. New vars: add to `.env.example`, GitHub secrets, `deploy.yml` build-arg, and Dockerfile `ENV`.
 
-### `NEXT_PUBLIC_*` vars are baked at build time, not runtime
-Inlined via Docker build-args (`deploy.yml`). Coolify runtime env is a no-op. New vars: add to `.env.example`, GitHub secrets, `deploy.yml` build-arg, and Dockerfile `ENV`.
+### Shape consistency — DB column changes + EF response envelopes. Grep every writer first. Sequence: migration → EFs with back-compat shim → Coolify deploy → second EF deploy strips shim (skip the shim and in-flight requests 500 until Coolify catches up). EF responses emit the same documented fields on every path (success, no-op, error) — missing-field defaults belong in the EF, not the parser.
 
-### Shape consistency across consumers — DB columns AND EF response envelopes
-DB column splits/renames: grep every writer (EFs, server actions, forms, schemas) before shipping. Ship migration → EFs with a back-compat shim that splits legacy payload pre-zod → Coolify takes new app → second EF deploy strips the shim. Skip the shim and every in-flight request 500s until Coolify catches up. EF response envelopes must emit the same documented fields on every code path (success, no-op, error) — missing-field defaults belong in the EF, not the downstream parser.
+### Generated `STORED` columns over NOT NULL inputs need explicit `ALTER COLUMN ... SET NOT NULL` — Supabase CLI infers nullability from metadata, not the expression; without it regen'd TS is `string | null`.
 
-### Generated NOT NULL columns need an explicit constraint
-Supabase CLI infers nullability from metadata, not the expression. After `GENERATED ... STORED` over NOT NULL inputs, add `ALTER COLUMN ... SET NOT NULL` so regen'd TS is `string`, not `string | null`.
+### PostgREST gotchas — embedded selects + parent filtering via `.or()`
+- Multi-FK embedded selects (`.select('parent, related(child)')`) silently return empty inner for authenticated users once the embedded table accumulates additional FKs — outer rows present, inner `[]`, service-role works. Fix: two `.select()` calls in `Promise.all` + stitch in JS; escape hatch `related!fk_name(col)`.
+- `.or()` can't filter parent rows by columns on a LEFT-joined table when the FK is nullable. Pre-fetch matching ids and use `.in(...)` inside the `.or()`: `query.or('ref.ilike.%X%,property_id.in.(uuid1,uuid2)')`. See `admin/bookings/bookings-list-client.tsx` for the canonical pattern.
 
-### Avoid embedded selects on tables with multiple FKs — fetch separately and stitch in JS
-PostgREST `.select('parent_col, related_table(child_col)')` (or `related_table(count)`) can silently return empty inner results for authenticated users once the embedded table accumulates additional FKs — even if the navigating FK is unambiguous. Symptom: outer returns rows, embedded inner returns `[]` or `[{count:0}]`; service role works, authenticated user doesn't. Robust pattern: two `.select()` calls in `Promise.all`, group by FK in JS. The dual-FK explicit-hint syntax `related!fk_name(col)` is the escape hatch, but separate-query is more durable.
+### Notification idempotency keys on `(booking_id, type, channel)`, not `(booking_id, type)`
+Email + SMS for the same notification must succeed independently — a `sent` row for the email channel can't block the SMS send. The dispatcher's `isAlreadySent` takes a channel arg; new channels (push, voice) follow the same rule.
 
-### Auth email templates live in git, not the dashboard
-`supabase/templates/*.html` + `[auth.email.template.*]` in `supabase/config.toml` are source of truth; apply via `pnpm supabase config push`. Studio dashboard edits get overwritten on next push. GoTrue uses base Go `html/template`, NOT sprig — only the GoTrue-provided variables work, no `{{ now }}` or pipe filters. Parse errors fall back silently to Supabase's default template (visible only in `auth` logs as `templatemailer_template_body_parse_error`). Always test by triggering an OTP after deploy.
+### `useState(searchParams.get(...))` doesn't sync on same-path soft navigation in App Router
+`router.push` to the same path doesn't remount the component, so `useState` initialisers don't re-run — URL updates, state doesn't. Fix: `useEffect(() => setX(searchParams.get('x') ?? ''), [searchParams])`. Canonical pattern in `admin/bookings/bookings-list-client.tsx`.
 
-### Never use `--yes` on `supabase config push` until local matches prod
-`config push` syncs the **entire** `[auth]` block, not just the diff you intended. The local `supabase/config.toml` has dev-default values (`site_url = "http://127.0.0.1:3000"`, `mfa.totp.enroll_enabled = false`, `email.max_frequency = "1s"`) that will silently bake into prod if you `--yes` past the diff. Always run once interactively first, eyeball the full diff, then `--yes` if it's clean. The CLI shows the diff exactly once before applying — there's no undo.
+### Auth email templates live in git, not the dashboard — `supabase/templates/*.html` + `[auth.email.template.*]` in `config.toml`, apply via `pnpm supabase config push`. Studio edits get overwritten. GoTrue uses base Go `html/template`, NOT sprig — no `{{ now }}` or pipe filters; parse errors silently fall back to Supabase defaults (visible only as `templatemailer_template_body_parse_error` in auth logs). Always test by triggering an OTP after deploy.
 
-### Manual MCP migrations need explicit version sync
-`apply_migration` records `version = <now timestamp>`, NOT the filename's. Future `db push` then sees the file as unapplied and re-runs (failing on non-idempotent DDL like `CREATE POLICY`). When recovering migrations outside `db push`, run the SQL via `execute_sql` plus `INSERT INTO supabase_migrations.schema_migrations (version, name) VALUES ('<filename version>', '<name>')` in one transaction.
+### Never use `--yes` on `supabase config push` until local matches prod — it syncs the **entire** `[auth]` block, not just the diff. Local dev defaults (`site_url = "http://127.0.0.1:3000"`, `email.max_frequency = "1s"`, etc.) will silently bake into prod. Run interactively first, eyeball the full diff, then `--yes` if clean. CLI shows the diff exactly once before applying — no undo.
+
+### Manual MCP migrations need explicit version sync — `apply_migration` records `version = <now>`, not the filename's. Future `db push` sees the file as unapplied and re-runs (fails on non-idempotent DDL). Recovery: `execute_sql` + `INSERT INTO supabase_migrations.schema_migrations (version, name) VALUES ('<filename version>', '<name>')` in one transaction.
