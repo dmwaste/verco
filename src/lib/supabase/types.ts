@@ -2301,6 +2301,13 @@ export type Database = {
       is_contractor_user: { Args: never; Returns: boolean }
       is_field_user: { Args: never; Returns: boolean }
       is_staff_role: { Args: never; Returns: boolean }
+      resolve_booking_redirect: {
+        Args: { p_ref: string }
+        Returns: {
+          custom_domain: string
+          is_active: boolean
+        }[]
+      }
       retry_notification_log: { Args: { log_id: string }; Returns: string }
       update_booking_items_in_place: {
         Args: {

@@ -78,6 +78,17 @@ function makeSupabaseClient(request: NextRequest) {
   }
 }
 
+// The unscoped marketing-stub host. Verco's root domain doesn't map to a
+// tenant — it serves a landing page that lets a council partner pick their
+// tenant, and a /b/<ref> redirect endpoint used as the canonical URL in
+// transactional SMS messages.
+const ROOT_HOST = 'verco.au'
+
+// Internal rewrite target for the root landing page. Single source of truth so
+// the proxy can short-circuit when it sees the rewritten path (otherwise the
+// matcher re-enters the proxy and infinite-loops).
+const ROOT_LANDING_PATH = '/landing'
+
 export async function proxy(request: NextRequest) {
   // Healthcheck bypass: Docker HEALTHCHECK hits /api/health from the container's
   // internal network, so there is no tenant-resolving hostname to match. Skip
@@ -93,6 +104,13 @@ export async function proxy(request: NextRequest) {
     console.log(
       `[proxy] hostname="${hostname}" path="${path}" NODE_ENV="${process.env.NODE_ENV}"`
     )
+  }
+
+  // -----------------------------------------------------------------------
+  // Branch Z — root host (verco.au): /b/<ref> redirect + landing stub
+  // -----------------------------------------------------------------------
+  if (hostname === ROOT_HOST) {
+    return handleRootHost(request, path)
   }
 
   const isAdminHost = isAdminHostname(hostname)
@@ -131,6 +149,48 @@ export async function proxy(request: NextRequest) {
   // Branch C — client subdomain, public/resident routes: existing behaviour
   // -----------------------------------------------------------------------
   return handleClientHost(request)
+}
+
+async function handleRootHost(request: NextRequest, path: string) {
+  // Short-circuit when the rewrite has already happened (otherwise the
+  // matcher re-runs the proxy on the rewritten path and we loop forever).
+  if (path === ROOT_LANDING_PATH) {
+    return NextResponse.next()
+  }
+
+  // /b/<ref>: canonical SMS link target. Resolves via the SECURITY DEFINER
+  // RPC `resolve_booking_redirect` because anon can't SELECT booking
+  // directly (all 4 RLS policies require an authenticated role). The RPC
+  // returns just custom_domain + is_active — no PII. For unknown refs we
+  // fall through to the landing rather than 404 to give the recipient a
+  // recovery path if a stale URL is followed.
+  const bMatch = path.match(/^\/b\/([A-Za-z0-9-]+)$/)
+  if (bMatch) {
+    const ref = bMatch[1]!
+    const { supabase } = makeSupabaseClient(request)
+    const { data } = await supabase.rpc('resolve_booking_redirect', { p_ref: ref })
+    const row = (data ?? [])[0] as
+      | { custom_domain: string | null; is_active: boolean }
+      | undefined
+
+    if (row?.is_active && row.custom_domain) {
+      return NextResponse.redirect(
+        `https://${row.custom_domain}/booking/${ref}`,
+        302,
+      )
+    }
+    // Booking not found OR tenant inactive OR custom_domain unset — fall
+    // through to the landing.
+  }
+
+  // All other paths: rewrite to the landing page. Header tells the page
+  // route to render (otherwise it 404s, so direct hits to /landing on a
+  // tenant subdomain don't leak the root surface).
+  const requestHeaders = new Headers(request.headers)
+  requestHeaders.set('x-verco-root', '1')
+  const url = request.nextUrl.clone()
+  url.pathname = ROOT_LANDING_PATH
+  return NextResponse.rewrite(url, { request: { headers: requestHeaders } })
 }
 
 async function handleContractorHost(
