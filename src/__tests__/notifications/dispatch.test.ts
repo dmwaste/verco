@@ -490,6 +490,42 @@ describe('dispatch', () => {
       expect(deps.writtenLogs.some((r) => r.channel === 'sms')).toBe(false)
     })
 
+    it('still attempts SMS when email channel is already sent (per-channel independence)', async () => {
+      // Regression: previously the email-channel idempotency check returned
+      // early with {ok:true,skipped:true} BEFORE dispatchSms() ran, which
+      // meant a successful email permanently blocked the SMS for the same
+      // notification. This breaks per-channel `(booking_id, type, channel)`
+      // idempotency. The dispatcher must fall through to SMS even when
+      // email is being skipped.
+      const booking = makeMockBooking({
+        id: 'b-email-already',
+        client: smsClient,
+      })
+      const deps = createMockDispatchDeps({
+        bookings: { 'b-email-already': booking },
+        existingLog: [
+          {
+            booking_id: 'b-email-already',
+            notification_type: 'booking_created',
+            channel: 'email',
+            status: 'sent',
+          },
+        ],
+      })
+
+      const result = await dispatch(deps, { type: 'booking_created', booking_id: 'b-email-already' })
+
+      // Email reports skipped — that's the headline DispatchResult
+      expect(result).toEqual({ ok: true, skipped: true })
+      expect(deps.sendEmailMock).not.toHaveBeenCalled()
+
+      // BUT SMS must still have fired
+      expect(deps.sendSMSMock).toHaveBeenCalledTimes(1)
+      const smsLog = deps.writtenLogs.find((r) => r.channel === 'sms')
+      expect(smsLog).toBeDefined()
+      expect(smsLog!.status).toBe('sent')
+    })
+
     it('skips SMS when (booking_id, type, sms) already has a sent row, but still sends email', async () => {
       const booking = makeMockBooking({
         id: 'b-sms-dupe',
