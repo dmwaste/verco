@@ -76,6 +76,7 @@ describe('renderBookingCreated', () => {
         email_footer_html: null,
         reply_to_email: null,
         email_from_name: null,
+        twilio_messaging_service_sid: null,
       },
     })
     const { html } = renderBookingCreated(booking, APP_URL)

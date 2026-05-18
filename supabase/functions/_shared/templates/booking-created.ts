@@ -1,10 +1,11 @@
-import type { BookingForDispatch, RenderedEmail } from './types.ts'
+import type { BookingForDispatch, RenderedEmail, RenderedSMS } from './types.ts'
 import { renderEmailLayout } from './_layout.ts'
 import {
   buildBookingPortalUrl,
   escapeHtml,
   formatCollectionDate,
   formatCurrency,
+  formatCollectionDateShort,
 } from './template-helpers.ts'
 
 /**
@@ -117,5 +118,29 @@ export function renderBookingCreated(
       ctaText: 'View booking',
       ctaUrl,
     }),
+  }
+}
+
+/**
+ * SMS variant of `booking_created`. Targets ≤160 GSM-7 chars so the message
+ * fits in one segment (one billable Twilio unit). Alpha sender name takes
+ * care of identification — body skips the "From Verco:" prefix.
+ *
+ * Example:
+ *   "Booking confirmed — COT-E88PNN for Wed 20 May. Details: verco.au/b/COT-E88PNN"
+ *   = 75 chars (one segment, plenty of room).
+ *
+ * `appUrl` is intentionally ignored — the SMS link always goes through the
+ * canonical `verco.au/b/<ref>` redirect endpoint regardless of where the
+ * booking actually lives, so SMS links remain stable across tenant rebrands.
+ */
+export function renderBookingCreatedSMS(
+  booking: BookingForDispatch,
+): RenderedSMS {
+  const ref = booking.ref
+  const dateStr = formatCollectionDateShort(booking.collection_date)
+  const link = `verco.au/b/${encodeURIComponent(ref)}`
+  return {
+    body: `Booking confirmed — ${ref} for ${dateStr}. Details: ${link}`,
   }
 }
