@@ -160,13 +160,28 @@ export function AdminSidebar({ counts, role }: AdminSidebarProps) {
       items: [
         { label: 'Bug Reports', href: '/admin/bug-reports', icon: ICON.bug },
         { label: 'Clients', href: '/admin/clients', icon: ICON.clients },
+        {
+          label: 'Notification Templates',
+          href: '/admin/notifications/templates',
+          icon: ICON.notifications,
+        },
       ],
     })
   }
 
+  // Collect all hrefs once so isActive() can prefer the most-specific match.
+  // Without this, navigating to /admin/notifications/templates highlights both
+  // the parent /admin/notifications link AND the more-specific templates link.
+  const allHrefs = sections.flatMap((s) => s.items.map((i) => i.href))
+
   function isActive(href: string): boolean {
     if (href === '/admin') return pathname === '/admin'
-    return pathname.startsWith(href)
+    if (!pathname.startsWith(href)) return false
+    // If any sibling href is a longer prefix that also matches, defer to it.
+    const moreSpecific = allHrefs.some(
+      (h) => h !== href && h.startsWith(href + '/') && pathname.startsWith(h),
+    )
+    return !moreSpecific
   }
 
   const BADGE_COLORS = {
