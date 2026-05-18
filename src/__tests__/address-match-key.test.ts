@@ -50,9 +50,53 @@ describe('normaliseStreetTypes', () => {
     )
   })
 
-  it('leaves Way unchanged (no abbreviation mapping)', () => {
+  it('abbreviates Way → Wy', () => {
+    // ~555 properties on the KWN tenant store the Wy form; Google
+    // Autocomplete returns "Way". Without this mapping those properties
+    // are unreachable through the public booking flow.
     expect(normaliseStreetTypes('10 Casserley Way, Orelia WA 6167')).toBe(
-      '10 Casserley Way, Orelia WA 6167'
+      '10 Casserley Wy, Orelia WA 6167'
+    )
+  })
+
+  it('abbreviates Close → Cl (regression — 3 Eliot Close, Parmelia)', () => {
+    // The reported bug: resident searched "3 Eliot Close, Parmelia WA"
+    // (Google Autocomplete full form). DB stores "3 Eliot Cl, Parmelia WA
+    // 6167". Without close→Cl the raw lookup misses, the normalised
+    // lookup is a no-op, and the property shows as ineligible despite
+    // is_eligible=true on the row.
+    expect(normaliseStreetTypes('3 Eliot Close, Parmelia WA 6167')).toBe(
+      '3 Eliot Cl, Parmelia WA 6167'
+    )
+  })
+
+  it('abbreviates Loop → Lp', () => {
+    expect(normaliseStreetTypes('22 Sandalford Loop, Wellard WA')).toBe(
+      '22 Sandalford Lp, Wellard WA'
+    )
+  })
+
+  it('abbreviates Parkway → Pkwy', () => {
+    expect(normaliseStreetTypes('5 Wellard Parkway, Wellard WA')).toBe(
+      '5 Wellard Pkwy, Wellard WA'
+    )
+  })
+
+  it('abbreviates Circle → Cir', () => {
+    expect(normaliseStreetTypes('7 Banksia Circle, Parmelia WA')).toBe(
+      '7 Banksia Cir, Parmelia WA'
+    )
+  })
+
+  it('abbreviates Vista → Vis', () => {
+    expect(normaliseStreetTypes('12 Ocean Vista, Wellard WA')).toBe(
+      '12 Ocean Vis, Wellard WA'
+    )
+  })
+
+  it('abbreviates Grove → Grv', () => {
+    expect(normaliseStreetTypes('33 Banksia Grove, Wellard WA')).toBe(
+      '33 Banksia Grv, Wellard WA'
     )
   })
 
@@ -135,21 +179,31 @@ describe('buildAddressIlikePattern', () => {
 
 describe('buildLookupCandidates', () => {
   it('returns [raw] when no transform applies', () => {
+    // "Heights" isn't in STREET_TYPES (DB stores both forms; raw lookup
+    // handles either). Replaces the prior Casserley-Way case since Way is
+    // now mapped to Wy.
     expect(
       buildLookupCandidates(
-        '10 Casserley Way, Orelia WA 6167',
+        '10 Eagle Heights, Wellard WA 6170',
         stripAddressPrefix
       )
-    ).toEqual(['10 Casserley Way, Orelia WA 6167'])
+    ).toEqual(['10 Eagle Heights, Wellard WA 6170'])
   })
 
-  it('returns [raw, stripped] for MUD-prefixed inputs without abbreviable street types', () => {
+  it('returns [raw, stripped, normalised, both] for MUD-prefixed inputs with abbreviable street types', () => {
+    // Way → Wy is now in the map, so this case now produces all four
+    // variants (raw, stripped, normalised, both).
     expect(
       buildLookupCandidates(
         'Unit 5 / 18 Sulphur Way, Kwinana',
         stripAddressPrefix
       )
-    ).toEqual(['Unit 5 / 18 Sulphur Way, Kwinana', '18 Sulphur Way, Kwinana'])
+    ).toEqual([
+      'Unit 5 / 18 Sulphur Way, Kwinana',
+      '18 Sulphur Way, Kwinana',
+      'Unit 5 / 18 Sulphur Wy, Kwinana',
+      '18 Sulphur Wy, Kwinana',
+    ])
   })
 
   it('returns [raw, normalised] for non-MUD inputs with abbreviable street types', () => {
@@ -176,7 +230,8 @@ describe('buildLookupCandidates', () => {
   })
 
   it('deduplicates when transforms produce the same string', () => {
-    const out = buildLookupCandidates('10 Some Way, Perth', stripAddressPrefix)
-    expect(out).toEqual(['10 Some Way, Perth'])
+    // No prefix to strip and no abbreviable street type — single candidate.
+    const out = buildLookupCandidates('10 Eagle Heights, Perth', stripAddressPrefix)
+    expect(out).toEqual(['10 Eagle Heights, Perth'])
   })
 })

@@ -21,6 +21,19 @@
  * normalised key; either may match depending on which side Google abbreviated.
  */
 
+// Long-form → abbreviation. Each entry is one address shape that the DB
+// stores as the abbreviation but Google Autocomplete returns as the long
+// form. Without the mapping the normalised lookup is a no-op and the
+// resident sees "Not eligible" despite the property being on the roll.
+//
+// New additions are justified by counts on the KWN tenant (the canonical
+// long-tail tenant for WA street types):
+//   close (216) loop (258) way (555) parkway (314) circle (357)
+//   vista (121) grove (137)
+//
+// The dual-lookup pattern in buildLookupCandidates tries BOTH the raw
+// input and the normalised form, so adding an entry never hurts the
+// long-form-in-DB case — only helps the abbreviation-in-DB case.
 const STREET_TYPES: Record<string, string> = {
   street: 'St',
   avenue: 'Ave',
@@ -37,6 +50,13 @@ const STREET_TYPES: Record<string, string> = {
   lane: 'Ln',
   square: 'Sq',
   circuit: 'Cct',
+  close: 'Cl',
+  loop: 'Lp',
+  way: 'Wy',
+  parkway: 'Pkwy',
+  circle: 'Cir',
+  vista: 'Vis',
+  grove: 'Grv',
 }
 
 /**
@@ -82,10 +102,11 @@ export function buildAddressIlikePattern(key: string): string {
  * like `North`/`South`) word is touched, so street NAMES that happen to be
  * street-type words (`5/2 Court Place`) aren't mangled.
  *
- *   "10 Casserley Way, Orelia WA 6167"      → unchanged (Way not in map)
+ *   "10 Casserley Way, Orelia WA 6167"      → "10 Casserley Wy, Orelia WA 6167"
  *   "10 Salvado Street, Wembley WA 6014"    → "10 Salvado St, Wembley WA 6014"
  *   "4D Rennie Crescent North, Hilton WA"   → "4D Rennie Cres North, Hilton WA"
  *   "5/2 Court Place, Subiaco WA"           → "5/2 Court Pl, Subiaco WA"
+ *   "3 Eliot Close, Parmelia WA 6167"       → "3 Eliot Cl, Parmelia WA 6167"
  */
 export function normaliseStreetTypes(s: string): string {
   const commaIdx = s.indexOf(',')
