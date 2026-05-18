@@ -130,6 +130,7 @@ describe('dispatch', () => {
           email_footer_html: null,
           reply_to_email: 'verge@kwinana.wa.gov.au',
           email_from_name: 'City of Kwinana — Verge Collection',
+          twilio_messaging_service_sid: null,
         },
       })
       const deps = createMockDispatchDeps({ bookings: { b5: booking } })
@@ -153,6 +154,7 @@ describe('dispatch', () => {
           email_footer_html: null,
           reply_to_email: null,
           email_from_name: null,
+          twilio_messaging_service_sid: null,
         },
       })
       const deps = createMockDispatchDeps({ bookings: { b6: booking } })
@@ -401,6 +403,135 @@ describe('dispatch', () => {
       expect(result).toMatchObject({ ok: false })
       expect(result.ok === false && result.error).toContain('Cannot resume')
       expect(deps.sendEmailMock).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('sms dispatch', () => {
+    const smsClient = {
+      slug: 'kwn',
+      custom_domain: null,
+      name: 'City of Kwinana',
+      logo_light_url: null,
+      primary_colour: null,
+      email_footer_html: null,
+      reply_to_email: null,
+      email_from_name: null,
+      twilio_messaging_service_sid: 'MG3247a987de2cd0b550904b7973305780',
+    }
+
+    it('sends SMS when contact has mobile, tenant has MG sid, and type has an SMS variant', async () => {
+      const booking = makeMockBooking({
+        id: 'b-sms-ok',
+        ref: 'KWN-SMS01',
+        client: smsClient,
+      })
+      const deps = createMockDispatchDeps({ bookings: { 'b-sms-ok': booking } })
+
+      const result = await dispatch(deps, { type: 'booking_created', booking_id: 'b-sms-ok' })
+
+      expect(result).toMatchObject({ ok: true, sent: true })
+      expect(deps.sendSMSMock).toHaveBeenCalledTimes(1)
+      const call = deps.sendSMSMock.mock.calls[0]![0]
+      expect(call.to).toBe(booking.contact!.mobile_e164)
+      expect(call.messagingServiceSid).toBe(smsClient.twilio_messaging_service_sid)
+      expect(call.body).toContain('KWN-SMS01')
+      expect(call.body).toContain('verco.au/b/KWN-SMS01')
+
+      // Both an email and an SMS log row should exist
+      const emailLog = deps.writtenLogs.find((r) => r.channel === 'email')
+      const smsLog = deps.writtenLogs.find((r) => r.channel === 'sms')
+      expect(emailLog).toBeDefined()
+      expect(emailLog!.status).toBe('sent')
+      expect(smsLog).toBeDefined()
+      expect(smsLog!.status).toBe('sent')
+      expect(smsLog!.to_address).toBe(booking.contact!.mobile_e164)
+    })
+
+    it('skips SMS when the contact has no mobile_e164', async () => {
+      const booking = makeMockBooking({
+        id: 'b-no-mob',
+        client: smsClient,
+        contact: {
+          id: 'contact-no-mob',
+          full_name: 'No Mobile',
+          email: 'nomob@example.test',
+          mobile_e164: null,
+        },
+      })
+      const deps = createMockDispatchDeps({ bookings: { 'b-no-mob': booking } })
+
+      await dispatch(deps, { type: 'booking_created', booking_id: 'b-no-mob' })
+
+      expect(deps.sendSMSMock).not.toHaveBeenCalled()
+      expect(deps.writtenLogs.some((r) => r.channel === 'sms')).toBe(false)
+    })
+
+    it('skips SMS when tenant has no twilio_messaging_service_sid', async () => {
+      // Default fixture client has twilio_messaging_service_sid: null
+      const booking = makeMockBooking({ id: 'b-no-sid' })
+      const deps = createMockDispatchDeps({ bookings: { 'b-no-sid': booking } })
+
+      await dispatch(deps, { type: 'booking_created', booking_id: 'b-no-sid' })
+
+      expect(deps.sendSMSMock).not.toHaveBeenCalled()
+      expect(deps.writtenLogs.some((r) => r.channel === 'sms')).toBe(false)
+    })
+
+    it('skips SMS for notification types without an SMS variant (e.g. booking_cancelled)', async () => {
+      const booking = makeMockBooking({
+        id: 'b-cancel',
+        client: smsClient,
+      })
+      const deps = createMockDispatchDeps({ bookings: { 'b-cancel': booking } })
+
+      await dispatch(deps, { type: 'booking_cancelled', booking_id: 'b-cancel' })
+
+      expect(deps.sendSMSMock).not.toHaveBeenCalled()
+      expect(deps.writtenLogs.some((r) => r.channel === 'sms')).toBe(false)
+    })
+
+    it('skips SMS when (booking_id, type, sms) already has a sent row, but still sends email', async () => {
+      const booking = makeMockBooking({
+        id: 'b-sms-dupe',
+        client: smsClient,
+      })
+      const deps = createMockDispatchDeps({
+        bookings: { 'b-sms-dupe': booking },
+        existingLog: [
+          {
+            booking_id: 'b-sms-dupe',
+            notification_type: 'booking_created',
+            channel: 'sms',
+            status: 'sent',
+          },
+        ],
+      })
+
+      const result = await dispatch(deps, { type: 'booking_created', booking_id: 'b-sms-dupe' })
+
+      expect(result).toMatchObject({ ok: true, sent: true })
+      expect(deps.sendEmailMock).toHaveBeenCalledTimes(1)
+      expect(deps.sendSMSMock).not.toHaveBeenCalled()
+    })
+
+    it('records a failed SMS log row when Twilio rejects, but does NOT fail the email DispatchResult', async () => {
+      const booking = makeMockBooking({
+        id: 'b-sms-fail',
+        client: smsClient,
+      })
+      const deps = createMockDispatchDeps({
+        bookings: { 'b-sms-fail': booking },
+        smsResult: { ok: false, error: 'Twilio 400: invalid number' },
+      })
+
+      const result = await dispatch(deps, { type: 'booking_created', booking_id: 'b-sms-fail' })
+
+      // Email succeeded — the SMS failure must not propagate
+      expect(result).toMatchObject({ ok: true, sent: true })
+      const smsLog = deps.writtenLogs.find((r) => r.channel === 'sms')
+      expect(smsLog).toBeDefined()
+      expect(smsLog!.status).toBe('failed')
+      expect(smsLog!.error_message).toContain('Twilio 400')
     })
   })
 
