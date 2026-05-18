@@ -10,6 +10,7 @@ import { createClient } from '@/lib/supabase/client'
 import { BookingStatusBadge } from '@/components/booking/booking-status-badge'
 import { LOCATION_OPTIONS, type LocationOption } from '@/lib/booking/schemas'
 import { confirmBooking, cancelBooking, updateContact, updateCollectionDetails, updateNotes } from './actions'
+import { effectiveCapacity, indexPoolDates } from '@/lib/capacity/effective-capacity'
 import { cn } from '@/lib/utils'
 import type { Database } from '@/lib/supabase/types'
 import type { ResolvedAuditEntry } from '@/lib/audit/resolve'
@@ -140,6 +141,22 @@ export function BookingDetailPanel({
       }).toString()}`
     : null
 
+  // Fetch the area's pool membership — pool-member areas keep per-date
+  // counters at 0 by design; real capacity lives in collection_date_pool.
+  const { data: areaPoolMembership } = useQuery({
+    queryKey: ['area-pool', booking.collection_area_id],
+    enabled: editingDetails && !!booking.collection_area_id,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from('collection_area')
+        .select('id, capacity_pool_id')
+        .eq('id', booking.collection_area_id!)
+        .single()
+      return data
+    },
+  })
+  const poolId = areaPoolMembership?.capacity_pool_id ?? null
+
   // Fetch available collection dates for inline date picker
   const { data: availableDates } = useQuery({
     queryKey: ['collection-dates-admin', booking.collection_area_id],
@@ -147,7 +164,12 @@ export function BookingDetailPanel({
     queryFn: async () => {
       const { data } = await supabase
         .from('collection_date')
-        .select('id, date, bulk_capacity_limit, bulk_units_booked')
+        .select(
+          `id, date,
+           bulk_capacity_limit, bulk_units_booked, bulk_is_closed,
+           anc_capacity_limit, anc_units_booked, anc_is_closed,
+           id_capacity_limit, id_units_booked, id_is_closed`,
+        )
         .eq('collection_area_id', booking.collection_area_id!)
         .eq('is_open', true)
         .gte('date', new Date().toISOString().split('T')[0])
@@ -155,6 +177,27 @@ export function BookingDetailPanel({
       return data ?? []
     },
   })
+
+  const { data: poolDates } = useQuery({
+    queryKey: ['pool-dates-admin', poolId],
+    enabled: editingDetails && !!poolId,
+    queryFn: async () => {
+      if (!poolId) return []
+      const { data } = await supabase
+        .from('collection_date_pool')
+        .select(
+          `date,
+           bulk_capacity_limit, bulk_units_booked, bulk_is_closed,
+           anc_capacity_limit, anc_units_booked, anc_is_closed,
+           id_capacity_limit, id_units_booked, id_is_closed`,
+        )
+        .eq('capacity_pool_id', poolId)
+        .gte('date', new Date().toISOString().split('T')[0])
+      return data ?? []
+    },
+  })
+
+  const poolByDate = indexPoolDates(poolDates ?? [])
 
   async function handleConfirm() {
     setIsPending(true)
@@ -374,11 +417,15 @@ export function BookingDetailPanel({
                 className="w-full rounded-lg border-[1.5px] border-gray-100 bg-gray-50 px-3 py-2 text-body-sm text-gray-900 outline-none focus:border-[#293F52] focus:bg-white"
               >
                 <option value="">Select date...</option>
-                {(availableDates ?? []).map((d) => (
-                  <option key={d.id} value={d.id}>
-                    {format(new Date(d.date + 'T00:00:00'), 'EEE d MMM yyyy')} ({Math.max(0, d.bulk_capacity_limit - d.bulk_units_booked)} spots)
-                  </option>
-                ))}
+                {(availableDates ?? []).map((d) => {
+                  const cap = effectiveCapacity(d, poolId, poolByDate)
+                  const spots = Math.max(0, cap.bulk_capacity_limit - cap.bulk_units_booked)
+                  return (
+                    <option key={d.id} value={d.id}>
+                      {format(new Date(d.date + 'T00:00:00'), 'EEE d MMM yyyy')} ({spots} spots)
+                    </option>
+                  )
+                })}
               </select>
             </div>
             <div>
