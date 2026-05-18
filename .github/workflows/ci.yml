@@ -2,9 +2,13 @@ name: CI
 
 on:
   push:
-    branches: [main, dev]
+    branches: [main, develop]
+  # Fire on every PR regardless of base — feature PRs target develop and
+  # the develop→main release batches target main. A previous version
+  # filtered to `branches: [main]`, which silently skipped every feature
+  # PR for two days (2026-05-16 to 2026-05-18). The E2E job below keeps
+  # its own gate so the expensive path only runs on release batches.
   pull_request:
-    branches: [main]
   # Allow other workflows (notably deploy.yml) to reuse this job
   # as a prerequisite gate.
   workflow_call:
