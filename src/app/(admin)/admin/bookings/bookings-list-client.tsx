@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
 import { format } from 'date-fns'
@@ -54,6 +54,20 @@ export function BookingsListClient({ isContractorAdmin }: BookingsListClientProp
   const [areaFilter, setAreaFilter] = useState(searchParams.get('area') ?? '')
   const [typeFilter, setTypeFilter] = useState(searchParams.get('type') ?? '')
   const [page, setPage] = useState(0)
+
+  // Sync URL → state on soft-navigation. The top-bar AdminSearchBar calls
+  // router.push('/admin/bookings?search=X'); when the user is already on
+  // /admin/bookings, Next.js App Router doesn't remount this component, so
+  // the useState initialisers above never re-fire. Without this effect,
+  // the top-bar search appears to "do nothing" — the URL updates but the
+  // bookings query stays on the previous search value.
+  useEffect(() => {
+    setSearch(searchParams.get('search') ?? '')
+    setStatusFilter(searchParams.get('status') ?? '')
+    setAreaFilter(searchParams.get('area') ?? '')
+    setTypeFilter(searchParams.get('type') ?? '')
+    setPage(0)
+  }, [searchParams])
 
   // Fetch collection areas for filter dropdown
   const { data: areas } = useQuery({
@@ -210,7 +224,7 @@ export function BookingsListClient({ isContractorAdmin }: BookingsListClientProp
             type="text"
             value={search}
             onChange={(e) => { setSearch(e.target.value); setPage(0) }}
-            placeholder="Search ref, address, name..."
+            placeholder="Search booking ref..."
             aria-label="Search bookings"
             className="w-full border-none bg-transparent text-body-sm text-gray-900 outline-none placeholder:text-gray-300"
           />
