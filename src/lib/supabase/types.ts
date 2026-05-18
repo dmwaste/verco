@@ -835,6 +835,7 @@ export type Database = {
           slug: string
           sms_reminder_days_before: number | null
           sms_sender_id: string | null
+          twilio_messaging_service_sid: string | null
           updated_at: string
         }
         Insert: {
@@ -865,6 +866,7 @@ export type Database = {
           slug: string
           sms_reminder_days_before?: number | null
           sms_sender_id?: string | null
+          twilio_messaging_service_sid?: string | null
           updated_at?: string
         }
         Update: {
@@ -895,6 +897,7 @@ export type Database = {
           slug?: string
           sms_reminder_days_before?: number | null
           sms_sender_id?: string | null
+          twilio_messaging_service_sid?: string | null
           updated_at?: string
         }
         Relationships: [

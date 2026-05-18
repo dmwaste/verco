@@ -242,105 +242,30 @@ export async function dispatch(
   const baseLog = { booking_id: payload.booking_id, type: payload.type }
 
   try {
-    // 1. Idempotency check — email channel only. SMS has its own check below.
-    const alreadySent = await deps.isAlreadySent(payload.booking_id, payload.type, 'email')
-    if (alreadySent) {
-      log({ ...baseLog, status: 'skipped', sendgrid_status: null })
-      return { ok: true, skipped: true }
-    }
-
-    // 2. Load booking — short-circuit on not found
+    // 1. Load booking — required for both email and SMS paths. A missing
+    //    booking blocks both channels equally; bail out without writing logs
+    //    (we don't have a valid client_id and the FK would reject anyway).
     const booking = await deps.loadBooking(payload.booking_id)
     if (!booking) {
       const error = `Booking not found: ${payload.booking_id}`
       log({ ...baseLog, status: 'failed', error, sendgrid_status: null })
-      // Do NOT write to notification_log — we don't have a valid client_id,
-      // and the FK would reject anyway. Return a clean error instead.
       return { ok: false, error }
     }
 
-    // 3. Validate contact email
-    if (!booking.contact || !booking.contact.email) {
-      const error = `Booking ${payload.booking_id} has no contact email`
-      const logId = await deps.writeLog({
-        booking_id: booking.id,
-        contact_id: booking.contact?.id ?? null,
-        client_id: booking.client_id,
-        channel: 'email',
-        notification_type: payload.type,
-        to_address: 'unknown',
-        status: 'failed',
-        error_message: error,
-      })
-      log({ ...baseLog, status: 'failed', error, sendgrid_status: null })
-      return { ok: false, error, log_id: logId ?? undefined }
-    }
+    // 2. Run the email path. Returns the email DispatchResult (sent /
+    //    skipped / failed). Crucially does NOT early-return for email-only
+    //    issues (already sent, missing email, render failure) — those return
+    //    a result but the SMS path still runs below.
+    const emailResult = await dispatchEmail(deps, payload, booking, baseLog, log)
 
-    // 4. Render template
-    let rendered: { subject: string; html: string }
-    try {
-      rendered = renderTemplate(payload, booking, deps.appUrl)
-    } catch (renderErr) {
-      const error =
-        renderErr instanceof Error ? renderErr.message : String(renderErr)
-      const logId = await deps.writeLog({
-        booking_id: booking.id,
-        contact_id: booking.contact.id,
-        client_id: booking.client_id,
-        channel: 'email',
-        notification_type: payload.type,
-        to_address: booking.contact.email,
-        status: 'failed',
-        error_message: `Template render failed: ${error}`,
-      })
-      log({
-        ...baseLog,
-        status: 'failed',
-        error: `render: ${error}`,
-        sendgrid_status: null,
-      })
-      return { ok: false, error, log_id: logId ?? undefined }
-    }
-
-    // 5. Send email
-    const fromEmail = booking.client.reply_to_email ?? deps.defaultFromEmail
-    const fromName = booking.client.email_from_name ?? booking.client.name
-    const sendResult = await deps.sendEmail({
-      to: { email: booking.contact.email, name: booking.contact.full_name },
-      from: { email: fromEmail, name: fromName },
-      subject: rendered.subject,
-      htmlBody: rendered.html,
-    })
-
-    // 6. Write notification_log
-    const logId = await deps.writeLog({
-      booking_id: booking.id,
-      contact_id: booking.contact.id,
-      client_id: booking.client_id,
-      channel: 'email',
-      notification_type: payload.type,
-      to_address: booking.contact.email,
-      status: sendResult.ok ? 'sent' : 'failed',
-      error_message: sendResult.ok ? undefined : sendResult.error,
-    })
-
-    log({
-      ...baseLog,
-      status: sendResult.ok ? 'sent' : 'failed',
-      sendgrid_status: sendResult.ok ? 202 : sendResult.status ?? null,
-      ...(sendResult.ok ? {} : { error: sendResult.error }),
-    })
-
-    // 7. SMS dispatch — best-effort second channel. Failures are logged and
-    // recorded in notification_log but do NOT change the email DispatchResult.
-    // Eligibility: contact has mobile_e164, tenant has twilio_messaging_service_sid,
-    // and the notification type has an SMS variant (renderSmsTemplate returns non-null).
+    // 3. SMS dispatch — best-effort second channel. Has its own internal
+    //    guards (no mobile, no MG SID, type without SMS variant) and its
+    //    own (booking_id, type, 'sms') idempotency check. Failures are
+    //    logged + recorded in notification_log but do NOT change the email
+    //    DispatchResult — per-channel independence is the whole point.
     await dispatchSms(deps, payload, booking)
 
-    if (sendResult.ok) {
-      return { ok: true, sent: true, log_id: logId ?? '' }
-    }
-    return { ok: false, error: sendResult.error, log_id: logId ?? undefined }
+    return emailResult
   } catch (err) {
     // Defensive guard — dispatch should never throw. If it somehow does,
     // log the crash and return a clean error so the caller doesn't propagate.
@@ -400,6 +325,104 @@ function renderTemplate(
   }
 }
 
+// ── Email dispatch ────────────────────────────────────────────────────────
+
+/**
+ * Runs the email-only portion of the dispatch flow. Always returns a
+ * DispatchResult — never throws across the boundary. The caller (main
+ * `dispatch()`) decides what to do next; SMS dispatch runs independently
+ * after this regardless of outcome, because per-channel idempotency means
+ * an email failure (or skip) must not block the SMS attempt.
+ */
+async function dispatchEmail(
+  deps: DispatchDeps,
+  payload: NotificationPayload,
+  booking: BookingForDispatch,
+  baseLog: { booking_id: string; type: NotificationType },
+  log: (extras: Record<string, unknown>) => void,
+): Promise<DispatchResult> {
+  // 1. Idempotency check (email channel only)
+  const alreadySent = await deps.isAlreadySent(payload.booking_id, payload.type, 'email')
+  if (alreadySent) {
+    log({ ...baseLog, status: 'skipped', sendgrid_status: null })
+    return { ok: true, skipped: true }
+  }
+
+  // 2. Validate contact email — if the booking has no contact at all, OR
+  // the contact has no email, the email path can't proceed. SMS may still
+  // be eligible (separate contact field), so we record this failure and
+  // return; the caller still runs dispatchSms after.
+  if (!booking.contact || !booking.contact.email) {
+    const error = `Booking ${payload.booking_id} has no contact email`
+    const logId = await deps.writeLog({
+      booking_id: booking.id,
+      contact_id: booking.contact?.id ?? null,
+      client_id: booking.client_id,
+      channel: 'email',
+      notification_type: payload.type,
+      to_address: 'unknown',
+      status: 'failed',
+      error_message: error,
+    })
+    log({ ...baseLog, status: 'failed', error, sendgrid_status: null })
+    return { ok: false, error, log_id: logId ?? undefined }
+  }
+
+  // 3. Render template
+  let rendered: { subject: string; html: string }
+  try {
+    rendered = renderTemplate(payload, booking, deps.appUrl)
+  } catch (renderErr) {
+    const error = renderErr instanceof Error ? renderErr.message : String(renderErr)
+    const logId = await deps.writeLog({
+      booking_id: booking.id,
+      contact_id: booking.contact.id,
+      client_id: booking.client_id,
+      channel: 'email',
+      notification_type: payload.type,
+      to_address: booking.contact.email,
+      status: 'failed',
+      error_message: `Template render failed: ${error}`,
+    })
+    log({ ...baseLog, status: 'failed', error: `render: ${error}`, sendgrid_status: null })
+    return { ok: false, error, log_id: logId ?? undefined }
+  }
+
+  // 4. Send email
+  const fromEmail = booking.client.reply_to_email ?? deps.defaultFromEmail
+  const fromName = booking.client.email_from_name ?? booking.client.name
+  const sendResult = await deps.sendEmail({
+    to: { email: booking.contact.email, name: booking.contact.full_name },
+    from: { email: fromEmail, name: fromName },
+    subject: rendered.subject,
+    htmlBody: rendered.html,
+  })
+
+  // 5. Write notification_log
+  const logId = await deps.writeLog({
+    booking_id: booking.id,
+    contact_id: booking.contact.id,
+    client_id: booking.client_id,
+    channel: 'email',
+    notification_type: payload.type,
+    to_address: booking.contact.email,
+    status: sendResult.ok ? 'sent' : 'failed',
+    error_message: sendResult.ok ? undefined : sendResult.error,
+  })
+
+  log({
+    ...baseLog,
+    status: sendResult.ok ? 'sent' : 'failed',
+    sendgrid_status: sendResult.ok ? 202 : sendResult.status ?? null,
+    ...(sendResult.ok ? {} : { error: sendResult.error }),
+  })
+
+  if (sendResult.ok) {
+    return { ok: true, sent: true, log_id: logId ?? '' }
+  }
+  return { ok: false, error: sendResult.error, log_id: logId ?? undefined }
+}
+
 // ── SMS template dispatch ─────────────────────────────────────────────────
 
 /**
@@ -450,13 +473,18 @@ async function dispatchSms(
   if (!rendered) return
 
   const start = Date.now()
+  const messagingServiceSid = booking.client.twilio_messaging_service_sid
   const smsLog = (extras: Record<string, unknown>) => {
+    // `messaging_service_sid` is logged on every SMS attempt so misrouting
+    // (wrong tenant SID, or correct SID but wrong sender pool in Twilio)
+    // can be diagnosed from Supabase EF logs without re-querying the DB.
     console.log(
       JSON.stringify({
         event: 'notification_dispatch',
         channel: 'sms',
         booking_id: payload.booking_id,
         type: payload.type,
+        messaging_service_sid: messagingServiceSid,
         duration_ms: Date.now() - start,
         ...extras,
       }),
