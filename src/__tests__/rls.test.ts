@@ -389,4 +389,217 @@ if (!haveDb) {
       expect(n).toBeGreaterThanOrEqual(1)
     })
   })
+
+  // ---------------------------------------------------------------------------
+  // VER-216 — Sub-client scoping
+  //
+  // Three fixture users on the vergevalet client:
+  //   - VV_COT_USER: sub_client_id = COT (City of Cottesloe)
+  //   - VV_MOS_USER: sub_client_id = MOS (Town of Mosman Park)
+  //   - VV_ALL_USER: sub_client_id = NULL (full vergevalet scope)
+  //
+  // Asserts the security contract: a scoped user sees only rows under
+  // their sub-client's collection_areas. An unscoped user (NULL) is
+  // unchanged from pre-VER-216 behaviour.
+  // ---------------------------------------------------------------------------
+
+  describe('Sub-client scoping (VER-216)', () => {
+    const VV_CLIENT_ID = '5215645f-ca8f-4cff-8b7d-d5a8f7991ec7'
+    const COT_SUB_CLIENT_ID = '43c4f0e0-20d7-4152-9dc4-2b48e8dc6949'
+    const MOS_SUB_CLIENT_ID = 'd870be20-f507-4d65-b2af-5644990dbf82'
+
+    const VV_COT_USER = 'aaaaaaaa-0008-4000-8000-000000000008'
+    const VV_MOS_USER = 'aaaaaaaa-0009-4000-8000-000000000009'
+    const VV_ALL_USER = 'aaaaaaaa-0010-4000-8000-000000000010'
+
+    beforeAll(async () => {
+      const setup: [string, string | null][] = [
+        [VV_COT_USER, COT_SUB_CLIENT_ID],
+        [VV_MOS_USER, MOS_SUB_CLIENT_ID],
+        [VV_ALL_USER, null],
+      ]
+      for (const [uid, subClientId] of setup) {
+        const email = `rls-vv-${uid.slice(-4)}@example.test`
+        await pg.query(
+          `INSERT INTO auth.users (id, email, aud, role, instance_id, encrypted_password, email_confirmed_at, created_at, updated_at)
+           VALUES ($1, $2, 'authenticated', 'authenticated', '00000000-0000-0000-0000-000000000000', '', now(), now(), now())
+           ON CONFLICT (id) DO NOTHING`,
+          [uid, email],
+        )
+        await pg.query(
+          `INSERT INTO public.profiles (id, email, display_name)
+           VALUES ($1, $2, $3)
+           ON CONFLICT (id) DO UPDATE SET email = EXCLUDED.email`,
+          [uid, email, `VER-216 ${uid.slice(-4)}`],
+        )
+        await pg.query(
+          `INSERT INTO public.user_roles (user_id, role, client_id, sub_client_id, is_active)
+           VALUES ($1, 'client-admin'::app_role, $2, $3, true)
+           ON CONFLICT (user_id) DO UPDATE
+             SET role = 'client-admin'::app_role,
+                 client_id = EXCLUDED.client_id,
+                 sub_client_id = EXCLUDED.sub_client_id,
+                 contractor_id = NULL,
+                 is_active = true`,
+          [uid, VV_CLIENT_ID, subClientId],
+        )
+      }
+    }, 30_000)
+
+    // Booking visibility — the headline assertion.
+    describe('booking SELECT scope', () => {
+      it('VV-all (NULL sub_client_id) sees bookings under BOTH COT and MOS', async () => {
+        const cotSeen = await countAs(VV_ALL_USER, `
+          SELECT b.id FROM booking b
+          JOIN collection_area ca ON ca.id = b.collection_area_id
+          WHERE ca.sub_client_id = '${COT_SUB_CLIENT_ID}'
+        `)
+        const mosSeen = await countAs(VV_ALL_USER, `
+          SELECT b.id FROM booking b
+          JOIN collection_area ca ON ca.id = b.collection_area_id
+          WHERE ca.sub_client_id = '${MOS_SUB_CLIENT_ID}'
+        `)
+        expect(cotSeen).toBeGreaterThanOrEqual(1)
+        expect(mosSeen).toBeGreaterThanOrEqual(1)
+      })
+
+      it('COT-scoped user sees ZERO MOS bookings', async () => {
+        const n = await countAs(VV_COT_USER, `
+          SELECT b.id FROM booking b
+          JOIN collection_area ca ON ca.id = b.collection_area_id
+          WHERE ca.sub_client_id = '${MOS_SUB_CLIENT_ID}'
+        `)
+        expect(n).toBe(0)
+      })
+
+      it('MOS-scoped user sees ZERO COT bookings', async () => {
+        const n = await countAs(VV_MOS_USER, `
+          SELECT b.id FROM booking b
+          JOIN collection_area ca ON ca.id = b.collection_area_id
+          WHERE ca.sub_client_id = '${COT_SUB_CLIENT_ID}'
+        `)
+        expect(n).toBe(0)
+      })
+
+      it('COT-scoped user sees ≥1 COT bookings (in-scope visible)', async () => {
+        const n = await countAs(VV_COT_USER, `
+          SELECT b.id FROM booking b
+          JOIN collection_area ca ON ca.id = b.collection_area_id
+          WHERE ca.sub_client_id = '${COT_SUB_CLIENT_ID}'
+        `)
+        expect(n).toBeGreaterThanOrEqual(1)
+      })
+    })
+
+    // booking_item inherits booking's RLS via IN (SELECT id FROM booking).
+    // Verifying that transitively works for sub-client scope.
+    describe('booking_item — transitive scoping', () => {
+      it('COT-scoped user sees ZERO booking_items tied to MOS bookings', async () => {
+        const n = await countAs(VV_COT_USER, `
+          SELECT bi.id FROM booking_item bi
+          JOIN booking b ON b.id = bi.booking_id
+          JOIN collection_area ca ON ca.id = b.collection_area_id
+          WHERE ca.sub_client_id = '${MOS_SUB_CLIENT_ID}'
+        `)
+        expect(n).toBe(0)
+      })
+    })
+
+    // current_user_sub_client_id() helper round-trips correctly.
+    describe('helper functions', () => {
+      it("current_user_sub_client_id returns the user's sub_client_id", async () => {
+        await pg.query('BEGIN')
+        try {
+          await pg.query('SET LOCAL ROLE authenticated')
+          await pg.query(`SELECT set_config('request.jwt.claims', $1, true)`, [
+            JSON.stringify({ sub: VV_COT_USER, role: 'authenticated' }),
+          ])
+          const r = await pg.query<{ id: string | null }>('SELECT current_user_sub_client_id() AS id')
+          expect(r.rows[0]!.id).toBe(COT_SUB_CLIENT_ID)
+        } finally {
+          await pg.query('ROLLBACK')
+        }
+      })
+
+      it('current_user_sub_client_id returns NULL for unscoped user', async () => {
+        await pg.query('BEGIN')
+        try {
+          await pg.query('SET LOCAL ROLE authenticated')
+          await pg.query(`SELECT set_config('request.jwt.claims', $1, true)`, [
+            JSON.stringify({ sub: VV_ALL_USER, role: 'authenticated' }),
+          ])
+          const r = await pg.query<{ id: string | null }>('SELECT current_user_sub_client_id() AS id')
+          expect(r.rows[0]!.id).toBeNull()
+        } finally {
+          await pg.query('ROLLBACK')
+        }
+      })
+
+      it('user_sub_client_allows_area returns TRUE for unscoped user on any area', async () => {
+        await pg.query('BEGIN')
+        try {
+          await pg.query('SET LOCAL ROLE authenticated')
+          await pg.query(`SELECT set_config('request.jwt.claims', $1, true)`, [
+            JSON.stringify({ sub: VV_ALL_USER, role: 'authenticated' }),
+          ])
+          // Use any COT area — should still return true because user is unscoped.
+          const r = await pg.query<{ ok: boolean }>(`
+            SELECT user_sub_client_allows_area(
+              (SELECT id FROM collection_area WHERE sub_client_id = '${COT_SUB_CLIENT_ID}' LIMIT 1)
+            ) AS ok
+          `)
+          expect(r.rows[0]!.ok).toBe(true)
+        } finally {
+          await pg.query('ROLLBACK')
+        }
+      })
+
+      it('user_sub_client_allows_area returns FALSE for COT user on MOS area', async () => {
+        await pg.query('BEGIN')
+        try {
+          await pg.query('SET LOCAL ROLE authenticated')
+          await pg.query(`SELECT set_config('request.jwt.claims', $1, true)`, [
+            JSON.stringify({ sub: VV_COT_USER, role: 'authenticated' }),
+          ])
+          const r = await pg.query<{ ok: boolean }>(`
+            SELECT user_sub_client_allows_area(
+              (SELECT id FROM collection_area WHERE sub_client_id = '${MOS_SUB_CLIENT_ID}' LIMIT 1)
+            ) AS ok
+          `)
+          expect(r.rows[0]!.ok).toBe(false)
+        } finally {
+          await pg.query('ROLLBACK')
+        }
+      })
+    })
+
+    // Composite FK guard — invalid (sub_client, client) pair is rejected by DB
+    describe('composite FK enforces sub_client ↔ client integrity', () => {
+      it('insert with COT sub_client + kwn client (mismatch) is rejected', async () => {
+        const KWN_CLIENT_ID = CLIENT_ID
+        const badUser = 'aaaaaaaa-0099-4000-8000-000000000099'
+        await pg.query(
+          `INSERT INTO auth.users (id, email, aud, role, instance_id, encrypted_password, email_confirmed_at, created_at, updated_at)
+           VALUES ($1, $2, 'authenticated', 'authenticated', '00000000-0000-0000-0000-000000000000', '', now(), now(), now())
+           ON CONFLICT (id) DO NOTHING`,
+          [badUser, 'rls-ver216-bad@example.test'],
+        )
+        await pg.query(
+          `INSERT INTO public.profiles (id, email, display_name)
+           VALUES ($1, 'rls-ver216-bad@example.test', 'VER-216 Bad') ON CONFLICT (id) DO NOTHING`,
+          [badUser],
+        )
+        await expect(
+          pg.query(
+            `INSERT INTO public.user_roles (user_id, role, client_id, sub_client_id, is_active)
+             VALUES ($1, 'client-admin'::app_role, $2, $3, true)`,
+            [badUser, KWN_CLIENT_ID, COT_SUB_CLIENT_ID],
+          ),
+        ).rejects.toThrow(/user_roles_sub_client_fk|foreign key/)
+        // Cleanup — the failed INSERT auto-rolled back inside its own
+        // implicit txn, so user_roles is clean. profiles and auth.users
+        // are kept (idempotent fixtures pattern).
+      })
+    })
+  })
 })
