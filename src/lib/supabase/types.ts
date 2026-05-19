@@ -2201,6 +2201,7 @@ export type Database = {
           id: string
           is_active: boolean
           role: Database["public"]["Enums"]["app_role"]
+          sub_client_id: string | null
           updated_at: string
           user_id: string
         }
@@ -2211,6 +2212,7 @@ export type Database = {
           id?: string
           is_active?: boolean
           role: Database["public"]["Enums"]["app_role"]
+          sub_client_id?: string | null
           updated_at?: string
           user_id: string
         }
@@ -2221,6 +2223,7 @@ export type Database = {
           id?: string
           is_active?: boolean
           role?: Database["public"]["Enums"]["app_role"]
+          sub_client_id?: string | null
           updated_at?: string
           user_id?: string
         }
@@ -2238,6 +2241,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "contractor"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "user_roles_sub_client_fk"
+            columns: ["sub_client_id", "client_id"]
+            isOneToOne: false
+            referencedRelation: "sub_client"
+            referencedColumns: ["id", "client_id"]
           },
           {
             foreignKeyName: "user_roles_user_id_fkey"
