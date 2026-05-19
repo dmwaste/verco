@@ -2305,6 +2305,7 @@ export type Database = {
         Args: never
         Returns: Database["public"]["Enums"]["app_role"]
       }
+      current_user_sub_client_id: { Args: never; Returns: string }
       generate_booking_ref: { Args: { p_area_code: string }; Returns: string }
       has_role: {
         Args: { check_role: Database["public"]["Enums"]["app_role"] }
@@ -2332,6 +2333,14 @@ export type Database = {
           p_notes?: string
         }
         Returns: Json
+      }
+      user_sub_client_allows_area: {
+        Args: { area_id: string }
+        Returns: boolean
+      }
+      user_sub_client_allows_booking: {
+        Args: { booking_id_in: string }
+        Returns: boolean
       }
     }
     Enums: {
