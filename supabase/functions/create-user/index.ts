@@ -41,6 +41,11 @@ const CreateUserRequest = z
     role: z.enum(ALL_ROLES),
     contractor_id: z.string().uuid().optional(),
     client_id: z.string().uuid().optional(),
+    // VER-216 — optional sub-client scope. Only meaningful for client-tier
+    // roles. The DB has a composite FK enforcing (sub_client_id, client_id)
+    // must reference an existing sub_client row, so a bad pairing is
+    // rejected at insert. We validate here for a clearer error message.
+    sub_client_id: z.string().uuid().optional(),
   })
   .refine(
     (data) => {
@@ -50,6 +55,13 @@ const CreateUserRequest = z
     },
     {
       message: 'Contractor roles require contractor_id; client roles require client_id.',
+    }
+  )
+  .refine(
+    (data) => !data.sub_client_id || isClientRole(data.role),
+    {
+      message: 'sub_client_id is only valid for client-tier roles (client-admin, client-staff, ranger).',
+      path: ['sub_client_id'],
     }
   )
 
@@ -94,7 +106,7 @@ serve(async (req) => {
       return errorResponse(parsed.error.message, 400)
     }
 
-    const { first_name, last_name, email, mobile_e164, role, contractor_id, client_id } = parsed.data
+    const { first_name, last_name, email, mobile_e164, role, contractor_id, client_id, sub_client_id } = parsed.data
     // Derived once; used for non-contacts surfaces (auth metadata, profile
     // display name, welcome email, audit log). The contacts table itself
     // gets first/last only — full_name is generated.
@@ -111,6 +123,13 @@ serve(async (req) => {
       const { data: callerClientId } = await supabaseCaller.rpc('current_user_client_id')
       if (!callerClientId || callerClientId !== client_id) {
         return errorResponse('You can only create users for your own client.', 403)
+      }
+      // VER-216 — if the caller is themselves sub-client-scoped, the new
+      // user must be scoped to the same sub-client. A COT-admin can't
+      // create a MOS-admin or an unscoped (whole-client) user.
+      const { data: callerSubClientId } = await supabaseCaller.rpc('current_user_sub_client_id')
+      if (callerSubClientId && callerSubClientId !== sub_client_id) {
+        return errorResponse('You can only create users scoped to your own sub-client.', 403)
       }
     }
 
@@ -139,6 +158,24 @@ serve(async (req) => {
       tenantName = row.name
       tenantCustomDomain = row.custom_domain
       tenantSlug = row.slug
+    }
+
+    // VER-216 — validate sub_client_id belongs to the supplied client_id.
+    // The DB has a composite FK that would reject the mismatch on insert,
+    // but the error message there is opaque; this check returns a clean
+    // 400 with a helpful message.
+    if (sub_client_id) {
+      const { data: subClientRow, error: subClientErr } = await supabaseService
+        .from('sub_client')
+        .select('id, client_id')
+        .eq('id', sub_client_id)
+        .single()
+      if (subClientErr || !subClientRow) {
+        return errorResponse('Sub-client not found.', 404)
+      }
+      if (subClientRow.client_id !== client_id) {
+        return errorResponse('Sub-client does not belong to the supplied client.', 400)
+      }
     }
 
     if (contractor_id && !tenantName) {
@@ -256,6 +293,8 @@ serve(async (req) => {
       is_active: true,
       contractor_id: contractor_id ?? null,
       client_id: client_id ?? null,
+      // VER-216 — sub-client scope. NULL = full client scope.
+      sub_client_id: sub_client_id ?? null,
     }
 
     const { data: existingRole } = await supabaseService

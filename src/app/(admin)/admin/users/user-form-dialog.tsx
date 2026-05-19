@@ -44,6 +44,9 @@ const UserFormSchema = z
       'resident', 'strata',
     ] as const),
     tenant_id: z.string().uuid().or(z.literal('')).optional(),
+    // VER-216 — optional sub-client scope. Empty string means "no scope
+    // selected" (full client scope). Only meaningful for client-tier roles.
+    sub_client_id: z.string().uuid().or(z.literal('')).optional(),
   })
   .superRefine((data, ctx) => {
     if (CONTRACTOR_ROLES.includes(data.role as AppRole) && !data.tenant_id) {
@@ -73,6 +76,8 @@ export interface EditUserData {
   role: AppRole
   contractor_id: string | null
   client_id: string | null
+  /** VER-216 — null means "full client scope" (all sub-clients). */
+  sub_client_id: string | null
 }
 
 interface UserFormDialogProps {
@@ -119,6 +124,7 @@ export function UserFormDialog({ callerRole, editData, open, onOpenChange }: Use
       mobile_e164: getDisplayMobile(),
       role: editData?.role ?? 'client-staff',
       tenant_id: getInitialTenantId(),
+      sub_client_id: editData?.sub_client_id ?? '',
     },
   })
 
@@ -132,6 +138,7 @@ export function UserFormDialog({ callerRole, editData, open, onOpenChange }: Use
         mobile_e164: editData ? getDisplayMobile() : '',
         role: editData?.role ?? 'client-staff',
         tenant_id: editData ? getInitialTenantId() : '',
+        sub_client_id: editData?.sub_client_id ?? '',
       })
       setSubmitError(null)
       setSuccessEmail(null)
@@ -140,6 +147,7 @@ export function UserFormDialog({ callerRole, editData, open, onOpenChange }: Use
   }, [open, editData?.user_id])
 
   const selectedRole = watch('role') as AppRole
+  const selectedTenantId = watch('tenant_id')
   const needsContractor = CONTRACTOR_ROLES.includes(selectedRole)
   const needsClient = CLIENT_ROLES.includes(selectedRole)
   const needsTenant = needsContractor || needsClient
@@ -173,6 +181,25 @@ export function UserFormDialog({ callerRole, editData, open, onOpenChange }: Use
     },
     enabled: needsClient,
   })
+
+  // VER-216 — fetch sub-clients for the currently selected client. Only
+  // fired for client-tier roles with a tenant selected. Returns [] for
+  // clients with no sub-clients (e.g. kwn) which hides the picker.
+  const { data: subClients } = useQuery({
+    queryKey: ['sub-clients-list', selectedTenantId],
+    queryFn: async () => {
+      if (!selectedTenantId) return []
+      const { data } = await supabase
+        .from('sub_client')
+        .select('id, code, name')
+        .eq('client_id', selectedTenantId)
+        .order('code')
+      return data ?? []
+    },
+    enabled: needsClient && !!selectedTenantId,
+  })
+
+  const showSubClientPicker = needsClient && !!selectedTenantId && (subClients?.length ?? 0) > 0
 
   function handleClose() {
     onOpenChange(false)
@@ -212,6 +239,11 @@ export function UserFormDialog({ callerRole, editData, open, onOpenChange }: Use
       }
       if (isClientRole && data.tenant_id) {
         requestBody.client_id = data.tenant_id
+      }
+      // VER-216 — only send sub_client_id when explicitly chosen and the
+      // role is client-tier. Empty string = "no scope" = NULL in DB.
+      if (isClientRole && data.sub_client_id) {
+        requestBody.sub_client_id = data.sub_client_id
       }
 
       const res = await fetch(
@@ -374,6 +406,30 @@ export function UserFormDialog({ callerRole, editData, open, onOpenChange }: Use
                           ))}
                       </select>
                       {errors.tenant_id && <p className={errorClass}>{errors.tenant_id.message}</p>}
+                    </div>
+                  )}
+
+                  {/* Sub-client — VER-216. Only client-tier roles with a
+                      tenant selected AND that tenant has at least one
+                      sub_client (e.g. Verge Valet but not Kwinana). */}
+                  {showSubClientPicker && (
+                    <div>
+                      <label className={labelClass}>
+                        Sub-client (optional)
+                      </label>
+                      <select {...register('sub_client_id')} className={inputClass}>
+                        <option value="">All sub-clients (whole client)</option>
+                        {(subClients ?? []).map((sc) => (
+                          <option key={sc.id} value={sc.id}>
+                            {sc.code} — {sc.name}
+                          </option>
+                        ))}
+                      </select>
+                      <p className="mt-0.5 text-[11px] text-gray-400">
+                        Restricts this user to bookings, notices and properties under one
+                        sub-client. Leave as &ldquo;All sub-clients&rdquo; for client-wide access.
+                      </p>
+                      {errors.sub_client_id && <p className={errorClass}>{errors.sub_client_id.message}</p>}
                     </div>
                   )}
 

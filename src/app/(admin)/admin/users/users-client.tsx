@@ -76,10 +76,11 @@ export function UsersClient() {
       let query = supabase
         .from('user_roles')
         .select(
-          `id, role, is_active, created_at, client_id, contractor_id,
+          `id, role, is_active, created_at, client_id, contractor_id, sub_client_id,
            profiles!inner(id, email, display_name, contacts(first_name, last_name, full_name, mobile_e164)),
            client:client_id(name),
-           contractor:contractor_id(name)`,
+           contractor:contractor_id(name),
+           sub_client:sub_client_id(code, name)`,
           { count: 'exact' }
         )
         .not('role', 'in', '("resident","strata")')
@@ -126,6 +127,7 @@ export function UsersClient() {
       role: ur.role as AppRole,
       contractor_id: (ur as unknown as { contractor_id: string | null }).contractor_id,
       client_id: (ur as unknown as { client_id: string | null }).client_id,
+      sub_client_id: (ur as unknown as { sub_client_id: string | null }).sub_client_id,
     })
     setDialogOpen(true)
   }
@@ -210,6 +212,7 @@ export function UsersClient() {
                 <th className="border-b border-gray-100 bg-gray-50 px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500">Email</th>
                 <th className="border-b border-gray-100 bg-gray-50 px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500">Role</th>
                 <th className="border-b border-gray-100 bg-gray-50 px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500">Organisation</th>
+                <th className="border-b border-gray-100 bg-gray-50 px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500">Sub-client</th>
                 <th className="border-b border-gray-100 bg-gray-50 px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500">Active</th>
                 <th className="border-b border-gray-100 bg-gray-50 px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500">Joined</th>
                 {canManageUsers && (
@@ -219,18 +222,20 @@ export function UsersClient() {
             </thead>
             <tbody>
               {isLoading && Array.from({ length: 5 }).map((_, i) => (
-                <SkeletonRow key={i} columns={canManageUsers ? 7 : 6} />
+                <SkeletonRow key={i} columns={canManageUsers ? 8 : 7} />
               ))}
               {!isLoading && users.length === 0 && (
-                <tr><td colSpan={canManageUsers ? 7 : 6} className="px-4 py-8 text-center text-sm text-gray-400">No users found</td></tr>
+                <tr><td colSpan={canManageUsers ? 8 : 7} className="px-4 py-8 text-center text-sm text-gray-400">No users found</td></tr>
               )}
               {users.map((ur) => {
                 const profile = ur.profiles as unknown as { id: string; email: string; display_name: string | null; contacts: { full_name: string; mobile_e164: string | null } | null }
                 const client = ur.client as { name: string } | null
                 const contractor = ur.contractor as { name: string } | null
+                const subClient = (ur as unknown as { sub_client: { code: string; name: string } | null }).sub_client
                 const rs = ROLE_STYLE[ur.role as AppRole]
                 const name = profile?.contacts?.full_name ?? profile?.display_name ?? '—'
                 const org = contractor?.name ?? client?.name ?? '—'
+                const subClientLabel = subClient ? `${subClient.code} — ${subClient.name}` : '—'
 
                 return (
                   <tr key={ur.id} className="border-b border-gray-100 last:border-b-0 hover:bg-gray-50">
@@ -247,6 +252,9 @@ export function UsersClient() {
                     </td>
                     <td className="px-4 py-3 text-xs text-gray-500">
                       {org}
+                    </td>
+                    <td className="px-4 py-3 text-xs text-gray-500">
+                      {subClientLabel}
                     </td>
                     <td className="px-4 py-3">
                       <span className={`inline-flex size-2 rounded-full ${ur.is_active ? 'bg-emerald-400' : 'bg-gray-300'}`} />

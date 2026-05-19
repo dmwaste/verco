@@ -85,11 +85,13 @@ Eight roles. Scope is enforced at the DB level via RLS — never rely on fronten
 | `contractor-admin` | Contractor | All clients under their contractor |
 | `contractor-staff` | Contractor | All clients — limited write |
 | `field` | Contractor | Run sheet + closeout — **zero PII** |
-| `client-admin` | Client | Own client + sub-clients |
-| `client-staff` | Client | Own client + sub-clients — limited write |
-| `ranger` | Client | Own areas — **zero PII** |
+| `client-admin` | Client | Own client; optionally narrowed to one **sub-client** via `user_roles.sub_client_id` (NULL = whole client) |
+| `client-staff` | Client | Own client + sub-clients — limited write; same sub-client narrowing as client-admin |
+| `ranger` | Client | Own areas — **zero PII**; same sub-client narrowing |
 | `resident` | End user | Own bookings only |
 | `strata` | End user | Authorised MUD properties only |
+
+**Sub-client scoping (VER-216):** Client-tier roles can be narrowed to a single sub-client (e.g. a COT-only `client-admin` under Verge Valet sees zero MOS bookings). `user_roles.sub_client_id IS NULL` keeps the historical "whole client" scope. Helpers: `current_user_sub_client_id()`, `user_sub_client_allows_area(area_id)`, `user_sub_client_allows_booking(booking_id)` — all SECURITY DEFINER STABLE. See memory `sub-client-scoping-pattern.md` for the full helper map + which tables are scoped vs deliberately skipped (public-SELECT tables, `booking_item` via transitive scope).
 
 **PII rule — absolute, no exceptions:**
 `field` and `ranger` roles receive **zero** contact information. This means:
