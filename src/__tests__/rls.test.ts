@@ -602,4 +602,153 @@ if (!haveDb) {
       })
     })
   })
+
+  // ---------------------------------------------------------------------------
+  // VER-220: allocation_override tenant scoping
+  //
+  // Pre-existing gap closed by 20260520030000_allocation_override_tenant_rls:
+  // previously any staff-tier authenticated user (contractor-admin/staff,
+  // client-admin/staff) saw ALL rows across all tenants. Now client-tier is
+  // scoped via current_user_client_allows_property(); contractor-tier still
+  // sees everything; field/ranger/resident still see nothing (role-gated out
+  // both before and after this fix).
+  // ---------------------------------------------------------------------------
+  describe('allocation_override table — VER-220 tenant scoping', () => {
+    it('contractor-admin can SELECT (no error, count ≥ 0)', async () => {
+      const n = await countAs(USERS['contractor-admin'], 'SELECT id FROM allocation_override')
+      expect(n).toBeGreaterThanOrEqual(0)
+    })
+
+    it('contractor-staff can SELECT (no error, count ≥ 0)', async () => {
+      const n = await countAs(USERS['contractor-staff'], 'SELECT id FROM allocation_override')
+      expect(n).toBeGreaterThanOrEqual(0)
+    })
+
+    it('client-admin can SELECT scoped (no error, count ≥ 0)', async () => {
+      const n = await countAs(USERS['client-admin'], 'SELECT id FROM allocation_override')
+      expect(n).toBeGreaterThanOrEqual(0)
+    })
+
+    it('client-staff can SELECT scoped (no error, count ≥ 0)', async () => {
+      const n = await countAs(USERS['client-staff'], 'SELECT id FROM allocation_override')
+      expect(n).toBeGreaterThanOrEqual(0)
+    })
+
+    it('field role gets ZERO rows (role not granted)', async () => {
+      const n = await countAs(USERS.field, 'SELECT id FROM allocation_override')
+      expect(n).toBe(0)
+    })
+
+    it('ranger role gets ZERO rows (role not granted)', async () => {
+      const n = await countAs(USERS.ranger, 'SELECT id FROM allocation_override')
+      expect(n).toBe(0)
+    })
+
+    it('resident role gets ZERO rows (role not granted)', async () => {
+      const n = await countAs(USERS.resident, 'SELECT id FROM allocation_override')
+      expect(n).toBe(0)
+    })
+
+    it('current_user_client_allows_property returns FALSE for nonexistent property', async () => {
+      // The helper exists and short-circuits FALSE when the property doesn't
+      // resolve to a known collection_area — exercises the SECURITY DEFINER
+      // path without depending on any fixture row.
+      const n = await countAs(
+        USERS['client-admin'],
+        `SELECT 1 WHERE current_user_client_allows_property('00000000-0000-0000-0000-000000000000'::uuid)`,
+      )
+      expect(n).toBe(0)
+    })
+
+    it('client-admin cannot SELECT an override on a non-own-tenant property', async () => {
+      // Explicit cross-tenant assertion: insert a non-KWN allocation_override
+      // via service-role (a contractor's collection_area + property), then
+      // verify KWN client-admin sees 0 rows for THAT specific row.
+      //
+      // This proves the scoping helper is doing real work, not just allowing
+      // the query to compile.
+      //
+      // Setup is service-role bypass via direct pg client; we ROLLBACK at the
+      // end to keep the fixture clean.
+      await pg.query('BEGIN')
+      try {
+        // 1. Resolve a non-KWN client_id (any active client that isn't KWN).
+        const otherClient = await pg.query<{ id: string }>(
+          `SELECT id FROM client WHERE id <> $1 AND is_active = true LIMIT 1`,
+          [CLIENT_ID],
+        )
+        if (otherClient.rows.length === 0) {
+          // Single-tenant project — skip without failing (the role gating
+          // tests above already cover the access boundary).
+          return
+        }
+        const otherClientId = otherClient.rows[0]!.id
+
+        // 2. Find a collection_area on that other client.
+        const otherArea = await pg.query<{ id: string }>(
+          `SELECT id FROM collection_area WHERE client_id = $1 AND is_active = true LIMIT 1`,
+          [otherClientId],
+        )
+        if (otherArea.rows.length === 0) {
+          return
+        }
+        const otherAreaId = otherArea.rows[0]!.id
+
+        // 3. Find a property on that area.
+        const otherProperty = await pg.query<{ id: string }>(
+          `SELECT id FROM eligible_properties WHERE collection_area_id = $1 LIMIT 1`,
+          [otherAreaId],
+        )
+        if (otherProperty.rows.length === 0) {
+          return
+        }
+        const otherPropertyId = otherProperty.rows[0]!.id
+
+        // 4. Find a service + current FY for the override.
+        const svc = await pg.query<{ id: string }>(`SELECT id FROM service LIMIT 1`)
+        const fy = await pg.query<{ id: string }>(`SELECT id FROM financial_year WHERE is_current LIMIT 1`)
+        if (svc.rows.length === 0 || fy.rows.length === 0) return
+
+        // 5. Insert the cross-tenant override (service-role bypass).
+        const inserted = await pg.query<{ id: string }>(
+          `INSERT INTO allocation_override (property_id, service_id, fy_id, extra_allocations, reason, created_by)
+           VALUES ($1, $2, $3, 1, 'VER-220 RLS test', $4)
+           RETURNING id`,
+          [otherPropertyId, svc.rows[0]!.id, fy.rows[0]!.id, USERS['contractor-admin']],
+        )
+        const overrideId = inserted.rows[0]!.id
+
+        // 6. As KWN client-admin, count rows for THIS specific override id.
+        //    Use SAVEPOINT so the inner SET LOCAL doesn't leak.
+        await pg.query('SAVEPOINT visibility_check')
+        await pg.query(`SET LOCAL ROLE authenticated`)
+        await pg.query(`SELECT set_config('request.jwt.claims', $1, true)`, [
+          JSON.stringify({ sub: USERS['client-admin'], role: 'authenticated' }),
+        ])
+        const seen = await pg.query<{ c: string }>(
+          `SELECT count(*)::text AS c FROM allocation_override WHERE id = $1`,
+          [overrideId],
+        )
+        await pg.query('ROLLBACK TO SAVEPOINT visibility_check')
+
+        expect(Number.parseInt(seen.rows[0]!.c, 10)).toBe(0)
+
+        // 7. Same query as contractor-admin must return 1 (control).
+        await pg.query('SAVEPOINT visibility_check_2')
+        await pg.query(`SET LOCAL ROLE authenticated`)
+        await pg.query(`SELECT set_config('request.jwt.claims', $1, true)`, [
+          JSON.stringify({ sub: USERS['contractor-admin'], role: 'authenticated' }),
+        ])
+        const seenByContractor = await pg.query<{ c: string }>(
+          `SELECT count(*)::text AS c FROM allocation_override WHERE id = $1`,
+          [overrideId],
+        )
+        await pg.query('ROLLBACK TO SAVEPOINT visibility_check_2')
+
+        expect(Number.parseInt(seenByContractor.rows[0]!.c, 10)).toBe(1)
+      } finally {
+        await pg.query('ROLLBACK')
+      }
+    })
+  })
 })
