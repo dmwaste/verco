@@ -76,16 +76,21 @@ export function UsersClient() {
       let query = supabase
         .from('user_roles')
         .select(
-          // VER-219: disambiguate the `client` embed with the explicit FK name. After
-          // VER-216's composite FK (user_roles.sub_client_id, client_id → sub_client),
-          // `client_id` participates in two FK constraints — embedding by column alone
-          // is ambiguous and PostgREST returns an unusable response. Anchor to the
-          // single-column FK so the resolver doesn't see two candidates.
+          // VER-219: VER-216's composite FK (sub_client_id, client_id) → sub_client(id, client_id)
+          // breaks BOTH PostgREST embed-by-column resolutions on this table:
+          //   - `client:client_id(...)`         → ambiguous (two FK paths from client_id)
+          //   - `sub_client:sub_client_id(...)` → PostgREST cannot map sub_client_id to one
+          //                                       target column (composite FK references both
+          //                                       sub_client.id AND sub_client.client_id)
+          // Both must use the explicit FK-name disambiguator. PR #81 only fixed the client
+          // embed and left sub_client broken — page continued to return PGRST200 / HTTP 400
+          // ("Could not find a relationship between 'user_roles' and 'sub_client_id'").
+          // Captured in `feedback-composite-fk-breaks-embed.md`.
           `id, role, is_active, created_at, client_id, contractor_id, sub_client_id,
            profiles!inner(id, email, display_name, contacts(first_name, last_name, full_name, mobile_e164)),
            client:user_roles_client_id_fkey(name),
            contractor:contractor_id(name),
-           sub_client:sub_client_id(code, name)`,
+           sub_client:user_roles_sub_client_fk(code, name)`,
           { count: 'exact' }
         )
         .not('role', 'in', '("resident","strata")')

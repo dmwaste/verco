@@ -2297,6 +2297,10 @@ export type Database = {
         }
         Returns: Json
       }
+      current_user_client_allows_property: {
+        Args: { p_property_id: string }
+        Returns: boolean
+      }
       current_user_client_id: { Args: never; Returns: string }
       current_user_contact_id: { Args: never; Returns: string }
       current_user_contact_id_by_email: { Args: never; Returns: string }
