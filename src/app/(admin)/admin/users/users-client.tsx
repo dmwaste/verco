@@ -76,9 +76,14 @@ export function UsersClient() {
       let query = supabase
         .from('user_roles')
         .select(
+          // VER-219: disambiguate the `client` embed with the explicit FK name. After
+          // VER-216's composite FK (user_roles.sub_client_id, client_id → sub_client),
+          // `client_id` participates in two FK constraints — embedding by column alone
+          // is ambiguous and PostgREST returns an unusable response. Anchor to the
+          // single-column FK so the resolver doesn't see two candidates.
           `id, role, is_active, created_at, client_id, contractor_id, sub_client_id,
            profiles!inner(id, email, display_name, contacts(first_name, last_name, full_name, mobile_e164)),
-           client:client_id(name),
+           client:user_roles_client_id_fkey(name),
            contractor:contractor_id(name),
            sub_client:sub_client_id(code, name)`,
           { count: 'exact' }
