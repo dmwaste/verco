@@ -219,15 +219,36 @@ otp_length = 6
 # Number of seconds before the email OTP expires (defaults to 1 hour).
 otp_expiry = 3600
 
-# Use a production-ready SMTP server
-# [auth.email.smtp]
-# enabled = true
-# host = "smtp.sendgrid.net"
-# port = 587
-# user = "apikey"
-# pass = "env(SENDGRID_API_KEY)"
-# admin_email = "admin@email.com"
-# sender_name = "Admin"
+# Production-ready SMTP server — VER-217 (2026-05-20).
+#
+# These values document the *intended* prod state of the auth-email SMTP
+# block. Prod is currently set via the Supabase Dashboard (not via this
+# file) following the 2026-05-19 outage where an empty SMTP password
+# blocked OTP delivery. Aligning config.toml here serves two purposes:
+#
+#   1. If anyone runs `pnpm supabase config push` in the future, the
+#      enabled SMTP block survives the push instead of being wiped back
+#      to "not configured". (Before this commit, the block was commented
+#      out, so a push would have disabled prod's SMTP.)
+#   2. Documents the intended sender identity and routing so the repo
+#      is the source of truth for non-secret SMTP config.
+#
+# The `pass` field uses `env(SENDGRID_API_KEY)` interpolation — at push
+# time the CLI substitutes the local env var. Before any `config push`,
+# verify the local `SENDGRID_API_KEY` matches the value set in the
+# Supabase Dashboard, OR rely on the Dashboard as authoritative and
+# avoid pushing this block.
+#
+# Per feedback-supabase-config-push-stdin.md: NEVER pipe stdin to
+# `supabase config push`. Always run interactively to inspect the diff.
+[auth.email.smtp]
+enabled = true
+host = "smtp.sendgrid.net"
+port = 587
+user = "apikey"
+pass = "env(SENDGRID_API_KEY)"
+admin_email = "bookings@verco.au"
+sender_name = "VERCO Bookings"
 
 # Uncomment to customize email template
 # [auth.email.template.invite]
