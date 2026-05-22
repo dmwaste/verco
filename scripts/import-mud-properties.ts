@@ -111,7 +111,6 @@ async function main() {
     totalFetched: number
     skippedStubs: string[]
     unmappedCodes: Array<{ id: string; address: string; code: string | null }>
-    unitCountDefaulted: Array<{ id: string; address: string; originalUnits: number }>
     cadenceApproximate: Array<{ id: string; address: string; frequencyMonths: number; mappedTo: string }>
     duplicateMudCode: Array<{ id: string; address: string; mudRef: string; clearedTo: null }>
     noPhoneContact: Array<{ id: string; address: string }>
@@ -130,7 +129,6 @@ async function main() {
     totalFetched: records.length,
     skippedStubs: [],
     unmappedCodes: [],
-    unitCountDefaulted: [],
     cadenceApproximate: [],
     duplicateMudCode: [],
     noPhoneContact: [],
@@ -170,12 +168,8 @@ async function main() {
       continue
     }
 
-    // Unit count — minimum 8 for is_mud=true
-    let unitCount = rec.units
-    if (unitCount < 8) {
-      report.unitCountDefaulted.push({ id: rec.id, address: rec.address, originalUnits: unitCount })
-      unitCount = 8
-    }
+    // Preserve raw unit count from Airtable — 0 means "not yet recorded"
+    const unitCount = rec.units
 
     // Cadence
     const cadence = toCadence(rec.frequencyMonths)
@@ -350,7 +344,6 @@ async function main() {
   console.log(`  Fetched:            ${report.totalFetched}`)
   console.log(`  Stubs skipped:      ${report.skippedStubs.length}`)
   console.log(`  Unmapped codes:     ${report.unmappedCodes.length}`)
-  console.log(`  Unit count floored: ${report.unitCountDefaulted.length} (set to 8 — review needed)`)
   console.log(`  Cadence approx:     ${report.cadenceApproximate.length} (freq=2 → Quarterly)`)
   console.log(`  Duplicate mud_code: ${report.duplicateMudCode.length} (mud_code nullified — manual review)`)
   console.log(`  Contacts created:   ${report.contactsCreated}`)

@@ -57,9 +57,8 @@ export function getValidTargets(from: MudOnboardingStatus): readonly MudOnboardi
  * Prerequisites for marking a MUD as Registered. Mirrors the DB constraint
  * eligible_properties_registered_check + the brief's §6 transition gate.
  *
- * Note: unit_count >= 8 is enforced by eligible_properties_mud_unit_count_check
- * and is required for is_mud=true at all (not just for Registered). It's
- * included here so the form can surface a single error list.
+ * unit_count > 0 is required for Registered — the allowance calculation needs
+ * a real count. There is no council-set minimum; 0 means "not yet recorded".
  */
 export interface MudRegisteredPrereqs {
   is_mud: boolean
@@ -81,8 +80,8 @@ export function canMarkRegistered(record: MudRegisteredPrereqs): PrereqCheckResu
   if (!record.is_mud) {
     errors.push('Property is not flagged as a MUD.')
   }
-  if (record.unit_count < 8) {
-    errors.push('Unit count must be at least 8 (current: ' + record.unit_count + ').')
+  if (record.unit_count < 1) {
+    errors.push('Unit count must be recorded before registering (currently 0).')
   }
   if (!record.strata_contact_id) {
     errors.push('Strata contact is required.')

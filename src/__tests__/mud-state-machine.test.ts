@@ -95,14 +95,14 @@ describe('MUD state machine — canMarkRegistered', () => {
     expect(result.errors).toContain('Property is not flagged as a MUD.')
   })
 
-  it('unit_count < 8 → error', () => {
-    const result = canMarkRegistered({ ...fullPrereqs, unit_count: 7 })
+  it('unit_count = 0 → error (not yet recorded)', () => {
+    const result = canMarkRegistered({ ...fullPrereqs, unit_count: 0 })
     expect(result.ok).toBe(false)
-    expect(result.errors.some((e) => e.includes('at least 8'))).toBe(true)
+    expect(result.errors.some((e) => e.includes('Unit count must be recorded'))).toBe(true)
   })
 
-  it('unit_count exactly 8 → ok (boundary)', () => {
-    const result = canMarkRegistered({ ...fullPrereqs, unit_count: 8 })
+  it('unit_count = 1 → ok (any positive count is valid)', () => {
+    const result = canMarkRegistered({ ...fullPrereqs, unit_count: 1 })
     expect(result.ok).toBe(true)
   })
 
