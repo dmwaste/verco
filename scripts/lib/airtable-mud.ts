@@ -63,7 +63,7 @@ export async function fetchAllMudRecords(token: string): Promise<AirtableMudReco
   let offset: string | undefined = undefined
 
   do {
-    const params = new URLSearchParams({ pageSize: String(PAGE_SIZE) })
+    const params = new URLSearchParams({ pageSize: String(PAGE_SIZE), returnFieldsByFieldId: 'true' })
     if (offset) params.set('offset', offset)
     const url = `https://api.airtable.com/v0/${MUD_BASE_ID}/${MUD_LIST_TABLE_ID}?${params}`
     const body = await airtableFetch<AirtableListResponse<MudFields>>(url, token)

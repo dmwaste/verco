@@ -113,6 +113,7 @@ async function main() {
     unmappedCodes: Array<{ id: string; address: string; code: string | null }>
     unitCountDefaulted: Array<{ id: string; address: string; originalUnits: number }>
     cadenceApproximate: Array<{ id: string; address: string; frequencyMonths: number; mappedTo: string }>
+    duplicateMudCode: Array<{ id: string; address: string; mudRef: string; clearedTo: null }>
     noPhoneContact: Array<{ id: string; address: string }>
     contactsCreated: number
     contactErrors: Array<{ id: string; address: string; error: string }>
@@ -131,6 +132,7 @@ async function main() {
     unmappedCodes: [],
     unitCountDefaulted: [],
     cadenceApproximate: [],
+    duplicateMudCode: [],
     noPhoneContact: [],
     contactsCreated: 0,
     contactErrors: [],
@@ -149,6 +151,10 @@ async function main() {
   // Track records that should be upgraded to Registered in pass 2
   // (has contact, has notes, has auth form in Airtable)
   const registeredCandidates = new Set<string>()
+
+  // Deduplicate on (collection_area_id, mud_code) — constraint is partial (WHERE mud_code IS NOT NULL)
+  // When a duplicate is found, nullify mud_code on the second occurrence and flag for manual review.
+  const seenMudCodes = new Set<string>()
 
   for (const rec of records) {
     // Skip stubs
@@ -199,6 +205,18 @@ async function main() {
     }
     if (created) report.contactsCreated++
 
+    // Dedup mud_code within the same area (partial unique index)
+    let mudRef = rec.mudRef
+    if (mudRef && areaId) {
+      const mudKey = `${areaId}::${mudRef}`
+      if (seenMudCodes.has(mudKey)) {
+        report.duplicateMudCode.push({ id: rec.id, address: rec.address, mudRef, clearedTo: null })
+        mudRef = null
+      } else {
+        seenMudCodes.add(mudKey)
+      }
+    }
+
     // Notes
     const notes = buildNotes(rec.notes, rec.offStreetAgreed)
 
@@ -225,7 +243,7 @@ async function main() {
       external_source: EXTERNAL_SOURCE,
       external_id: rec.id,
       unit_count: unitCount,
-      mud_code: rec.mudRef,
+      mud_code: mudRef,
       mud_onboarding_status: status,
       collection_cadence: cadence,
       waste_location_notes: notes,
@@ -334,6 +352,7 @@ async function main() {
   console.log(`  Unmapped codes:     ${report.unmappedCodes.length}`)
   console.log(`  Unit count floored: ${report.unitCountDefaulted.length} (set to 8 — review needed)`)
   console.log(`  Cadence approx:     ${report.cadenceApproximate.length} (freq=2 → Quarterly)`)
+  console.log(`  Duplicate mud_code: ${report.duplicateMudCode.length} (mud_code nullified — manual review)`)
   console.log(`  Contacts created:   ${report.contactsCreated}`)
   console.log(`  Contact errors:     ${report.contactErrors.length}`)
   console.log(`  Properties upserted:${report.propertiesUpserted}  (failedBatches=${report.failedBatches})`)
@@ -347,6 +366,13 @@ async function main() {
     console.log('\n⚠  Unmapped council codes (records skipped):')
     for (const u of report.unmappedCodes) {
       console.log(`    ${u.id}  code="${u.code}"  "${u.address}"`)
+    }
+  }
+
+  if (report.duplicateMudCode.length > 0) {
+    console.log('\n⚠  Duplicate mud_code cleared (mud_code set to null — assign manually in admin UI):')
+    for (const d of report.duplicateMudCode) {
+      console.log(`    ${d.id}  code="${d.mudRef}"  "${d.address}"`)
     }
   }
 
