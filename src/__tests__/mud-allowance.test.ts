@@ -72,13 +72,13 @@ describe('checkMudAllowance', () => {
     expect(result.errors).toHaveLength(1)
   })
 
-  it('unit_count < 8 → error appended', () => {
+  it('unit_count = 0 → error (not yet recorded)', () => {
     const result = checkMudAllowance({
-      unit_count: 7,
+      unit_count: 0,
       services: [{ ...baseService, requested: 1 }],
     })
     expect(result.ok).toBe(false)
-    expect(result.errors[0]).toContain('at least 8')
+    expect(result.errors[0]).toContain('Unit count must be recorded')
   })
 
   it('per-service results preserved in order', () => {
