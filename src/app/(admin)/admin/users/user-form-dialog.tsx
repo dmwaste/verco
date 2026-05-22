@@ -14,6 +14,8 @@ type AppRole = Database['public']['Enums']['app_role']
 
 const CONTRACTOR_ROLES: AppRole[] = ['contractor-admin', 'contractor-staff', 'field']
 const CLIENT_ROLES: AppRole[] = ['client-admin', 'client-staff', 'ranger']
+// Strata is client-scoped (needs client_id in user_roles) but shown separately
+const CLIENT_AND_STRATA_ROLES: AppRole[] = [...CLIENT_ROLES, 'strata']
 
 const ROLE_OPTIONS: { value: AppRole; label: string }[] = [
   { value: 'contractor-admin', label: 'Contractor Admin' },
@@ -22,6 +24,7 @@ const ROLE_OPTIONS: { value: AppRole; label: string }[] = [
   { value: 'client-admin', label: 'Client Admin' },
   { value: 'client-staff', label: 'Client Staff' },
   { value: 'ranger', label: 'Client Ranger' },
+  { value: 'strata', label: 'Strata User' },
 ]
 
 const UserFormSchema = z
@@ -47,6 +50,8 @@ const UserFormSchema = z
     // VER-216 — optional sub-client scope. Empty string means "no scope
     // selected" (full client scope). Only meaningful for client-tier roles.
     sub_client_id: z.string().uuid().or(z.literal('')).optional(),
+    // MUD property assignments for strata users. Required when role = strata.
+    mud_property_ids: z.string().uuid().array().optional(),
   })
   .superRefine((data, ctx) => {
     if (CONTRACTOR_ROLES.includes(data.role as AppRole) && !data.tenant_id) {
@@ -56,11 +61,18 @@ const UserFormSchema = z
         path: ['tenant_id'],
       })
     }
-    if (CLIENT_ROLES.includes(data.role as AppRole) && !data.tenant_id) {
+    if (CLIENT_AND_STRATA_ROLES.includes(data.role as AppRole) && !data.tenant_id) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message: 'Please select a client.',
         path: ['tenant_id'],
+      })
+    }
+    if (data.role === 'strata' && (!data.mud_property_ids || data.mud_property_ids.length === 0)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Select at least one MUD property.',
+        path: ['mud_property_ids'],
       })
     }
   })
@@ -114,6 +126,7 @@ export function UserFormDialog({ callerRole, editData, open, onOpenChange }: Use
     handleSubmit,
     watch,
     reset,
+    setValue,
     formState: { errors },
   } = useForm<UserFormData>({
     resolver: zodResolver(UserFormSchema),
@@ -125,6 +138,7 @@ export function UserFormDialog({ callerRole, editData, open, onOpenChange }: Use
       role: editData?.role ?? 'client-staff',
       tenant_id: getInitialTenantId(),
       sub_client_id: editData?.sub_client_id ?? '',
+      mud_property_ids: [],
     },
   })
 
@@ -139,6 +153,7 @@ export function UserFormDialog({ callerRole, editData, open, onOpenChange }: Use
         role: editData?.role ?? 'client-staff',
         tenant_id: editData ? getInitialTenantId() : '',
         sub_client_id: editData?.sub_client_id ?? '',
+        mud_property_ids: [],
       })
       setSubmitError(null)
       setSuccessEmail(null)
@@ -148,12 +163,15 @@ export function UserFormDialog({ callerRole, editData, open, onOpenChange }: Use
 
   const selectedRole = watch('role') as AppRole
   const selectedTenantId = watch('tenant_id')
+  const selectedMudPropertyIds = watch('mud_property_ids') ?? []
   const needsContractor = CONTRACTOR_ROLES.includes(selectedRole)
   const needsClient = CLIENT_ROLES.includes(selectedRole)
-  const needsTenant = needsContractor || needsClient
+  const isStrata = selectedRole === 'strata'
+  const needsTenant = needsContractor || needsClient || isStrata
 
+  // client-admin can only create client-tier + strata roles
   const availableRoles = callerRole === 'client-admin'
-    ? ROLE_OPTIONS.filter((r) => CLIENT_ROLES.includes(r.value))
+    ? ROLE_OPTIONS.filter((r) => CLIENT_AND_STRATA_ROLES.includes(r.value))
     : ROLE_OPTIONS
 
   const { data: contractors } = useQuery({
@@ -179,7 +197,8 @@ export function UserFormDialog({ callerRole, editData, open, onOpenChange }: Use
         .order('name')
       return data ?? []
     },
-    enabled: needsClient,
+    // Shared query: also needed for strata to scope client_id + MUD properties
+    enabled: needsClient || isStrata,
   })
 
   // VER-216 — fetch sub-clients for the currently selected client. Only
@@ -198,6 +217,30 @@ export function UserFormDialog({ callerRole, editData, open, onOpenChange }: Use
     },
     enabled: needsClient && !!selectedTenantId,
   })
+
+  // MUD properties for the selected client — shown for strata role only
+  const { data: mudProperties } = useQuery({
+    queryKey: ['mud-properties', selectedTenantId],
+    queryFn: async () => {
+      if (!selectedTenantId) return []
+      const { data } = await supabase
+        .from('eligible_properties')
+        .select('id, address, mud_code, collection_area!inner(client_id)')
+        .eq('is_mud', true)
+        .eq('is_eligible', true)
+        .eq('collection_area.client_id', selectedTenantId)
+        .order('address')
+      return (data ?? []) as { id: string; address: string; mud_code: string | null }[]
+    },
+    enabled: isStrata && !!selectedTenantId,
+  })
+
+  function toggleMudProperty(id: string) {
+    const next = selectedMudPropertyIds.includes(id)
+      ? selectedMudPropertyIds.filter((x) => x !== id)
+      : [...selectedMudPropertyIds, id]
+    setValue('mud_property_ids', next, { shouldValidate: true })
+  }
 
   const showSubClientPicker = needsClient && !!selectedTenantId && (subClients?.length ?? 0) > 0
 
@@ -244,6 +287,11 @@ export function UserFormDialog({ callerRole, editData, open, onOpenChange }: Use
       // role is client-tier. Empty string = "no scope" = NULL in DB.
       if (isClientRole && data.sub_client_id) {
         requestBody.sub_client_id = data.sub_client_id
+      }
+      // Strata: send client_id for user_roles scoping + MUD property bindings
+      if (role === 'strata' && data.tenant_id) {
+        requestBody.client_id = data.tenant_id
+        requestBody.mud_property_ids = data.mud_property_ids ?? []
       }
 
       const res = await fetch(
@@ -387,7 +435,7 @@ export function UserFormDialog({ callerRole, editData, open, onOpenChange }: Use
                     {errors.role && <p className={errorClass}>{errors.role.message}</p>}
                   </div>
 
-                  {/* Tenant — conditional */}
+                  {/* Tenant picker — contractor/client/strata all need a scope */}
                   {needsTenant && (
                     <div>
                       <label className={labelClass}>
@@ -400,7 +448,7 @@ export function UserFormDialog({ callerRole, editData, open, onOpenChange }: Use
                           (contractors ?? []).map((c) => (
                             <option key={c.id} value={c.id}>{c.name}</option>
                           ))}
-                        {needsClient &&
+                        {(needsClient || isStrata) &&
                           (clients ?? []).map((c) => (
                             <option key={c.id} value={c.id}>{c.name}</option>
                           ))}
@@ -409,9 +457,8 @@ export function UserFormDialog({ callerRole, editData, open, onOpenChange }: Use
                     </div>
                   )}
 
-                  {/* Sub-client — VER-216. Only client-tier roles with a
-                      tenant selected AND that tenant has at least one
-                      sub_client (e.g. Verge Valet but not Kwinana). */}
+                  {/* Sub-client — VER-216. Only client-tier roles (not strata) with a
+                      tenant selected AND that tenant has at least one sub_client. */}
                   {showSubClientPicker && (
                     <div>
                       <label className={labelClass}>
@@ -430,6 +477,52 @@ export function UserFormDialog({ callerRole, editData, open, onOpenChange }: Use
                         sub-client. Leave as &ldquo;All sub-clients&rdquo; for client-wide access.
                       </p>
                       {errors.sub_client_id && <p className={errorClass}>{errors.sub_client_id.message}</p>}
+                    </div>
+                  )}
+
+                  {/* MUD property assignment — strata role only, shown once client is selected */}
+                  {isStrata && !!selectedTenantId && (
+                    <div>
+                      <label className={labelClass}>
+                        MUD Properties<span className="ml-0.5 text-red-500">*</span>
+                      </label>
+                      {(mudProperties?.length ?? 0) === 0 ? (
+                        <p className="rounded-[10px] border border-dashed border-gray-200 px-3.5 py-3 text-sm text-gray-400">
+                          No MUD properties found for this client.
+                        </p>
+                      ) : (
+                        <div className="max-h-48 overflow-y-auto rounded-[10px] border-[1.5px] border-gray-100 bg-gray-50 divide-y divide-gray-100">
+                          {(mudProperties ?? []).map((prop) => (
+                            <label
+                              key={prop.id}
+                              className="flex cursor-pointer items-start gap-3 px-3.5 py-2.5 hover:bg-gray-100"
+                            >
+                              <input
+                                type="checkbox"
+                                checked={selectedMudPropertyIds.includes(prop.id)}
+                                onChange={() => toggleMudProperty(prop.id)}
+                                className="mt-0.5 shrink-0 accent-[#293F52]"
+                              />
+                              <span className="text-sm text-gray-900">
+                                {prop.mud_code && (
+                                  <span className="mr-1.5 text-xs font-medium text-gray-500">
+                                    {prop.mud_code}
+                                  </span>
+                                )}
+                                {prop.address}
+                              </span>
+                            </label>
+                          ))}
+                        </div>
+                      )}
+                      {selectedMudPropertyIds.length > 0 && (
+                        <p className="mt-1 text-[11px] text-gray-400">
+                          {selectedMudPropertyIds.length} propert{selectedMudPropertyIds.length === 1 ? 'y' : 'ies'} selected
+                        </p>
+                      )}
+                      {errors.mud_property_ids && (
+                        <p className={errorClass}>{errors.mud_property_ids.message}</p>
+                      )}
                     </div>
                   )}
 

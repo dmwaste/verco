@@ -93,7 +93,7 @@ export function UsersClient() {
            sub_client:user_roles_sub_client_fk(code, name)`,
           { count: 'exact' }
         )
-        .not('role', 'in', '("resident","strata")')
+        .not('role', 'in', '("resident")')
         .order('created_at', { ascending: false })
         .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1)
 
