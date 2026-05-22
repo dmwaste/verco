@@ -1,5 +1,5 @@
 // scripts/lib/types.ts
-// Shared types for the VV import + hygiene scripts.
+// Shared types for the VV import, MUD import, and hygiene scripts.
 
 /** Airtable record ID (e.g. "rec00ANo7vIwiCTTo"). */
 export type AirtableRecordId = string
@@ -56,4 +56,40 @@ export type EligiblePropertyInsert = {
   is_mud: boolean
   external_source: string
   external_id: string
+}
+
+// ─── MUD-specific types ───────────────────────────────────────────────────────
+
+/** One record from the Airtable MUD List table (council code pre-resolved). */
+export type AirtableMudRecord = {
+  /** Airtable record ID — used as external_id for idempotency. */
+  id: AirtableRecordId
+  address: string
+  mudRef: string | null
+  units: number
+  /** Raw Airtable singleSelect name: "Registered" | "Inactive" | null */
+  status: string | null
+  contactName: string | null
+  contactNumber: string | null
+  email: string | null
+  notes: string | null
+  /** Raw Airtable number (0, 2, 3, 6, 12 …). 0 = not set / ad-hoc. */
+  frequencyMonths: number
+  offStreetAgreed: boolean
+  /** Council code name (e.g. "FRE-S") resolved from Airtable linked record. */
+  councilCodeName: string | null
+  /** First attachment URL from the Registration Form field (Airtable signed URL — expires). */
+  authFormUrl: string | null
+  authFormFilename: string | null
+}
+
+/** Verco eligible_properties INSERT shape for MUD records (pass 1 — no auth_form_url yet). */
+export type MudPropertyInsert = EligiblePropertyInsert & {
+  is_mud: true
+  unit_count: number
+  mud_code: string | null
+  mud_onboarding_status: 'Contact Made' | 'Registered' | 'Inactive'
+  collection_cadence: 'Ad-hoc' | 'Annual' | 'Bi-annual' | 'Quarterly'
+  waste_location_notes: string | null
+  strata_contact_id: string | null
 }
