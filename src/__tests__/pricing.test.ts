@@ -566,4 +566,74 @@ describe('computeLineItems', () => {
       expect(result.override_reason).toBe('First')
     })
   })
+
+  // ── MUD unit multiplier ────────────────────────────────
+
+  describe('MUD unit multiplier', () => {
+    it('unitMultiplier=1 (default) behaves identically to no multiplier', () => {
+      const result = computeLineItems(
+        [{ service_id: SVC_GENERAL, quantity: 2 }],
+        rules([[SVC_GENERAL, { max_collections: 1, extra_unit_price: 50 }]]),
+        catMax([[CAT_BULK, 1]]),
+        svcCat([[SVC_GENERAL, CAT_BULK]]),
+        empty(),
+        empty(),
+        undefined,
+        1,
+      )
+      expect(result.line_items[0]!.free_units).toBe(1)
+      expect(result.line_items[0]!.paid_units).toBe(1)
+    })
+
+    it('scales category and service limits by unit count — all free when within scaled limits', () => {
+      // Council rule: 1 per category, 1 per service. MUD with 10 units → effective 10 of each.
+      const result = computeLineItems(
+        [{ service_id: SVC_GENERAL, quantity: 8 }],
+        rules([[SVC_GENERAL, { max_collections: 1, extra_unit_price: 50 }]]),
+        catMax([[CAT_BULK, 1]]),
+        svcCat([[SVC_GENERAL, CAT_BULK]]),
+        empty(),
+        empty(),
+        undefined,
+        10,
+      )
+      expect(result.line_items[0]!.free_units).toBe(8)
+      expect(result.line_items[0]!.paid_units).toBe(0)
+      expect(result.total_cents).toBe(0)
+    })
+
+    it('charges for units beyond the scaled limit', () => {
+      // Council rule: 1, MUD 4 units → effective 4. Requesting 6 → 2 paid.
+      const result = computeLineItems(
+        [{ service_id: SVC_GENERAL, quantity: 6 }],
+        rules([[SVC_GENERAL, { max_collections: 1, extra_unit_price: 50 }]]),
+        catMax([[CAT_BULK, 1]]),
+        svcCat([[SVC_GENERAL, CAT_BULK]]),
+        empty(),
+        empty(),
+        undefined,
+        4,
+      )
+      expect(result.line_items[0]!.free_units).toBe(4)
+      expect(result.line_items[0]!.paid_units).toBe(2)
+      expect(result.total_cents).toBe(2 * 50 * 100)
+    })
+
+    it('dual-limit still applies — binding limit wins', () => {
+      // Category rule 1 → scaled 5. Service rule 2 → scaled 10. Requesting 7.
+      // Category is binding: free = MIN(7, 5, 10) = 5.
+      const result = computeLineItems(
+        [{ service_id: SVC_GENERAL, quantity: 7 }],
+        rules([[SVC_GENERAL, { max_collections: 2, extra_unit_price: 50 }]]),
+        catMax([[CAT_BULK, 1]]),
+        svcCat([[SVC_GENERAL, CAT_BULK]]),
+        empty(),
+        empty(),
+        undefined,
+        5,
+      )
+      expect(result.line_items[0]!.free_units).toBe(5)
+      expect(result.line_items[0]!.paid_units).toBe(2)
+    })
+  })
 })

@@ -131,7 +131,7 @@ serve(async (req) => {
 
     const { data: property, error: propError } = await supabaseAnon
       .from('eligible_properties')
-      .select('id, collection_area_id')
+      .select('id, collection_area_id, is_mud, unit_count')
       .eq('id', property_id)
       .single()
 
@@ -173,6 +173,9 @@ serve(async (req) => {
 
     // ── 6. Re-run pricing engine server-side (NEVER trust client prices) ─────
 
+    // MUD properties: allocations scale by unit count
+    const unitMultiplier = property.is_mud && property.unit_count > 0 ? property.unit_count : 1
+
     const pricingItems = items.map((i) => ({
       service_id: i.service_id,
       quantity: i.no_services,
@@ -185,6 +188,7 @@ serve(async (req) => {
       fy.id,
       pricingItems,
       replaces,
+      unitMultiplier,
     )
 
     // Pre-step: actingUser is needed by both branches (edit + create).

@@ -49,6 +49,11 @@ export async function calculatePrice(
    * as extras). Pass the old booking's UUID via the `replaces` param.
    */
   excludeBookingId?: string,
+  /**
+   * For MUD properties: multiply all service and category maxes by unit count.
+   * Defaults to 1 (no scaling) for standard residential properties.
+   */
+  unitMultiplier = 1,
 ): Promise<PriceCalculationResult> {
   const serviceIds = items.map((i) => i.service_id)
 
@@ -165,13 +170,13 @@ export async function calculatePrice(
     const rule = rulesMap.get(item.service_id)
     const catCode = serviceCategoryMap.get(item.service_id) ?? ''
 
-    // Service-level remaining (with additive extra allocations)
+    // Service-level remaining (with additive extra allocations; scaled by unit count for MUDs)
     const serviceUsed = serviceUsageMap.get(item.service_id) ?? 0
-    const serviceMax = rule?.max_collections ?? 0
+    const serviceMax = (rule?.max_collections ?? 0) * unitMultiplier
     const serviceRemaining = Math.max(0, (serviceMax + (serviceExtraMap.get(item.service_id) ?? 0)) - serviceUsed)
 
-    // Category-level remaining (with additive extra allocations)
-    const catMax = categoryMaxMap.get(catCode) ?? 0
+    // Category-level remaining (with additive extra allocations; scaled by unit count for MUDs)
+    const catMax = (categoryMaxMap.get(catCode) ?? 0) * unitMultiplier
     const catFyUsed = categoryUsageMap.get(catCode) ?? 0
     const catAlreadyConsumedByForm = categoryFormUsed.get(catCode) ?? 0
     const categoryRemaining = Math.max(0, (catMax + (categoryExtraMap.get(catCode) ?? 0)) - catFyUsed - catAlreadyConsumedByForm)
