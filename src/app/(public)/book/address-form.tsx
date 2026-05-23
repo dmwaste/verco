@@ -21,7 +21,6 @@ type EligibleProperty = Database['public']['Tables']['eligible_properties']['Row
 
 interface MudRedirectState {
   building_address: string
-  contact_email: string | null
 }
 
 const PropertyMap = dynamic(
@@ -76,10 +75,18 @@ export function AddressForm({ clientId }: { clientId: string }) {
 
         const key = addressMatchKey(s)
         if (!key) return null
+
+        // Search both formatted_address (geocoded rows) and address (un-geocoded rows
+        // such as newly imported MUDs). Use the street-segment only for the address
+        // column because Airtable values often lack the suburb/state suffix — a comma
+        // in the PostgREST .or() value would split the condition incorrectly.
+        const fmtPattern = buildAddressIlikePattern(key)
+        const streetSegment = s.split(',')[0]?.trim() ?? s
+        const addrPattern = buildAddressIlikePattern(addressMatchKey(streetSegment))
         const { data } = await supabase
           .from('eligible_properties')
           .select('*, collection_area!inner(client_id)')
-          .ilike('formatted_address', buildAddressIlikePattern(key))
+          .or(`formatted_address.ilike.${fmtPattern},address.ilike.${addrPattern}`)
           .eq('collection_area.client_id', clientId)
           .limit(2)
         if (data && data.length === 1) return data[0] as unknown as EligibleProperty
@@ -115,15 +122,8 @@ export function AddressForm({ clientId }: { clientId: string }) {
       }
       const decision = decideMudRedirect([candidate])
       if (decision.redirect) {
-        // Fetch the resolved client's contact email for the redirect link
-        const { data: client } = await supabase
-          .from('client')
-          .select('contact_email')
-          .limit(1)
-          .maybeSingle()
         setMudRedirect({
           building_address: decision.building_address ?? property.address,
-          contact_email: client?.contact_email ?? null,
         })
         return
       }
@@ -295,18 +295,6 @@ export function AddressForm({ clientId }: { clientId: string }) {
                     arranged centrally — please contact your strata manager or building
                     manager to organise a collection.
                   </p>
-                  {mudRedirect.contact_email && (
-                    <p className="mt-2 text-[12px]">
-                      If you think this is wrong, contact our team at{' '}
-                      <a
-                        href={`mailto:${mudRedirect.contact_email}`}
-                        className="font-medium text-[#5B348B] underline"
-                      >
-                        {mudRedirect.contact_email}
-                      </a>
-                      .
-                    </p>
-                  )}
                 </div>
               </div>
             </div>

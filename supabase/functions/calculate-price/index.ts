@@ -53,10 +53,10 @@ serve(async (req) => {
 
     const { property_id, fy_id, items, replaces } = parsed.data
 
-    // Resolve property → collection_area_id
+    // Resolve property → collection_area_id + MUD unit count
     const { data: property, error: propError } = await supabase
       .from('eligible_properties')
-      .select('collection_area_id')
+      .select('collection_area_id, is_mud, unit_count')
       .eq('id', property_id)
       .single()
 
@@ -66,6 +66,9 @@ serve(async (req) => {
         { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       )
     }
+
+    // MUD properties: allocations scale by unit count
+    const unitMultiplier = property.is_mud && property.unit_count > 0 ? property.unit_count : 1
 
     const pricingItems = items.map((i) => ({
       service_id: i.service_id,
@@ -79,6 +82,7 @@ serve(async (req) => {
       fy_id,
       pricingItems,
       replaces,
+      unitMultiplier,
     )
 
     // Re-attach collection_date_id to line items for the caller

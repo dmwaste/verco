@@ -158,10 +158,6 @@ export async function createMudProperty(
   const roleCheck = await validateStaffRole()
   if (!roleCheck.ok) return roleCheck
 
-  if (input.unit_count < 8) {
-    return { ok: false, error: 'MUDs must have at least 8 units.' }
-  }
-
   const supabase = await createClient()
 
   const { error } = await supabase
@@ -200,10 +196,6 @@ export async function updateMudProperty(
 ): Promise<Result<{ property_id: string }>> {
   const roleCheck = await validateStaffRole()
   if (!roleCheck.ok) return roleCheck
-
-  if (input.unit_count !== undefined && input.unit_count < 8) {
-    return { ok: false, error: 'MUDs must have at least 8 units.' }
-  }
 
   const supabase = await createClient()
 

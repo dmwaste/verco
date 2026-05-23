@@ -62,8 +62,8 @@ export function checkMudAllowance(input: MudAllowanceCheckInput): MudAllowanceCh
   const per_service: MudAllowanceServiceResult[] = []
   const errors: string[] = []
 
-  if (input.unit_count < 8) {
-    errors.push('Unit count must be at least 8 for a MUD.')
+  if (input.unit_count < 1) {
+    errors.push('Unit count must be recorded before bookings can be made (currently 0).')
   }
 
   for (const svc of input.services) {

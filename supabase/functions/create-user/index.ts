@@ -46,15 +46,18 @@ const CreateUserRequest = z
     // must reference an existing sub_client row, so a bad pairing is
     // rejected at insert. We validate here for a clearer error message.
     sub_client_id: z.string().uuid().optional(),
+    // MUD property bindings written to strata_user_properties. Required when role = strata.
+    mud_property_ids: z.string().uuid().array().optional(),
   })
   .refine(
     (data) => {
       if (isContractorRole(data.role)) return !!data.contractor_id
       if (isClientRole(data.role)) return !!data.client_id
+      if (data.role === 'strata') return !!data.client_id
       return true
     },
     {
-      message: 'Contractor roles require contractor_id; client roles require client_id.',
+      message: 'Contractor roles require contractor_id; client and strata roles require client_id.',
     }
   )
   .refine(
@@ -62,6 +65,13 @@ const CreateUserRequest = z
     {
       message: 'sub_client_id is only valid for client-tier roles (client-admin, client-staff, ranger).',
       path: ['sub_client_id'],
+    }
+  )
+  .refine(
+    (data) => data.role !== 'strata' || (!!data.mud_property_ids && data.mud_property_ids.length > 0),
+    {
+      message: 'Strata users require at least one MUD property.',
+      path: ['mud_property_ids'],
     }
   )
 
@@ -106,7 +116,7 @@ serve(async (req) => {
       return errorResponse(parsed.error.message, 400)
     }
 
-    const { first_name, last_name, email, mobile_e164, role, contractor_id, client_id, sub_client_id } = parsed.data
+    const { first_name, last_name, email, mobile_e164, role, contractor_id, client_id, sub_client_id, mud_property_ids } = parsed.data
     // Derived once; used for non-contacts surfaces (auth metadata, profile
     // display name, welcome email, audit log). The contacts table itself
     // gets first/last only — full_name is generated.
@@ -115,21 +125,23 @@ serve(async (req) => {
     // ── 3. Scope check — client-admin restrictions ──────────────────────
 
     if (callerRole === 'client-admin') {
-      // Client-admin can only create client-tier roles
-      if (!isClientRole(role)) {
-        return errorResponse('Client admins can only create client-tier roles (client-admin, client-staff, ranger).', 403)
+      // Client-admin can create client-tier roles and strata end-users
+      if (!isClientRole(role) && role !== 'strata') {
+        return errorResponse('Client admins can only create client-tier roles (client-admin, client-staff, ranger) or strata users.', 403)
       }
-      // Must be scoped to their own client
+      // Must be scoped to their own client (applies to both client-tier and strata)
       const { data: callerClientId } = await supabaseCaller.rpc('current_user_client_id')
       if (!callerClientId || callerClientId !== client_id) {
         return errorResponse('You can only create users for your own client.', 403)
       }
       // VER-216 — if the caller is themselves sub-client-scoped, the new
-      // user must be scoped to the same sub-client. A COT-admin can't
-      // create a MOS-admin or an unscoped (whole-client) user.
-      const { data: callerSubClientId } = await supabaseCaller.rpc('current_user_sub_client_id')
-      if (callerSubClientId && callerSubClientId !== sub_client_id) {
-        return errorResponse('You can only create users scoped to your own sub-client.', 403)
+      // client-tier user must be scoped to the same sub-client. Strata users
+      // are property-bound (not sub-client-scoped), so skip this check for them.
+      if (isClientRole(role)) {
+        const { data: callerSubClientId } = await supabaseCaller.rpc('current_user_sub_client_id')
+        if (callerSubClientId && callerSubClientId !== sub_client_id) {
+          return errorResponse('You can only create users scoped to your own sub-client.', 403)
+        }
       }
     }
 
@@ -321,6 +333,26 @@ serve(async (req) => {
       if (insertError) {
         console.error('user_roles insert error:', insertError)
         return errorResponse(`Failed to assign role: ${insertError.message}`, 500)
+      }
+    }
+
+    // ── 8b. Write MUD property bindings for strata users ───────────────
+    // mud_property_ids is validated non-empty when role === 'strata'.
+    // Upsert (not insert) so the EF is idempotent if the same user is re-created.
+
+    if (role === 'strata' && mud_property_ids && mud_property_ids.length > 0) {
+      const rows = mud_property_ids.map((property_id) => ({
+        user_id: authUserId,
+        property_id,
+      }))
+
+      const { error: bindError } = await supabaseService
+        .from('strata_user_properties')
+        .upsert(rows, { onConflict: 'user_id,property_id' })
+
+      if (bindError) {
+        console.error('strata_user_properties upsert error:', bindError)
+        return errorResponse(`Failed to assign MUD properties: ${bindError.message}`, 500)
       }
     }
 

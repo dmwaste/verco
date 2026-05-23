@@ -36,14 +36,14 @@ export type StrataContactInput = z.infer<typeof strataContactSchema>
 
 /**
  * Minimum draft to create a MUD record (Contact Made state).
- * unit_count must be ≥8 to satisfy the DB CHECK; cadence must be set
- * because the DB CHECK requires it for is_mud=true.
+ * unit_count=0 is valid and means "not yet recorded" — no council-set minimum.
+ * cadence must be set because the DB CHECK requires it for is_mud=true.
  */
 export const mudPropertyDraftSchema = z.object({
   property_id: z.string().uuid().optional(),
   collection_area_id: z.string().uuid(),
   address: z.string().min(1, 'Address is required'),
-  unit_count: z.number().int().min(8, 'MUDs must have at least 8 units'),
+  unit_count: z.number().int().min(0, 'Unit count cannot be negative'),
   mud_code: z
     .string()
     .min(1, 'MUD code is required')

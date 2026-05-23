@@ -106,8 +106,11 @@ interface PropertyDetailClientProps {
 function buildAllocations(
   rules: PropertyDetailClientProps['allocationRules'],
   overrides: PropertyDetailClientProps['allocationOverrides'],
-  usage: PropertyDetailClientProps['fyUsage']
+  usage: PropertyDetailClientProps['fyUsage'],
+  isMud: boolean,
+  unitCount: number,
 ) {
+  const unitMultiplier = isMud && unitCount > 0 ? unitCount : 1
   return rules.map((rule) => {
     const cat = rule.category as { name: string; code: string }
     const used = usage
@@ -122,9 +125,10 @@ function buildAllocations(
         return svc.category.name === cat.name
       })
       .reduce((sum, o) => sum + o.extra_allocations, 0)
-    const max = rule.max_collections + extra
+    const baseMax = rule.max_collections * unitMultiplier
+    const max = baseMax + extra
     const remaining = Math.max(0, max - used)
-    return { categoryName: cat.name, code: cat.code, max, used, extra, remaining }
+    return { categoryName: cat.name, code: cat.code, max, baseMax, councilRule: rule.max_collections, used, extra, remaining }
   })
 }
 
@@ -207,7 +211,7 @@ export function PropertyDetailClient({
     ? (property.strata_contact[0] ?? null)
     : (property.strata_contact ?? null)
 
-  const allocations = buildAllocations(allocationRules, allocationOverrides, fyUsage)
+  const allocations = buildAllocations(allocationRules, allocationOverrides, fyUsage, property.is_mud, property.unit_count)
 
   const openNcns = ncns.filter((n) =>
     ['Issued', 'Disputed', 'Under Review'].includes(n.status)
@@ -331,6 +335,11 @@ export function PropertyDetailClient({
                       </td>
                       <td className="px-5 py-3 text-body-sm text-gray-700">
                         {a.max}
+                        {property.is_mud && property.unit_count > 0 && (
+                          <span className="ml-1.5 text-[11px] text-gray-400">
+                            ({a.councilRule} × {property.unit_count})
+                          </span>
+                        )}
                       </td>
                       <td className="px-5 py-3 text-body-sm text-gray-700">
                         {a.used}

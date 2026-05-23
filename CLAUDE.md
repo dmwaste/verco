@@ -102,8 +102,8 @@ Eight roles. Scope is enforced at the DB level via RLS — never rely on fronten
 
 **Contact name shape:** `contacts` stores `first_name` (text NOT NULL) + `last_name` (text NOT NULL) as the source of truth. `full_name` is a `GENERATED ALWAYS AS (TRIM(first_name || ' ' || last_name)) STORED` column — read-only. INSERT/UPDATE on `contacts.full_name` will fail. Forms must capture first/last as separate required fields. Read paths can continue to select `full_name` for display.
 
-**Privacy rule — `resident`/`strata` excluded from admin user management:**
-Admin users pages filter out `resident` and `strata` roles from queries and dropdowns. These roles are self-service only — admin users should not see the full resident list.
+**Privacy rule — `resident` excluded from admin user management:**
+Admin users pages filter out `resident` from queries and dropdowns. `strata` users ARE admin-managed (they must be bound to MUD properties by an admin) so they appear in the admin user list and user-creation form. The full resident list is never exposed to admin — residents are self-service only.
 
 ---
 
