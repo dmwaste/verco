@@ -127,7 +127,9 @@ export function IdBookingForm({ collectionDates }: IdBookingFormProps) {
     if (!files || files.length === 0) return
 
     setIsUploading(true)
+    setError(null)
     const newUrls: string[] = []
+    const failed: string[] = []
 
     for (const file of Array.from(files)) {
       const ext = file.name.split('.').pop() ?? 'jpg'
@@ -137,15 +139,29 @@ export function IdBookingForm({ collectionDates }: IdBookingFormProps) {
         .from('ncn-photos')
         .upload(path, file)
 
-      if (!uploadError && data) {
-        const { data: urlData } = supabase.storage
-          .from('ncn-photos')
-          .getPublicUrl(data.path)
-        newUrls.push(urlData.publicUrl)
+      if (uploadError || !data) {
+        failed.push(file.name)
+        continue
       }
+
+      const { data: urlData } = supabase.storage
+        .from('ncn-photos')
+        .getPublicUrl(data.path)
+      newUrls.push(urlData.publicUrl)
     }
 
-    setPhotos((prev) => [...prev, ...newUrls])
+    if (newUrls.length > 0) {
+      setPhotos((prev) => [...prev, ...newUrls])
+    }
+
+    if (failed.length > 0) {
+      setError(
+        `Couldn't upload ${failed.length} photo${failed.length > 1 ? 's' : ''}. Check your connection and try again.`
+      )
+    }
+
+    // Reset the input so the same file can be re-selected after a failure.
+    if (fileInputRef.current) fileInputRef.current.value = ''
     setIsUploading(false)
   }
 

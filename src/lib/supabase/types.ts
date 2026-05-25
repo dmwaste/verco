@@ -227,11 +227,14 @@ export type Database = {
           fy_id: string
           geo_address: string | null
           id: string
+          id_volume: string | null
+          id_waste_types: string[]
           latitude: number | null
           location: string | null
           longitude: number | null
           notes: string | null
           optimo_stop_id: string | null
+          photos: string[]
           property_id: string | null
           ref: string
           status: Database["public"]["Enums"]["booking_status"]
@@ -252,11 +255,14 @@ export type Database = {
           fy_id: string
           geo_address?: string | null
           id?: string
+          id_volume?: string | null
+          id_waste_types?: string[]
           latitude?: number | null
           location?: string | null
           longitude?: number | null
           notes?: string | null
           optimo_stop_id?: string | null
+          photos?: string[]
           property_id?: string | null
           ref: string
           status?: Database["public"]["Enums"]["booking_status"]
@@ -277,11 +283,14 @@ export type Database = {
           fy_id?: string
           geo_address?: string | null
           id?: string
+          id_volume?: string | null
+          id_waste_types?: string[]
           latitude?: number | null
           location?: string | null
           longitude?: number | null
           notes?: string | null
           optimo_stop_id?: string | null
+          photos?: string[]
           property_id?: string | null
           ref?: string
           status?: Database["public"]["Enums"]["booking_status"]
@@ -2294,6 +2303,20 @@ export type Database = {
           p_notes: string
           p_property_id: string
           p_status: string
+        }
+        Returns: Json
+      }
+      create_id_booking_with_capacity_check: {
+        Args: {
+          p_collection_area_id: string
+          p_collection_date_id: string
+          p_geo_address: string
+          p_latitude: number
+          p_longitude: number
+          p_notes: string
+          p_photos: string[]
+          p_volume: string
+          p_waste_types: string[]
         }
         Returns: Json
       }

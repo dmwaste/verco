@@ -32,6 +32,10 @@ interface Booking {
   notes: string | null
   latitude: number | null
   longitude: number | null
+  geo_address: string | null
+  photos: string[]
+  id_waste_types: string[]
+  id_volume: string | null
   collection_area: { name: string; code: string }
   eligible_properties: {
     address: string
@@ -52,8 +56,10 @@ function CloseoutInner({ booking }: { booking: Booking }) {
   const [error, setError] = useState<string | null>(null)
   const [showNpForm, setShowNpForm] = useState(action === 'np')
 
+  const isId = booking.type === 'Illegal Dumping'
   const prop = booking.eligible_properties as Booking['eligible_properties']
-  const address = prop?.formatted_address ?? prop?.address ?? ''
+  // ID bookings have no property — fall back to the GPS-resolved address.
+  const address = prop?.formatted_address ?? prop?.address ?? booking.geo_address ?? ''
   const lat = prop?.latitude ?? booking.latitude
   const lng = prop?.longitude ?? booking.longitude
   const mapsUrl = lat && lng
@@ -181,6 +187,48 @@ function CloseoutInner({ booking }: { booking: Booking }) {
             </span>
           </div>
         </div>
+
+        {/* Illegal Dumping evidence */}
+        {isId &&
+          (booking.id_waste_types.length > 0 ||
+            booking.id_volume ||
+            booking.photos.length > 0) && (
+            <div className="flex flex-col gap-2.5 rounded-xl bg-white p-3.5 shadow-sm">
+              <div className="text-2xs font-semibold uppercase tracking-wide text-gray-500">
+                Illegal Dumping
+              </div>
+              {(booking.id_waste_types.length > 0 || booking.id_volume) && (
+                <div className="flex flex-wrap gap-1.5">
+                  {booking.id_waste_types.map((w) => (
+                    <span
+                      key={w}
+                      className="inline-flex rounded-full bg-[#E8EEF2] px-2.5 py-0.5 text-[11px] font-medium text-[var(--brand)]"
+                    >
+                      {w}
+                    </span>
+                  ))}
+                  {booking.id_volume && (
+                    <span className="inline-flex rounded-full bg-[#FFF3EA] px-2.5 py-0.5 text-[11px] font-medium text-[#8B4000]">
+                      {booking.id_volume}
+                    </span>
+                  )}
+                </div>
+              )}
+              {booking.photos.length > 0 && (
+                <div className="flex flex-wrap gap-2">
+                  {booking.photos.map((url, i) => (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      key={i}
+                      src={url}
+                      alt={`Evidence ${i + 1}`}
+                      className="size-20 rounded-lg object-cover"
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
 
         {/* Maps link */}
         <a

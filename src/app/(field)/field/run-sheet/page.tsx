@@ -16,7 +16,8 @@ export default async function RunSheetPage() {
   const { data: bookings } = await supabase
     .from('booking')
     .select(
-      `id, ref, status, type, location, notes, latitude, longitude,
+      `id, ref, status, type, location, notes, latitude, longitude, geo_address,
+       photos, id_waste_types, id_volume,
        collection_area!inner(name, code),
        eligible_properties:property_id(address, formatted_address, latitude, longitude),
        booking_item!inner(

@@ -41,6 +41,12 @@ interface Booking {
   property_id: string | null
   collection_area_id: string | null
   contact_id: string | null
+  latitude: number | null
+  longitude: number | null
+  geo_address: string | null
+  photos: string[]
+  id_waste_types: string[]
+  id_volume: string | null
   collection_area: { name: string; code: string }
   eligible_properties: { formatted_address: string | null; address: string } | null
   contact: { first_name: string; last_name: string; full_name: string; mobile_e164: string | null; email: string } | null
@@ -96,7 +102,13 @@ export function BookingDetailPanel({
   const area = booking.collection_area as { name: string; code: string }
   const property = booking.eligible_properties as { formatted_address: string | null; address: string } | null
   const contact = booking.contact as { first_name: string; last_name: string; full_name: string; mobile_e164: string | null; email: string } | null
-  const address = property?.formatted_address ?? property?.address ?? '—'
+  const isId = booking.type === 'Illegal Dumping'
+  // ID bookings have no property — use the GPS-resolved address.
+  const address = property?.formatted_address ?? property?.address ?? booking.geo_address ?? '—'
+  const idMapsUrl =
+    booking.latitude != null && booking.longitude != null
+      ? `https://maps.google.com/?q=${booking.latitude},${booking.longitude}`
+      : null
 
   const collectionDateStr =
     booking.booking_item.length > 0
@@ -386,6 +398,56 @@ export function BookingDetailPanel({
               <span className="w-[120px] shrink-0 text-xs font-medium text-gray-500">Notes</span>
               <span className="text-right text-body-sm italic text-gray-500">{booking.notes || '—'}</span>
             </div>
+            {isId && idMapsUrl && (
+              <div className="flex justify-between">
+                <span className="w-[120px] shrink-0 text-xs font-medium text-gray-500">Map</span>
+                <a
+                  href={idMapsUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-right text-body-sm font-medium text-[#293F52] underline"
+                >
+                  Open in Google Maps
+                </a>
+              </div>
+            )}
+            {isId && (booking.id_waste_types.length > 0 || booking.id_volume) && (
+              <div className="flex justify-between gap-3">
+                <span className="w-[120px] shrink-0 text-xs font-medium text-gray-500">Waste</span>
+                <div className="flex flex-wrap justify-end gap-1.5">
+                  {booking.id_waste_types.map((w) => (
+                    <span
+                      key={w}
+                      className="inline-flex rounded-full bg-[#E8EEF2] px-2.5 py-0.5 text-[11px] font-medium text-[#293F52]"
+                    >
+                      {w}
+                    </span>
+                  ))}
+                  {booking.id_volume && (
+                    <span className="inline-flex rounded-full bg-[#FFF3EA] px-2.5 py-0.5 text-[11px] font-medium text-[#8B4000]">
+                      {booking.id_volume}
+                    </span>
+                  )}
+                </div>
+              </div>
+            )}
+            {isId && booking.photos.length > 0 && (
+              <div className="flex flex-col gap-1.5">
+                <span className="text-xs font-medium text-gray-500">Evidence Photos</span>
+                <div className="flex flex-wrap gap-2">
+                  {booking.photos.map((url, i) => (
+                    <a key={i} href={url} target="_blank" rel="noopener noreferrer">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={url}
+                        alt={`Evidence ${i + 1}`}
+                        className="size-20 rounded-lg object-cover"
+                      />
+                    </a>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         ) : (
           <div className="flex flex-col gap-3">
