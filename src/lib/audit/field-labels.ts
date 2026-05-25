@@ -34,6 +34,10 @@ export const FIELD_LABELS: Record<string, string> = {
   cancelled_by: 'Cancelled By',
   cancellation_reason: 'Cancellation Reason',
   deleted_at: 'Deleted At',
+  geo_address: 'Location (GPS)',
+  photos: 'Photos',
+  id_waste_types: 'Waste Types',
+  id_volume: 'Estimated Volume',
 
   // Booking item
   booking_id: 'Booking',
