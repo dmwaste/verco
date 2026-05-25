@@ -751,4 +751,154 @@ if (!haveDb) {
       }
     })
   })
+
+  // ---------------------------------------------------------------------------
+  // Illegal Dumping RPC — create_id_booking_with_capacity_check (VER-225/226)
+  //
+  // Exercises the SECURITY DEFINER booking path under ranger impersonation:
+  // the ranger-only gate, capacity rejection, and a successful 'Confirmed'
+  // booking with the structured columns populated and capacity incremented.
+  // Everything runs inside a transaction we ROLLBACK, so nothing persists.
+  // ---------------------------------------------------------------------------
+  describe('Illegal Dumping RPC (create_id_booking_with_capacity_check)', () => {
+    // Seed the ID service (idempotent) and force a clean, non-pooled date in
+    // the ranger's client to have capacity. Runs as the connection role
+    // (RLS-bypassing) before any impersonation.
+    async function setupIdDate(): Promise<{ dateId: string; areaId: string } | null> {
+      await pg.query(
+        `INSERT INTO service (name, category_id)
+         SELECT 'Illegal Dumping', c.id FROM category c
+         WHERE c.code = 'id' AND NOT EXISTS (SELECT 1 FROM service s WHERE s.category_id = c.id)`,
+      )
+      const row = await pg.query<{ id: string; collection_area_id: string }>(
+        `SELECT cd.id, cd.collection_area_id
+         FROM collection_date cd
+         JOIN collection_area ca ON ca.id = cd.collection_area_id
+         WHERE ca.client_id = $1 AND ca.capacity_pool_id IS NULL
+         LIMIT 1`,
+        [CLIENT_ID],
+      )
+      if (row.rows.length === 0) return null
+      const dateId = row.rows[0]!.id
+      const areaId = row.rows[0]!.collection_area_id
+      await pg.query(
+        `UPDATE collection_date
+         SET id_capacity_limit = 10, id_units_booked = 0, id_is_closed = false
+         WHERE id = $1`,
+        [dateId],
+      )
+      return { dateId, areaId }
+    }
+
+    async function impersonate(userId: string) {
+      await pg.query('SET LOCAL ROLE authenticated')
+      await pg.query(`SELECT set_config('request.jwt.claims', $1, true)`, [
+        JSON.stringify({ sub: userId, role: 'authenticated' }),
+      ])
+    }
+
+    const CALL = `SELECT create_id_booking_with_capacity_check(
+      $1::uuid, $2::uuid, $3::numeric, $4::numeric, $5::text, $6::text, $7::text[], $8::text[], $9::text
+    ) AS r`
+
+    it('creates a Confirmed ID booking with structured columns + increments capacity', async () => {
+      await pg.query('BEGIN')
+      try {
+        const ctx = await setupIdDate()
+        if (!ctx) return
+        await impersonate(USERS.ranger)
+
+        const res = await pg.query<{ r: { booking_id: string; ref: string } }>(CALL, [
+          ctx.dateId,
+          ctx.areaId,
+          -32.27,
+          115.75,
+          '12 Test St, Safety Bay',
+          'Access via rear lane',
+          ['https://example.com/p1.jpg', 'https://example.com/p2.jpg'],
+          ['General / Mixed', 'Mattress'],
+          'Medium (1-3 utes)',
+        ])
+        const { booking_id, ref } = res.rows[0]!.r
+        expect(ref).toMatch(/-/)
+
+        // Verify with full visibility.
+        await pg.query('RESET ROLE')
+        const b = await pg.query<{
+          type: string
+          status: string
+          geo_address: string
+          id_volume: string
+          id_waste_types: string[]
+          photo_count: number
+          items: number
+          units: string
+        }>(
+          `SELECT type, status, geo_address, id_volume, id_waste_types,
+                  array_length(photos, 1) AS photo_count,
+                  (SELECT count(*)::int FROM booking_item WHERE booking_id = $1) AS items,
+                  (SELECT id_units_booked FROM collection_date WHERE id = $2) AS units
+           FROM booking WHERE id = $1`,
+          [booking_id, ctx.dateId],
+        )
+        const row = b.rows[0]!
+        expect(row.type).toBe('Illegal Dumping')
+        expect(row.status).toBe('Confirmed')
+        expect(row.geo_address).toBe('12 Test St, Safety Bay')
+        expect(row.id_volume).toBe('Medium (1-3 utes)')
+        expect(row.id_waste_types).toEqual(['General / Mixed', 'Mattress'])
+        expect(row.photo_count).toBe(2)
+        expect(row.items).toBe(1)
+        expect(Number(row.units)).toBeGreaterThanOrEqual(1)
+      } finally {
+        await pg.query('ROLLBACK')
+      }
+    })
+
+    it('rejects when no ID capacity remains', async () => {
+      await pg.query('BEGIN')
+      try {
+        const ctx = await setupIdDate()
+        if (!ctx) return
+        await pg.query(
+          `UPDATE collection_date SET id_capacity_limit = 0, id_units_booked = 0 WHERE id = $1`,
+          [ctx.dateId],
+        )
+        await impersonate(USERS.ranger)
+
+        let err: Error | null = null
+        try {
+          await pg.query(CALL, [
+            ctx.dateId, ctx.areaId, -32.27, 115.75, 'x', '', [], ['General / Mixed'], 'Small',
+          ])
+        } catch (e) {
+          err = e as Error
+        }
+        expect(err?.message ?? '').toMatch(/capacity/i)
+      } finally {
+        await pg.query('ROLLBACK')
+      }
+    })
+
+    it('rejects a non-ranger caller', async () => {
+      await pg.query('BEGIN')
+      try {
+        const ctx = await setupIdDate()
+        if (!ctx) return
+        await impersonate(USERS.resident)
+
+        let err: Error | null = null
+        try {
+          await pg.query(CALL, [
+            ctx.dateId, ctx.areaId, -32.27, 115.75, 'x', '', [], ['General / Mixed'], 'Small',
+          ])
+        } catch (e) {
+          err = e as Error
+        }
+        expect(err?.message ?? '').toMatch(/ranger/i)
+      } finally {
+        await pg.query('ROLLBACK')
+      }
+    })
+  })
 })
