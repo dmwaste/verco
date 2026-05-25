@@ -26,6 +26,10 @@ interface Booking {
   notes: string | null
   latitude: number | null
   longitude: number | null
+  geo_address: string | null
+  photos: string[]
+  id_waste_types: string[]
+  id_volume: string | null
   collection_area: { name: string; code: string }
   eligible_properties: {
     address: string
@@ -42,12 +46,55 @@ interface RunSheetClientProps {
 
 function getAddress(b: Booking): { street: string; suburb: string } {
   const prop = b.eligible_properties as Booking['eligible_properties']
-  const full = prop?.formatted_address ?? prop?.address ?? ''
+  // ID bookings have no property — resolve the address from the GPS lookup.
+  const full = prop?.formatted_address ?? prop?.address ?? b.geo_address ?? ''
   const parts = full.split(',')
   return {
     street: parts[0]?.trim() ?? full,
     suburb: parts.slice(1).join(',').trim() || '',
   }
+}
+
+function IdDetail({ booking }: { booking: Booking }) {
+  const wasteTypes = booking.id_waste_types ?? []
+  const volume = booking.id_volume
+  const photos = booking.photos ?? []
+  if (wasteTypes.length === 0 && !volume && photos.length === 0) return null
+
+  return (
+    <div className="flex flex-col gap-2">
+      {(wasteTypes.length > 0 || volume) && (
+        <div className="flex flex-wrap gap-1.5">
+          {wasteTypes.map((w) => (
+            <span
+              key={w}
+              className="inline-flex rounded-full bg-[#E8EEF2] px-2.5 py-0.5 text-[11px] font-medium text-[var(--brand)]"
+            >
+              {w}
+            </span>
+          ))}
+          {volume && (
+            <span className="inline-flex rounded-full bg-[#FFF3EA] px-2.5 py-0.5 text-[11px] font-medium text-[#8B4000]">
+              {volume}
+            </span>
+          )}
+        </div>
+      )}
+      {photos.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {photos.map((url, i) => (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              key={i}
+              src={url}
+              alt={`Evidence ${i + 1}`}
+              className="size-14 rounded-lg object-cover"
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  )
 }
 
 function getMapsUrl(b: Booking): string | null {
@@ -134,6 +181,7 @@ export function RunSheetClient({ bookings }: RunSheetClientProps) {
             const { street, suburb } = getAddress(booking)
             const mapsUrl = getMapsUrl(booking)
             const isMud = booking.type === 'MUD'
+            const isId = booking.type === 'Illegal Dumping'
 
             return (
               <div
@@ -145,6 +193,7 @@ export function RunSheetClient({ bookings }: RunSheetClientProps) {
                     <div className="font-[family-name:var(--font-heading)] text-xs font-semibold text-[#8FA5B8]">
                       {booking.ref}
                       {isMud && ' · MUD'}
+                      {isId && ' · ID'}
                     </div>
                     <div className="text-sm font-semibold leading-snug text-[var(--brand)]">
                       {street}
@@ -162,23 +211,27 @@ export function RunSheetClient({ bookings }: RunSheetClientProps) {
                   )}
                 </div>
 
-                {/* Service chips */}
-                <div className="flex flex-wrap gap-1.5">
-                  {booking.booking_item.map((item) => (
-                    <span
-                      key={item.id}
-                      className={`inline-flex rounded-full px-2.5 py-0.5 text-[11px] font-medium ${
-                        item.is_extra
-                          ? 'bg-[#FFF3EA] text-[#8B4000]'
-                          : 'bg-[#E8EEF2] text-[var(--brand)]'
-                      }`}
-                    >
-                      {(item.service as { name: string }).name} &times;{' '}
-                      {item.no_services}
-                      {item.is_extra && ' (extra)'}
-                    </span>
-                  ))}
-                </div>
+                {/* ID evidence detail, or service chips for other types */}
+                {isId ? (
+                  <IdDetail booking={booking} />
+                ) : (
+                  <div className="flex flex-wrap gap-1.5">
+                    {booking.booking_item.map((item) => (
+                      <span
+                        key={item.id}
+                        className={`inline-flex rounded-full px-2.5 py-0.5 text-[11px] font-medium ${
+                          item.is_extra
+                            ? 'bg-[#FFF3EA] text-[#8B4000]'
+                            : 'bg-[#E8EEF2] text-[var(--brand)]'
+                        }`}
+                      >
+                        {(item.service as { name: string }).name} &times;{' '}
+                        {item.no_services}
+                        {item.is_extra && ' (extra)'}
+                      </span>
+                    ))}
+                  </div>
+                )}
 
                 {/* MUD allocation prompt */}
                 {isMud && (
@@ -262,6 +315,7 @@ export function RunSheetClient({ bookings }: RunSheetClientProps) {
 
           {completed.map((booking) => {
             const { street, suburb } = getAddress(booking)
+            const isId = booking.type === 'Illegal Dumping'
             return (
               <div
                 key={booking.id}
@@ -281,17 +335,21 @@ export function RunSheetClient({ bookings }: RunSheetClientProps) {
                   </div>
                   <BookingStatusBadge status={booking.status} />
                 </div>
-                <div className="flex flex-wrap gap-1.5">
-                  {booking.booking_item.map((item) => (
-                    <span
-                      key={item.id}
-                      className="inline-flex rounded-full bg-[#E8EEF2] px-2.5 py-0.5 text-[11px] font-medium text-[var(--brand)]"
-                    >
-                      {(item.service as { name: string }).name} &times;{' '}
-                      {item.no_services}
-                    </span>
-                  ))}
-                </div>
+                {isId ? (
+                  <IdDetail booking={booking} />
+                ) : (
+                  <div className="flex flex-wrap gap-1.5">
+                    {booking.booking_item.map((item) => (
+                      <span
+                        key={item.id}
+                        className="inline-flex rounded-full bg-[#E8EEF2] px-2.5 py-0.5 text-[11px] font-medium text-[var(--brand)]"
+                      >
+                        {(item.service as { name: string }).name} &times;{' '}
+                        {item.no_services}
+                      </span>
+                    ))}
+                  </div>
+                )}
               </div>
             )
           })}
