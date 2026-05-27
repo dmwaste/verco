@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { checkMudAllowance } from '@/lib/mud/allowance'
 import { MUD_UNITS_PER_SERVICE } from '@/lib/mud/capacity'
+import { invokeSendNotification } from '@/lib/notifications/invoke'
 
 type Result<T, E = string> = { ok: true; data: T } | { ok: false; error: E }
 
@@ -194,11 +195,12 @@ export async function createMudBooking(
   })
 
   // ── 7. Call the capacity-safe RPC ───────────────────────────────────────
-  // Pass the staff user as p_actor_id so audit_log shows their name on the
-  // booking + booking_item INSERTs. The supabase client here is the
-  // authenticated cookie-session client, but the RPC inserts under its own
-  // execution context — auth.uid() is preserved for direct .update() calls
-  // but the explicit param removes any ambiguity for trigger fallback.
+  // p_type='MUD' so the booking is created atomically as a MUD record (no
+  // post-write UPDATE race). p_status='Confirmed' so free MUD bookings skip
+  // the legacy Submitted step (CLAUDE.md §7 — free path lands directly in
+  // Confirmed; migration 20260518005936 documents this for create-booking
+  // EF, and the BEFORE-UPDATE state-machine trigger doesn't gate INSERTs).
+  // p_actor_id stamps audit_log with the acting staff member.
   const { data: { user: actingUser } } = await supabase.auth.getUser()
 
   const { data: rpcResult, error: rpcError } = await supabase.rpc(
@@ -214,9 +216,10 @@ export async function createMudBooking(
       p_area_code: area.code,
       p_location: property.waste_location_notes ?? '',
       p_notes: input.notes ?? '',
-      p_status: 'Submitted',
+      p_status: 'Confirmed',
       p_items: rpcItems,
       p_actor_id: actingUser?.id,
+      p_type: 'MUD',
     }
   )
 
@@ -229,20 +232,13 @@ export async function createMudBooking(
 
   const result = rpcResult as { booking_id: string; ref: string }
 
-  // ── 8. Mark the booking as MUD type (the RPC defaults to Residential) ───
-  const { error: typeError } = await supabase
-    .from('booking')
-    .update({ type: 'MUD' })
-    .eq('id', result.booking_id)
-
-  if (typeError) {
-    // Booking exists but type wasn't updated — log and return error
-    console.error('Failed to set MUD type on booking', result.booking_id, typeError)
-    return {
-      ok: false,
-      error: `Booking created (${result.ref}) but failed to mark as MUD: ${typeError.message}`,
-    }
-  }
+  // Fire booking_created to the strata contact (email + SMS — per-channel
+  // idempotency per memory feedback-multi-channel-idempotency.md).
+  // Fire-and-forget; failure is logged but does not block the booking.
+  void invokeSendNotification(supabase, {
+    type: 'booking_created',
+    booking_id: result.booking_id,
+  })
 
   revalidatePath(`/admin/properties/${input.property_id}`)
   revalidatePath('/admin/bookings')

@@ -2303,6 +2303,7 @@ export type Database = {
           p_notes: string
           p_property_id: string
           p_status: string
+          p_type?: string
         }
         Returns: Json
       }
