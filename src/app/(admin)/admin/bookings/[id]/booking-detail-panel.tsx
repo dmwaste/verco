@@ -15,6 +15,7 @@ import { cn } from '@/lib/utils'
 import type { Database } from '@/lib/supabase/types'
 import type { ResolvedAuditEntry } from '@/lib/audit/resolve'
 import { AuditTimeline } from '@/components/audit-timeline'
+import type { MudContext } from './mud-context'
 
 type BookingStatus = Database['public']['Enums']['booking_status']
 
@@ -23,6 +24,7 @@ interface BookingItem {
   service_id: string
   collection_date_id: string
   no_services: number
+  actual_services: number | null
   is_extra: boolean
   unit_price_cents: number
   service: { name: string }
@@ -56,6 +58,7 @@ interface Booking {
 interface BookingDetailPanelProps {
   booking: Booking
   auditLogs: ResolvedAuditEntry[]
+  mudContext?: MudContext | null
 }
 
 // Pencil icon shared across edit buttons
@@ -71,6 +74,7 @@ function PencilIcon() {
 export function BookingDetailPanel({
   booking,
   auditLogs,
+  mudContext,
 }: BookingDetailPanelProps) {
   const router = useRouter()
   const supabase = createClient()
@@ -103,6 +107,7 @@ export function BookingDetailPanel({
   const property = booking.eligible_properties as { formatted_address: string | null; address: string } | null
   const contact = booking.contact as { first_name: string; last_name: string; full_name: string; mobile_e164: string | null; email: string } | null
   const isId = booking.type === 'Illegal Dumping'
+  const isMud = booking.type === 'MUD' && mudContext !== null && mudContext !== undefined
   // ID bookings have no property — use the GPS-resolved address.
   const address = property?.formatted_address ?? property?.address ?? booking.geo_address ?? '—'
   const idMapsUrl =
@@ -126,8 +131,16 @@ export function BookingDetailPanel({
   const canCancel = ['Pending Payment', 'Submitted', 'Confirmed'].includes(booking.status)
   const canEdit = ['Pending Payment', 'Submitted', 'Confirmed'].includes(booking.status)
 
-  // Services edit URL — wizard handles pricing/capacity
-  const editServicesUrl = canEdit && booking.property_id && booking.collection_area_id
+  // Services edit URL — wizard handles pricing/capacity.
+  //
+  // MUD bookings are excluded here: the public wizard flow is shaped for
+  // SUDs (paid extras, per-unit booking, address-form redirect on is_mud).
+  // Editing services on a MUD booking would either (a) miss the MUD
+  // allowance re-check (double-spend risk against the per-FY cap) or
+  // (b) need a dedicated MUD edit flow — out of scope here. For now,
+  // admins cancel and rebook from /admin/properties/[id] (see the
+  // "Edit services not supported for MUD" hint below).
+  const editServicesUrl = canEdit && !isMud && booking.property_id && booking.collection_area_id
     ? `/book/services?${new URLSearchParams({
         property_id: booking.property_id,
         collection_area_id: booking.collection_area_id,
@@ -362,6 +375,89 @@ export function BookingDetailPanel({
           <span aria-hidden="true">&#10005;</span>
         </Link>
       </div>
+
+      {/* MUD Context — only for MUD bookings */}
+      {mudContext && (
+        <div className="border-b border-gray-100 bg-[#FAF8FF] px-5 py-4">
+          <div className="mb-3 flex items-center justify-between">
+            <span className="text-2xs font-semibold uppercase tracking-wide text-[#805AD5]">
+              MUD Context
+            </span>
+            <Link
+              href={`/admin/properties/${mudContext.propertyId}`}
+              className="text-xs font-medium text-[#805AD5] hover:underline"
+            >
+              View property &rarr;
+            </Link>
+          </div>
+
+          <div className="flex flex-col gap-2.5">
+            <div className="flex justify-between">
+              <span className="w-[120px] shrink-0 text-xs font-medium text-gray-500">MUD code</span>
+              <span className="text-right text-body-sm text-gray-900">
+                {mudContext.mudCode ?? '—'}
+              </span>
+            </div>
+            <div className="flex justify-between">
+              <span className="w-[120px] shrink-0 text-xs font-medium text-gray-500">Unit count</span>
+              <span className="text-right text-body-sm text-gray-900">{mudContext.unitCount}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="w-[120px] shrink-0 text-xs font-medium text-gray-500">Onboarding</span>
+              <span className="text-right text-body-sm text-gray-900">
+                {mudContext.onboardingStatus ?? '—'}
+              </span>
+            </div>
+
+            {mudContext.strataContact && (
+              <div className="mt-1 border-t border-gray-100 pt-2.5">
+                <div className="mb-1.5 text-2xs font-semibold uppercase tracking-wide text-gray-500">
+                  Strata contact
+                </div>
+                <div className="text-body-sm text-gray-900">{mudContext.strataContact.fullName}</div>
+                {mudContext.strataContact.email && (
+                  <div className="text-xs text-gray-600">{mudContext.strataContact.email}</div>
+                )}
+                {mudContext.strataContact.mobile && (
+                  <div className="text-xs text-gray-600">{mudContext.strataContact.mobile}</div>
+                )}
+              </div>
+            )}
+
+            {mudContext.allowance.length > 0 && (
+              <div className="mt-1 border-t border-gray-100 pt-2.5">
+                <div className="mb-1.5 text-2xs font-semibold uppercase tracking-wide text-gray-500">
+                  FY allowance
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  {mudContext.allowance.map((row) => {
+                    const remaining = row.total_cap - row.used
+                    const exhausted = remaining <= 0
+                    return (
+                      <div key={row.service_id} className="flex items-baseline justify-between gap-2">
+                        <span className="truncate text-xs text-gray-700">{row.service_name}</span>
+                        <span
+                          className={cn(
+                            'shrink-0 text-xs font-medium tabular-nums',
+                            exhausted ? 'text-red-600' : 'text-gray-900'
+                          )}
+                        >
+                          {row.used}/{row.total_cap}
+                          {row.override_extras > 0 && (
+                            <span className="ml-1 text-[10px] text-gray-500">
+                              (+{row.override_extras})
+                            </span>
+                          )}
+                        </span>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Property + Collection Details */}
       <div className="border-b border-gray-100 px-5 py-4">
@@ -641,6 +737,14 @@ export function BookingDetailPanel({
               <PencilIcon />
             </Link>
           )}
+          {isMud && canEdit && (
+            <span
+              className="text-2xs text-gray-500"
+              title="Edit services not supported for MUD bookings. Cancel this booking and rebook from the property page."
+            >
+              Cancel &amp; rebook to edit
+            </span>
+          )}
         </div>
         <div className="flex flex-col gap-1.5">
           {includedItems.map((item) => (
@@ -651,7 +755,13 @@ export function BookingDetailPanel({
               <span className="text-gray-900">
                 {(item.service as { name: string }).name} &times; {item.no_services}
               </span>
-              <span className="font-medium text-[#006A38]">Included</span>
+              {isMud && item.actual_services != null ? (
+                <span className="font-medium text-[#006A38]" title="Units actually serviced at closeout">
+                  {item.actual_services} collected
+                </span>
+              ) : (
+                <span className="font-medium text-[#006A38]">Included</span>
+              )}
             </div>
           ))}
           {extraItems.map((item) => (
