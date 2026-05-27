@@ -62,6 +62,12 @@ const ICON = {
   clients: (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z"/><path d="M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2"/><path d="M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2"/><path d="M10 6h4"/><path d="M10 10h4"/><path d="M10 14h4"/><path d="M10 18h4"/></svg>
   ),
+  muds: (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 21h18"/><path d="M5 21V7l8-4v18"/><path d="M19 21V11l-6-4"/><path d="M9 9v.01"/><path d="M9 12v.01"/><path d="M9 15v.01"/><path d="M9 18v.01"/></svg>
+  ),
+  illegalDumping: (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="12" y1="11" x2="12" y2="15"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg>
+  ),
 }
 
 interface AdminSidebarProps {
@@ -101,6 +107,8 @@ export function AdminSidebar({ counts, role }: AdminSidebarProps) {
           icon: ICON.calendar,
         },
         { label: 'Properties', href: '/admin/properties', icon: ICON.properties },
+        { label: 'MUDs', href: '/admin/muds', icon: ICON.muds },
+        { label: 'Illegal Dumping', href: '/admin/illegal-dumping', icon: ICON.illegalDumping },
         { label: 'Allocations', href: '/admin/allocations', icon: ICON.allocations },
       ],
     },
