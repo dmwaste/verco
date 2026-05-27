@@ -23,6 +23,11 @@
 --
 -- Additive — does not replace or weaken existing PII protections. Field
 -- and ranger roles still receive zero contact info (CLAUDE.md §4 holds).
+--
+-- Note: `accessible_client_ids()` is a SETOF function. Postgres rejects
+-- set-returning functions in RLS USING/WHERE clauses (SQLSTATE 0A000) —
+-- the workaround is `IN (SELECT accessible_client_ids())`, matching the
+-- pattern already used by `contacts_staff_select_via_profiles`.
 
 CREATE POLICY contacts_admin_strata_select ON contacts
   FOR SELECT
@@ -43,7 +48,7 @@ CREATE POLICY contacts_admin_strata_select ON contacts
             AND ca.contractor_id = current_user_contractor_id())
           OR
           (current_user_role() IN ('client-admin'::app_role, 'client-staff'::app_role)
-            AND ca.client_id = ANY(accessible_client_ids()))
+            AND ca.client_id IN (SELECT accessible_client_ids()))
         )
     )
   );
