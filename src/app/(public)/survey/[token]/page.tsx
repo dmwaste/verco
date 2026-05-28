@@ -1,7 +1,6 @@
 import { notFound } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { SurveyForm } from './survey-form'
-import { ThankYou } from './thank-you'
 import { AlreadySubmitted } from './already-submitted'
 import type { SurveyResponses } from './actions'
 

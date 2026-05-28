@@ -60,6 +60,7 @@ export function NewClientForm() {
           type="text"
           {...register('name', {
             onChange: (e) => {
+              // eslint-disable-next-line react-hooks/incompatible-library -- react-hook-form's watch() returns subscription-backed values that the React Compiler can't statically analyze; reading it inside an event handler is correct
               const current = watch('slug')
               const autoSlug = slugify(e.target.value)
               // Only auto-update slug if it matches what auto-generation would produce

@@ -1,8 +1,5 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import type { Database } from '@/lib/supabase/types'
-
-type ClientRow = Database['public']['Tables']['client']['Row']
 
 interface TenantResponse {
   id: string

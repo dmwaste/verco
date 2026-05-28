@@ -2,10 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 import { format, startOfWeek, endOfWeek, formatDistanceToNow } from 'date-fns'
 import { BookingStatusBadge } from '@/components/booking/booking-status-badge'
 import Link from 'next/link'
-import type { Database } from '@/lib/supabase/types'
 import { effectiveCapacity, indexPoolDates } from '@/lib/capacity/effective-capacity'
-
-type BookingStatus = Database['public']['Enums']['booking_status']
 
 export default async function AdminDashboardPage() {
   const supabase = await createClient()

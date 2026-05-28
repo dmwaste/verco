@@ -4,13 +4,11 @@ import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { format } from 'date-fns'
 import { createClient } from '@/lib/supabase/client'
-import { BookingStatusBadge } from '@/components/booking/booking-status-badge'
 import { getStatusStyle } from '@/lib/ui/status-styles'
 import Link from 'next/link'
 import { SkeletonRow } from '@/components/ui/skeleton'
 import type { Database } from '@/lib/supabase/types'
 
-type NcnStatus = Database['public']['Enums']['ncn_status']
 type NcnReason = Database['public']['Enums']['ncn_reason']
 
 const STATUS_OPTIONS: string[] = ['Issued', 'Disputed', 'Under Review', 'Resolved', 'Rescheduled', 'Closed']

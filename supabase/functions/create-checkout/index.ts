@@ -2,7 +2,7 @@ import { serve } from 'https://deno.land/std@0.177.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.100.0'
 import { z } from 'https://esm.sh/zod@3.23.8'
 import Stripe from 'https://esm.sh/stripe@17.7.0?target=deno'
-import { corsHeaders, jsonResponse, optionsResponse, errorResponse } from '../_shared/cors.ts'
+import { jsonResponse, optionsResponse, errorResponse } from '../_shared/cors.ts'
 
 const CreateCheckoutRequest = z.object({
   booking_id: z.string().uuid(),

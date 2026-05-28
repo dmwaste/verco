@@ -7,9 +7,6 @@ import { createClient } from '@/lib/supabase/client'
 import { getStatusStyle } from '@/lib/ui/status-styles'
 import Link from 'next/link'
 import { SkeletonRow } from '@/components/ui/skeleton'
-import type { Database } from '@/lib/supabase/types'
-
-type NpStatus = Database['public']['Enums']['np_status']
 
 const STATUS_OPTIONS: string[] = ['Issued', 'Disputed', 'Under Review', 'Resolved', 'Rebooked', 'Closed']
 

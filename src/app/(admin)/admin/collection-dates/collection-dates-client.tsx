@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { format, addDays, addWeeks, addMonths } from 'date-fns'
+import { format, addWeeks, addMonths } from 'date-fns'
 import { Dialog } from '@base-ui/react/dialog'
 import { createClient } from '@/lib/supabase/client'
 import { SkeletonRow } from '@/components/ui/skeleton'
