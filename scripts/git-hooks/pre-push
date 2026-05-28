@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# Pre-push hook — verifies notification + schedule-transition mirrors are in sync
+# with their _shared/ source-of-truth files before allowing a push.
+#
+# Wired up by the `prepare` script in package.json, which sets
+# core.hooksPath=scripts/git-hooks during `pnpm install`. The CI guardrail in
+# .github/workflows/ci.yml is the final safety net, but local pre-push catches
+# drift before it ever leaves the laptop — a few seconds vs an aborted CI run.
+#
+# Bypass (when truly intentional): git push --no-verify
+set -e
+
+# Resolve repo root so this works from any cwd (including hook invocation from .git/).
+ROOT=$(git rev-parse --show-toplevel)
+cd "$ROOT"
+
+if [ ! -x scripts/sync-mirrors.sh ]; then
+  # Fresh clone before pnpm install, or someone removed the script — don't block.
+  exit 0
+fi
+
+bash scripts/sync-mirrors.sh --check
