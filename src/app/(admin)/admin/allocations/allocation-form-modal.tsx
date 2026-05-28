@@ -64,6 +64,7 @@ export function AllocationFormModal({ open, onOpenChange, onSave, propertyId, pr
   // Reset form when modal opens
   useEffect(() => {
     if (open) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional modal-reset on `open` prop transition; the extra render is desired
       setFormData({ service_id: '', extra_allocations: '', reason: '' })
       setErrors({})
     }

@@ -579,6 +579,7 @@ export function ConfirmForm() {
         {/* Contact Information */}
         <form
           id="confirm-form"
+          // eslint-disable-next-line react-hooks/refs -- react-hook-form's handleSubmit reads refs at invocation time, not during render
           onSubmit={handleSubmit(onSubmit)}
           className="rounded-xl bg-white p-6 shadow-sm"
         >

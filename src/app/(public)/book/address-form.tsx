@@ -136,6 +136,7 @@ export function AddressForm({ clientId }: { clientId: string }) {
   // Auto-resolve address from search params on mount
   useEffect(() => {
     if (initialAddress && !hasAutoResolved) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- one-shot guard flag for auto-resolve on mount; initialAddress derives from searchParams
       setHasAutoResolved(true)
       void lookupProperty(initialAddress)
     }

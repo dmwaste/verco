@@ -36,11 +36,14 @@ export function NotificationsClient() {
   const [retryingIds, setRetryingIds] = useState<Set<string>>(new Set())
   const [retryErrors, setRetryErrors] = useState<Record<string, string>>({})
 
-  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
-
   const { data: logs, isLoading } = useQuery({
     queryKey: ['admin-notification-failures', typeFilter],
     queryFn: async () => {
+      // Date.now() lives inside queryFn (impurity is expected here) rather
+      // than at render scope. Result: react-hooks/purity stays happy, and
+      // the queryKey doesn't need a stable date.
+      const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
+
       let query = supabase
         .from('notification_log')
         .select(
