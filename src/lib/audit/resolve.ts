@@ -98,7 +98,7 @@ export async function resolveAuditLogs(
   // 5. Build resolved entries
   return allEntries.map((entry) => {
     const changes = diffData(entry.old_data as Record<string, unknown> | null, entry.new_data as Record<string, unknown> | null, fkLabelMap)
-    const summary = generateSummary(entry.action, entry.table_name, changes, entry.new_data as Record<string, unknown> | null)
+    const summary = generateSummary(entry.action, entry.table_name, changes)
 
     return {
       id: entry.id,
@@ -369,7 +369,6 @@ function generateSummary(
   action: string,
   tableName: string,
   changes: AuditChange[],
-  newData: Record<string, unknown> | null,
 ): string {
   const tableLabel = TABLE_LABELS[tableName] ?? tableName
 

@@ -36,6 +36,14 @@ export function ConfirmForm() {
   const location = searchParams.get('location') ?? ''
   const notes = searchParams.get('notes') ?? ''
   const onBehalf = searchParams.get('on_behalf') === 'true'
+  // On-behalf edit flow params — extracted at component scope so the
+  // useEffect/useCallback below can depend on the stable values, not the
+  // whole searchParams object.
+  const replacesParam = searchParams.get('replaces')
+  const contactFirstName = searchParams.get('contact_first_name')
+  const contactLastName = searchParams.get('contact_last_name')
+  const contactEmail = searchParams.get('contact_email')
+  const contactMobile = searchParams.get('contact_mobile')
 
   const selectedItems = decodeItems(itemsParam)
   const supabase = createClient()
@@ -67,10 +75,6 @@ export function ConfirmForm() {
   useEffect(() => {
     if (onBehalf) {
       // On-behalf: prefill from URL params if available (edit flow passes these)
-      const contactFirstName = searchParams.get('contact_first_name')
-      const contactLastName = searchParams.get('contact_last_name')
-      const contactEmail = searchParams.get('contact_email')
-      const contactMobile = searchParams.get('contact_mobile')
       if (contactFirstName) setValue('first_name', contactFirstName)
       if (contactLastName) setValue('last_name', contactLastName)
       if (contactEmail) setValue('email', contactEmail)
@@ -113,7 +117,7 @@ export function ConfirmForm() {
     }
 
     void prefill()
-  }, [supabase, setValue, onBehalf])
+  }, [supabase, setValue, onBehalf, contactFirstName, contactLastName, contactEmail, contactMobile])
 
   // Handle mobile input with auto-formatting
   function handleMobileChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -277,7 +281,6 @@ export function ConfirmForm() {
       // contact happens to share that email instead of creating one.
       // See create-booking EF — it branches on auth header to decide.
       const functionUrl = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/create-booking`
-      const replacesParam = searchParams.get('replaces')
       const requestBody = {
         property_id: propertyId,
         collection_area_id: collectionAreaId,
@@ -382,7 +385,7 @@ export function ConfirmForm() {
       setSubmitError('An unexpected error occurred. Please try again.')
       setIsSubmitting(false)
     }
-  }, [selectedItems, propertyId, collectionAreaId, collectionDateId, location, notes, router, onBehalf])
+  }, [selectedItems, propertyId, collectionAreaId, collectionDateId, location, notes, router, onBehalf, replacesParam, supabase])
 
   // OTP verification after code entry
   const verifyOtp = useCallback(async (code: string) => {

@@ -50,14 +50,12 @@ interface TicketDetailClientProps {
   ticket: TicketData
   responses: ResponseData[]
   linkedBooking: LinkedBooking | null
-  userId: string
 }
 
 export function TicketDetailClient({
   ticket,
   responses: initialResponses,
   linkedBooking,
-  userId,
 }: TicketDetailClientProps) {
   const supabase = createClient()
   const [responses, setResponses] = useState(initialResponses)

@@ -152,7 +152,6 @@ export default async function TicketDetailPage({
         }}
         responses={enrichedResponses}
         linkedBooking={linkedBooking}
-        userId={user.id}
       />
     </main>
   )

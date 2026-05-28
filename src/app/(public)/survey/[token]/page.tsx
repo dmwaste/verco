@@ -2,7 +2,6 @@ import { notFound } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { SurveyForm } from './survey-form'
 import { AlreadySubmitted } from './already-submitted'
-import type { SurveyResponses } from './actions'
 
 interface SurveyPageProps {
   params: Promise<{ token: string }>
@@ -25,10 +24,9 @@ export default async function SurveyPage({ params }: SurveyPageProps) {
 
   // Already submitted — Screen 4
   if (survey.submitted_at) {
-    const responses = survey.responses as unknown as SurveyResponses | null
     return (
       <main className="mx-auto w-full max-w-5xl">
-        <AlreadySubmitted bookingRef={survey.booking_id} responses={responses} />
+        <AlreadySubmitted />
       </main>
     )
   }
