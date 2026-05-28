@@ -2,10 +2,7 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { invokeSendNotification } from '@/lib/notifications/invoke'
-
-type Result<T, E = string> =
-  | { ok: true; data: T }
-  | { ok: false; error: E }
+import type { Result } from '@/lib/result'
 
 /**
  * Cancel a booking. Checks the cancellation cutoff (3:30pm AWST day before

@@ -5,6 +5,7 @@ import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { createClient } from '@/lib/supabase/client'
+import { invokeEfWithUserToken } from '@/lib/supabase/invoke-ef-client'
 
 const OTP_LENGTH = 6
 const RESEND_COOLDOWN_SECONDS = 30
@@ -163,44 +164,27 @@ export function ServiceTicketForm({
         // create-ticket validates the caller JWT; send the user's session
         // token, not the public anon key. Both authenticated users and
         // OTP-verified guests have a session by the time we reach here.
-        const {
-          data: { session },
-        } = await supabase.auth.getSession()
-        if (!session?.access_token) {
-          setSubmitError('Session expired. Please verify your email again.')
-          setIsSubmitting(false)
-          return
-        }
-
-        const res = await fetch(
-          `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/create-ticket`,
-          {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              Authorization: `Bearer ${session.access_token}`,
-            },
-            body: JSON.stringify(requestBody),
-          }
+        const result = await invokeEfWithUserToken<{ display_id: string }>(
+          supabase,
+          'create-ticket',
+          requestBody
         )
 
-        if (!res.ok) {
-          const errorBody = await res.text()
-          console.error('create-ticket error:', res.status, errorBody)
+        if (!result.ok) {
+          console.error('create-ticket error:', result.error)
+          let errorMsg: string
           try {
-            const parsed = JSON.parse(errorBody)
-            setSubmitError(
-              parsed.error ?? `Failed to submit enquiry (${res.status})`
-            )
+            const parsed = JSON.parse(result.error) as { error?: string }
+            errorMsg = parsed.error ?? 'Failed to submit enquiry'
           } catch {
-            setSubmitError(`Failed to submit enquiry (${res.status})`)
+            errorMsg = result.error || 'Failed to submit enquiry'
           }
+          setSubmitError(errorMsg)
           setIsSubmitting(false)
           return
         }
 
-        const result = (await res.json()) as { display_id: string }
-        setSuccessDisplayId(result.display_id)
+        setSuccessDisplayId(result.data.display_id)
       } catch {
         setSubmitError('An unexpected error occurred. Please try again.')
         setIsSubmitting(false)

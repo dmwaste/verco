@@ -5,6 +5,7 @@ import { useSearchParams } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
 import { format } from 'date-fns'
 import { createClient } from '@/lib/supabase/client'
+import { invokeEfWithUserToken } from '@/lib/supabase/invoke-ef-client'
 import { BookingStatusBadge } from '@/components/booking/booking-status-badge'
 import { SkeletonRow } from '@/components/ui/skeleton'
 import Link from 'next/link'
@@ -48,6 +49,7 @@ export function BookingsListClient({ isContractorAdmin }: BookingsListClientProp
   const searchParams = useSearchParams()
   const supabase = createClient()
   const [payingBookingId, setPayingBookingId] = useState<string | null>(null)
+  const [payError, setPayError] = useState<string | null>(null)
 
   const [search, setSearch] = useState(searchParams.get('search') ?? '')
   const [statusFilter, setStatusFilter] = useState(searchParams.get('status') ?? '')
@@ -177,43 +179,32 @@ export function BookingsListClient({ isContractorAdmin }: BookingsListClientProp
   const handlePayNow = useCallback(async (bookingId: string) => {
     setPayingBookingId(bookingId)
     try {
-      const { data: { session } } = await supabase.auth.getSession()
-      const token = session?.access_token
-
       const origin = window.location.origin
-      const res = await fetch(
-        `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/create-checkout`,
+      const efResult = await invokeEfWithUserToken<{ checkout_url?: string }>(
+        supabase,
+        'create-checkout',
         {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({
-            booking_id: bookingId,
-            success_url: `${origin}/admin/bookings`,
-            cancel_url: `${origin}/admin/bookings`,
-          }),
+          booking_id: bookingId,
+          success_url: `${origin}/admin/bookings`,
+          cancel_url: `${origin}/admin/bookings`,
         }
       )
 
-      if (!res.ok) {
-        console.error('create-checkout error:', res.status, await res.text())
-        alert('Failed to create payment session')
+      if (!efResult.ok) {
+        setPayError(`Failed to create payment session: ${efResult.error}`)
+        setPayingBookingId(null)
+        return
+      }
+      if (!efResult.data.checkout_url) {
+        setPayError('No checkout URL returned. Please try again.')
         setPayingBookingId(null)
         return
       }
 
-      const data = (await res.json()) as { checkout_url?: string }
-      if (data.checkout_url) {
-        window.location.href = data.checkout_url
-      } else {
-        alert('Failed to create payment session')
-        setPayingBookingId(null)
-      }
+      window.location.href = efResult.data.checkout_url
     } catch (err) {
       console.error('Pay now error:', err)
-      alert('Failed to create payment session')
+      setPayError('An unexpected error occurred. Please try again.')
       setPayingBookingId(null)
     }
   }, [supabase])
@@ -305,6 +296,13 @@ export function BookingsListClient({ isContractorAdmin }: BookingsListClientProp
           Showing {page * PAGE_SIZE + 1}&ndash;{Math.min((page + 1) * PAGE_SIZE, total)} of {total}
         </span>
       </div>
+
+      {payError && (
+        <div role="alert" className="mx-7 mb-2 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-body-sm text-red-700">
+          {payError}
+          <button type="button" onClick={() => setPayError(null)} className="ml-2 font-semibold underline">Dismiss</button>
+        </div>
+      )}
 
       {/* Table */}
       <div className="flex-1 px-7 pb-6">

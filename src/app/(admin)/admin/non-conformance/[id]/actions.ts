@@ -1,21 +1,8 @@
 'use server'
 
-import { createClient } from '@/lib/supabase/server'
 import type { Database } from '@/lib/supabase/types'
-
-type Result<T, E = string> =
-  | { ok: true; data: T }
-  | { ok: false; error: E }
-
-const STAFF_ROLES = ['contractor-admin', 'contractor-staff', 'client-admin', 'client-staff']
-
-async function verifyStaffRole() {
-  const supabase = await createClient()
-  const { data: role } = await supabase.rpc('current_user_role')
-  if (!role || !STAFF_ROLES.includes(role)) return null
-  const { data: { user } } = await supabase.auth.getUser()
-  return user ? { supabase, userId: user.id } : null
-}
+import type { Result } from '@/lib/result'
+import { verifyStaffRole } from '@/lib/auth/server'
 
 export async function updateNcnStatus(
   ncnId: string,

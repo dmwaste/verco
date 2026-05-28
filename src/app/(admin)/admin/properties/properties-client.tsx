@@ -4,6 +4,7 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import Link from 'next/link'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
+import { invokeEfWithUserToken } from '@/lib/supabase/invoke-ef-client'
 import { SkeletonRow } from '@/components/ui/skeleton'
 import { AllocationFormModal } from '@/app/(admin)/admin/allocations/allocation-form-modal'
 import { SetMudModal } from './set-mud-modal'
@@ -199,28 +200,24 @@ export function PropertiesClient({ clientId, isContractorAdmin }: PropertiesClie
     setGeocodeResult(null)
 
     try {
-      const { data: { session } } = await supabase.auth.getSession()
-      const res = await fetch(
-        `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/geocode-properties`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${session?.access_token ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY}`,
-          },
-          body: JSON.stringify({}),
-        }
+      const efResult = await invokeEfWithUserToken<{ processed?: number; failed?: number }>(
+        supabase,
+        'geocode-properties',
+        {},
+        { fallbackToAnon: true }
       )
 
-      if (!res.ok) {
-        setGeocodeResult(`Geocoding failed (${res.status})`)
+      if (!efResult.ok) {
+        console.error('[geocode-properties] EF error:', efResult.error)
+        setGeocodeResult(`Geocoding failed: ${efResult.error}`)
       } else {
-        const result = await res.json() as { processed?: number; failed?: number }
+        const result = efResult.data
         setGeocodeResult(`Geocoded ${result.processed ?? 0} properties${result.failed ? `, ${result.failed} failed` : ''}`)
         void queryClient.invalidateQueries({ queryKey: ['admin-properties'] })
         void queryClient.invalidateQueries({ queryKey: ['ungeocoded-count'] })
       }
-    } catch {
+    } catch (err) {
+      console.error('[geocode-properties] unexpected error:', err)
       setGeocodeResult('Geocoding failed')
     } finally {
       setIsGeocoding(false)

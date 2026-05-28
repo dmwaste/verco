@@ -163,6 +163,23 @@ jobs:
           fi
           echo "All notification templates in sync."
 
+      - name: Verify schedule-transition mirror is in sync
+        run: |
+          node_file=src/lib/booking/schedule-transition.ts
+          deno_file=supabase/functions/_shared/schedule-transition.ts
+          node_stripped=$(mktemp)
+          deno_stripped=$(mktemp)
+          grep -v '^import ' "$node_file" | grep -v '^//' | grep -v '^ \*' | grep -v '^/\*' | grep -v '^$' > "$node_stripped" || true
+          grep -v '^import ' "$deno_file" | grep -v '^//' | grep -v '^ \*' | grep -v '^/\*' | grep -v '^$' > "$deno_stripped" || true
+          if ! diff -q -w -B "$node_stripped" "$deno_stripped" > /dev/null 2>&1; then
+            echo "::error::schedule-transition mirror drift detected between $node_file and $deno_file"
+            diff -u -w -B "$node_stripped" "$deno_stripped" || true
+            rm -f "$node_stripped" "$deno_stripped"
+            exit 1
+          fi
+          rm -f "$node_stripped" "$deno_stripped"
+          echo "schedule-transition mirrors in sync."
+
   e2e:
     name: E2E Tests
     runs-on: ubuntu-latest

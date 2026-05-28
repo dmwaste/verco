@@ -4,12 +4,9 @@ import { headers } from 'next/headers'
 import { createClient } from '@/lib/supabase/server'
 import { invokeSendNotification } from '@/lib/notifications/invoke'
 import type { Database } from '@/lib/supabase/types'
+import type { Result } from '@/lib/result'
 
 type NcnReason = Database['public']['Enums']['ncn_reason']
-
-type Result<T, E = string> =
-  | { ok: true; data: T }
-  | { ok: false; error: E }
 
 async function validateFieldRole(): Promise<Result<string>> {
   const supabase = await createClient()

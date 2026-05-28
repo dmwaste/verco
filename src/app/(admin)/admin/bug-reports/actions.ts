@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { createClient } from '@/lib/supabase/server'
 import { getCurrentAdminClient } from '@/lib/admin/current-client'
 import type { Database } from '@/lib/supabase/types'
+import type { Result } from '@/lib/result'
 
 type BugCategory = Database['public']['Enums']['bug_report_category']
 type BugPriority = Database['public']['Enums']['bug_report_priority']
@@ -32,8 +33,6 @@ const CreateBugReportInput = z.object({
 })
 
 export type CreateBugReportInput = z.infer<typeof CreateBugReportInput>
-
-type Result<T> = { ok: true; data: T } | { ok: false; error: string }
 
 export async function createBugReport(
   input: CreateBugReportInput

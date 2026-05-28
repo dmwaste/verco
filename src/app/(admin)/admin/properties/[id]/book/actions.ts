@@ -5,19 +5,8 @@ import { createClient } from '@/lib/supabase/server'
 import { checkMudAllowance } from '@/lib/mud/allowance'
 import { MUD_UNITS_PER_SERVICE } from '@/lib/mud/capacity'
 import { invokeSendNotification } from '@/lib/notifications/invoke'
-
-type Result<T, E = string> = { ok: true; data: T } | { ok: false; error: E }
-
-const STAFF_ROLES = ['contractor-admin', 'contractor-staff', 'client-admin', 'client-staff']
-
-async function validateStaffRole(): Promise<Result<string>> {
-  const supabase = await createClient()
-  const { data: role } = await supabase.rpc('current_user_role')
-  if (!role || !STAFF_ROLES.includes(role)) {
-    return { ok: false, error: 'Insufficient permissions. Admin role required.' }
-  }
-  return { ok: true, data: role }
-}
+import type { Result } from '@/lib/result'
+import { validateStaffRole } from '@/lib/auth/server'
 
 export interface CreateMudBookingInput {
   property_id: string

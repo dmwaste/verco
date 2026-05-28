@@ -7,6 +7,7 @@ import { createClient } from '@/lib/supabase/client'
 import { getStatusStyle } from '@/lib/ui/status-styles'
 import Link from 'next/link'
 import { SkeletonRow } from '@/components/ui/skeleton'
+import { invokeEfWithUserToken } from '@/lib/supabase/invoke-ef-client'
 
 const STATUS_OPTIONS = ['Pending', 'Approved', 'Rejected'] as const
 
@@ -59,34 +60,19 @@ export function RefundsClient() {
 
     try {
       if (action === 'approve') {
-        // Call process-refund Edge Function — it initiates the Stripe refund
-        const { data: { session } } = await supabase.auth.getSession()
-        if (!session?.access_token) {
-          setActionError('Session expired. Please refresh and try again.')
-          return
-        }
-
-        const res = await fetch(
-          `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/process-refund`,
-          {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              Authorization: `Bearer ${session.access_token}`,
-            },
-            body: JSON.stringify({ refund_request_id: refundId }),
-          }
-        )
-
-        if (!res.ok) {
-          const errBody = await res.text().catch(() => 'Unknown error')
-          setActionError(`Refund failed: ${errBody}`)
+        const result = await invokeEfWithUserToken(supabase, 'process-refund', { refund_request_id: refundId })
+        if (!result.ok) {
+          setActionError(`Refund failed: ${result.error}`)
           return
         }
       } else {
         // Reject — just update the DB status
         const { data: { user } } = await supabase.auth.getUser()
-        if (!user) return
+        if (!user) {
+          setActionError('Session expired. Please refresh the page and sign in again.')
+          setProcessingId(null)
+          return
+        }
 
         const { error } = await supabase
           .from('refund_request')

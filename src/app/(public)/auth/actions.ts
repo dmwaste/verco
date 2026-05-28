@@ -3,10 +3,7 @@
 import { headers } from 'next/headers'
 import { createClient } from '@/lib/supabase/server'
 import { isAdminHostname, isFieldHostname } from '@/lib/proxy/hostnames'
-
-type Result<T, E = string> =
-  | { ok: true; data: T }
-  | { ok: false; error: E }
+import type { Result } from '@/lib/result'
 
 export async function sendOtp(email: string): Promise<Result<void>> {
   if (!email || typeof email !== 'string') {
