@@ -181,12 +181,16 @@ export function BookingDetailClient({ booking, tickets, receiptUrl, ncn, np, pay
           booking_id: booking.id,
           success_url: `${origin}${bookingPath}?success=true`,
           cancel_url: `${origin}${bookingPath}?cancelled=true`,
-        },
-        { fallbackToAnon: true }
+        }
       )
 
-      if (!efResult.ok || !efResult.data.checkout_url) {
-        setPayError('Failed to create payment session. Please try again.')
+      if (!efResult.ok) {
+        setPayError(`Failed to create payment session: ${efResult.error}`)
+        setIsPaying(false)
+        return
+      }
+      if (!efResult.data.checkout_url) {
+        setPayError('No checkout URL returned. Please try again.')
         setIsPaying(false)
         return
       }

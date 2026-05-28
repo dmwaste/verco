@@ -6,7 +6,7 @@
 # The _shared/ directory is the source of truth — always edit there.
 #
 # Usage: ./scripts/sync-mirrors.sh
-# Run after any change to _shared/templates/ or _shared/dispatch.ts.
+# Run after any change to _shared/templates/, _shared/dispatch.ts, or _shared/schedule-transition.ts.
 set -euo pipefail
 
 SHARED="supabase/functions/_shared"
@@ -26,5 +26,6 @@ for f in "$SHARED/templates"/*.ts; do
 done
 
 sync_file "$SHARED/dispatch.ts" "$MIRROR/dispatch.ts"
+sync_file "$SHARED/schedule-transition.ts" "src/lib/booking/schedule-transition.ts"
 
 echo "Mirror sync complete."

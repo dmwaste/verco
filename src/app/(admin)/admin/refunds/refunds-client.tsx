@@ -68,7 +68,11 @@ export function RefundsClient() {
       } else {
         // Reject — just update the DB status
         const { data: { user } } = await supabase.auth.getUser()
-        if (!user) return
+        if (!user) {
+          setActionError('Session expired. Please refresh the page and sign in again.')
+          setProcessingId(null)
+          return
+        }
 
         const { error } = await supabase
           .from('refund_request')

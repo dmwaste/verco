@@ -4,7 +4,7 @@ import { PublicNav } from '@/components/public/public-nav'
 import { MobileFab } from '@/components/public/mobile-fab'
 import { MobileBottomNav } from '@/components/public/mobile-bottom-nav'
 import { isAdminHostname, isFieldHostname } from '@/lib/proxy/hostnames'
-import { STAFF_ROLES } from '@/lib/auth/server'
+import { STAFF_ROLES } from '@/lib/auth/roles'
 
 interface ClientBranding {
   name: string
@@ -44,7 +44,7 @@ async function getIsStaff(): Promise<boolean> {
       .eq('user_id', user.id)
       .single()
 
-    return STAFF_ROLES.includes(userRole?.role ?? '')
+    return STAFF_ROLES.some(r => r === userRole?.role)
   } catch {
     return false
   }

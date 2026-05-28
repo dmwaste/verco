@@ -49,6 +49,7 @@ export function BookingsListClient({ isContractorAdmin }: BookingsListClientProp
   const searchParams = useSearchParams()
   const supabase = createClient()
   const [payingBookingId, setPayingBookingId] = useState<string | null>(null)
+  const [payError, setPayError] = useState<string | null>(null)
 
   const [search, setSearch] = useState(searchParams.get('search') ?? '')
   const [statusFilter, setStatusFilter] = useState(searchParams.get('status') ?? '')
@@ -189,8 +190,13 @@ export function BookingsListClient({ isContractorAdmin }: BookingsListClientProp
         }
       )
 
-      if (!efResult.ok || !efResult.data.checkout_url) {
-        alert('Failed to create payment session')
+      if (!efResult.ok) {
+        setPayError(`Failed to create payment session: ${efResult.error}`)
+        setPayingBookingId(null)
+        return
+      }
+      if (!efResult.data.checkout_url) {
+        setPayError('No checkout URL returned. Please try again.')
         setPayingBookingId(null)
         return
       }
@@ -198,7 +204,7 @@ export function BookingsListClient({ isContractorAdmin }: BookingsListClientProp
       window.location.href = efResult.data.checkout_url
     } catch (err) {
       console.error('Pay now error:', err)
-      alert('Failed to create payment session')
+      setPayError('An unexpected error occurred. Please try again.')
       setPayingBookingId(null)
     }
   }, [supabase])
@@ -290,6 +296,13 @@ export function BookingsListClient({ isContractorAdmin }: BookingsListClientProp
           Showing {page * PAGE_SIZE + 1}&ndash;{Math.min((page + 1) * PAGE_SIZE, total)} of {total}
         </span>
       </div>
+
+      {payError && (
+        <div role="alert" className="mx-7 mb-2 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-body-sm text-red-700">
+          {payError}
+          <button type="button" onClick={() => setPayError(null)} className="ml-2 font-semibold underline">Dismiss</button>
+        </div>
+      )}
 
       {/* Table */}
       <div className="flex-1 px-7 pb-6">

@@ -177,7 +177,7 @@ export function ServiceTicketForm({
             const parsed = JSON.parse(result.error) as { error?: string }
             errorMsg = parsed.error ?? 'Failed to submit enquiry'
           } catch {
-            errorMsg = 'Failed to submit enquiry'
+            errorMsg = result.error || 'Failed to submit enquiry'
           }
           setSubmitError(errorMsg)
           setIsSubmitting(false)

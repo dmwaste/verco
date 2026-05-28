@@ -2,13 +2,8 @@
 
 import { createClient } from '@/lib/supabase/server'
 import type { Result } from '@/lib/result'
-
-export const STAFF_ROLES: readonly string[] = [
-  'contractor-admin',
-  'contractor-staff',
-  'client-admin',
-  'client-staff',
-]
+import { STAFF_ROLES } from '@/lib/auth/roles'
+import type { StaffRole } from '@/lib/auth/roles'
 
 /**
  * Validates the current user has a staff role.
@@ -16,8 +11,12 @@ export const STAFF_ROLES: readonly string[] = [
  */
 export async function verifyStaffRole() {
   const supabase = await createClient()
-  const { data: role } = await supabase.rpc('current_user_role')
-  if (!role || !STAFF_ROLES.includes(role)) return null
+  const { data: role, error: roleError } = await supabase.rpc('current_user_role')
+  if (roleError) {
+    console.error('[verifyStaffRole] RPC failed:', roleError.message)
+    return null
+  }
+  if (!role || !STAFF_ROLES.includes(role as StaffRole)) return null
   const {
     data: { user },
   } = await supabase.auth.getUser()
@@ -26,13 +25,17 @@ export async function verifyStaffRole() {
 
 /**
  * Validates the current user has a staff role.
- * Returns the role string as a Result, suitable for early-return error handling.
+ * Returns the role as a Result, suitable for early-return error handling.
  */
-export async function validateStaffRole(): Promise<Result<string>> {
+export async function validateStaffRole(): Promise<Result<StaffRole>> {
   const supabase = await createClient()
-  const { data: role } = await supabase.rpc('current_user_role')
-  if (!role || !STAFF_ROLES.includes(role)) {
+  const { data: role, error: roleError } = await supabase.rpc('current_user_role')
+  if (roleError) {
+    console.error('[validateStaffRole] RPC failed:', roleError.message)
+    return { ok: false, error: 'Service error. Please try again.' }
+  }
+  if (!role || !STAFF_ROLES.includes(role as StaffRole)) {
     return { ok: false, error: 'Insufficient permissions. Admin role required.' }
   }
-  return { ok: true, data: role }
+  return { ok: true, data: role as StaffRole }
 }

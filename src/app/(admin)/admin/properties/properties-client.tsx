@@ -208,14 +208,16 @@ export function PropertiesClient({ clientId, isContractorAdmin }: PropertiesClie
       )
 
       if (!efResult.ok) {
-        setGeocodeResult('Geocoding failed')
+        console.error('[geocode-properties] EF error:', efResult.error)
+        setGeocodeResult(`Geocoding failed: ${efResult.error}`)
       } else {
         const result = efResult.data
         setGeocodeResult(`Geocoded ${result.processed ?? 0} properties${result.failed ? `, ${result.failed} failed` : ''}`)
         void queryClient.invalidateQueries({ queryKey: ['admin-properties'] })
         void queryClient.invalidateQueries({ queryKey: ['ungeocoded-count'] })
       }
-    } catch {
+    } catch (err) {
+      console.error('[geocode-properties] unexpected error:', err)
       setGeocodeResult('Geocoding failed')
     } finally {
       setIsGeocoding(false)

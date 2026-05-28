@@ -21,9 +21,8 @@ export async function invokeEfWithUserToken<T = unknown>(
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
   if (!supabaseUrl) return { ok: false, error: 'NEXT_PUBLIC_SUPABASE_URL not set' }
 
-  const {
-    data: { session },
-  } = await supabase.auth.getSession()
+  const { data: { session }, error: sessionError } = await supabase.auth.getSession()
+  if (sessionError) return { ok: false, error: `Session error: ${sessionError.message}` }
 
   const token =
     session?.access_token ??
@@ -45,5 +44,6 @@ export async function invokeEfWithUserToken<T = unknown>(
     return { ok: false, error: body }
   }
 
+  if (res.status === 204) return { ok: true, data: undefined as T }
   return { ok: true, data: (await res.json()) as T }
 }

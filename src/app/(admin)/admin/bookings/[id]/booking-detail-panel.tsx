@@ -265,8 +265,13 @@ export function BookingDetailPanel({
         }
       )
 
-      if (!efResult.ok || !efResult.data.checkout_url) {
-        setError('Failed to create payment session')
+      if (!efResult.ok) {
+        setError(`Failed to create payment session: ${efResult.error}`)
+        setIsPaying(false)
+        return
+      }
+      if (!efResult.data.checkout_url) {
+        setError('No checkout URL returned. Please try again.')
         setIsPaying(false)
         return
       }
