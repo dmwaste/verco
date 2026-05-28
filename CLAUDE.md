@@ -19,8 +19,6 @@ You are the project lead on this repo. Take ownership of next steps; don't hand 
   - You're blocked on context only he has (credential, stakeholder commitment, external decision)
 - **Frame end-of-turn updates as "what shipped + what's next"** — not "which option would you like?".
 
-Act like the senior engineer who owns this codebase, not the junior asking permission to commit.
-
 ---
 
 ## 1. What This Project Is
@@ -93,17 +91,9 @@ Eight roles. Scope is enforced at the DB level via RLS — never rely on fronten
 
 **Sub-client scoping (VER-216):** Client-tier roles can be narrowed to a single sub-client (e.g. a COT-only `client-admin` under Verge Valet sees zero MOS bookings). `user_roles.sub_client_id IS NULL` keeps the historical "whole client" scope. Helpers: `current_user_sub_client_id()`, `user_sub_client_allows_area(area_id)`, `user_sub_client_allows_booking(booking_id)` — all SECURITY DEFINER STABLE. See memory `sub-client-scoping-pattern.md` for the full helper map + which tables are scoped vs deliberately skipped (public-SELECT tables, `booking_item` via transitive scope).
 
-**PII rule — absolute, no exceptions:**
-`field` and `ranger` roles receive **zero** contact information. This means:
-- Never query `contacts.first_name`, `contacts.last_name`, `contacts.full_name` (generated from first+last), `contacts.email`, or `contacts.mobile_e164` in any code path accessible to these roles
-- The field run sheet page (`src/app/(field)/field/run-sheet/page.tsx`) structurally excludes these fields in its `.select()` clause — do not add them. RLS on `contacts` is the second line of defence (see B1 fix in `20260508045155_fix_profiles_pii_field_exclusion.sql`)
-- This is enforced at RLS level AND in query structure — defence in depth
-- **Never use `is_contractor_user()` in RLS policies gating PII** — it includes `field`. Use explicit `current_user_role() IN ('contractor-admin', 'contractor-staff')` instead
+**PII rule — absolute, no exceptions:** `field` and `ranger` receive zero contact fields (name, email, mobile — see §20 Red Line #2). Never use `is_contractor_user()` in RLS policies gating PII — it includes `field`. Use `current_user_role() IN ('contractor-admin', 'contractor-staff')` instead.
 
-**Contact name shape:** `contacts` stores `first_name` (text NOT NULL) + `last_name` (text NOT NULL) as the source of truth. `full_name` is a `GENERATED ALWAYS AS (TRIM(first_name || ' ' || last_name)) STORED` column — read-only. INSERT/UPDATE on `contacts.full_name` will fail. Forms must capture first/last as separate required fields. Read paths can continue to select `full_name` for display.
-
-**Privacy rule — `resident` excluded from admin user management:**
-Admin users pages filter out `resident` from queries and dropdowns. `strata` users ARE admin-managed (they must be bound to MUD properties by an admin) so they appear in the admin user list and user-creation form. The full resident list is never exposed to admin — residents are self-service only.
+**Privacy rule:** Admin pages exclude `resident` from user management queries/dropdowns. `strata` users ARE admin-managed (must be bound to MUD properties by an admin); full resident list never exposed.
 
 ---
 
@@ -302,6 +292,7 @@ These are explicitly out of scope for v2. If a task seems to require one of thes
 | Xero integration | Lives in DM-Ops only |
 | Any DM-Ops tables | `docket`, `timesheet`, `employee`, `crew`, `asset`, `tender`, `purchase_order`, `invoice` — not in this schema |
 | `dm-admin` / `dm-staff` / `dm-field` roles | These are DM-Ops roles — Verco v2 does not have them |
+| Strata self-service booking portal | Data layer (role, junction, RLS, admin provisioning) is wired — UI deliberately deferred. Admin-on-behalf is the only MUD booking path today |
 
 ---
 
@@ -344,7 +335,6 @@ pnpm supabase gen types typescript --project-id tfddjmplcizfirxqhotv > src/lib/s
 |---|---|---|
 | PRD | `docs/VERCO_V2_PRD.md` | Unclear on scope, user flows, or business rules |
 | TECH_SPEC | `docs/VERCO_V2_TECH_SPEC.md` | Unclear on schema, RLS, Edge Function contracts |
-| CLAUDE.md | `CLAUDE.md` (this file) | Start of every session (automatic) |
 | Supabase types | `lib/supabase/types.ts` | Always — generated, never hand-edit |
 
 ---
@@ -398,3 +388,11 @@ These are absolute. If a task requires crossing one, stop and flag it.
 ### SRF in RLS USING — Postgres rejects set-returning funcs in RLS (`SQLSTATE 0A000`). Use `col IN (SELECT srf())`, NOT `col = ANY(srf())`. Pattern: `contacts_staff_select_via_profiles`.
 
 ### RLS coverage lags data plumbing — new FK or relationship to a table with tight RLS needs a matching SELECT policy IN THE SAME MIGRATION. Symptom: data imports fine, admin embeds silently return null. Memory: `rls-coverage-lags-data-plumbing.md`.
+
+---
+
+## gstack
+
+Per-machine install: `git clone --single-branch --depth 1 https://github.com/garrytan/gstack.git ~/.claude/skills/gstack && export PATH="$HOME/.bun/bin:$PATH" && bash ~/.claude/skills/gstack/setup`. **Always use `/browse` for web — never `mcp__claude-in-chrome__*`.**
+
+Skills: `/office-hours`, `/plan-ceo-review`, `/plan-eng-review`, `/plan-design-review`, `/design-consultation`, `/design-shotgun`, `/design-html`, `/review`, `/ship`, `/land-and-deploy`, `/canary`, `/benchmark`, `/browse`, `/connect-chrome`, `/qa`, `/qa-only`, `/design-review`, `/setup-browser-cookies`, `/setup-deploy`, `/setup-gbrain`, `/retro`, `/investigate`, `/document-release`, `/document-generate`, `/codex`, `/cso`, `/autoplan`, `/plan-devex-review`, `/devex-review`, `/careful`, `/freeze`, `/guard`, `/unfreeze`, `/gstack-upgrade`, `/learn`
