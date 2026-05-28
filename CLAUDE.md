@@ -91,7 +91,7 @@ Eight roles. Scope is enforced at the DB level via RLS — never rely on fronten
 
 **Sub-client scoping (VER-216):** Client-tier roles can be narrowed to a single sub-client (e.g. a COT-only `client-admin` under Verge Valet sees zero MOS bookings). `user_roles.sub_client_id IS NULL` keeps the historical "whole client" scope. Helpers: `current_user_sub_client_id()`, `user_sub_client_allows_area(area_id)`, `user_sub_client_allows_booking(booking_id)` — all SECURITY DEFINER STABLE. See memory `sub-client-scoping-pattern.md` for the full helper map + which tables are scoped vs deliberately skipped (public-SELECT tables, `booking_item` via transitive scope).
 
-**PII rule — absolute, no exceptions:** `field` and `ranger` receive zero contact fields (name, email, mobile — see §20 Red Line #2). Never use `is_contractor_user()` in RLS policies gating PII — it includes `field`. Use `current_user_role() IN ('contractor-admin', 'contractor-staff')` instead.
+**PII rule — absolute, no exceptions:** `field` and `ranger` receive zero contact fields (`first_name`, `last_name`, `full_name`, `email`, `mobile_e164`); structural exclusion in `(field)/field/run-sheet/page.tsx`, not just RLS. Never use `is_contractor_user()` in RLS policies gating PII — it includes `field`. Use `current_user_role() IN ('contractor-admin', 'contractor-staff')` instead.
 
 **Privacy rule:** Admin pages exclude `resident` from user management queries/dropdowns. `strata` users ARE admin-managed (must be bound to MUD properties by an admin); full resident list never exposed.
 
@@ -369,13 +369,15 @@ These are absolute. If a task requires crossing one, stop and flag it.
 
 ### `NEXT_PUBLIC_*` vars are baked at build time — inlined via Docker build-args (`deploy.yml`); Coolify runtime env is a no-op. New vars: add to `.env.example`, GitHub secrets, `deploy.yml` build-arg, and Dockerfile `ENV`.
 
-### Shape consistency — DB column changes + EF response envelopes need the migration → EFs-with-back-compat-shim → Coolify → strip-shim sequence; EF responses emit documented fields on every path (success, no-op, error).
+### Shape consistency — DB column changes + EF response envelopes need the migration → EFs-with-back-compat-shim → Coolify → strip-shim sequence; EF responses emit documented fields on every path (success, no-op, error) — missing-field defaults belong in the EF, not the parser.
+
+### `contacts.full_name` is `GENERATED ALWAYS AS STORED` — read-only. `INSERT`/`UPDATE` on `full_name` fails. Forms must capture `first_name` + `last_name` as separate required fields; select `full_name` for display only.
 
 ### Generated `STORED` columns over NOT NULL inputs need explicit `ALTER COLUMN ... SET NOT NULL` — Supabase CLI infers nullability from metadata, not the expression; without it regen'd TS is `string | null`.
 
 ### PostgREST embedded-select gotchas — multi-FK embeds (`select('parent, related(child)')`) silently return empty inner for authed users once `related` accumulates FKs (service-role works). Fix: split queries + stitch, or `related!fk_name(col)`. `.or()` can't filter parents by columns on a nullable LEFT-joined table — pre-fetch ids + `.in(...)` inside the `.or()`. Canonical patterns in `admin/bookings/bookings-list-client.tsx`.
 
-### Notification idempotency keys on `(booking_id, type, channel)`, not `(booking_id, type)` — email + SMS must succeed independently. Dispatcher's `isAlreadySent` takes a channel arg.
+### Notification idempotency keys on `(booking_id, type, channel)`, not `(booking_id, type)` — email + SMS must succeed independently. Dispatcher's `isAlreadySent` takes a channel arg; new channels (push, voice) follow the same rule.
 
 ### `useState(searchParams.get(...))` doesn't sync on same-path soft navigation — `router.push` to the same path doesn't remount, so init runs only once. Fix: `useEffect(() => setX(searchParams.get('x') ?? ''), [searchParams])`. Pattern in `admin/bookings/bookings-list-client.tsx`.
 
