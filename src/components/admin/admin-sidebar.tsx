@@ -83,7 +83,7 @@ interface AdminSidebarProps {
 export function AdminSidebar({ counts, role }: AdminSidebarProps) {
   const pathname = usePathname()
 
-  let sections: NavSection[] = [
+  const sections: NavSection[] = [
     {
       title: 'General',
       items: [

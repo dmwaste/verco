@@ -11,11 +11,11 @@ afterEach(() => {
 })
 
 function mockGoogleResponse(body: object, status = 200) {
-  ;(global.fetch as any).mockResolvedValueOnce({
+  vi.mocked(global.fetch).mockResolvedValueOnce({
     ok: status >= 200 && status < 300,
     status,
     json: async () => body,
-  })
+  } as Response)
 }
 
 describe('geocodeAddress', () => {
@@ -78,7 +78,7 @@ describe('geocodeAddress', () => {
   it('URL-encodes the address in the query string', async () => {
     mockGoogleResponse({ status: 'ZERO_RESULTS', results: [] })
     await geocodeAddress('21/94 Marine Parade', apiKey)
-    const url = (global.fetch as any).mock.calls[0][0] as string
+    const url = vi.mocked(global.fetch).mock.calls[0]?.[0] as string
     expect(url).toContain('address=21%2F94%20Marine%20Parade')
   })
 })
