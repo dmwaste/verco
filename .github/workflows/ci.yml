@@ -121,64 +121,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Verify Node/Deno template mirrors are in sync
-        run: |
-          NODE_DIR=src/lib/notifications/templates
-          DENO_DIR=supabase/functions/_shared/templates
-          if [ ! -d "$NODE_DIR" ] || [ ! -d "$DENO_DIR" ]; then
-            echo "::error::Expected template directories missing (Node: $NODE_DIR, Deno: $DENO_DIR)"
-            exit 1
-          fi
-          drift=0
-          for f in "$NODE_DIR"/*.ts; do
-            name=$(basename "$f")
-            deno_file="$DENO_DIR/$name"
-            if [ ! -f "$deno_file" ]; then
-              echo "::error::Missing Deno mirror: $deno_file"
-              drift=1
-              continue
-            fi
-            # Strip import statements (Node vs Deno differ on .ts
-            # extensions in specifiers) so the diff only catches real
-            # template-body drift. Handles both single-line and
-            # multi-line (prettier-wrapped) import blocks via brace-aware
-            # awk: enter skip mode on `import ` lines without `from`,
-            # exit on the closing `from '...'` line.
-            #
-            # Inputs are repo-tracked file paths only — no github.event.*
-            # data flows into this script, so no injection surface.
-            node_stripped=$(mktemp)
-            deno_stripped=$(mktemp)
-            awk '/^import / { if ($0 ~ /from/) { next } skip = 1; next } skip { if ($0 ~ /from/) { skip = 0 } next } { print }' "$f" > "$node_stripped"
-            awk '/^import / { if ($0 ~ /from/) { next } skip = 1; next } skip { if ($0 ~ /from/) { skip = 0 } next } { print }' "$deno_file" > "$deno_stripped"
-            if ! diff -q -w -B "$node_stripped" "$deno_stripped" > /dev/null 2>&1; then
-              echo "::error::Template drift detected: $name"
-              diff -u -w -B "$node_stripped" "$deno_stripped" || true
-              drift=1
-            fi
-            rm -f "$node_stripped" "$deno_stripped"
-          done
-          if [ "$drift" != "0" ]; then
-            exit 1
-          fi
-          echo "All notification templates in sync."
-
-      - name: Verify schedule-transition mirror is in sync
-        run: |
-          node_file=src/lib/booking/schedule-transition.ts
-          deno_file=supabase/functions/_shared/schedule-transition.ts
-          node_stripped=$(mktemp)
-          deno_stripped=$(mktemp)
-          grep -v '^import ' "$node_file" | grep -v '^//' | grep -v '^ \*' | grep -v '^/\*' | grep -v '^$' > "$node_stripped" || true
-          grep -v '^import ' "$deno_file" | grep -v '^//' | grep -v '^ \*' | grep -v '^/\*' | grep -v '^$' > "$deno_stripped" || true
-          if ! diff -q -w -B "$node_stripped" "$deno_stripped" > /dev/null 2>&1; then
-            echo "::error::schedule-transition mirror drift detected between $node_file and $deno_file"
-            diff -u -w -B "$node_stripped" "$deno_stripped" || true
-            rm -f "$node_stripped" "$deno_stripped"
-            exit 1
-          fi
-          rm -f "$node_stripped" "$deno_stripped"
-          echo "schedule-transition mirrors in sync."
+      # Delegates to scripts/sync-mirrors.sh --check — the single source of
+      # truth for "what counts as in sync." Same script the local pre-push
+      # hook runs (scripts/git-hooks/pre-push), so CI and pre-push catch the
+      # same drift. Stricter than the previous CI block, which stripped
+      # comments before diffing and let comment-only drift slip through
+      # (see PR #105 fix(qa): ISSUE-001 — schedule-transition mirror had
+      # silently drifted in docstrings without tripping CI).
+      #
+      # No github.event.* data flows into this step — the script reads only
+      # repo-tracked file paths, so no injection surface.
+      - name: Verify Node/Deno mirrors are in sync
+        run: bash scripts/sync-mirrors.sh --check
 
   e2e:
     name: E2E Tests
