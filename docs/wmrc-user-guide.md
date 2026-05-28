@@ -1,685 +1,1012 @@
-# Verco V2 — WMRC User Guide
+# Verge Valet — WMRC User Guide
 
-**Version:** 1.0  
-**Date:** 2026-04-09  
-**Audience:** WMRC staff (customer service operators, back-office, managers)  
-**Last Updated:** 2026-04-09  
-
----
-
-## Table of Contents
-
-1. [Getting Started](#getting-started)
-2. [Admin Dashboard Overview](#admin-dashboard-overview)
-3. [Core Workflows](#core-workflows)
-   - [Booking Lookup](#booking-lookup)
-   - [Contact Lookup](#contact-lookup)
-   - [Ticket Triage](#ticket-triage)
-   - [Non-Conformance (NCN) Resolution](#non-conformance-ncn-resolution)
-   - [Nothing Presented (NP) Resolution](#nothing-presented-np-resolution)
-   - [Property Allocation Override](#property-allocation-override)
-4. [Screen-by-Screen Guide](#screen-by-screen-guide)
-5. [Common Tasks](#common-tasks)
-6. [Troubleshooting](#troubleshooting)
+**For:** WMRC team members trialling the Verge Valet portal before go-live — both the **resident** experience (Parts A + B) and the **admin operational** workflows their staff will run after launch (Part C).
+**Version:** 1.2 — 2026-05-28 _(Part C admin sections — draft in progress, screenshots pending; see `docs/screenshots/ADMIN-CAPTURE-CHECKLIST.md`)_
+**Audience:** WMRC team members and member-council staff (Mosman Park, Cottesloe, Peppermint Grove, Cambridge, Vincent, Fremantle, South Perth, Subiaco, Victoria Park) — covering resident-side testing AND client-staff back-office training.
 
 ---
 
-## Getting Started
+## What this guide is
 
-### What is Verco?
+This document walks through Verge Valet from **two angles**:
 
-Verco is the online booking system for managing residential bulk verge collection in your area. It lets residents book collection services, allows WMRC staff to manage bookings and resolve issues, and helps track collection operations.
+- **Parts A + B — the resident experience.** What a household sees when booking, managing, or disputing a verge collection. WMRC customer service will field calls about every screen here, so the fastest way to be ready is to **make dummy bookings yourselves** and step through each branch.
+- **Part C — the admin operational core.** What WMRC's client-staff users do in the back-office app at `vvtest.verco.au/admin` — looking up a booking, confirming or cancelling on a resident's behalf, triaging non-conformance disputes, approving refunds, managing multi-unit dwellings (strata), and reviewing service tickets. These are the day-to-day workflows that replace the existing phone-and-spreadsheet process.
 
-### Logging In
+Each part is self-contained — if you're a customer service officer, work through A + B; if you're an operations lead or supervisor, A + B will give you context for what residents are seeing, then C tells you what to do about it.
 
-1. Navigate to your council's Verco portal (e.g., `https://verco.example.com`)
-2. Click **Log In** in the top-right corner
-3. Enter your email address and password
-4. You'll land on the **Admin Dashboard**
-
-### Your Role
-
-As a WMRC staff member, you have one of two roles:
-
-- **`client-staff`** — Can view bookings, manage tickets, and issue refunds (limited write access)
-- **`client-admin`** — Can do everything client-staff can do, plus manage users, allocation overrides, and allocation rules (full admin access)
-
-If you're unsure which role you have, check the **Users** page (`/admin/users`) and find your name in the list.
+This guide tells you exactly what to expect, what to type, and where to look — with screenshots of every step taken from the live UAT site.
 
 ---
 
-## Admin Dashboard Overview
+## Table of contents
 
-When you log in, you'll see the **Admin Dashboard** (`/admin`). This is your home base for managing bookings and resolving issues.
-
-### Key Metrics (Top Row)
-
-The dashboard displays four metric cards:
-
-| Card | What It Shows |
-|------|---------------|
-| **This Week** | Bookings created in the current calendar week (Mon–Sun) |
-| **Total Completed** | All bookings marked as Completed (cumulative) |
-| **Total NCN** | All bookings marked as Non-Conformance (cumulative) |
-| **Total NP** | All bookings marked as Nothing Presented (cumulative) |
-
-### Weekly Breakdown
-
-Below the metric cards, you'll see a **Weekly Breakdown** grid showing:
-
-- **Submitted** — Bookings created this week
-- **Confirmed** — Bookings confirmed this week
-- **Completed** — Bookings completed this week (during operation)
-- **Cancelled** — Bookings cancelled this week
-- **NCN** — Non-Conformance issues raised this week
-- **NP** — Nothing Presented issues raised this week
-
-### Upcoming Collection Dates
-
-The dashboard lists the **next 5 open collection dates**, sorted by date. Each shows:
-
-- Date and collection area
-- Bulk and ANC capacity (e.g., `Bulk: 120/150 units`)
-- Whether the date is still open for bookings
-
-Click on a date to view or edit capacity rules.
-
-### Recent Open Tickets
-
-The **Recent Open Tickets** section shows the 5 most recent service tickets that are still `open` or `in_progress`, with:
-
-- Ticket ID
-- Subject line
-- Status badge
-- Priority (if set)
-- Who created it
-
-Click on a ticket ID to open it for triage.
+1. [Before you start — environment & test data](#1-before-you-start--environment--test-data)
+2. [Part A — Making a booking (resident flow)](#2-part-a--making-a-booking-resident-flow)
+   - 2.1 Land on the portal
+   - 2.2 Enter and confirm the address
+   - 2.3 Choose services
+   - 2.4 Pick a collection date
+   - 2.5 Confirm collection location & driver notes
+   - 2.6 Enter contact details, verify your email, pay
+3. [Part B — Managing a booking](#3-part-b--managing-a-booking)
+   - 3.1 Sign back in
+   - 3.2 Your dashboard
+   - 3.3 Open a booking
+   - 3.4 Edit a booking
+   - 3.5 Cancel a booking
+   - 3.6 Dispute a non-conformance notice or "nothing presented"
+4. [Part C — Admin operational workflows (client-staff)](#4-part-c--admin-operational-workflows-client-staff)
+   - 4.1 Sign in to the admin app + dashboard orientation
+   - 4.2 Looking up a booking
+   - 4.3 Reading the booking detail panel
+   - 4.4 Helping a resident — confirm, pay, cancel
+   - 4.5 Triaging exceptions — NCN, Nothing Presented, refunds
+   - 4.6 Multi-unit dwellings (strata) — booking on behalf
+   - 4.7 Service tickets — your customer service queue
+5. [Suggested dummy-booking scenarios](#5-suggested-dummy-booking-scenarios)
+6. [Tester tips & FAQs](#6-tester-tips--faqs)
+7. [Reporting issues](#7-reporting-issues)
 
 ---
 
-## Core Workflows
+## 1. Before you start — environment & test data
 
-### Booking Lookup
+### Test URL
 
-**Why:** You need to find a booking to view details, check payment status, or make changes.
+| Environment | URL | Use for |
+|---|---|---|
+| **UAT (test)** | [`https://vvtest.verco.au`](https://vvtest.verco.au) | **All dummy bookings.** Real-feeling copy of production pointing at test data and a test Stripe account. No trucks dispatched, no real money charged. |
+| Production | (Verge Valet's live domain — to be confirmed at go-live) | **Do not test here.** |
 
-#### Steps
+> **Always check the URL** before you start. The browser tab and address bar should both read `vvtest.verco.au`. If you accidentally land on the production domain, close the tab.
 
-1. From the Admin Dashboard, click **Bookings** in the top navigation
-2. You'll see a table of all bookings with columns:
-   - **Ref** — Booking reference (e.g., `WRC-2026-0001`)
-   - **Contact** — Resident's name (if available)
-   - **Address** — Property address
-   - **Type** — Residential, MUD, or Illegal Dumping
-   - **Status** — Current status (Submitted, Confirmed, Completed, Cancelled, etc.)
-   - **Booked** — Date the booking was created
-   - **Collection Date** — Scheduled collection date
+### Test addresses
 
-3. **To search:**
-   - Use the **Search** field at the top to find by:
-     - Booking reference (e.g., `WRC-0001`)
-     - Resident name (e.g., `John Smith`)
-     - Address (e.g., `123 Main Street`)
+The Verge Valet eligibility list on UAT is seeded with **Town of Vincent** properties. Use any of these to trigger the "Property found!" branch:
 
-4. **To filter:**
-   - Use the **Status** dropdown to show only bookings with a specific status (e.g., only Submitted or only Completed)
+- `126 Shakespeare Street, Mount Hawthorn`
+- `2 Orange Avenue, Perth`
+- `21 Union Street, North Perth`
+- `6 Aranda Place, Leederville`
+- `3/552 Fitzgerald Street, North Perth`
 
-5. **To view details:**
-   - Click the booking reference or row to open the **Booking Detail** page
+Or use any address you know is in the Town of Vincent catchment — Google Places autocomplete will surface it.
 
-#### Booking Detail Page
+To deliberately test the **"not eligible"** branch, enter any address outside the Vincent catchment (e.g. a Cottesloe or Mandurah street). You'll see the red rejection banner.
 
-Once you've opened a booking, you'll see:
+### Test payment cards
 
-**Header Section:**
-- Booking reference and type (Residential, MUD, Illegal Dumping)
-- Status badge
-- Resident name, email, and phone number
-- Property address with a link to Google Maps
+If a booking exceeds the included allocation (more than 3 bulk collections in a single FY for Verge Valet), you'll be sent to Stripe Checkout to pay for the extras. **UAT Stripe is in test mode** — use these instead of a real card:
 
-**Booking Details:**
-- **Collection Date** — When collection is scheduled
-- **Services** — What will be collected (e.g., Garden Waste × 2, Bulky Items × 1)
-- **Service Cost** — Price breakdown for each service
-- **Total Cost** — Total amount due (if any)
+| Scenario | Card number | Expiry | CVC |
+|---|---|---|---|
+| Successful payment | `4242 4242 4242 4242` | Any future date (e.g. `12/30`) | Any 3 digits (e.g. `123`) |
+| Payment declined | `4000 0000 0000 0002` | Any future date | Any 3 digits |
+| Requires 3D Secure | `4000 0027 6000 3184` | Any future date | Any 3 digits |
 
-**Payment Section (if applicable):**
-- **Payment Status** — Confirmed, Pending Payment, etc.
-- **Amount** — How much is due
-- **Pay Now** button (if payment is overdue)
+Email, name, and postcode on the Stripe form can be anything.
 
-**Additional Notes:**
-- **Notes** — Any special instructions or flags added by the resident or previous staff
+### Test email accounts
 
-**Action Buttons:**
-- **Rebook** — Allow the resident to change the collection date (if still within edit window)
-- **Edit** — Modify booking details (if still editable)
-- **Cancel** — Cancel the booking and optionally create a refund
+Sign-in is **passwordless** — every login sends a 6-digit one-time code (OTP) to the email you enter. Use a real inbox you can access, ideally a shared WMRC test mailbox so the whole team can see the codes.
+
+The OTP email arrives from **`bookings@verco.au`** with the subject **"Your VERCO OTP"**. If you don't see it, check spam.
+
+> **Tip:** You can also use Gmail's "+" trick — e.g. `wmrc.test+jenny@gmail.com` and `wmrc.test+pat@gmail.com` both arrive in the same `wmrc.test@gmail.com` inbox but are treated as separate residents by Verco.
+
+### Verge Valet service catalogue
+
+Verge Valet currently offers **two** services, both in the **Bulk** category:
+
+- **General** — Household bulk items (furniture, timber, general rubbish)
+- **Green** — Garden organics (prunings, lawn clippings, branches)
+
+The annual allocation is **3 Bulk collections per property per financial year**, shared across General and Green. There are **no ancillary services** on Verge Valet (no mattresses, e-waste, or whitegoods). This is a deliberate difference from other Verco tenants.
+
+A 4th or 5th collection in the same FY becomes a **paid extra** — currently priced at **$195.45 per General unit** (Stripe handles checkout).
 
 ---
 
-### Contact Lookup
+## 2. Part A — Making a booking (resident flow)
 
-**Why:** You need to find a resident's email or phone number to contact them about a booking, refund, or issue.
+The booking wizard has **five visible steps** in the progress bar at the top of every page. A sixth step — email verification — appears as an inline panel on the confirm page.
 
-#### Steps
+```
+1. Address  →  2. Services  →  3. Date  →  4. Details  →  5. Confirm
+```
 
-1. From the Admin Dashboard, go to **Bookings** (`/admin/bookings`)
-2. Search or filter to find the booking associated with the contact
-3. Open the booking detail page
-4. The resident's **name**, **email**, and **phone number** are displayed in the header
+### 2.1 Land on the portal
 
-> **Note:** If you need to contact field staff or a ranger about a booking, escalate via email or phone — they don't have access to resident contact details.
+Open [`https://vvtest.verco.au`](https://vvtest.verco.au). You should see the Verge Valet hero page:
+
+![Verge Valet landing page](screenshots/01-landing.png)
+
+- **Headline:** "Verge Valet™ is for bulky waste."
+- **Subheading:** "Save your Verge Valet™ collection for items that can't be reused or repaired."
+- **Address search box** with placeholder *"Enter your property address to get started…"*
+- **"Why book online"** section with three feature tiles
+- **"How it works"** strip with five numbered steps
+- **"What We Collect"** grid showing General and Green services (both tagged Bulk)
+- **"Ready to book your collection?"** CTA band
+- Footer with copyright and a "Powered by VERCO" mark
+
+**Action:** Click into the address box and start typing a Town of Vincent address. Google Places suggestions appear in a dropdown.
+
+![Address autocomplete dropdown](screenshots/02-address-autocomplete.png)
+
+Click the correct suggestion. You're taken to **Step 1 — Address confirmation**.
+
+### 2.2 Enter and confirm the address
+
+The page header reads **"Book a Collection"** with the progress bar showing step 1.
+
+The system looks up the address in the Verge Valet eligibility list. One of three things happens:
+
+#### A) Property found (the happy path)
+
+A **green banner** appears: *"Property found! This property qualifies for verge collection services."*
+
+![Property found — eligible address with allocations](screenshots/04-address-confirmed.png)
+
+Below the banner you'll see:
+
+- **Property Location** — a small Leaflet/OpenStreetMap snippet showing the address.
+- **Service Allocations — FY26** — a tile showing *"Bulk — 0 of 3 included used, 3 remaining"*.
+- **Booking History — FY26** — your last 5 bookings this financial year (excludes cancelled and pending-payment). Empty on a fresh test property.
+- **`Book New Collection →`** button.
+
+**Action:** Click **Book New Collection →**.
+
+#### B) Address not eligible
+
+A **red banner** appears: *"Address not eligible — This address is not registered for verge collection services."*
+
+![Address not eligible banner](screenshots/03-address-not-eligible.png)
+
+There is no Continue button. The resident is expected to contact WMRC directly. **Use this branch to test the rejection message** — try an address outside the Town of Vincent catchment.
+
+#### C) Multi-unit (strata) property
+
+A **purple banner** appears: *"Multi-unit property — Collections for {address} are arranged centrally. Please contact your strata manager."* If the Verge Valet client config has a contact email set, a "Contact us" link appears too.
+
+This branch is for apartment buildings, retirement villages, and other properties flagged as MUD in the eligibility data.
+
+### 2.3 Choose services
+
+Page header: **"Select Services"** (step 2).
+
+![Services step — fresh / empty](screenshots/05-services-empty.png)
+
+A single section — **Bulk Collection** — shows a live "**X of Y remaining**" badge at the top right. Each service row has:
+
+- **Service name and category label** (e.g. "General — Bulk", "Green — Bulk")
+- **Stepper** with `−`, current quantity, `+`
+
+#### Adding an included unit
+
+Click `+` on General to add 1. The Bulk badge decrements to "2 of 3 remaining".
+
+![One General item selected](screenshots/06-services-one-selected.png)
+
+**Next Step** stays greyed out until at least one item is in the cart, then it activates.
+
+#### Adding paid extras
+
+Keep clicking `+` past the included allocation. A **green "Extra cost row"** appears beneath the General row:
+
+> *"3 extra general @ $195.45 each ........ $586.35"*
+
+And a bottom totals strip shows:
+
+> **Total Extra Services Cost: $586.35**
+
+![Services with paid extras — over allocation](screenshots/07-services-paid-extras.png)
+
+> **Tester note:** The price displayed here is calculated client-side for live feedback. The **real** price is re-calculated server-side when you submit the booking on step 5 — the two must match. If you ever see the confirm page reject a booking with "price mismatch", screenshot it and send to Dan.
+
+**Action:** Choose the quantity you want, then click **Next Step →**.
+
+### 2.4 Pick a collection date
+
+Page header: **"Select Collection Date"** (step 3).
+
+![Date picker grid](screenshots/08-date-picker.png)
+
+Above the date grid, a "Selected Services" chip strip (e.g. *"General × 1"*).
+
+Below, a **3-column grid of available collection dates**. Each tile shows:
+
+- Day of week, day of month, month name
+- Number of remaining "spots" (e.g. *"60 spots"*)
+- Orange **"Almost full"** label if 10 or fewer spots remain
+- A green **"Selected ✓"** highlight on the date you tap
+
+If no dates are available for this collection area, you'll see *"No available dates for this collection area."* — that means the collection schedule for this area hasn't been opened up for bookings yet.
+
+![Date tile selected](screenshots/09-date-selected.png)
+
+**Action:** Click a date tile, then **Next Step →**.
+
+> **Behind the scenes:** For Verge Valet, multiple sub-clients share a single pooled capacity called the **MCP pool**. The dates and remaining spots you see reflect that pool — not the individual sub-council. (For the Vincent test data above, you'll see Vincent's own dates.)
+
+### 2.5 Confirm collection location & driver notes
+
+Page header: **"Collection Details"** (step 4). Despite the name, this step is **only** about where the bin/items will be on the property and any notes for the driver.
+
+![Details / Location step](screenshots/10-details-location.png)
+
+- **Address** — shown read-only at the top.
+- **Location on Property** — pill-style buttons: *Front Verge*, *Side Verge*, *Driveway*, *Laneway*.
+- **Notes for Driver (Optional)** — free text, 500 character limit. Placeholder: *"e.g. will be on the other street side of the property"*
+
+**Action:** Pick a location, optionally add a note, click **Next Step →**.
+
+![Location selected + driver note filled](screenshots/11-details-filled.png)
+
+### 2.6 Enter contact details, verify your email, pay
+
+Page header: **"Confirm Your Booking"** (step 5).
+
+![Confirm page — empty contact form](screenshots/12-confirm-page.png)
+
+#### Top of page — Contact Information
+
+Four required fields:
+
+- **First Name*** *(autocompletes from the browser)*
+- **Last Name*** *(autocompletes from the browser)*
+- **Email***
+- **Mobile*** — Australian format, auto-formats as you type to `0412 345 678`
+
+> **Why first/last separately?** The system stores the resident's name as two fields and generates the display name from both — it's used in audit trails, NCN letters, refund emails, and so on. Single "full name" entry isn't supported.
+
+#### Middle of page — Booking Summary
+
+A read-only recap:
+
+- **Address** — what you confirmed in step 1
+- **Date** — what you picked in step 3
+- **Location** — what you chose in step 4
+
+#### Services breakdown
+
+Two sub-sections:
+
+- **Included in Allocation** — free units you're using from your annual allowance
+- **Extra Services** — paid items, with per-line and total cost (only shown if there are extras)
+
+#### Total block
+
+- If everything is included: shows the word **Included** (no payment needed)
+- If there are extras: shows the dollar total and the small footnote *"Payment will be collected via Stripe before your booking is confirmed."*
+
+![Confirm page — contact form filled](screenshots/13-confirm-filled.png)
+
+#### Submit button
+
+Label changes depending on the booking:
+
+- **Confirm Booking** (green) — free booking, no payment required
+- **Proceed to Payment** (yellow-green) — there are paid extras
+
+#### What happens when you click Submit
+
+**If you're already signed in** (e.g. you previously verified your email earlier in the session), the booking is created immediately.
+
+**If you're a guest** (first-time tester, fresh browser session) — this is the path WMRC testers will hit most often. The bottom of the page swaps in an **inline 6-digit OTP verification panel**:
+
+![Inline OTP verification panel on confirm page](screenshots/14-otp-panel.png)
+
+> *"Verify Email — We sent a 6-digit code to {your email}"*
+
+1. **Check your inbox.** The email subject is *"Your VERCO OTP"* from **`bookings@verco.au`** and arrives within seconds.
+2. **Type the 6 digits** into the boxes. The form auto-submits when you finish the last digit.
+3. If the code is wrong (or stale), you get a clear inline error and "Try Again" / "Request a new code" options:
+
+   ![OTP error state](screenshots/15-otp-error.png)
+
+4. After 30 seconds you can request a fresh code.
+5. Once verified, the booking is created.
+
+**Free booking path:** You're redirected to `/booking/<ref>?success=true` — the booking detail page with a green success banner.
+
+**Paid booking path:** You're redirected to **Stripe Checkout** (Stripe's hosted payment page).
+- Use the test card from §1 above.
+- After successful payment, you return to `/booking/<ref>?success=true`.
+- A green "Payment received — confirming your booking…" banner shows briefly while the system catches the Stripe webhook and flips the status to **Confirmed**.
+
+If you cancel out of Stripe, you return to your booking page in **Pending Payment** status with a "Pay Now" button you can click to try again.
+
+> **Common tester mistake:** Forgetting to check email for the OTP. The form sits there waiting and looks frozen. The fix is always to check the inbox.
+
+> **OTP rate-limiting gotcha:** If you click "Request a new code" multiple times in quick succession, Supabase will rate-limit you — you'll see *"For security purposes, you can only request this after N seconds."* Wait the cooldown out (usually 9–30 seconds) before retrying. The previous code is invalidated as soon as a new one is sent, so don't try to use the older one.
 
 ---
 
-### Ticket Triage
+## 3. Part B — Managing a booking
 
-**Why:** Residents and staff submit support tickets when they have questions or issues. You need to assess them, prioritize, and route to the right team.
+Once a booking exists, the resident can come back at any time to view it, edit it, or cancel it.
 
-#### Steps
+### 3.1 Sign back in
 
-1. From the Admin Dashboard, click **Service Tickets** in the top navigation
-2. You'll see a table of all tickets with:
-   - **Ticket ID** — Unique ticket reference (e.g., `TKT-001`)
-   - **Subject** — Issue summary
-   - **Status** — `open`, `in_progress`, or `closed`
-   - **Priority** — `low`, `medium`, `high`, or blank (unset)
-   - **Created** — When the ticket was created
-   - **Contact** — Who submitted it
+From any page on `vvtest.verco.au`:
 
-3. **To open a ticket:**
-   - Click the ticket ID to open the detail page
+1. Click **My Dashboard** in the top nav, or visit `/auth` directly.
 
-#### Ticket Detail Page
+   ![Sign-in page — email entry](screenshots/16-auth-signin.png)
 
-**Header:**
-- Ticket ID and subject
-- Status and priority badges
-- Who submitted it and when
-- Linked booking (if the ticket is about a specific booking)
+2. Page header: **"Sign in"** with the message *"Enter your email address and we'll send you a one-time code to sign in."*
+3. Type your email, click **Send Code**.
+4. You're redirected to `/auth/verify?email=…` showing **"Check your email — We sent a 6-digit code to {email}"**.
 
-**Conversation Thread:**
-- Original issue description (from the resident or staff member)
-- Any replies already posted
-- Each message shows the author, timestamp, and message body
+   ![Verify code screen](screenshots/17-auth-verify.png)
 
-**Action Buttons:**
-- **Reply** — Add a message to the conversation
-- **Set Priority** — Mark the ticket as `low`, `medium`, or `high`
-- **Mark In Progress** — Move the ticket from `open` to `in_progress` (shows you're actively working on it)
-- **Close Ticket** — Mark the ticket as `closed` once resolved
+5. Six numeric cells, paste-friendly. Auto-verifies on the sixth digit.
+6. On success: green tick *"You're signed in — Taking you to your dashboard now"* then you land on your dashboard.
 
-#### Common Ticket Types
+Codes expire after 10 minutes; if it lapses, click **Resend code** (the 30-second cooldown applies again).
 
-| Issue | Next Step |
-|-------|-----------|
-| "I can't book a date" | Check if collection dates are open. If closed, explain when they reopen. |
-| "I have a refund question" | Check the booking detail page for payment status. Link to the refund if one exists. |
-| "I got an NCN but I wasn't home" | Escalate to the council manager. NCN resolution may require dispute investigation. |
-| "Why wasn't my collection done?" | Check if there's a linked NP (Nothing Presented) record. See **NP Resolution** below. |
-| "I want to reschedule" | Direct the resident to the Rebook button on their booking, or offer to rebook on their behalf. |
+### 3.2 Your dashboard
 
----
+URL: `/dashboard`. Page header: **"My Dashboard"** with a greeting like *"Good morning, Daniel."*
 
-### Non-Conformance (NCN) Resolution
+![Resident dashboard](screenshots/18-dashboard.png)
 
-**Why:** A Non-Conformance is raised when the contractor finds that waste at a property doesn't meet collection criteria (e.g., oversized items, contamination). You need to investigate and resolve it.
+Four stat cards at the top:
 
-#### Understanding NCN Status
+| Card | Shows |
+|---|---|
+| **Upcoming** | Bookings scheduled but not yet collected |
+| **Completed** | Bookings collected in this financial year |
+| **Total {FY}** | All bookings (any status) for current FY |
+| **Active Enquiries** | Open support tickets |
 
-NCN records flow through these statuses:
+Below the stats, **three tabs**:
 
-1. **Issued** — Field staff marked the booking as NCN during collection
-2. **Disputed** — Resident or staff has disputed the NCN (claiming it's incorrect)
-3. **Investigated** — A manager has reviewed the dispute and decided to uphold or overturn the NCN
-4. **Closed** — The NCN is resolved
+- **Upcoming** — future bookings, with a place-out reminder for any booking ≤3 days out
+- **Past** — completed and cancelled bookings
+- **Enquiries** — your support tickets
 
-> **Auto-close:** NCNs automatically move from `Issued` to `Closed` after 14 days if not disputed.
+Each booking card on the dashboard shows:
 
-#### Steps to Resolve an NCN
+- **Reference** (e.g. `CAM-A-M5P7EQ`, `KWN-1-VUZDT7` — the prefix encodes the client and area)
+- **Status badge** (Confirmed / Scheduled / Completed / Cancelled / Non-conformance / etc.)
+- **Collection date**
+- **Address**
+- **Service chips** with paid extras tagged: *"General (extra · $195.45)"*
+- **Countdown** for bookings ≤7 days out: *"5 days away · cannot cancel after 3:30pm Sunday"*
+- **Place-out reminder** (green banner) for bookings ≤3 days out
 
-1. From the Admin Dashboard, click **Non-Conformance** in the top navigation
-2. You'll see a table of all NCNs. Filter by **Status** to see only `Issued` or `Disputed` NCNs that need action
-3. Click the NCN ID to open the detail page
+### 3.3 Open a booking
 
-**On the NCN Detail Page:**
+Click any booking card on the dashboard. You land on `/booking/<ref>`.
 
-**Header:**
-- NCN ID and booking reference
-- Status badge
-- Resident name and contact info
-- Why it was marked NCN (e.g., "Oversized items", "Contamination")
+![Booking detail page](screenshots/19-booking-detail.png)
 
-**Details:**
-- Linked booking (click to view the full booking)
-- Notes from field staff explaining the issue
-- Dispute notes (if resident has disputed it)
+The booking detail page shows:
 
-**Resolution Workflow:**
+- **Header** — booking reference, status badge, address
+- **Contact Details** — name, email, mobile
+- **Collection Details** — date, area, location on property, driver notes
+- **Included Services** — green-tinted block
+- **Extra Services** — orange-tinted block with $ amounts and a **View receipt** link (when paid)
+- **Cancellation cutoff card** (blue) — *"You can cancel this booking until 3:30pm Sunday 24 May. After this time the booking is locked."*
+- **Action buttons** — Get Help, Edit Booking, Cancel Booking
 
-**If status is `Issued` (resident hasn't disputed yet):**
-- Wait for resident to dispute (via portal or phone call), or
-- After 14 days, it will auto-close
+#### Other conditional banners
 
-**If status is `Disputed` (resident claims the NCN is wrong):**
-- Click **Investigate Dispute** to move the NCN to `Investigating`
-- Review the notes and photos (if available) from field staff
-- Decide: Is the NCN valid?
-  - **Yes, overturn dispute** — Mark as `Investigated` and add notes explaining the decision. Optionally create a refund.
-  - **No, uphold NCN** — Mark as `Investigated` and explain why the NCN stands.
+| When | Banner |
+|---|---|
+| Status is **Pending Payment** | Orange "Payment required" banner with **Pay Now** button |
+| Just returned from Stripe and status still pending | Green "Payment received — confirming your booking…" with auto-poll |
+| Collection is in ≤3 days | Green "Place out your waste now — Items must be on the verge by 7am {date}. Do not place out more than 72 hours before collection." |
 
-**Available Actions:**
-- **Investigate Dispute** — Move to active investigation mode
-- **Issue Refund** — If you decide the NCN is invalid, click to create a refund for the resident
-- **Add Note** — Document your decision and reasoning
-- **Close NCN** — Manually close if you've resolved it (normally auto-closes after 14 days)
+> **The 72-hour place-out window is specific to Verge Valet.** Other Verco clients have a 48-hour window — the message text reflects whichever rule applies to the tenant.
 
----
+### 3.4 Edit a booking
 
-### Nothing Presented (NP) Resolution
+Click **Edit Booking** on a booking that's still in a cancellable status (Confirmed, Scheduled, or Submitted, and before the cutoff).
 
-**Why:** A Nothing Presented is raised when a resident scheduled a collection but no waste was found at the property during collection. You need to investigate and resolve it.
+You're sent back to the **services step** of the booking wizard with the existing items pre-filled. The page URL contains `?replaces=<booking_id>` — this tells the system to treat the change as an in-place edit rather than a cancel-and-replace.
 
-#### Understanding NP Status
+You can:
 
-NP records flow through the same statuses as NCN:
+- Add or remove services
+- Change the collection date
+- Update location and driver notes
+- Update contact details
 
-1. **Issued** — Field staff found no waste at the property
-2. **Disputed** — Resident or staff has disputed the NP
-3. **Investigated** — A manager has reviewed the dispute
-4. **Closed** — Resolved
+The pricing engine **excludes the booking-being-edited from the FY usage calculation**, so your allocation numbers reflect what would be true if this booking didn't exist. That avoids the *"you've used 3/3 — you can't edit your only booking"* trap.
 
-#### Steps to Resolve an NP
+When you confirm the edit, the booking keeps its original reference and `booking_id`. The change is logged in the audit trail. If you removed paid items, a refund request is queued (see admin guide).
 
-1. From the Admin Dashboard, click **Nothing Presented** in the top navigation
-2. Click the NP ID to open the detail page
-3. Follow the same workflow as **Non-Conformance Resolution** above
+### 3.5 Cancel a booking
 
-**Common NP Scenarios:**
+Click **Cancel Booking** on the booking detail page.
 
-| Scenario | Action |
-|----------|--------|
-| Resident scheduled but forgot to put waste out | No action needed. NP stands. |
-| Field staff came on wrong day | Overturn NP, offer to rebook. |
-| Resident wasn't home and couldn't place waste out | Consider overturning if reasonable. Offer rebook. |
-| Resident disputes and provides evidence (photo, etc.) | Review evidence. If valid, overturn and refund. |
+![Cancel confirmation dialog](screenshots/20-cancel-dialog.png)
 
----
+A confirmation dialog appears:
 
-### Property Allocation Override
+> *"Cancel this booking? This action cannot be undone. Any payment will be refunded to the original payment method."*
 
-**Why:** Properties have standard allocation limits (e.g., Bulk: 150 units per year). Sometimes you need to increase or adjust these limits for specific properties (e.g., a property doing renovations needs extra allowance).
+Two buttons: **Keep Booking** and **Cancel Booking**.
 
-#### Accessing Property Management
+#### The cancellation cutoff
 
-1. From the Admin Dashboard, click **Properties** in the top navigation
-2. You'll see a table of eligible properties with:
-   - **Address** — Property address
-   - **Status** — Eligible or Ineligible
-   - **Services** — What services are available at this property
-   - **Allocations** — Current unit allocation for each service
-   - **...** (menu) — Actions menu for this property
+A resident can cancel up until **3:30pm AWST on the day before collection**. After that, the cancel button is hidden and any direct attempt is rejected with:
 
-#### Property Detail Page
+> *"Cancellation cutoff has passed (3:30pm the day before collection)."*
 
-**To view or adjust allocations:**
+This is enforced in three places — front-end (button hidden), server action (rejects late requests), and database trigger (defence in depth). **There is no override available to the resident.** WMRC staff can sometimes cancel after the cutoff via the admin app — see the admin guide.
 
-1. Click on a property address to open its **Detail** page
-2. You'll see:
-   - **Property Header** — Address, formatted address, collection area
-   - **Stats Cards** — Current allocation usage
-   - **Allocation Summary** — Table showing:
-     - Service name (e.g., Bulk, Garden Waste)
-     - Max units allowed
-     - Units already booked/used
-     - Remaining units
+#### What happens after cancellation
 
-3. **To add an override allocation:**
-   - Click **Add Allocations** (top menu)
-   - Select the **Service** (e.g., Bulk)
-   - Enter **Additional Units** to allocate above the standard max
-   - Enter **Reason** (e.g., "Renovation project")
-   - Click **Save**
+- Booking status flips to **Cancelled**.
+- If extras were paid, a **refund request** is created with status **Pending**. Refunds are not automatic — a WMRC or contractor admin must approve them in the admin app. The resident sees the refund within 1–3 business days of approval.
+- A **booking cancelled** notification email is sent.
 
-4. The override appears in the **Allocation Summary** table as an "extra" allowance
+### 3.6 Dispute a non-conformance notice or "nothing presented"
 
-#### Allocation Rules
+When field staff finish a collection visit, they can mark the booking as one of:
 
-- **Base Allocation** — Set at the service level, applies to all properties in the area
-- **Extra Allocation** — Temporary override for a specific property
-- **Total Allowed** — Base + Extra
-- Once a resident books against an extra allocation, it's counted immediately against both the service's total AND the property's total
+- **Completed** — collected as expected
+- **Non-conformance (NCN)** — items breach the rules (e.g. oversized, contaminated, in the wrong location). Photos are attached.
+- **Nothing Presented (NP)** — nothing was on the verge to collect
+
+If your booking comes back as NCN or NP, your booking detail page gets a new card.
+
+#### NCN card
+
+- **Reason** — e.g. "Oversized items"
+- **Reported date**
+- **Photos** — click to enlarge
+- **Status** — usually **Issued** when first raised
+- **Rebooked-as** link if a replacement booking has already been arranged
+
+If the status is **Issued**, a red **"Dispute this Notice"** button appears. Clicking it:
+
+1. Confirms with you ("Are you sure?")
+2. Adds a notes field for your dispute reason
+3. Flips the NCN status to **Disputed**
+4. Shows the confirmation: *"Your dispute has been submitted. Our team will review and respond."*
+
+WMRC staff then triage the dispute in the admin app — see **§4.5 Triaging exceptions** below for the staff side of this flow.
+
+#### NP card
+
+Same shape as NCN but without the photos and reason — just the date the field crew couldn't find anything. Same dispute flow.
+
+#### Auto-close
+
+NCNs and NPs auto-close to **Closed** after **14 days** if not disputed. After auto-close, the dispute button no longer appears.
 
 ---
 
-## Screen-by-Screen Guide
+## 4. Part C — Admin operational workflows (client-staff)
 
-### 1. Admin Dashboard (`/admin`)
+Once Verge Valet goes live, WMRC's customer service officers and operations supervisors will spend most of their time in the **admin app** at `vvtest.verco.au/admin`. This part walks through everything you need to do at the desk: looking up a booking when a resident phones, helping them pay or cancel, triaging a non-conformance dispute, approving a refund, booking on behalf of a strata building, and managing the customer-service ticket queue.
 
-**Purpose:** Overview of current week's bookings, upcoming collection dates, and open tickets.
+The admin app uses the **same sign-in mechanism as the resident portal** (passwordless OTP), but it lives at a different URL and shows a completely different interface — sidebar navigation, table-based lists, slide-over detail panels.
 
-**Key Actions:**
-- Click **Bookings**, **Non-Conformance**, **Nothing Presented**, or **Service Tickets** to navigate
-- Click on a collection date to view or edit capacity limits
-- Click on a ticket ID to open for triage
+> **Audience note:** Most of what's described here is available to anyone with the **client-staff** role. A few actions (importing properties, geocoding the address database, sender configuration) are restricted to **client-admin** or to D&M's contractor-admin team — those are called out inline when they appear.
 
----
+> **Capture status (v1.2 draft):** the screenshots referenced as `21-…` through `32-…` will be captured by the WMRC walkthrough described in `docs/screenshots/ADMIN-CAPTURE-CHECKLIST.md`. Section text below has been written from a live walk-through of the UAT app on 2026-05-28 — verify the wording matches what you see when you capture, and flag anything that has shifted.
 
-### 2. Bookings Table (`/admin/bookings`)
+### 4.1 Sign in to the admin app + dashboard orientation
 
-**Purpose:** Browse all bookings with search and filter.
+**URL:** `https://vvtest.verco.au/admin`
 
-**Key Actions:**
-- **Search bar:** Find by booking ref, resident name, or address
-- **Status dropdown:** Filter by Submitted, Confirmed, Completed, Cancelled, NCN, NP, etc.
-- Click row to open booking detail
+If you're not already signed in, visit `vvtest.verco.au/auth` and complete the OTP exactly as described in §3.1 (the resident sign-in flow). Once signed in, navigate to `/admin` directly, or use the URL above.
 
-**Columns:**
-- Ref, Contact, Address, Type, Status, Booked, Collection Date
+<!-- SCREENSHOT: 21-admin-dashboard.png — admin app landing page, full viewport -->
 
----
+The admin dashboard has six visible regions:
 
-### 3. Booking Detail (`/admin/bookings/[id]`)
+**Top bar (left to right):**
+- **VERCO logo** — your home anchor; click to return to `/admin`
+- **Tenant selector pill** (e.g. *"Verge Valet"* with a green dot) — only visible if you have access to more than one tenant. WMRC head-office client-admins see all 9 sub-councils; a Cottesloe-only client-admin won't see a switcher at all.
+- **Global search box** — search bookings by reference (e.g. `COT-E88PNN`), address, or contact name. Hits any booking your role can see.
+- **Avatar initials** (top right) — your account menu
 
-**Purpose:** View full booking details and manage (edit, cancel, rebook).
+**Sidebar (left), grouped into three:**
+- **GENERAL** — Dashboard (where you are)
+- **OPERATIONS** — Bookings, Collection Dates, Properties, MUDs, Illegal Dumping, Allocations
+- **EXCEPTIONS** — Non-Conformance, Nothing Presented
+- **CUSTOMER** — Service Tickets, Refunds
 
-**Key Sections:**
-1. **Header** — Ref, Type, Status, Resident info, Address
-2. **Booking Details** — Collection date, services, cost breakdown
-3. **Payment** — Status and "Pay Now" button (if needed)
-4. **Notes** — Resident or staff notes
-5. **Actions** — Rebook, Edit, Cancel buttons
+The Bookings link carries a number badge (e.g. **5**) when there are pending-payment bookings still incomplete.
 
-**What You Can Do Here:**
-- Rebook a booking to a different date (if within edit window)
-- Edit booking details (if booking is still editable)
-- Cancel a booking and optionally create a refund
-- View linked NCN or NP records
+**Main area — four stat cards:**
 
----
+| Card | Means |
+|---|---|
+| Bookings This Week | Confirmed bookings with collection dates in the next 7 days |
+| Collections Completed | FY-to-date total — field staff marked these "Completed" |
+| Open Exceptions | NCN + Nothing-Presented notices still unresolved |
+| Open Tickets | Service tickets in any non-Resolved status |
 
-### 4. Non-Conformance Table (`/admin/non-conformance`)
+Below the stats are two side-by-side panels:
 
-**Purpose:** View all NCN records, filter by status, identify actions needed.
+- **Upcoming Collection Dates** — the next collection days for each area, with a small bar showing utilisation (`0/60`, `47/60`, etc.). Click "View all" to drill into the full schedule.
+- **This Week's Summary** — booking counts in each status (Submitted, Confirmed, Completed, Cancelled, Non-Conformance, Nothing Presented). At a glance you can see whether the week looks healthy or whether exceptions are piling up.
 
-**Key Actions:**
-- **Status dropdown:** Filter by Issued, Disputed, Investigated, or Closed
-- Click NCN ID to open detail page
-- Check creation date to see if 14-day auto-close is approaching
+**Bottom-right floating button:** *"Report a bug"* — opens a small form for logging UI issues to the D&M dev team. Use this for *unexpected app behaviour* (a button doesn't work, a value is wrong). For *customer service problems* (a resident's request you can't fulfil), use Service Tickets — see §4.7.
 
 ---
 
-### 5. NCN Detail (`/admin/non-conformance/[id]`)
+### 4.2 Looking up a booking
 
-**Purpose:** Investigate and resolve a specific NCN.
+**URL:** `https://vvtest.verco.au/admin/bookings`
 
-**Key Sections:**
-1. **Header** — NCN ID, Booking Ref, Status, Resident
-2. **Reason** — Why the NCN was raised
-3. **Linked Booking** — Click to view full booking context
-4. **Field Notes** — What the contractor observed
-5. **Dispute Notes** — If resident has disputed
-6. **Actions** — Investigate, Issue Refund, Close NCN buttons
+This is the workhorse screen. Click **Bookings** in the sidebar — you land on a table of every booking your role can see.
 
-**Workflow:**
-- If `Issued` → Wait for resident to dispute or let it auto-close
-- If `Disputed` → Click **Investigate**, review evidence, and decide:
-  - **Overturn:** Issue refund and note why
-  - **Uphold:** Document decision, close
+<!-- SCREENSHOT: 22-admin-bookings-list.png — bookings table with multi-area mix visible -->
 
----
+**Filter strip** (top of the table):
+- Search box — by ref, address, or contact name
+- **All Statuses** dropdown — narrow to a single status (Confirmed, Pending Payment, Cancelled, Non-conformance, Nothing Presented, Scheduled, Submitted, Completed, Rebooked)
+- **All Areas** dropdown — narrow to a single sub-client area (CAM-A, COT, MOS, PEP, FRE-N, FRE-S, SUB, VIN, SOP, VIC, KWN-1, KWN-2 …)
+- **All Types** dropdown — Residential vs. MUD vs. Illegal Dumping
 
-### 6. Nothing Presented Table (`/admin/nothing-presented`)
+The *"Showing X of Y"* count updates live as you filter.
 
-**Purpose:** Same as NCN table, but for NP records.
+<!-- SCREENSHOT: 23-admin-bookings-filter-applied.png — same view, filtered to "Confirmed" -->
 
-**Key Actions:**
-- Filter by status
-- Click NP ID to investigate and resolve
+**Table columns:**
 
----
+| Column | What it shows |
+|---|---|
+| REF | e.g. `COT-E88PNN`, `KWN-2-OCN6ID` — the area prefix is your fastest visual filter |
+| ADDRESS | Street + suburb only (resident name is in the detail panel) |
+| TYPE | Residential / MUD / Illegal Dumping |
+| SERVICES | e.g. "General × 1, Green × 1" — what was booked |
+| COLLECTION DATE | The scheduled day |
+| AREA | The sub-client area code |
+| STATUS | Coloured badge — see legend below |
+| CREATED | Relative time ("18 May", "9 days ago") |
 
-### 7. Service Tickets Table (`/admin/service-tickets`)
+**Status badge legend:**
 
-**Purpose:** Triage incoming resident and staff support requests.
+| Badge | Meaning |
+|---|---|
+| 🟢 **Confirmed** | Booking is locked in for that date |
+| 🟢 **Completed** | Field crew collected successfully |
+| 🟠 **Pending Payment** | Booking exists but Stripe charge incomplete. Paired with a small green **Pay** pill — clicking it opens Stripe Checkout for the resident's cart. |
+| 🟠 **Submitted** | Legacy state where the booking awaits manual confirmation. Rare — most bookings auto-confirm now. |
+| 🔵 **Scheduled** | Locked in for collection (auto-flipped from Confirmed at 3:25pm AWST the day before) |
+| 🔴 **Cancelled** | No longer active. Refund (if any) tracked separately. |
+| 🔴 **Non-conformance** | Field crew couldn't collect as booked |
+| 🔴 **Nothing Presented** | Field crew visited and found nothing on the verge |
+| 🟣 **Rebooked** | A follow-up booking has been created after an NCN/NP |
 
-**Columns:**
-- Ticket ID, Subject, Status, Priority, Created, Contact
+**Top-right actions:**
+- **Export CSV** — downloads the current filtered table as a CSV. Useful for ad-hoc reports.
+- **+ New Booking** — opens the booking wizard pre-loaded with admin context. See **§4.6 for the strata path**; otherwise the wizard is identical to the resident flow in Part A, with one difference noted in §4.4.
 
-**Key Actions:**
-- Click ticket ID to open detail page and view conversation
-- Filter by status (Open, In Progress, Closed) or priority
-
----
-
-### 8. Ticket Detail (`/admin/service-tickets/[id]`)
-
-**Purpose:** Read ticket conversation, add replies, triage, and close.
-
-**Key Sections:**
-1. **Header** — Ticket ID, Subject, Status, Priority, Contact
-2. **Linked Booking** — If this ticket is about a specific booking
-3. **Conversation Thread** — All messages in chronological order
-4. **Reply Box** — Compose and send your response
-
-**Key Actions:**
-- **Reply** — Add a message to the conversation (visible to the resident)
-- **Set Priority** — Mark as low, medium, or high
-- **Mark In Progress** — Show that you're actively working on it
-- **Close Ticket** — Mark as closed once resolved
+> **Sub-client scoping.** If you're a Cottesloe-specific client-admin (your `user_role` is narrowed to one sub-client), you'll only ever see `COT-*` rows in this list — bookings from Mosman Park or Vincent are invisible to you, even though they share the WMRC tenant. WMRC head-office staff (no sub-client narrowing) see everything.
 
 ---
 
-### 9. Properties Table (`/admin/properties`)
+### 4.3 Reading the booking detail panel
 
-**Purpose:** View all eligible properties and manage allocations.
+Click any row in the bookings list — the right side of the screen opens a **slide-over panel** with everything about that booking.
 
-**Columns:**
-- Address, Status, Services, Allocations, Menu (...)
+<!-- SCREENSHOT: 24-admin-booking-detail-confirmed.png — Confirmed booking, slideover open -->
 
-**Key Actions:**
-- Click address to open property detail page
-- Use menu (...) to Add Allocations, Set MUD, or Mark Ineligible
+The URL updates to `/admin/bookings/<uuid>` (a long random ID, not the human-readable ref). You can copy this URL to share a specific booking with a colleague — they'll land on the same view.
 
----
+> **A quirk worth knowing.** The main area to the left of the slideover keeps saying *"Select a booking to view details"* while the panel is open — that's not a bug, it's the empty-state for when you close the panel. To close the panel: click the **X** in the panel's top-right, or hit Esc.
 
-### 10. Property Detail (`/admin/properties/[id]`)
+The panel has the following sections, stacked top-to-bottom:
 
-**Purpose:** View detailed allocation usage and override limits for a specific property.
+#### Header
 
-**Key Sections:**
-1. **Property Header** — Address, collection area
-2. **Stats Cards** — Quick overview of allocation usage
-3. **Allocation Summary** — Table with current usage and overrides
-4. **Bookings** — Recent bookings for this property
-5. **NCN/NP Records** — Any non-conformance or nothing-presented issues
+- **Booking reference** (e.g. `COT-E88PNN`)
+- **Status badge** (same colours as the list)
+- **Sub-header** — "Residential · Cottesloe" or "MUD · Cambridge — A"
 
-**Key Actions:**
-- **Add Allocations** — Create an extra allocation override for this property
-- Click **Manage Overrides** to view all overrides and their reasons
+#### COLLECTION DETAILS (with pencil icon to edit)
 
----
+- **Address** — full street + suburb + postcode (resident name is *not* here; that's in CONTACT)
+- **Location** — Front Verge / Side Verge / Driveway / Laneway (whatever the resident selected at step 4 of the wizard)
+- **Collection Date** — formatted "Wednesday, 20 May 2026"
+- **Notes** — driver instructions the resident left, or italic *"Nothing"* if blank
 
-## Common Tasks
+#### CONTACT (with pencil icon to edit)
 
-### Task: Refund a Resident
+- **Name** — e.g. "Sarah Jenkins" or, if the booking was created by staff on behalf of a resident, "Sarah Jenkins **(Admin)**"
+- **Mobile** — `+61 4XX XXX XXX`
+- **Email** — the resident's verified email
 
-**Scenario:** Resident cancelled and is owed a refund, or an NCN was overturned and they should get their money back.
+> **The "(Admin)" suffix is a leakage signal worth recognising.** It means a staff member created this booking on the resident's behalf (e.g. a strata booking, or a phone-in request). Useful when triaging: a resident may not remember a booking they didn't make themselves.
 
-**Steps:**
+#### SERVICES (with pencil icon to edit)
 
-1. Open the **Booking Detail** page for the booking
-2. Scroll to the **Payment** section
-3. Click **Cancel** (to cancel the booking) or navigate to the **NCN Detail** page
-4. Click **Issue Refund**
-5. A refund request is created and sent to the refund processor
-6. Resident will receive the refund within 1–3 business days
+A list of every service line, each with a **status pill**:
+- **Included** (green) — comes out of the resident's FY allocation, no charge
+- **$X.XX** (orange) — an "extra" line beyond the allocation, paid via Stripe
+- A "Total charged" row at the bottom sums the extras
 
----
+#### ACTIVITY (audit timeline)
 
-### Task: Set Priority for a Ticket
+Every change to this booking, oldest at the top:
+- "Status changed to Confirmed" — when the booking was confirmed
+- "Service item created" — when each service line was added
+- "0 fields updated" — system housekeeping events (often duplicated; safe to ignore for now)
+- Click any entry to expand the field-level diff
 
-**Scenario:** A ticket comes in that's urgent and needs immediate attention.
+Use the timeline to answer disputes: *"the resident says they didn't add Green"* → check whether the Green line came in at create time or was added later, and by whom.
 
-**Steps:**
+#### Action buttons (bottom of panel)
 
-1. Open the **Ticket Detail** page
-2. Click **Set Priority**
-3. Select `low`, `medium`, or `high`
-4. The ticket will be highlighted in the dashboard and sorted by priority
+These change based on the booking's current status:
 
----
+| Status | Buttons available |
+|---|---|
+| **Pending Payment** | **Pay Now** (green outline) → opens Stripe Checkout; **Cancel Booking** (red outline) |
+| **Submitted** (legacy) | **Confirm Booking** (green) → flips to Confirmed; **Cancel Booking** (red outline) |
+| **Confirmed** | **Cancel Booking** (red outline) — until 3:30pm the day before |
+| **Scheduled** | **Cancel Booking** (red outline) — staff-only post-cutoff override; see §4.4e |
+| **Completed** / **Cancelled** / **Non-conformance** / **Nothing Presented** | No state-changing buttons here; raise a new booking from the bookings list instead |
 
-### Task: Reopen a Collection Date
-
-**Scenario:** A collection date is closed but you need to accept more bookings for it.
-
-**Steps:**
-
-1. From the Admin Dashboard, find the collection date in the **Upcoming Collection Dates** section
-2. Click on the date row to open the **Collection Date Detail** page
-3. Toggle **Open for Bookings** to on/enabled
-4. Save changes
-
-**Note:** If you're concerned about exceeding capacity, click **Edit Capacity** and increase the limits first.
+<!-- SCREENSHOT: 25-admin-booking-detail-pending-payment.png — Pending Payment booking with Pay Now + Cancel Booking buttons visible -->
 
 ---
 
-### Task: Manage Collection Area Allocations
+### 4.4 Helping a resident — confirm, pay, cancel
 
-**Scenario:** You need to set or adjust the annual allocation limits for an entire service in your collection area (e.g., increase Bulk allocation from 150 to 200 units per property).
+This section covers the four most common phone-in scenarios.
 
-**Steps:**
+#### a) "I can't find my booking"
 
-1. From the Admin Dashboard, click **Allocations** in the top navigation
-2. You'll see a table of all services and their area-wide allocation rules
-3. Click a service row to open its detail page
-4. Modify the **Max Units** field
-5. Save changes
+If the resident gives you their booking reference, paste it into the **top-right global search** — it jumps straight to the detail panel.
 
-**Note:** This affects all properties in the area unless they have an individual property override.
+If they don't have the reference:
+1. Click **Bookings** in the sidebar
+2. Type their **address**, **last name**, or **email** into the table search box
+3. The list narrows live
 
----
+If you find nothing:
+- Check the **status filter** isn't accidentally set to a single status. Reset to "All Statuses".
+- Check the **area filter** — they may live in a sub-council you're narrowed away from (sub-client scoping per §4.2).
+- Check whether they signed up with a **different email** than they're quoting now. Email is the identity anchor; a typo at sign-up creates a "phantom" account they can't access. Look at Service Tickets for prior history under any email.
 
-## Troubleshooting
+#### b) Resident wants to pay now (Pending Payment)
 
-### "I can't find a booking"
+1. Find the booking (status will say **Pending Payment**)
+2. Open the detail panel
+3. Scroll to the bottom — click **Pay Now**
+4. Stripe Checkout opens **in the same browser** — you can either hand the laptop to the resident in person, or read out the Stripe-generated payment URL for them to complete remotely
+5. Once Stripe confirms payment, the booking status flips to **Confirmed** within seconds (a webhook handles this; no manual step needed on your side)
 
-**Possible Causes:**
-1. The booking reference is incorrect — double-check the spelling
-2. The resident's name is spelled differently in the system — try searching by address or date
-3. The booking is from a different council — Verco is scoped per council; you can only see your council's bookings
+> **Tip:** If the resident is on the phone in a different state and you don't have a way to share the Stripe URL securely, raise a Service Ticket (§4.7) describing the situation. D&M's contractor-admin team can generate a one-time secure link.
 
-**Solution:** Use the search bar with partial matches (e.g., search for "Smith" if you only remember the last name).
+#### c) Resident wants to confirm a "Submitted" booking
 
----
+Most bookings auto-confirm now (free path → Confirmed immediately; paid path → Confirmed on Stripe success), so the **Submitted** status is rare. If you encounter one:
 
-### "The property isn't in the system"
+1. Open the detail panel
+2. Verify the contact details + services + date look right
+3. Click **Confirm Booking** — the green button at the bottom
+4. The status flips to Confirmed; the audit log captures your name as the actor
 
-**Possible Causes:**
-1. The property is outside the eligible area for your collection zone
-2. The property has been marked as ineligible (e.g., not residential, no street access)
-3. The address is in a different council area
+#### d) Resident wants to cancel a booking (pre-cutoff)
 
-**Solution:**
-1. Check the **Properties** page to see if it's listed
-2. If listed but marked ineligible, click the property and check the reason
-3. If not listed, it may be outside your collection area. Check with your manager.
+1. Open the detail panel
+2. Click **Cancel Booking** (red outline)
+3. A confirmation dialog appears: *"Cancel this booking? This action cannot be undone. Any payment will be refunded to the original payment method."*
+4. Click **Cancel Booking** to confirm, or **Keep Booking** to back out
 
----
+<!-- SCREENSHOT: 26-admin-cancel-dialog.png — confirmation dialog over dimmed slideover -->
 
-### "A resident says they never got their refund"
+What happens after cancellation:
+- Booking status flips to **Cancelled**
+- If the resident paid for extras, a **Refund Request** is auto-created in the Refunds queue (see §4.5). The refund is **not automatic** — someone has to approve it.
+- A "booking cancelled" notification email is sent to the resident.
 
-**Possible Causes:**
-1. The refund was issued but is still processing (1–3 business days)
-2. The refund was issued to the wrong payment method (e.g., a different card)
-3. The resident's bank account details have changed
+#### e) Cancelling after the cutoff (staff-only override)
 
-**Solution:**
-1. Open the **Booking Detail** page and check the **Payment** section for refund status
-2. If a refund was issued, note the date and reference number
-3. Tell the resident to check their bank statement after 1–3 business days
-4. If they still don't see it, escalate to a manager for investigation
+Residents lose the ability to cancel at **3:30pm AWST the day before collection**. After that, the cancel button is hidden from their dashboard. Field crew are already on the road or about to be.
 
----
+**Staff can still cancel post-cutoff**, but the policy expectation is:
+- **Don't cancel within 24h of collection unless there's a genuine operational reason** (e.g. weather closure, address error). Doing so doesn't refund the resident automatically — you'll need to manually approve a refund or note in the audit trail why no refund applies.
+- **Document the reason in the booking notes before cancelling** (use the pencil icon next to COLLECTION DETAILS). The audit trail captures the cancellation actor, but not the *why* — notes give the why.
+- The same Cancel Booking button works post-cutoff for staff. The DB trigger that blocks resident cancellations has a staff bypass.
 
-### "A ticket says 'No reply' but I added one"
-
-**Possible Cause:**
-The reply was saved to the ticket, but the system is showing an older cached version.
-
-**Solution:**
-Refresh the page in your browser (Cmd+R on Mac, Ctrl+R on Windows/Linux). The reply should appear.
+> **Edit a confirmed booking instead of cancelling.** If the resident wants to change the date or services (rather than drop entirely), use the **Edit Booking** flow (pencil icon on COLLECTION DETAILS or SERVICES) — keeps the same reference, audit-trails the change, doesn't create a refund. This is almost always preferable to cancel-and-rebook.
 
 ---
 
-### "I need to cancel a booking but the Cancel button is grayed out"
+### 4.5 Triaging exceptions — NCN, Nothing Presented, refunds
 
-**Possible Causes:**
-1. The booking is already Cancelled or Completed (no further action possible)
-2. The booking is outside the edit window (cannot be modified or cancelled)
+When field crew can't complete a collection as booked, they record one of two exception types:
 
-**Solution:**
-1. Check the **Status** badge — if it's already Cancelled or Completed, no action is needed
-2. If the booking is Submitted or Confirmed but the button is still disabled, check the **Collection Date** — if the collection has already happened, the booking can't be cancelled
-3. Escalate to a manager if the cancellation is urgent and the booking is outside normal edit windows
+- **Non-conformance (NCN)** — items breach the rules (oversized, contaminated, wrong location). Photos attached.
+- **Nothing Presented (NP)** — nothing was on the verge to collect.
+
+Both flow into your queue if the resident **disputes** them.
+
+#### a) The Non-Conformance list
+
+**URL:** `https://vvtest.verco.au/admin/non-conformance`
+
+<!-- SCREENSHOT: 27-admin-ncn-list.png — non-conformance notices list (may be empty in early UAT) -->
+
+**Filter strip:**
+- Search box — by booking ref, address, reason
+- **All Statuses** dropdown — Issued / Disputed / Under Review / Resolved / Rescheduled / Closed
+- **All Reasons** dropdown — e.g. Oversized, Contamination, Incorrect Location, Asbestos, Hazardous
+
+**Columns:** BOOKING / ADDRESS / AREA / REASON / PHOTOS / STATUS / REPORTED / REPORTED BY.
+
+#### b) The NCN state machine
+
+```
+Issued        → Disputed         (resident disputes within 14 days)
+Issued        → Closed           (auto-close cron after 14 days if no dispute)
+Disputed      → Under Review     (you take it on)
+Under Review  → Resolved         (NCN dismissed — your investigation found the field call was incorrect)
+Under Review  → Rescheduled      (a new collection date offered without a new booking)
+Under Review  → Rebooked         (a new booking created for the same address)
+```
+
+You **cannot** triage an NCN that's still in **Issued** status — that's the resident's window. Only **Disputed** notices (where the resident pushed back) need your attention.
+
+#### c) Triaging a Disputed NCN
+
+1. Open the NCN detail (click the row)
+2. Read the field crew's notes + look at the photos
+3. Read the resident's dispute reason (captured when they clicked "Dispute" in their dashboard)
+4. Decide:
+   - **Field crew was right** (e.g. photos clearly show oversized items): change status to **Under Review → Resolved**, add a note explaining your finding to the resident
+   - **Resident was right** (items were small but photographed misleadingly): **Resolved** with a refund or apology note; consider raising the issue with field crew
+   - **Genuine ambiguity**: offer a **Rescheduled** date (no new booking) or **Rebooked** (a fresh booking with new ref). Both inform the resident via email automatically.
+
+#### d) Auto-close at 14 days
+
+If a resident *doesn't* dispute within 14 days of the NCN being issued, the system auto-closes it. Your queue gets cleaner; the resident loses their right to dispute. After auto-close, you can still see the NCN in the list (filter status = **Closed**) but you can't act on it.
+
+#### e) Nothing Presented
+
+**URL:** `https://vvtest.verco.au/admin/nothing-presented`
+
+Same flow as NCN but without photos or reasons — the field crew just records "nothing here to collect". A common cause: the resident didn't place items out, or placed them outside the 72-hour window. Same dispute mechanism, same triage decisions, same auto-close.
+
+<!-- SCREENSHOT: 28-admin-np-list.png — nothing-presented list view -->
+
+#### f) Refund Requests
+
+**URL:** `https://vvtest.verco.au/admin/refunds`
+
+<!-- SCREENSHOT: 29-admin-refunds-list.png — refund requests queue -->
+
+Refunds are **never automatic**. Every refund needs a staff approval. The queue feeds from two sources:
+
+1. **Cancellation refunds** — auto-created when a resident cancels a Confirmed booking that had paid extras
+2. **Manual refunds** — created by a staff member as part of NCN/NP resolution
+
+**Columns:** BOOKING / RESIDENT / AMOUNT / REASON / STATUS / STRIPE REF / REQUESTED / REVIEWED BY.
+
+#### g) Approving a refund
+
+1. Open the refund detail
+2. Verify the amount matches what was paid (the system pre-populates from the original Stripe charge)
+3. Click **Approve** — the system calls Stripe's refund API, the **STRIPE REF** column populates with the refund ID, and the status flips to **Issued**
+4. The resident sees the money in their account in 1–3 business days
+5. Your name is captured in **REVIEWED BY** for audit
+
+Decline a refund only when the request is genuinely out-of-policy (e.g. a cancellation made after the field crew has already visited and completed the collection). Add a note explaining why; the resident is emailed.
 
 ---
 
-## Frequently Asked Questions
+### 4.6 Multi-unit dwellings (strata) — booking on behalf
 
-### Q: Can residents edit their own bookings?
+**URL:** `https://vvtest.verco.au/admin/muds`
 
-**A:** Yes, residents can edit their bookings (change address, services, collection date) up until a set cutoff time before collection (usually 24 hours). After the cutoff, they need to contact WMRC or use the Rebook button on their booking detail page.
+A **MUD** is any property where verge collections can't be arranged by individual residents — apartment blocks, retirement villages, gated communities, dual-occupancy strata. The strata manager (or a building rep) requests a collection on behalf of all the units.
+
+> **Important: admin-on-behalf is the *only* way to book a MUD collection.** There's no resident-facing flow for strata yet — when someone in a flagged MUD tries to book at `/book`, they hit the purple "contact your strata manager" banner (§2.2C). The booking has to be created by you, in the admin app.
+
+#### a) The MUDs list
+
+<!-- SCREENSHOT: 30-admin-muds-list.png — MUDs table with status cards visible -->
+
+Four status cards at the top:
+- **Contact Made** — strata manager has been identified + contacted, but not yet onboarded
+- **Registered** — strata manager has an admin-bound account; can be booked on behalf of
+- **Inactive** — strata building is flagged as not currently subscribed (e.g. opted out, demolished)
+- **Not Set** — no strata status assigned yet
+
+**Filter strip:** Search by address/MUD code, All areas, All statuses.
+
+**Columns:** ADDRESS / AREA / MUD CODE (e.g. `FRE-MUD-58`) / UNITS / STATUS / STRATA CONTACT / CADENCE (**Quarterly** = fixed schedule, **Ad-hoc** = request-by-request) / ACTIONS.
+
+#### b) Converting a property into a MUD
+
+Done from the **Properties** page (`/admin/properties`), not from the MUDs list.
+
+<!-- SCREENSHOT: 31-admin-properties-list.png — eligible properties list -->
+
+1. Open `/admin/properties` (89,390 records on Verge Valet — use the search box)
+2. Find the property by address
+3. Click the row's **kebab menu** (⋮) → **"Convert to MUD"**
+4. Enter unit count, strata contact name + email + mobile, and cadence
+5. Save — the property reappears in `/admin/muds`
+
+#### c) Booking on behalf of a strata building
+
+1. From the MUDs list, click a row to open its detail page
+2. Click **"Book Collection"** (the only call-to-action available on a MUD detail)
+3. The booking wizard opens, pre-loaded with:
+   - The MUD address (read-only — can't change it)
+   - **Type: MUD** (different allocation rules — unit count × per-unit allocation)
+   - Strata contact pre-filled in CONTACT (your name appears with the "(Admin)" suffix as actor)
+4. Walk through the wizard as you would for a resident: services, date, location, confirm
+5. Submit — the booking lands directly in **Confirmed** status (no OTP step required, because the strata manager has been onboarded already)
+
+> **Allocation maths is different for MUDs.** A 50-unit MUD with the standard 3-bulk-per-property allocation gets `50 × 3 = 150` Bulk units per FY (shared across General and Green). The pricing engine knows this from `UNITS` × per-unit-allocation; you don't manually scale anything.
+
+#### d) PII handling on MUDs
+
+The **strata contact** name + email + mobile sit in the MUDs table because admins need them. They are **never** exposed to:
+- Field crew (`field` role) — they see only the address and items to collect
+- Rangers (`ranger` role) — same restriction
+- Other residents in the building — who don't have visibility into who their strata manager is via this app
+
+When sharing screenshots of the MUDs list externally, **blur the STRATA CONTACT column** before sharing.
 
 ---
 
-### Q: What's the difference between NCN and NP?
+### 4.7 Service tickets — your customer service queue
 
-**A:** 
-- **NCN (Non-Conformance):** The waste at the property didn't meet criteria (too big, contaminated, not in bins). Contractor refused to take it.
-- **NP (Nothing Presented):** The resident booked but there was no waste at the property when the contractor arrived. No collection happened.
+**URL:** `https://vvtest.verco.au/admin/service-tickets`
 
----
+<!-- SCREENSHOT: 32-admin-service-tickets.png — service tickets list -->
 
-### Q: Can I edit a resident's contact details?
+The Service Tickets queue is where resident-side enquiries land that aren't directly tied to a booking action. Examples:
 
-**A:** Not directly in Verco. Contact details are pulled from the resident's user account. If a resident needs to update their phone or email, they can do it themselves via the **Account Settings** page in their resident portal, or you can help them reset their password if they're locked out.
+- *"I can't see my booking on the dashboard"*
+- *"I didn't receive my OTP email"*
+- *"I want to change my email address"*
+- *"The address autocomplete won't accept my street"*
+- *"I need an invoice for accounting"* (when the receipt isn't enough)
 
----
+**Filter strip:** All Statuses, All Priorities, All Categories. Search by subject.
 
-### Q: What happens if a resident disputes an NCN?
+**Columns:** TICKET (e.g. `TKT-DOF0KT`) / SUBJECT / RESIDENT / CATEGORY (Booking Enquiry, Account Issue, Technical, Billing, Other) / PRIORITY (Low, Normal, High, Urgent) / STATUS (New, In Progress, Awaiting Resident, Resolved, Closed) / ASSIGNED / CREATED / ACTIONS.
 
-**A:** The NCN moves to `Disputed` status. It's then your job (or a manager's) to investigate the dispute. You can review notes, photos, and evidence, then decide to:
-- **Overturn** the NCN (declare it invalid and optionally issue a refund), or
-- **Uphold** the NCN (the contractor was correct).
+#### Triage workflow
 
----
+1. **Filter** to Status = "New" + Assigned = empty — the unclaimed queue
+2. **Open** the highest-priority ticket
+3. **Read** the resident's message + any linked booking
+4. **Assign** yourself (or your colleague) so others don't double-handle
+5. **Reply** via the ticket comment thread (the resident is emailed)
+6. **Change status** to "Awaiting Resident" if you're waiting on them, or "Resolved" once handled
+7. **Close** after the resident confirms or after 7 days of silence on Resolved status
 
-### Q: Who pays for overrides when a resident exceeds their allocation?
-
-**A:** If a resident books but has no allocation remaining, the booking is rejected and they can't proceed. Staff can only override allocations at the property level (e.g., "this property gets +50 extra Bulk units"). Individual booking prices don't change based on allocation — the limits are there to prevent overuse.
-
----
-
-### Q: Can I see what refunds have been approved and processed?
-
-**A:** Yes. Go to **Refunds** (`/admin/refunds`) to see all refund requests, their statuses (Pending, Processed, Failed), and linked bookings.
+> **"Report a bug" floating button vs. Service Tickets.** The floating bug-report button (bottom-right of every admin page) goes to D&M's **dev team** — use it for app misbehaviour. Service Tickets is your **internal customer queue** — use it for things you need to action for a resident. Two different inboxes, two different audiences.
 
 ---
 
-## Getting Help
+### What's NOT in this guide (yet)
 
-**For urgent issues or questions not answered here:**
-- Contact your WMRC manager or team lead
-- Email support at: [support-email-to-be-added]
-- Call the support line: [support-phone-to-be-added]
+A few admin surfaces exist but are deferred from v1.2 because they're either contractor-admin-only or not yet relevant to client-staff training:
+
+- **Collection Dates** — the schedule administration UI. Mostly contractor-admin; client-staff read-only.
+- **Allocations** — per-area allocation rules. Contractor-admin only.
+- **Illegal Dumping** — separate workflow at `/admin/illegal-dumping`; covered in a future revision once the Illegal Dumping module hits broader use.
+- **User management** — creating new admin users for your sub-council. Client-admin only; documented separately in `wmrc-onboarding-staff.md` (planned).
+
+If you find yourself needing one of these in day-to-day work and it's not in this guide yet, ping Dan and we'll prioritise the addition.
 
 ---
 
-**Document Version:** 1.0  
-**Last Updated:** 2026-04-09  
-**Next Review:** 2026-05-15  
+## 5. Suggested dummy-booking scenarios
 
+Pick three to five testers, give each one a fresh test email, and run the following scenarios. Each should produce a different outcome — together they cover the bulk of what the support team will see.
+
+| # | Scenario | Expected outcome |
+|---|---|---|
+| 1 | Book 1 × General (within 3-bulk allocation) | Free booking, no Stripe, booking confirmed immediately |
+| 2 | Book 2 × General + 1 × Green (fills the 3-bulk allocation) | Free booking, confirmed |
+| 3 | Book 4 × General (exceeds the 3-included allocation) | 3 free + 1 paid; Stripe Checkout for the extra; payment with `4242…` card |
+| 4 | Test a payment failure | Use card `4000 0000 0000 0002`; booking should stay Pending Payment with **Pay Now** button |
+| 5 | Edit a confirmed booking (add an extra service) | Same booking ref, audit trail updated |
+| 6 | Cancel a confirmed booking before the cutoff | Status → Cancelled; refund request queued if paid |
+| 7 | Try to cancel after the cutoff | Cancel button hidden; if you force the URL, you get the "cutoff has passed" error |
+| 8 | Try to book at an ineligible address (anything outside Town of Vincent) | Red "not eligible" banner; cannot proceed |
+| 9 | Try to book at a MUD address | Purple "strata manager" banner; cannot proceed |
+| 10 | Run through OTP sign-in with a wrong code | Inline error message, can retry or request a new code |
+| 11 | Hit the OTP rate limit (request 3 codes in quick succession) | "For security purposes, you can only request this after N seconds" |
+| 12 | Receive an NCN (requires coordination with field tester) and dispute it | NCN card with dispute button → Disputed status |
+
+For each scenario, **note the booking reference** (e.g. `COT-E88PNN`) so the admin testers can pick it up from the back-office side.
+
+### Admin-side scenarios (Part C exercises)
+
+Pair these with resident scenarios above — one tester runs the resident half, another picks up the booking ref in `/admin` and runs the staff side.
+
+| # | Scenario | Expected outcome |
+|---|---|---|
+| A1 | Look up a booking from the global search box using a resident's ref | Detail slideover opens straight to that booking |
+| A2 | Filter the bookings list to Status = "Pending Payment" + Area = "COT" | List narrows to just Cottesloe pending-payment bookings |
+| A3 | Open a Pending Payment booking and click **Pay Now** | Stripe Checkout opens; on test card success the status flips to Confirmed within ~15 seconds |
+| A4 | Cancel a Confirmed booking pre-cutoff | Cancellation dialog confirms; status → Cancelled; if extras were paid, refund request appears in `/admin/refunds` |
+| A5 | Approve a refund request in `/admin/refunds` | Status → Issued; Stripe Ref column populates; your name appears in Reviewed By |
+| A6 | Triage a Disputed NCN by walking from `/admin/non-conformance` → detail → set status to Resolved | NCN status → Resolved; resident is emailed; audit log captures actor |
+| A7 | Book on behalf of a MUD by opening the MUDs list, picking a Registered MUD, and walking the wizard | Booking lands directly in Confirmed (no OTP); ref begins with the area prefix; CONTACT shows your name with "(Admin)" suffix |
+| A8 | Convert a residential property into a MUD via `/admin/properties` → kebab menu → "Convert to MUD" | Property disappears from `/admin/properties`, appears in `/admin/muds` with status "Contact Made" |
+| A9 | Raise a service ticket on behalf of a resident (use the kebab menu on a booking) | Ticket appears in `/admin/service-tickets`; resident is notified; status starts as "New" |
+| A10 | Walk a colleague through the audit trail for a booking that's been edited | ACTIVITY timeline shows each change with field-level diff; you can name who made the change and when |
+
+---
+
+## 6. Tester tips & FAQs
+
+**Q: How do I clear my dummy bookings?**
+A: Don't — at least, not yourself. The bookings stay in the system as part of the test history. If you need a true reset, message Dan and he'll wipe the UAT data.
+
+**Q: I can't see my dummy booking on the dashboard.**
+A: Two common causes:
+- You're signed in with a different email than the one you used to book. Sign out and back in.
+- The booking is **Pending Payment** — those appear on the dashboard but in a separate section. Look for the orange banner.
+
+**Q: The OTP code never arrives.**
+A: Check the spam folder first — sender is `bookings@verco.au`, subject is "Your VERCO OTP". If still nothing after 60 seconds, click **Resend code** (mind the 30-second cooldown). If it's still failing, the test SendGrid account may have a delivery issue — flag to Dan.
+
+**Q: The OTP code arrived but the site rejects it.**
+A: Three possibilities:
+1. **Stale code** — you requested a new code, which invalidates the previous one. Use only the *latest* code received.
+2. **Rate limit** — repeated request_new_code clicks trigger a Supabase cooldown. Wait 30 seconds before trying again.
+3. **Typo** — easy to do under time pressure. Use copy-paste from the email if you can.
+
+**Q: The dashboard says "Good morning" but it's afternoon.**
+A: That's intentional — the greeting changes based on the time of day in **Perth time**. If you're testing from outside WA, it may not match your local clock.
+
+**Q: Can two testers share a single email and see each other's bookings?**
+A: Yes. Anyone who signs in with `wmrc.test@gmail.com` sees the same dashboard. Use the Gmail `+` trick if you want separate residents in the same inbox.
+
+**Q: What's the address autocomplete using under the hood?**
+A: Google Places, proxied through a Verco edge function so the API key isn't exposed to the browser. If autocomplete stops returning results, it's usually a Google quota or proxy issue — flag to Dan.
+
+**Q: I see bookings from "Cambridge" or "Kwinana" on my dashboard — what gives?**
+A: If your test email is also linked to an admin account on the Verco platform, the dashboard surfaces bookings from any tenant you have access to. End residents only ever see their own. If you want a clean single-tenant view, use a fresh `+suffix` email that has no admin role.
+
+**Q: I clicked "Edit Booking" but the wizard shows my service is now $195.45 even though it was free originally.**
+A: This is expected if your booking used up the last of your allocation and you're trying to add an extra item on top. The original items stay at their original price (free); only the additions are priced fresh.
+
+**Q: The Stripe receipt link doesn't open anything.**
+A: In UAT mode, Stripe sometimes returns a receipt URL that requires sign-in to Stripe's test dashboard. That's a Stripe-side thing, not a Verco bug.
+
+---
+
+## 7. Reporting issues
+
+When you find a bug or something confusing:
+
+1. **Take a screenshot** of the screen as it looked to you.
+2. **Note the booking reference** if one exists (e.g. `VV-2026-XXXX`).
+3. **Note the test email** you were signed in as.
+4. **Note the time** (Perth time) it happened.
+5. **Describe what you expected vs. what you saw** — a sentence each is fine.
+6. Send to **Dan Taylor** via the WMRC Slack channel or email.
+
+For urgent issues (e.g. the test site is down, or Stripe is rejecting all cards), message Dan directly.
+
+Inside the admin app, the floating **"Report a bug"** button (bottom-right corner of every page) routes UI / behaviour issues straight to the D&M dev team — use that for admin-side problems instead of Slack. Service Tickets (§4.7) are for resident-facing customer queries you need to action.
+
+---
+
+**Document version:** 1.2
+**Last updated:** 2026-05-28
+**Next review:** after first round of WMRC dummy bookings + first admin-side walkthrough
+
+### Revision log
+
+- **1.2 — 2026-05-28**: Added Part C (admin operational workflows) covering sign-in, bookings list/detail, confirm/pay/cancel, exception triage (NCN/NP/refunds), MUD admin-on-behalf, and service tickets. Renumbered subsequent sections. Added admin-side dummy-booking scenarios (A1–A10). Renamed file from `wmrc-resident-tester-guide.md` to `wmrc-user-guide.md` to reflect the broader audience. Admin screenshots (21-32) captured separately per `docs/screenshots/ADMIN-CAPTURE-CHECKLIST.md`.
+- **1.1 — 2026-05-19**: Initial release. Resident booking + management flow (Parts A + B), screenshots 01-20.
+
+*Resident-side screenshots (01-20) were captured live from `vvtest.verco.au` on 2026-05-19. Admin-side screenshots (21-32) were captured 2026-05-28. The UI may evolve before go-live — the words and outcomes are stable; the colours and exact layouts may differ slightly.*
