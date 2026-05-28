@@ -7,6 +7,7 @@ import { z } from 'zod'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Dialog } from '@base-ui/react/dialog'
 import { createClient } from '@/lib/supabase/client'
+import { invokeEfWithUserToken } from '@/lib/supabase/invoke-ef-client'
 import { normaliseAuMobile, formatAuMobileDisplay } from '@/lib/booking/schemas'
 import type { Database } from '@/lib/supabase/types'
 
@@ -256,14 +257,6 @@ export function UserFormDialog({ callerRole, editData, open, onOpenChange }: Use
     setSubmitError(null)
 
     try {
-      const { data: sessionData } = await supabase.auth.getSession()
-      const token = sessionData.session?.access_token
-      if (!token) {
-        setSubmitError('Session expired. Please refresh the page.')
-        setIsSubmitting(false)
-        return
-      }
-
       const role = data.role as AppRole
       const isContractorRole = CONTRACTOR_ROLES.includes(role)
       const isClientRole = CLIENT_ROLES.includes(role)
@@ -294,25 +287,14 @@ export function UserFormDialog({ callerRole, editData, open, onOpenChange }: Use
         requestBody.mud_property_ids = data.mud_property_ids ?? []
       }
 
-      const res = await fetch(
-        `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/create-user`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify(requestBody),
-        }
-      )
+      const efResult = await invokeEfWithUserToken(supabase, 'create-user', requestBody)
 
-      if (!res.ok) {
-        const errorBody = await res.text()
+      if (!efResult.ok) {
         try {
-          const parsed = JSON.parse(errorBody)
-          setSubmitError(parsed.error ?? `Failed to ${isEdit ? 'update' : 'create'} user (${res.status})`)
+          const parsed = JSON.parse(efResult.error)
+          setSubmitError(parsed.error ?? `Failed to ${isEdit ? 'update' : 'create'} user`)
         } catch {
-          setSubmitError(`Failed to ${isEdit ? 'update' : 'create'} user (${res.status})`)
+          setSubmitError(efResult.error)
         }
         setIsSubmitting(false)
         return

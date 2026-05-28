@@ -4,6 +4,7 @@ import { useState, useRef, useEffect } from 'react'
 import Link from 'next/link'
 import { format } from 'date-fns'
 import { createClient } from '@/lib/supabase/client'
+import { invokeEfWithUserToken } from '@/lib/supabase/invoke-ef-client'
 import { getStatusStyle } from '@/lib/ui/status-styles'
 import type { Database } from '@/lib/supabase/types'
 
@@ -80,49 +81,19 @@ export function TicketDetailClient({
     setSendError(null)
 
     try {
-      // Get current session token for authenticated request
-      const {
-        data: { session },
-      } = await supabase.auth.getSession()
-
-      if (!session) {
-        setSendError('You must be logged in to reply.')
-        setIsSending(false)
-        return
-      }
-
-      const res = await fetch(
-        `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/create-ticket-response`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${session.access_token}`,
-          },
-          body: JSON.stringify({
-            ticket_id: ticket.id,
-            message: replyText.trim(),
-          }),
-        }
+      const efResult = await invokeEfWithUserToken<{ id: string; created_at: string }>(
+        supabase,
+        'create-ticket-response',
+        { ticket_id: ticket.id, message: replyText.trim() }
       )
 
-      if (!res.ok) {
-        const errorBody = await res.text()
-        console.error('create-ticket-response error:', res.status, errorBody)
-        try {
-          const parsed = JSON.parse(errorBody)
-          setSendError(parsed.error ?? `Failed to send reply (${res.status})`)
-        } catch {
-          setSendError(`Failed to send reply (${res.status})`)
-        }
+      if (!efResult.ok) {
+        setSendError(efResult.error)
         setIsSending(false)
         return
       }
 
-      const result = (await res.json()) as {
-        id: string
-        created_at: string
-      }
+      const result = efResult.data
 
       // Optimistically append the new message
       setResponses((prev) => [

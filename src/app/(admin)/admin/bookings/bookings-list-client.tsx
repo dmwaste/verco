@@ -5,6 +5,7 @@ import { useSearchParams } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
 import { format } from 'date-fns'
 import { createClient } from '@/lib/supabase/client'
+import { invokeEfWithUserToken } from '@/lib/supabase/invoke-ef-client'
 import { BookingStatusBadge } from '@/components/booking/booking-status-badge'
 import { SkeletonRow } from '@/components/ui/skeleton'
 import Link from 'next/link'
@@ -177,40 +178,24 @@ export function BookingsListClient({ isContractorAdmin }: BookingsListClientProp
   const handlePayNow = useCallback(async (bookingId: string) => {
     setPayingBookingId(bookingId)
     try {
-      const { data: { session } } = await supabase.auth.getSession()
-      const token = session?.access_token
-
       const origin = window.location.origin
-      const res = await fetch(
-        `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/create-checkout`,
+      const efResult = await invokeEfWithUserToken<{ checkout_url?: string }>(
+        supabase,
+        'create-checkout',
         {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({
-            booking_id: bookingId,
-            success_url: `${origin}/admin/bookings`,
-            cancel_url: `${origin}/admin/bookings`,
-          }),
+          booking_id: bookingId,
+          success_url: `${origin}/admin/bookings`,
+          cancel_url: `${origin}/admin/bookings`,
         }
       )
 
-      if (!res.ok) {
-        console.error('create-checkout error:', res.status, await res.text())
+      if (!efResult.ok || !efResult.data.checkout_url) {
         alert('Failed to create payment session')
         setPayingBookingId(null)
         return
       }
 
-      const data = (await res.json()) as { checkout_url?: string }
-      if (data.checkout_url) {
-        window.location.href = data.checkout_url
-      } else {
-        alert('Failed to create payment session')
-        setPayingBookingId(null)
-      }
+      window.location.href = efResult.data.checkout_url
     } catch (err) {
       console.error('Pay now error:', err)
       alert('Failed to create payment session')

@@ -7,6 +7,7 @@ import { Dialog } from '@base-ui/react/dialog'
 import { useQuery } from '@tanstack/react-query'
 import { format } from 'date-fns'
 import { createClient } from '@/lib/supabase/client'
+import { invokeEfWithUserToken } from '@/lib/supabase/invoke-ef-client'
 import { BookingStatusBadge } from '@/components/booking/booking-status-badge'
 import { LOCATION_OPTIONS, type LocationOption } from '@/lib/booking/schemas'
 import { confirmBooking, cancelBooking, updateContact, updateCollectionDetails, updateNotes } from './actions'
@@ -253,39 +254,24 @@ export function BookingDetailPanel({
     setIsPaying(true)
     setError(null)
     try {
-      const { data: { session } } = await supabase.auth.getSession()
-      const token = session?.access_token
       const origin = window.location.origin
-
-      const res = await fetch(
-        `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/create-checkout`,
+      const efResult = await invokeEfWithUserToken<{ checkout_url?: string }>(
+        supabase,
+        'create-checkout',
         {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({
-            booking_id: booking.id,
-            success_url: `${origin}/admin/bookings/${booking.id}`,
-            cancel_url: `${origin}/admin/bookings/${booking.id}`,
-          }),
+          booking_id: booking.id,
+          success_url: `${origin}/admin/bookings/${booking.id}`,
+          cancel_url: `${origin}/admin/bookings/${booking.id}`,
         }
       )
 
-      if (!res.ok) {
+      if (!efResult.ok || !efResult.data.checkout_url) {
         setError('Failed to create payment session')
         setIsPaying(false)
         return
       }
 
-      const data = (await res.json()) as { checkout_url?: string }
-      if (data.checkout_url) {
-        window.location.href = data.checkout_url
-      } else {
-        setError('Failed to create payment session')
-        setIsPaying(false)
-      }
+      window.location.href = efResult.data.checkout_url
     } catch {
       setError('An unexpected error occurred')
       setIsPaying(false)

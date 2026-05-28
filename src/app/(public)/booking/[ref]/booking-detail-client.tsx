@@ -14,6 +14,7 @@ import {
 import { BookingStatusBadge } from '@/components/booking/booking-status-badge'
 import { VercoButton } from '@/components/ui/verco-button'
 import { createClient } from '@/lib/supabase/client'
+import { invokeEfWithUserToken } from '@/lib/supabase/invoke-ef-client'
 import { cancelBooking, disputeNcn, disputeNp } from './actions'
 import { getStatusStyle } from '@/lib/ui/status-styles'
 import type { Database } from '@/lib/supabase/types'
@@ -170,44 +171,27 @@ export function BookingDetailClient({ booking, tickets, receiptUrl, ncn, np, pay
     setPayError(null)
     try {
       const supabase = createClient()
-      const { data: { session } } = await supabase.auth.getSession()
-      const token = session?.access_token ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-
       const origin = window.location.origin
       const bookingPath = `/booking/${booking.ref}`
 
-      const res = await fetch(
-        `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/create-checkout`,
+      const efResult = await invokeEfWithUserToken<{ checkout_url?: string }>(
+        supabase,
+        'create-checkout',
         {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({
-            booking_id: booking.id,
-            success_url: `${origin}${bookingPath}?success=true`,
-            cancel_url: `${origin}${bookingPath}?cancelled=true`,
-          }),
-        }
+          booking_id: booking.id,
+          success_url: `${origin}${bookingPath}?success=true`,
+          cancel_url: `${origin}${bookingPath}?cancelled=true`,
+        },
+        { fallbackToAnon: true }
       )
 
-      if (!res.ok) {
-        const errorBody = await res.text()
-        console.error('create-checkout error:', res.status, errorBody)
+      if (!efResult.ok || !efResult.data.checkout_url) {
         setPayError('Failed to create payment session. Please try again.')
         setIsPaying(false)
         return
       }
 
-      const data = (await res.json()) as { checkout_url?: string }
-      if (!data.checkout_url) {
-        setPayError('Failed to create payment session. Please try again.')
-        setIsPaying(false)
-        return
-      }
-
-      window.location.href = data.checkout_url
+      window.location.href = efResult.data.checkout_url
     } catch {
       setPayError('An unexpected error occurred. Please try again.')
       setIsPaying(false)
