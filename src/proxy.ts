@@ -122,7 +122,6 @@ export async function proxy(request: NextRequest) {
   if (isAdminHost || isFieldHost) {
     return handleContractorHost(request, {
       isAdmin: isAdminHost,
-      isField: isFieldHost,
       path,
     })
   }
@@ -195,8 +194,11 @@ async function handleRootHost(request: NextRequest, path: string) {
 
 async function handleContractorHost(
   request: NextRequest,
-  { isAdmin, isField, path }: { isAdmin: boolean; isField: boolean; path: string }
+  { isAdmin, path }: { isAdmin: boolean; path: string }
 ) {
+  // Caller invariant: this fn is only invoked when isAdminHost || isFieldHost
+  // is true, so `!isAdmin` implies field-host. Don't add a 3rd contractor
+  // host type without revisiting the else-branches below.
   const canonicalPath = isAdmin ? '/admin' : '/field'
   const requiredRoles = isAdmin ? ADMIN_ROLES : FIELD_ROLES
   const allowedPrefixes = isAdmin

@@ -1,16 +1,8 @@
 'use client'
 
 import Link from 'next/link'
-import type { SurveyResponses } from './actions'
 
-interface AlreadySubmittedProps {
-  bookingRef: string
-  responses: SurveyResponses | null
-}
-
-export function AlreadySubmitted({
-  bookingRef,
-}: AlreadySubmittedProps) {
+export function AlreadySubmitted() {
   return (
     <div className="flex min-h-screen flex-col bg-white">
       {/* Header */}
