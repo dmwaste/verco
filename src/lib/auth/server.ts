@@ -17,9 +17,11 @@ export async function verifyStaffRole() {
     return null
   }
   if (!role || !STAFF_ROLES.includes(role as StaffRole)) return null
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
+  const { data: { user }, error: userError } = await supabase.auth.getUser()
+  if (userError) {
+    console.error('[verifyStaffRole] getUser failed:', userError.message)
+    return null
+  }
   return user ? { supabase, userId: user.id } : null
 }
 

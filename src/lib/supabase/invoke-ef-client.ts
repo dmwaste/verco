@@ -45,5 +45,9 @@ export async function invokeEfWithUserToken<T = unknown>(
   }
 
   if (res.status === 204) return { ok: true, data: undefined as T }
-  return { ok: true, data: (await res.json()) as T }
+  try {
+    return { ok: true, data: (await res.json()) as T }
+  } catch {
+    return { ok: false, error: 'EF returned non-JSON response' }
+  }
 }
