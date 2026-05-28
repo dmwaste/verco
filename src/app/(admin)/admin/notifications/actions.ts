@@ -2,10 +2,7 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { invokeSendNotification } from '@/lib/notifications/invoke'
-
-type Result<T, E = string> =
-  | { ok: true; data: T }
-  | { ok: false; error: E }
+import type { Result } from '@/lib/result'
 
 export async function retryNotification(logId: string): Promise<Result<void>> {
   if (!logId) {

@@ -4,8 +4,7 @@ import { cookies } from 'next/headers'
 import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { CURRENT_ADMIN_CLIENT_COOKIE } from './current-client'
-
-type Result<T, E = string> = { ok: true; data: T } | { ok: false; error: E }
+import type { Result } from '@/lib/result'
 
 /**
  * Persists the admin user's "current client" selection. The cookie is

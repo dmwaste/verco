@@ -1,10 +1,7 @@
 'use server'
 
 import { createClient } from '@/lib/supabase/server'
-
-type Result<T, E = string> =
-  | { ok: true; data: T }
-  | { ok: false; error: E }
+import type { Result } from '@/lib/result'
 
 interface CreateIdBookingInput {
   latitude: number

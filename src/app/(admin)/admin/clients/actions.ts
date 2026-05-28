@@ -3,10 +3,7 @@
 import { headers } from 'next/headers'
 import { createClient } from '@/lib/supabase/server'
 import { z } from 'zod'
-
-type Result<T, E = string> =
-  | { ok: true; data: T }
-  | { ok: false; error: E }
+import type { Result } from '@/lib/result'
 
 // ── Schemas ────────────────────────────────────────────────────
 
