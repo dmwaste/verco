@@ -12,11 +12,11 @@ afterEach(() => {
 })
 
 function mockAirtableResponse(body: object) {
-  ;(global.fetch as any).mockResolvedValueOnce({
+  vi.mocked(global.fetch).mockResolvedValueOnce({
     ok: true,
     status: 200,
     json: async () => body,
-  })
+  } as Response)
 }
 
 // Regression guard for commit 2a2e97a: Airtable's REST API returns

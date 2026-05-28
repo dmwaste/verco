@@ -59,7 +59,7 @@ export default async function AdminTicketDetailPage({
     .eq('id', ticket.id)
     .single()
 
-  let staffUsers: { id: string; name: string }[] = []
+  const staffUsers: { id: string; name: string }[] = []
   if (ticketWithClient) {
     const { data: staffRoles } = await supabase
       .from('user_roles')
