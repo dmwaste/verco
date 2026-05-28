@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
   computeLineItems,
-  type PricingItem,
   type ServiceRule,
   type AllocationOverride,
 } from '@/lib/pricing/calculate'

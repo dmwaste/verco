@@ -26,7 +26,7 @@ import { loadAreaMap, resolveAreaId } from './lib/area-map'
 import { upsertEligibleProperties } from './lib/verco-upsert'
 import { upsertContact } from './lib/contact-upsert'
 import { parseFlags, requireEnv } from './lib/cli'
-import type { AirtableMudRecord, EligiblePropertyInsert, MudPropertyInsert } from './lib/types'
+import type { AirtableMudRecord, MudPropertyInsert } from './lib/types'
 
 const EXTERNAL_SOURCE = 'airtable-mud'
 const STORAGE_BUCKET = 'mud-auth-forms'
