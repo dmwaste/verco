@@ -379,22 +379,22 @@ These are absolute. If a task requires crossing one, stop and flag it.
 
 ### `NEXT_PUBLIC_*` vars are baked at build time — inlined via Docker build-args (`deploy.yml`); Coolify runtime env is a no-op. New vars: add to `.env.example`, GitHub secrets, `deploy.yml` build-arg, and Dockerfile `ENV`.
 
-### Shape consistency — DB column changes + EF response envelopes. Grep every writer first. Sequence: migration → EFs with back-compat shim → Coolify deploy → second EF deploy strips shim (skip the shim and in-flight requests 500 until Coolify catches up). EF responses emit the same documented fields on every path (success, no-op, error) — missing-field defaults belong in the EF, not the parser.
+### Shape consistency — DB column changes + EF response envelopes need the migration → EFs-with-back-compat-shim → Coolify → strip-shim sequence; EF responses emit documented fields on every path (success, no-op, error).
 
 ### Generated `STORED` columns over NOT NULL inputs need explicit `ALTER COLUMN ... SET NOT NULL` — Supabase CLI infers nullability from metadata, not the expression; without it regen'd TS is `string | null`.
 
-### PostgREST gotchas — embedded selects + parent filtering via `.or()`
-- Multi-FK embedded selects (`.select('parent, related(child)')`) silently return empty inner for authenticated users once the embedded table accumulates additional FKs — outer rows present, inner `[]`, service-role works. Fix: two `.select()` calls in `Promise.all` + stitch in JS; escape hatch `related!fk_name(col)`.
-- `.or()` can't filter parent rows by columns on a LEFT-joined table when the FK is nullable. Pre-fetch matching ids and use `.in(...)` inside the `.or()`: `query.or('ref.ilike.%X%,property_id.in.(uuid1,uuid2)')`. See `admin/bookings/bookings-list-client.tsx` for the canonical pattern.
+### PostgREST embedded-select gotchas — multi-FK embeds (`select('parent, related(child)')`) silently return empty inner for authed users once `related` accumulates FKs (service-role works). Fix: split queries + stitch, or `related!fk_name(col)`. `.or()` can't filter parents by columns on a nullable LEFT-joined table — pre-fetch ids + `.in(...)` inside the `.or()`. Canonical patterns in `admin/bookings/bookings-list-client.tsx`.
 
-### Notification idempotency keys on `(booking_id, type, channel)`, not `(booking_id, type)`
-Email + SMS for the same notification must succeed independently — a `sent` row for the email channel can't block the SMS send. The dispatcher's `isAlreadySent` takes a channel arg; new channels (push, voice) follow the same rule.
+### Notification idempotency keys on `(booking_id, type, channel)`, not `(booking_id, type)` — email + SMS must succeed independently. Dispatcher's `isAlreadySent` takes a channel arg.
 
-### `useState(searchParams.get(...))` doesn't sync on same-path soft navigation in App Router
-`router.push` to the same path doesn't remount the component, so `useState` initialisers don't re-run — URL updates, state doesn't. Fix: `useEffect(() => setX(searchParams.get('x') ?? ''), [searchParams])`. Canonical pattern in `admin/bookings/bookings-list-client.tsx`.
+### `useState(searchParams.get(...))` doesn't sync on same-path soft navigation — `router.push` to the same path doesn't remount, so init runs only once. Fix: `useEffect(() => setX(searchParams.get('x') ?? ''), [searchParams])`. Pattern in `admin/bookings/bookings-list-client.tsx`.
 
-### Auth email templates live in git, not the dashboard — `supabase/templates/*.html` + `[auth.email.template.*]` in `config.toml`, apply via `pnpm supabase config push`. Studio edits get overwritten. GoTrue uses base Go `html/template`, NOT sprig — no `{{ now }}` or pipe filters; parse errors silently fall back to Supabase defaults (visible only as `templatemailer_template_body_parse_error` in auth logs). Always test by triggering an OTP after deploy.
+### Auth email templates live in `supabase/templates/*.html` + `[auth.email.template.*]` in `config.toml` — apply via `pnpm supabase config push`. Studio edits get overwritten. GoTrue uses Go `html/template` (NOT sprig — no `{{ now }}` / pipe filters); parse errors silently fall back to Supabase defaults. Always test with a fresh OTP after deploy.
 
-### Never use `--yes` on `supabase config push` until local matches prod — it syncs the **entire** `[auth]` block, not just the diff. Local dev defaults (`site_url = "http://127.0.0.1:3000"`, `email.max_frequency = "1s"`, etc.) will silently bake into prod. Run interactively first, eyeball the full diff, then `--yes` if clean. CLI shows the diff exactly once before applying — no undo.
+### `supabase config push` syncs the **entire** `[auth]` block, not just the diff — local dev defaults bake into prod. Never `--yes` until you've eyeballed the interactive diff. CLI shows it exactly once — no undo.
 
-### Manual MCP migrations need explicit version sync — `apply_migration` records `version = <now>`, not the filename's. Future `db push` sees the file as unapplied and re-runs (fails on non-idempotent DDL). Recovery: `execute_sql` + `INSERT INTO supabase_migrations.schema_migrations (version, name) VALUES ('<filename version>', '<name>')` in one transaction.
+### Migration workflow — (a) never use Supabase MCP `apply_migration` against prod (stamps `version=now()`, blocks next `db push`). Always `migration new` → file → CI `db push`. (b) Types Freshness CI gens from prod, so single-PR with new RPC + new consumer fails CI. Split: PR-A (migration) → release → prod → PR-B (consumer + regen'd types). See `mcp-apply-migration-version-sync.md` + `ghost-release-pattern.md`.
+
+### SRF in RLS USING — Postgres rejects set-returning funcs in RLS (`SQLSTATE 0A000`). Use `col IN (SELECT srf())`, NOT `col = ANY(srf())`. Pattern: `contacts_staff_select_via_profiles`.
+
+### RLS coverage lags data plumbing — new FK or relationship to a table with tight RLS needs a matching SELECT policy IN THE SAME MIGRATION. Symptom: data imports fine, admin embeds silently return null. Memory: `rls-coverage-lags-data-plumbing.md`.
