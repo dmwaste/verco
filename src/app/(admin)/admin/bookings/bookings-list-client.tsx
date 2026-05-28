@@ -64,6 +64,7 @@ export function BookingsListClient({ isContractorAdmin }: BookingsListClientProp
   // the top-bar search appears to "do nothing" — the URL updates but the
   // bookings query stays on the previous search value.
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional URL→state sync on soft-navigation; see CLAUDE.md §21 searchParams gotcha
     setSearch(searchParams.get('search') ?? '')
     setStatusFilter(searchParams.get('status') ?? '')
     setAreaFilter(searchParams.get('area') ?? '')

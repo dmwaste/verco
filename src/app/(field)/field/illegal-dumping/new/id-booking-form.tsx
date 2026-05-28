@@ -71,9 +71,29 @@ export function IdBookingForm({ collectionDates }: IdBookingFormProps) {
     collectionDate: string
   } | null>(null)
 
+  // Declared above the useEffect that calls it. Function declarations are
+  // hoisted in JS so the reverse order works at runtime, but react-hooks/
+  // immutability flags the forward reference — declaration-before-use is
+  // both clearer and lint-clean.
+  async function reverseGeocode(lat: number, lng: number) {
+    try {
+      const data = await invokeEdgeFunction<{ address?: string | null }>(
+        'google-places-proxy',
+        { latlng: `${lat},${lng}`, type: 'reverse' }
+      )
+      if (data?.address) {
+        setGeoAddress(data.address)
+      }
+    } catch {
+      // Fallback: use raw coordinates as address
+      setGeoAddress(`${lat.toFixed(4)}, ${lng.toFixed(4)}`)
+    }
+  }
+
   // Request geolocation on mount
   useEffect(() => {
     if (!navigator.geolocation) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional initialization-failed signal; the async geolocation API path also calls setState in callbacks, so this matches the established pattern
       setGpsState('error')
       setGpsError('Geolocation is not supported by this browser.')
       return
@@ -100,21 +120,6 @@ export function IdBookingForm({ collectionDates }: IdBookingFormProps) {
       { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
     )
   }, [])
-
-  async function reverseGeocode(lat: number, lng: number) {
-    try {
-      const data = await invokeEdgeFunction<{ address?: string | null }>(
-        'google-places-proxy',
-        { latlng: `${lat},${lng}`, type: 'reverse' }
-      )
-      if (data?.address) {
-        setGeoAddress(data.address)
-      }
-    } catch {
-      // Fallback: use raw coordinates as address
-      setGeoAddress(`${lat.toFixed(4)}, ${lng.toFixed(4)}`)
-    }
-  }
 
   function toggleWasteType(type: string) {
     setWasteTypes((prev) =>
