@@ -181,7 +181,7 @@ export function RulesGroupRow({ group, categories, services }: RulesGroupRowProp
 
       {heterogeneous && (
         <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-2xs text-amber-800">
-          ⚠ Rules diverge across this group's {group.areas.length} areas. Showing the first area's values. Saving will overwrite all areas with the values below.
+          ⚠ Rules diverge across this group&apos;s {group.areas.length} areas. Showing the first area&apos;s values. Saving will overwrite all areas with the values below.
         </div>
       )}
 

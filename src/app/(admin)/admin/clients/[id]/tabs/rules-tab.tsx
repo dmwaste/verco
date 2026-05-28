@@ -111,7 +111,7 @@ export function RulesTab({ client, categories, services }: RulesTabProps) {
   return (
     <div>
       <div className="mb-4 text-2xs text-gray-400">
-        Rules apply per sub-client when sub-clients are configured; otherwise per area. Each row's Save writes only to its own areas.
+        Rules apply per sub-client when sub-clients are configured; otherwise per area. Each row&apos;s Save writes only to its own areas.
       </div>
 
       {groups.length === 0 && (

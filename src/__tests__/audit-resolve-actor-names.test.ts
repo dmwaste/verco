@@ -41,7 +41,7 @@ describe('resolveActorNames', () => {
         { id: 'u1', display_name: 'Alice Resident', contact_id: null },
       ],
     })
-    // @ts-expect-error
+    // @ts-expect-error — test mock partial-shape, not full SupabaseClient
     const map = await resolveActorNames(supabase, ['u1'])
     expect(map).toEqual({ u1: 'Alice Resident' })
     // No need to hit contacts when display_name covers everyone
@@ -57,7 +57,7 @@ describe('resolveActorNames', () => {
         { id: 'c1', full_name: 'Dan Taylor' },
       ],
     })
-    // @ts-expect-error
+    // @ts-expect-error — test mock partial-shape, not full SupabaseClient
     const map = await resolveActorNames(supabase, ['u1'])
     expect(map).toEqual({ u1: 'Dan Taylor' })
     expect(supabase.fromCalls).toEqual(['profiles', 'contacts'])
@@ -69,7 +69,7 @@ describe('resolveActorNames', () => {
         { id: 'u1', display_name: null, contact_id: null },
       ],
     })
-    // @ts-expect-error
+    // @ts-expect-error — test mock partial-shape, not full SupabaseClient
     const map = await resolveActorNames(supabase, ['u1'])
     expect(map).toEqual({})
     // No contact fetch needed when no profile has a contact_id
@@ -85,7 +85,7 @@ describe('resolveActorNames', () => {
         { id: 'c1', full_name: null },
       ],
     })
-    // @ts-expect-error
+    // @ts-expect-error — test mock partial-shape, not full SupabaseClient
     const map = await resolveActorNames(supabase, ['u1'])
     expect(map).toEqual({})
   })
@@ -103,7 +103,7 @@ describe('resolveActorNames', () => {
         { id: 'c3', full_name: 'Carla Council' },
       ],
     })
-    // @ts-expect-error
+    // @ts-expect-error — test mock partial-shape, not full SupabaseClient
     const map = await resolveActorNames(supabase, ['u1', 'u2', 'u3', 'u4'])
     expect(map).toEqual({
       u1: 'Alice',
@@ -120,7 +120,7 @@ describe('resolveActorNames', () => {
       ],
       // contacts not queried when display_name covers the row
     })
-    // @ts-expect-error
+    // @ts-expect-error — test mock partial-shape, not full SupabaseClient
     const map = await resolveActorNames(supabase, ['u1'])
     expect(map).toEqual({ u1: 'Preferred Name' })
     expect(supabase.fromCalls).toEqual(['profiles'])
@@ -138,7 +138,7 @@ describe('resolveActorNames', () => {
         }
       },
     }
-    // @ts-expect-error
+    // @ts-expect-error — test mock partial-shape, not full SupabaseClient
     const map = await resolveActorNames(supabase, ['u1'])
     expect(map).toEqual({})
   })

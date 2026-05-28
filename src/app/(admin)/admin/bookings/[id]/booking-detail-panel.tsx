@@ -87,7 +87,6 @@ export function BookingDetailPanel({
   // Inline edit states
   const [editingContact, setEditingContact] = useState(false)
   const [editingDetails, setEditingDetails] = useState(false)
-  const [editingNotes, setEditingNotes] = useState(false)
 
   // Contact edit form
   const [editFirstName, setEditFirstName] = useState(booking.contact?.first_name ?? '')
@@ -325,20 +324,6 @@ export function BookingDetailPanel({
       return
     }
     setEditingDetails(false)
-    setIsPending(false)
-    router.refresh()
-  }
-
-  async function handleSaveNotes() {
-    setIsPending(true)
-    setError(null)
-    const result = await updateNotes(booking.id, editNotesText)
-    if (!result.ok) {
-      setError(result.error)
-      setIsPending(false)
-      return
-    }
-    setEditingNotes(false)
     setIsPending(false)
     router.refresh()
   }

@@ -25,6 +25,7 @@ export function BrandingTab({ client }: { client: Client }) {
   async function handleUpload(file: File, type: 'logo-light' | 'logo-dark' | 'hero-banner') {
     setUploading(type)
     const ext = file.name.split('.').pop() ?? 'png'
+    // eslint-disable-next-line react-hooks/purity -- Date.now() runs inside an event handler (file-input onChange), not render
     const path = `${client.id}/${type}-${Date.now()}.${ext}`
     const { error: uploadError } = await supabase.storage
       .from('client-assets')

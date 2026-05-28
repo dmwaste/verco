@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { renderPaymentReminder } from '@/lib/notifications/templates/payment-reminder'
-import { makeMockBooking, makeMockPaidBooking } from '../fixtures'
+import { makeMockPaidBooking } from '../fixtures'
 
 const APP_URL = 'https://verco.test'
 

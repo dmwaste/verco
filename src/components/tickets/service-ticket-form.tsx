@@ -523,6 +523,7 @@ export function ServiceTicketForm({
         Submit an Enquiry
       </h3>
 
+      {/* eslint-disable-next-line react-hooks/refs -- react-hook-form's handleSubmit reads refs at invocation time, not during render */}
       <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-3">
         {/* Contact fields for unauthenticated users */}
         {!isAuthenticated && (

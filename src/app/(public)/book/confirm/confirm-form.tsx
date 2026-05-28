@@ -7,6 +7,7 @@ import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { format } from 'date-fns'
 import { createClient } from '@/lib/supabase/client'
+import { invokeEfWithUserToken } from '@/lib/supabase/invoke-ef-client'
 import { BookingStepper } from '@/components/booking/booking-stepper'
 import { BookingCancelLink } from '@/components/booking/booking-cancel-link'
 import { VercoButton } from '@/components/ui/verco-button'
@@ -35,6 +36,14 @@ export function ConfirmForm() {
   const location = searchParams.get('location') ?? ''
   const notes = searchParams.get('notes') ?? ''
   const onBehalf = searchParams.get('on_behalf') === 'true'
+  // On-behalf edit flow params — extracted at component scope so the
+  // useEffect/useCallback below can depend on the stable values, not the
+  // whole searchParams object.
+  const replacesParam = searchParams.get('replaces')
+  const contactFirstName = searchParams.get('contact_first_name')
+  const contactLastName = searchParams.get('contact_last_name')
+  const contactEmail = searchParams.get('contact_email')
+  const contactMobile = searchParams.get('contact_mobile')
 
   const selectedItems = decodeItems(itemsParam)
   const supabase = createClient()
@@ -66,10 +75,6 @@ export function ConfirmForm() {
   useEffect(() => {
     if (onBehalf) {
       // On-behalf: prefill from URL params if available (edit flow passes these)
-      const contactFirstName = searchParams.get('contact_first_name')
-      const contactLastName = searchParams.get('contact_last_name')
-      const contactEmail = searchParams.get('contact_email')
-      const contactMobile = searchParams.get('contact_mobile')
       if (contactFirstName) setValue('first_name', contactFirstName)
       if (contactLastName) setValue('last_name', contactLastName)
       if (contactEmail) setValue('email', contactEmail)
@@ -112,7 +117,7 @@ export function ConfirmForm() {
     }
 
     void prefill()
-  }, [supabase, setValue, onBehalf])
+  }, [supabase, setValue, onBehalf, contactFirstName, contactLastName, contactEmail, contactMobile])
 
   // Handle mobile input with auto-formatting
   function handleMobileChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -266,8 +271,16 @@ export function ConfirmForm() {
         })
       )
 
+      // NOTE: kept as raw fetch — does NOT use `invokeEfWithUserToken`.
+      // The helper's `fallbackToAnon` rule is "session-OR-anon" (session
+      // preferred). This call's rule is the OPPOSITE: "anon for residents,
+      // session ONLY when on-behalf=true". Residents reach /book/confirm
+      // pre-auth — they MAY have an OTP session by this point but the
+      // booking still belongs to them as anonymous, not as the session
+      // user. Forcing the session token would attach the booking to whatever
+      // contact happens to share that email instead of creating one.
+      // See create-booking EF — it branches on auth header to decide.
       const functionUrl = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/create-booking`
-      const replacesParam = searchParams.get('replaces')
       const requestBody = {
         property_id: propertyId,
         collection_area_id: collectionAreaId,
@@ -341,41 +354,30 @@ export function ConfirmForm() {
 
       if (result.requires_payment) {
         const origin = window.location.origin
-        const checkoutUrl = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/create-checkout`
-
-        // create-checkout requires a valid user JWT (calls auth.getUser())
-        const { data: { session: currentSession } } = await supabase.auth.getSession()
-        const token = currentSession?.access_token ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-
-        const checkoutRes = await fetch(checkoutUrl, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({
+        const checkoutResult = await invokeEfWithUserToken<{ checkout_url?: string }>(
+          supabase,
+          'create-checkout',
+          {
             booking_id: result.booking_id,
             success_url: `${origin}${bookingPath}?success=true`,
             cancel_url: `${origin}${bookingPath}?cancelled=true`,
-          }),
-        })
+          },
+          { fallbackToAnon: true }
+        )
 
-        if (!checkoutRes.ok) {
-          const errorBody = await checkoutRes.text()
-          console.error('create-checkout error:', checkoutRes.status, errorBody)
+        if (!checkoutResult.ok) {
+          console.error('create-checkout error:', checkoutResult.error)
+          setSubmitError('Failed to create payment session')
+          setIsSubmitting(false)
+          return
+        }
+        if (!checkoutResult.data.checkout_url) {
           setSubmitError('Failed to create payment session')
           setIsSubmitting(false)
           return
         }
 
-        const checkoutData = (await checkoutRes.json()) as { checkout_url?: string }
-        if (!checkoutData.checkout_url) {
-          setSubmitError('Failed to create payment session')
-          setIsSubmitting(false)
-          return
-        }
-
-        window.location.href = checkoutData.checkout_url
+        window.location.href = checkoutResult.data.checkout_url
       } else {
         router.push(`${bookingPath}?success=true`)
       }
@@ -383,7 +385,7 @@ export function ConfirmForm() {
       setSubmitError('An unexpected error occurred. Please try again.')
       setIsSubmitting(false)
     }
-  }, [selectedItems, propertyId, collectionAreaId, collectionDateId, location, notes, router, onBehalf])
+  }, [selectedItems, propertyId, collectionAreaId, collectionDateId, location, notes, router, onBehalf, replacesParam, supabase])
 
   // OTP verification after code entry
   const verifyOtp = useCallback(async (code: string) => {
@@ -580,6 +582,7 @@ export function ConfirmForm() {
         {/* Contact Information */}
         <form
           id="confirm-form"
+          // eslint-disable-next-line react-hooks/refs -- react-hook-form's handleSubmit reads refs at invocation time, not during render
           onSubmit={handleSubmit(onSubmit)}
           className="rounded-xl bg-white p-6 shadow-sm"
         >
