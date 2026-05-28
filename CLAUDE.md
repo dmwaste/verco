@@ -19,8 +19,6 @@ You are the project lead on this repo. Take ownership of next steps; don't hand 
   - You're blocked on context only he has (credential, stakeholder commitment, external decision)
 - **Frame end-of-turn updates as "what shipped + what's next"** — not "which option would you like?".
 
-Act like the senior engineer who owns this codebase, not the junior asking permission to commit.
-
 ---
 
 ## 1. What This Project Is
@@ -93,17 +91,9 @@ Eight roles. Scope is enforced at the DB level via RLS — never rely on fronten
 
 **Sub-client scoping (VER-216):** Client-tier roles can be narrowed to a single sub-client (e.g. a COT-only `client-admin` under Verge Valet sees zero MOS bookings). `user_roles.sub_client_id IS NULL` keeps the historical "whole client" scope. Helpers: `current_user_sub_client_id()`, `user_sub_client_allows_area(area_id)`, `user_sub_client_allows_booking(booking_id)` — all SECURITY DEFINER STABLE. See memory `sub-client-scoping-pattern.md` for the full helper map + which tables are scoped vs deliberately skipped (public-SELECT tables, `booking_item` via transitive scope).
 
-**PII rule — absolute, no exceptions:**
-`field` and `ranger` roles receive **zero** contact information. This means:
-- Never query `contacts.first_name`, `contacts.last_name`, `contacts.full_name` (generated from first+last), `contacts.email`, or `contacts.mobile_e164` in any code path accessible to these roles
-- The field run sheet page (`src/app/(field)/field/run-sheet/page.tsx`) structurally excludes these fields in its `.select()` clause — do not add them. RLS on `contacts` is the second line of defence (see B1 fix in `20260508045155_fix_profiles_pii_field_exclusion.sql`)
-- This is enforced at RLS level AND in query structure — defence in depth
-- **Never use `is_contractor_user()` in RLS policies gating PII** — it includes `field`. Use explicit `current_user_role() IN ('contractor-admin', 'contractor-staff')` instead
+**PII rule — absolute, no exceptions:** `field` and `ranger` receive zero contact fields (`first_name`, `last_name`, `full_name`, `email`, `mobile_e164`); structural exclusion in `(field)/field/run-sheet/page.tsx`, not just RLS. Never use `is_contractor_user()` in RLS policies gating PII — it includes `field`. Use `current_user_role() IN ('contractor-admin', 'contractor-staff')` instead.
 
-**Contact name shape:** `contacts` stores `first_name` (text NOT NULL) + `last_name` (text NOT NULL) as the source of truth. `full_name` is a `GENERATED ALWAYS AS (TRIM(first_name || ' ' || last_name)) STORED` column — read-only. INSERT/UPDATE on `contacts.full_name` will fail. Forms must capture first/last as separate required fields. Read paths can continue to select `full_name` for display.
-
-**Privacy rule — `resident` excluded from admin user management:**
-Admin users pages filter out `resident` from queries and dropdowns. `strata` users ARE admin-managed (they must be bound to MUD properties by an admin) so they appear in the admin user list and user-creation form. The full resident list is never exposed to admin — residents are self-service only.
+**Privacy rule:** Admin pages exclude `resident` from user management queries/dropdowns. `strata` users ARE admin-managed (must be bound to MUD properties by an admin); full resident list never exposed.
 
 ---
 
@@ -302,6 +292,7 @@ These are explicitly out of scope for v2. If a task seems to require one of thes
 | Xero integration | Lives in DM-Ops only |
 | Any DM-Ops tables | `docket`, `timesheet`, `employee`, `crew`, `asset`, `tender`, `purchase_order`, `invoice` — not in this schema |
 | `dm-admin` / `dm-staff` / `dm-field` roles | These are DM-Ops roles — Verco v2 does not have them |
+| Strata self-service booking portal | Data layer (role, junction, RLS, admin provisioning) is wired — UI deliberately deferred. Admin-on-behalf is the only MUD booking path today |
 
 ---
 
@@ -344,7 +335,6 @@ pnpm supabase gen types typescript --project-id tfddjmplcizfirxqhotv > src/lib/s
 |---|---|---|
 | PRD | `docs/VERCO_V2_PRD.md` | Unclear on scope, user flows, or business rules |
 | TECH_SPEC | `docs/VERCO_V2_TECH_SPEC.md` | Unclear on schema, RLS, Edge Function contracts |
-| CLAUDE.md | `CLAUDE.md` (this file) | Start of every session (automatic) |
 | Supabase types | `lib/supabase/types.ts` | Always — generated, never hand-edit |
 
 ---
@@ -379,22 +369,32 @@ These are absolute. If a task requires crossing one, stop and flag it.
 
 ### `NEXT_PUBLIC_*` vars are baked at build time — inlined via Docker build-args (`deploy.yml`); Coolify runtime env is a no-op. New vars: add to `.env.example`, GitHub secrets, `deploy.yml` build-arg, and Dockerfile `ENV`.
 
-### Shape consistency — DB column changes + EF response envelopes. Grep every writer first. Sequence: migration → EFs with back-compat shim → Coolify deploy → second EF deploy strips shim (skip the shim and in-flight requests 500 until Coolify catches up). EF responses emit the same documented fields on every path (success, no-op, error) — missing-field defaults belong in the EF, not the parser.
+### Shape consistency — DB column changes + EF response envelopes need the migration → EFs-with-back-compat-shim → Coolify → strip-shim sequence; EF responses emit documented fields on every path (success, no-op, error) — missing-field defaults belong in the EF, not the parser.
+
+### `contacts.full_name` is `GENERATED ALWAYS AS STORED` — read-only. `INSERT`/`UPDATE` on `full_name` fails. Forms must capture `first_name` + `last_name` as separate required fields; select `full_name` for display only.
 
 ### Generated `STORED` columns over NOT NULL inputs need explicit `ALTER COLUMN ... SET NOT NULL` — Supabase CLI infers nullability from metadata, not the expression; without it regen'd TS is `string | null`.
 
-### PostgREST gotchas — embedded selects + parent filtering via `.or()`
-- Multi-FK embedded selects (`.select('parent, related(child)')`) silently return empty inner for authenticated users once the embedded table accumulates additional FKs — outer rows present, inner `[]`, service-role works. Fix: two `.select()` calls in `Promise.all` + stitch in JS; escape hatch `related!fk_name(col)`.
-- `.or()` can't filter parent rows by columns on a LEFT-joined table when the FK is nullable. Pre-fetch matching ids and use `.in(...)` inside the `.or()`: `query.or('ref.ilike.%X%,property_id.in.(uuid1,uuid2)')`. See `admin/bookings/bookings-list-client.tsx` for the canonical pattern.
+### PostgREST embedded-select gotchas — multi-FK embeds (`select('parent, related(child)')`) silently return empty inner for authed users once `related` accumulates FKs (service-role works). Fix: split queries + stitch, or `related!fk_name(col)`. `.or()` can't filter parents by columns on a nullable LEFT-joined table — pre-fetch ids + `.in(...)` inside the `.or()`. Canonical patterns in `admin/bookings/bookings-list-client.tsx`.
 
-### Notification idempotency keys on `(booking_id, type, channel)`, not `(booking_id, type)`
-Email + SMS for the same notification must succeed independently — a `sent` row for the email channel can't block the SMS send. The dispatcher's `isAlreadySent` takes a channel arg; new channels (push, voice) follow the same rule.
+### Notification idempotency keys on `(booking_id, type, channel)`, not `(booking_id, type)` — email + SMS must succeed independently. Dispatcher's `isAlreadySent` takes a channel arg; new channels (push, voice) follow the same rule.
 
-### `useState(searchParams.get(...))` doesn't sync on same-path soft navigation in App Router
-`router.push` to the same path doesn't remount the component, so `useState` initialisers don't re-run — URL updates, state doesn't. Fix: `useEffect(() => setX(searchParams.get('x') ?? ''), [searchParams])`. Canonical pattern in `admin/bookings/bookings-list-client.tsx`.
+### `useState(searchParams.get(...))` doesn't sync on same-path soft navigation — `router.push` to the same path doesn't remount, so init runs only once. Fix: `useEffect(() => setX(searchParams.get('x') ?? ''), [searchParams])`. Pattern in `admin/bookings/bookings-list-client.tsx`.
 
-### Auth email templates live in git, not the dashboard — `supabase/templates/*.html` + `[auth.email.template.*]` in `config.toml`, apply via `pnpm supabase config push`. Studio edits get overwritten. GoTrue uses base Go `html/template`, NOT sprig — no `{{ now }}` or pipe filters; parse errors silently fall back to Supabase defaults (visible only as `templatemailer_template_body_parse_error` in auth logs). Always test by triggering an OTP after deploy.
+### Auth email templates live in `supabase/templates/*.html` + `[auth.email.template.*]` in `config.toml` — apply via `pnpm supabase config push`. Studio edits get overwritten. GoTrue uses Go `html/template` (NOT sprig — no `{{ now }}` / pipe filters); parse errors silently fall back to Supabase defaults. Always test with a fresh OTP after deploy.
 
-### Never use `--yes` on `supabase config push` until local matches prod — it syncs the **entire** `[auth]` block, not just the diff. Local dev defaults (`site_url = "http://127.0.0.1:3000"`, `email.max_frequency = "1s"`, etc.) will silently bake into prod. Run interactively first, eyeball the full diff, then `--yes` if clean. CLI shows the diff exactly once before applying — no undo.
+### `supabase config push` syncs the **entire** `[auth]` block, not just the diff — local dev defaults bake into prod. Never `--yes` until you've eyeballed the interactive diff. CLI shows it exactly once — no undo.
 
-### Manual MCP migrations need explicit version sync — `apply_migration` records `version = <now>`, not the filename's. Future `db push` sees the file as unapplied and re-runs (fails on non-idempotent DDL). Recovery: `execute_sql` + `INSERT INTO supabase_migrations.schema_migrations (version, name) VALUES ('<filename version>', '<name>')` in one transaction.
+### Migration workflow — (a) never use Supabase MCP `apply_migration` against prod (stamps `version=now()`, blocks next `db push`). Always `migration new` → file → CI `db push`. (b) Types Freshness CI gens from prod, so single-PR with new RPC + new consumer fails CI. Split: PR-A (migration) → release → prod → PR-B (consumer + regen'd types). See `mcp-apply-migration-version-sync.md` + `ghost-release-pattern.md`.
+
+### SRF in RLS USING — Postgres rejects set-returning funcs in RLS (`SQLSTATE 0A000`). Use `col IN (SELECT srf())`, NOT `col = ANY(srf())`. Pattern: `contacts_staff_select_via_profiles`.
+
+### RLS coverage lags data plumbing — new FK or relationship to a table with tight RLS needs a matching SELECT policy IN THE SAME MIGRATION. Symptom: data imports fine, admin embeds silently return null. Memory: `rls-coverage-lags-data-plumbing.md`.
+
+---
+
+## gstack
+
+Per-machine install: `git clone --single-branch --depth 1 https://github.com/garrytan/gstack.git ~/.claude/skills/gstack && export PATH="$HOME/.bun/bin:$PATH" && bash ~/.claude/skills/gstack/setup`. **Always use `/browse` for web — never `mcp__claude-in-chrome__*`.**
+
+Skills: `/office-hours`, `/plan-ceo-review`, `/plan-eng-review`, `/plan-design-review`, `/design-consultation`, `/design-shotgun`, `/design-html`, `/review`, `/ship`, `/land-and-deploy`, `/canary`, `/benchmark`, `/browse`, `/connect-chrome`, `/qa`, `/qa-only`, `/design-review`, `/setup-browser-cookies`, `/setup-deploy`, `/setup-gbrain`, `/retro`, `/investigate`, `/document-release`, `/document-generate`, `/codex`, `/cso`, `/autoplan`, `/plan-devex-review`, `/devex-review`, `/careful`, `/freeze`, `/guard`, `/unfreeze`, `/gstack-upgrade`, `/learn`
