@@ -1,9 +1,14 @@
+// Transition logic mirrored in src/lib/booking/schedule-transition.ts — keep in sync
+
 /**
- * Node-compatible mirror of supabase/functions/_shared/schedule-transition.ts.
- * Keep in sync with the Edge Function version.
+ * Pure helpers for the Confirmed → Scheduled daily cron.
  *
- * Unit-tested via Vitest. The authoritative implementation lives in _shared/
- * so the Edge Function has no Deno-vs-Node import mismatch.
+ * The cron fires at 15:25 AWST (07:25 UTC) each day. Bookings whose earliest
+ * collection date is *tomorrow* AWST transition to Scheduled, because the
+ * cancellation cutoff (15:30 AWST the day prior) is about to pass.
+ *
+ * Using MIN(collection_date.date) matches the enforce_cancellation_cutoff
+ * trigger — keep aligned if the cutoff semantics ever change.
  */
 
 export interface BookingWithItemDates {
@@ -29,8 +34,8 @@ export function addOneDay(yyyymmdd: string): string {
 
 /**
  * Filters bookings whose earliest collection_date equals targetDate.
- * Matches the MIN(collection_date.date) semantics of the
- * enforce_cancellation_cutoff trigger — keep aligned if cutoff rules change.
+ * Returns IDs. Bookings with zero valid dates are skipped — callers that need
+ * visibility on that case should inspect inputs separately.
  */
 export function filterBookingsReadyToSchedule(
   bookings: BookingWithItemDates[],
