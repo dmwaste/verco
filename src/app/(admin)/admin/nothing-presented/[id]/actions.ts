@@ -233,7 +233,16 @@ export async function resolveNpWithRefund(
       return { ok: true, data: undefined }
     }
 
-    // Trigger refund via process-refund Edge Function
+    // Trigger refund via process-refund Edge Function.
+    //
+    // NOTE: duplicated by design across the 3 server-action refund sites:
+    //   - admin/bookings/[id]/actions.ts
+    //   - admin/nothing-presented/[id]/actions.ts (this file)
+    //   - admin/non-conformance/[id]/actions.ts
+    // No shared `invokeEfWithSessionToken` server helper exists yet — the
+    // 'use server' boundary makes the client-side helper ineligible. Three
+    // sites with identical shape isn't worth an abstraction; if a 4th site
+    // appears, extract then (rule-of-three trigger consciously deferred).
     const { data: { session } } = await supabase.auth.getSession()
     if (session?.access_token) {
       const res = await fetch(
