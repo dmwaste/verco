@@ -1,3 +1,4 @@
+<!-- /autoplan restore point: /Users/danieltaylor/.gstack/projects/dmwaste-verco/claude-serene-bose-fc8767-autoplan-restore-20260529-205949.md -->
 # Verco → HubSpot Sync — Design
 
 Generated 2026-05-29 (office-hours → eng-review → research → live HubSpot inspection)
@@ -45,31 +46,39 @@ the Airtable URL to the Verco admin URL — no new property needed.
 
 ## 3. Architecture
 
-A new Verco Supabase Edge Function **`sync-to-hubspot`**, batch cron, **contractor-scoped**,
-sourcing Verco (`contacts`, `booking`, `service_ticket`) and upserting into HubSpot via its
-REST API. Mirrors the hardened `sync-to-attio` design (Attio office-hours + eng-review doc);
-the DM-Ops `attio-sync-contact`/`-ticket` EFs are the structural reference to copy.
+A new Verco Supabase Edge Function **`sync-to-hubspot`**, batch cron, **per-client-allowlist
+scoped** (§5), sourcing Verco (`contacts`, `booking`, `service_ticket`) and upserting into HubSpot
+via its REST API. Closest **in-repo** precedent to copy is **`nightly-sync-to-dm-ops`** (Verco's
+only existing service-role outbound sync); the DM-Ops `attio-sync-*` EFs are a secondary cross-repo
+reference. NB: the cursor table and `pg_try_advisory_lock` are **net-new to Verco** (no existing
+`*_sync_state` table or advisory-lock usage) — write the lock release carefully (all return paths).
 
 ```
-pg_cron (*/N)
-   └── sync-to-hubspot EF (service role; advisory-locked)
-         reads attio_sync_state-style cursor (updated_at, id) per entity
-         WHERE contractor_id = <D&M> AND (updated_at,id) > cursor   LIMIT N
-         │
-         ▼  HubSpot batch upsert  [Contact: idProperty=email | Order/Ticket: idProperty=verco_*_id]  [no id writeback → no loop]
-       Contact (0-1)      Order (0-123)        Ticket (0-5)
-         │                                        │ booking_ref ← Verco booking ref
-         └── associations: Order→Contact, Ticket→Contact (+Ticket→Order)
+pg_cron (*/N) ──net.http_post (pg_net: FIRE-AND-FORGET; HTTP status lands async, NOT in cron.job_run_details)──▶
+   sync-to-hubspot EF (service role; bearer-checked; advisory-locked, released on every return path)
+     per entity: cursor (updated_at, id) in hubspot_sync_state
+     WHERE booking.contractor_id=<D&M> AND client_id=ANY(<allowlist>) AND (updated_at,id) > cursor  LIMIT N
+     │
+     ▼  ORDERED per run so associations resolve (parent before child):
+     1. Contacts (idProperty=email)            ──▶ Contact 0-1
+     2. Orders   (idProperty=verco_booking_id) ──▶ Order 0-123  ──assoc──▶ Contact
+     3. Tickets  (idProperty=verco_ticket_id)  ──▶ Ticket 0-5   ──assoc──▶ Contact (+Order when booking_id)
+        parent-not-yet-synced → do NOT advance child cursor; retry next tick (common on epoch backfill)
+     │  [no HubSpot id written back to Verco → no updated_at bump → no re-sync loop]
+     ▼  persist run outcome → sync_log {entity, rows_synced, cursor_advanced, last_error, pii_rows}
+        (the VISIBLE failure signal — pg_net swallows the HTTP 500) + hubspot_sync_state.last_run_at/last_error
 
-Make (Airtable → HubSpot) is RETIRED at the clean-break cutover. Post-cutover, ALL new
-bookings go to Verco; the EF is the only feed.
+Make (Airtable → HubSpot) is RETIRED per-client as each council cuts over (not one global instant break).
 ```
 
-**Clean break, not per-area coexistence (corrected post eng-review):** Airtable stops
-receiving bookings at the cutover; Verco takes all new ones. So **no single booking is sourced
-twice** — pre-cutover bookings are the historical Airtable Orders already in HubSpot;
-post-cutover bookings are new Verco Orders via the EF. Make is decommissioned at the break (not
-run in parallel per-area). Contractor-scope (all D&M) is therefore safe for bookings.
+**Per-client cutover, made safe structurally (revised post /autoplan):** the original "clean
+break = blanket contractor-scope is safe" assumed a single instant cutover across all councils.
+In reality each council migrates on its own timeline (Verge Valet is in BOTH Verco and
+Airtable-Make today). So the EF scopes to a **per-client allowlist** (§5): a `client_id` only
+enters the allowlist once *its* Airtable→Verco cutover completes and *its* Make feed is retired.
+That guarantees **no single booking is sourced twice** by construction — not by trusting a global
+break to have happened. Pre-cutover bookings are the historical Airtable Orders already in HubSpot;
+post-cutover (allowlisted) bookings are new Verco Orders via the EF.
 
 **The one thing that spans the break: Contacts (humans).** The 17k existing HubSpot Contacts
 are email-keyed (Make). A resident who booked before AND after the break must NOT be
@@ -82,30 +91,41 @@ records never overlap the Airtable era).
 
 | Verco (Supabase) | → HubSpot | Mapping | Deeplink (`verco.au`) |
 |---|---|---|---|
-| `contacts` | Contact `0-1` | firstname, lastname, email, phone ← `mobile_e164`; `verco_contact_id` (property, NOT key), `verco_url`. **Upsert key = email** (HubSpot-native; bridges the 17k Make-era contacts — eng-review Issue 2) | `/admin/contacts/{id}` |
-| `booking` | Order `0-123` | `hs_order_name` ← `ref`; `hs_external_order_status` ← `status`; **`hs_external_order_url`** ← Verco deeplink; `collection_date` ← MIN(`collection_date.date`) via `booking_item`; `address` ← `eligible_properties.formatted_address`??`address` via `property_id`; amount ← Σ(`booking_item.unit_price_cents`×`no_services`); **`verco_booking_id`** (=`booking.id`, upsert key) | `/admin/bookings/{id}` |
-| `service_ticket` | Ticket `0-5` | subject, content, `hs_pipeline_stage` ← `status` (map to Support Pipeline), `query_type`, `phone_number`, `time_to_close`; **`verco_ticket_id`** (upsert key), `verco_url`; populate `booking_ref` ← Verco booking ref | `/admin/tickets/{id}` |
+| `contacts` | Contact `0-1` | firstname, lastname, email, phone ← `mobile_e164`; `verco_contact_id` (property, NOT key), `verco_url`. **Upsert key = email** (HubSpot-native; bridges the 17k Make-era contacts — eng-review Issue 2) | **dropped (TD1)** — no `/admin/contacts` page exists; the Order/Ticket deeplinks carry the value |
+| `booking` | Order `0-123` | `hs_order_name` ← `ref`; `hs_external_order_status` ← mapped `booking_status` (**all 10**, incl. `Submitted`, `Missed Collection`); **`hs_external_order_url`** ← Verco deeplink; `collection_date` ← MIN(`collection_date.date`) via `booking_item` as a **date-only `YYYY-MM-DD` string** (AWST; account is US/Eastern — never a timestamp, avoids off-by-one); `address` ← `eligible_properties.formatted_address ?? address` via `property_id`; amount **omitted (TD2)** — never write AUD into the native USD `amount` (§9.4); **`verco_booking_id`** (=`booking.id`, upsert key) | `/admin/bookings/{id}` |
+| `service_ticket` | Ticket `0-5` | subject ← `subject`; content ← **`message`**; `query_type` ← **`category`** (`ticket_category` enum); `phone_number` ← joined **`contacts.mobile_e164`** (no phone on the ticket); `time_to_close` ← computed **`closed_at − created_at`** (null while open); `hs_pipeline_stage` ← mapped `ticket_status` (see below); **`verco_ticket_id`** (=`service_ticket.id`, upsert key), `verco_url`; `booking_ref` ← Verco booking `ref` when `booking_id` set | `/admin/service-tickets/{id}` |
 
-Associations: Order→Contact, Ticket→Contact, Ticket→Order (via `booking_ref`).
-Schema mapping verified against `src/lib/supabase/types.ts` — `ref` not `reference`, no
-`booking.total_cents` (sum `booking_item`), no `booking.collection_date` column (join), address
-via `eligible_properties`. (The 2026-05-28 spec's columns were fabricated; corrected here.)
+Associations: Order→Contact, Ticket→Contact, Ticket→Order (when `booking_id` set). **Ordering matters** — see §3 (parent before child).
+Schema **re-verified** against `src/lib/supabase/types.ts` (2026-05-29 /autoplan): `booking.ref`,
+`booking.contractor_id` (direct, no client join), no `booking.total_cents`, collection_date via
+`booking_item.collection_date_id`, address via `eligible_properties`. **Corrected**: the original
+§4 mapped phantom ticket columns (`content`/`query_type`/`phone_number`/`time_to_close` don't exist
+→ `message`/`category`/joined `mobile_e164`/derived), conflated `service_ticket` with the NCN/NP
+state machine for status (real `ticket_status` enum below), and used non-existent deeplink routes.
 
-### Status mappings (to confirm against live pipelines)
-- **Order** `hs_external_order_status` is a free string → map Verco `booking_status`
-  (Confirmed / Pending Payment / Scheduled / Completed / Cancelled / Non-conformance / Nothing
-  Presented / Rebooked) to readable strings. No HubSpot pipeline needed for Orders.
-- **Ticket** Support Pipeline stages (New / Waiting on contact / Waiting on us / Closed) ←
-  Verco `service_ticket` status (Issued / Disputed / Under Review / Resolved / Rescheduled /
-  Rebooked). Mapping table to be finalised against the real ticket statuses.
+### Status mappings (verified enums; confirm pipeline stage IDs against the live Support Pipeline)
+- **Order** `hs_external_order_status` is a free string → map the **10** `booking_status` values
+  (`Pending Payment / Submitted / Confirmed / Scheduled / Completed / Cancelled / Non-conformance /
+  Nothing Presented / Rebooked / Missed Collection`) to readable strings + explicit default. No HubSpot pipeline needed for Orders.
+- **Ticket** Support Pipeline (New / Waiting on contact / Waiting on us / Closed) ← the real
+  `ticket_status` enum: `open`→1 New, `waiting_on_customer`→2 Waiting on contact, `in_progress`→3
+  Waiting on us, `resolved`/`closed`→4 Closed; unmapped→default. (NOT the NCN/NP states — those are
+  the `non_conformance_notice` table, a different domain.)
 
-## 5. Scope — contractor-scoped
+## 5. Scope — per-client allowlist within D&M contractor (premise-gate decision, 2026-05-29)
 
-Filter every entity query by **D&M as contractor**:
-`booking`/`service_ticket` carry `client_id`; `client` carries `contractor_id`; so join
-`... WHERE client.contractor_id = <D&M contractor id>`. `contacts` via EXISTS(a booking under a
-D&M-contractor client). Effectively all of Verco today (single contractor), but expressed as
-contractor scope so new clients/areas auto-include with no code change.
+**Structural, not temporal.** The original "blanket contractor-scope, safe because clean break"
+relied on a perfectly-synchronised cutover across multiple councils on different migration
+timelines (Verge Valet is live in BOTH Verco and Airtable-Make *today*). Replaced with a
+**per-client allowlist** flipped on at each council's cutover — coexistence is safe *by
+construction*, no dependency on an instant break.
+
+Predicates (schema-verified):
+- **`booking`** carries `contractor_id` **directly** (no `client` join): `WHERE booking.contractor_id = <D&M> AND booking.client_id = ANY(<allowlist>)`.
+- **`service_ticket`** carries `client_id` (no `contractor_id`) → join `client.contractor_id` + `client_id = ANY(<allowlist>)`.
+- **`contacts`** carry neither → `EXISTS(D&M+allowlisted booking) OR EXISTS(D&M+allowlisted service_ticket)`. The OR matters: "Online Query" enquirers have tickets but no booking and must not be dropped.
+
+New clients still auto-include with no code change once added to the allowlist.
 
 ## 6. Upsert & dedupe — simpler than Attio
 
@@ -120,12 +140,23 @@ writeback) **does not exist here**. No reverse-link columns, no conditional writ
 - **Compound `(updated_at, id)` cursor** per entity — no same-timestamp row skips.
 - **Self-limited** N rows/run; backlog (and any backfill) drains across cron ticks → never
   approaches the EF wall-clock limit.
-- **`pg_try_advisory_lock`** at EF start → no overlapping runs.
-- **HubSpot 429 / rate limits** → stop batch, hold cursor, return 500, resume next tick.
-- **Keyset index** `(updated_at, id)` on `contacts` / `booking` / `service_ticket`.
+- **`pg_try_advisory_lock`** at EF start → no overlapping runs. **Release on EVERY return path**
+  (success, 429, per-row error) or use a txn-scoped lock — net-new pattern in Verco, easy to leak.
+- **HubSpot 429 / rate limits** → stop batch, hold cursor, persist a `sync_log` row, return.
+- **Keyset index** `(updated_at, id)` on `contacts` / `booking` / `service_ticket`; also verify
+  `booking.contact_id` + `service_ticket.contact_id` are indexed (the contacts EXISTS predicate).
 - **Pure mapping logic** in `src/lib/hubspot/` (Vitest), EF imports it — mirrors the
   `src/lib/pricing` pattern; the future-proof home for field mapping + status maps.
-- Cron returns **HTTP 500 on any per-row failure** (no silent 200) — CLAUDE.md §11.
+- **Visibility (corrected — F4):** the cron invokes the EF via `net.http_post` (pg_net), which is
+  **fire-and-forget** — the HTTP 500 lands asynchronously in `net._http_response` and is **invisible**
+  in `cron.job_run_details`. So per-row failure must be recorded in a **`sync_log`** row the EF writes
+  (entity, rows_synced, cursor_advanced, last_error). Keep the 500 for correctness, but the *visible*
+  signal is the row, not the status code. (CLAUDE.md §11's "pg_cron sees the status" is imprecise for the pg_net path.)
+- **Audit (F10):** this EF exports resident PII (name/email/`mobile_e164`) to a third party on a cron.
+  The `sync_log` row doubles as the PII-export audit trail (rows exported, when) — CLAUDE.md §21.
+- **Caller guard (F11):** the EF URL is public → verify the incoming bearer == service-role/cron secret
+  before any work, so an attacker can't POST-trigger a PII export. (`nightly-sync-to-dm-ops` lacks this — don't copy that gap.)
+- **Association idempotency (F8):** HubSpot association-create is a no-op if it already exists — safe on re-run; assert it in the build-gate rather than assume.
 
 ## 8. HubSpot-side configuration (I can start now — connected)
 
@@ -139,27 +170,40 @@ Create custom properties (mark the id ones **unique** for `idProperty` upsert):
 
 ## 9. Open items / build-time verifies
 
-1. **Property creation method** (MCP vs HubSpot UI) — §8.
-2. **`idProperty` upsert** confirmed against the created unique properties.
-3. **Ticket status map** finalised against the live Support Pipeline + Verco service_ticket states.
-4. **D&M contractor id** in Verco (for the scope filter) — query Verco.
-5. **Currency:** HubSpot account is USD; booking amounts are AUD. Either add AUD as a HubSpot
-   currency or treat `amount` as cosmetic (most verge bookings are $0). Decide.
-6. **Kwinana-in-Verco status** — is Kwinana data actually in Verco yet, or is this design-ahead
-   of the migration? The EF can't sync what isn't in Verco.
+1. **TASK-ZERO build-gate (blocks EF code):** create `verco_booking_id`/`verco_ticket_id` unique
+   custom properties on the STANDARD-tier account and confirm batch **`idProperty` upsert** actually
+   dedupes (the whole loop-free model depends on it; `verco_*` props don't exist yet, so it's 100%
+   unverified — Make's success may use native email/object-id dedup, not custom-unique-property, so
+   don't assume it transfers). Also confirm property-creation path (MCP vs HubSpot UI) — §8.
+2. **Ticket status map** finalised against the live Support Pipeline stage IDs (source enum is the
+   real `ticket_status`, §4 — not NCN/NP states).
+3. **D&M contractor id** in Verco (scope filter) — query Verco. Plus the initial **client allowlist** (§5).
+4. **Currency — DECIDED (TD2 = omit):** account is USD-only (no AUD currency, verified). Do **not**
+   write AUD into the native USD `amount` (silent ~1.5× corruption in any HubSpot revenue report).
+   **Omit `amount` entirely** (not needed for the call-centre lookup; most verge bookings are $0). If a
+   figure is ever needed, add a labelled `verco_amount_aud` custom property — never the native field.
+5. **Timezone (F5):** account is **US/Eastern**, data is **AWST (UTC+8)**. Write `collection_date` as a
+   date-only `YYYY-MM-DD` string (never a timestamp) and verify it renders correctly in the AP1 UI —
+   an off-by-one date breaks the exact "when's my collection" call this exists to serve. Add to build-gate.
+6. **Client-live-in-Verco status** — Kwinana (and others) may not be in Verco yet. **Design-ahead is
+   accepted, but build-ahead is not:** build the `src/lib/hubspot/` mappers + Vitest now; **gate the EF
+   wiring + the live smoke + any "cleared" verdict on the first real client being live post-cutover.**
 
 ## 10. Build sequence
 
-1. HubSpot: create the custom properties (§8); confirm `idProperty` upsert.
-2. Verco: `src/lib/hubspot/` pure mappers + status maps (Vitest 100%); `hubspot_sync_state`
-   cursor table + keyset indexes migration.
-3. `sync-to-hubspot` EF: advisory lock → cursor read → contractor-scoped ≤N-row queries →
-   HubSpot upsert (idProperty) → associations → cursor advance → 500-on-failure/429. Mocked
-   HubSpot fetch in tests (mirror the Attio test strategy).
-4. Set EF secret `HUBSPOT_ACCESS_TOKEN`; pg_cron schedule.
-5. Smoke: a Verco Kwinana booking → Contact + Order + Ticket in HubSpot within a tick, with
-   `hs_external_order_url` → live Verco, associations correct, no duplicates.
-6. Backfill: cursor at epoch; cron drains; watch for 429s.
+0. **TASK-ZERO spike (gate, ~30min):** create `verco_*_id` unique props; prove `idProperty`
+   batch upsert dedupes + association idempotency on STANDARD tier; confirm date-only render. **If this
+   fails the whole dedup model collapses (back to read-then-match) — do NOT build the EF until it clears.**
+1. Verco: `src/lib/hubspot/` pure mappers + status maps (Vitest 100%, real enums) — buildable now,
+   no client-live dependency; `hubspot_sync_state` cursor table + `sync_log` use + keyset indexes migration.
+2. `sync-to-hubspot` EF: bearer-check → advisory lock → cursor read → allowlist-scoped ≤N-row queries →
+   ORDERED upsert (Contacts→Orders→Tickets, idProperty) → associations (parent-before-child; lag-one-tick
+   tolerated) → cursor advance → persist `sync_log` row (visible signal) → release lock. Mocked HubSpot fetch in tests.
+3. Set EF secret `HUBSPOT_ACCESS_TOKEN`; pg_cron schedule (pg_net).
+4. **Gate on first real client live in Verco** (post-cutover) — then add its `client_id` to the allowlist.
+5. Smoke: that client's booking → Contact + Order + Ticket within a tick; `hs_external_order_url` → live
+   Verco; associations correct; no dupes; `sync_log` row written.
+6. Backfill: cursor at epoch; cron drains; watch 429s + the `sync_log` error column.
 
 ## 11. Cleanup flagged
 
@@ -167,7 +211,13 @@ The DM-Ops Attio EFs (`sync-contacts-to-attio`, `attio-sync-contact`, `attio-syn
 `attio-inbound-webhook`) are **orphaned** by the HubSpot decision but still ACTIVE. Decommission
 (or repurpose the structure for `sync-to-hubspot`) so they don't run/cost/confuse.
 
-## 11a. Engineering Review (2026-05-29)
+## 11a. Engineering Review (2026-05-29) — *partially superseded by §11b /autoplan*
+
+> ⚠️ This manual eng-review's "ENG CLEARED" verdict was **over-stated**. The /autoplan dual-voice
+> pass (§11b) found its "schema-verified" §4 mapping was wrong in 4 places (phantom ticket columns,
+> wrong status enum, dead deeplink routes, 8-vs-10 statuses) and its "pg_cron logs 500" visibility
+> claim is mechanically false (pg_net is fire-and-forget). Treat §11b + the corrected §3–§10 as
+> canonical. This block is retained as the review trail.
 
 Reviewed against live HubSpot + live Verco data. Two findings, both resolved into the spec.
 
@@ -209,27 +259,93 @@ Lane A (migration: `hubspot_sync_state` + keyset indexes) ∥ Lane B1 (`src/lib/
 module + Vitest, no DB dep). Then B2 (EF wiring) after both. HubSpot property config (UI) is
 independent and gates the live smoke only.
 
-### Implementation Tasks
-- [ ] **T1 (P1, human ~2h / CC ~20min)** — sync-to-hubspot EF — contractor-scoped cursor sync + batch upsert
-  - Surfaced by: Architecture (scope + clean break)
-  - Files: `supabase/functions/sync-to-hubspot/index.ts`
-  - Verify: integration test (mocked HubSpot) — contractor scope, idempotent upsert
-- [ ] **T2 (P1, human ~30min / CC ~5min)** — Contact upsert keyed on email (not verco_contact_id)
-  - Surfaced by: Issue 2 — returning-resident duplication
-  - Files: `supabase/functions/sync-to-hubspot/index.ts`, `src/lib/hubspot/`
-  - Verify: test — existing email-keyed contact UPDATED, not duplicated
-- [ ] **T3 (P2, human ~1h / CC ~10min)** — `src/lib/hubspot/` pure mappers + status maps (Vitest 100%)
-  - Surfaced by: Code Quality (testability/DRY)
-  - Files: `src/lib/hubspot/*.ts`, `src/__tests__/hubspot/*`
-- [ ] **T4 (P2, human ~30min / CC ~5min)** — migration: `hubspot_sync_state` + keyset `(updated_at,id)` indexes
-  - Surfaced by: Performance + transport
-  - Files: `supabase/migrations/<ts>_hubspot_sync.sql`
-- [ ] **T5 (P1, human ~20min / CC ~5min)** — BUILD-GATE: verify HubSpot unique-property + idProperty upsert (Orders/Tickets)
-  - Surfaced by: Issue 3 (Attio-lesson echo)
-  - Files: HubSpot (UI/admin) + a throwaway upsert test
-- [ ] **T6 (P2, human ~20min / CC ~5min)** — create HubSpot custom properties (verco_*_id unique, verco_url) + decommission orphaned DM-Ops Attio EFs
-  - Surfaced by: §8 + §11
+### Implementation Tasks (revised by /autoplan — Linear VER-235..240 need updating to match)
+**Build order: T5/T6 (gate) → T3+T4 → T1/T2. T5 is now TASK ZERO.**
+- [ ] **T5 → T0 (P1, BUILD-GATE, human ~30min / CC ~5min)** — verify `idProperty` batch upsert **+ association
+  idempotency + date-only render** on STANDARD tier. **Blocks all EF code.** (Linear VER-235)
+  - Files: HubSpot (UI/admin) + a throwaway upsert/assoc test
+- [ ] **T6 (P2, human ~20min / CC ~5min)** — create HubSpot custom props (`verco_*_id` unique, `verco_url`) +
+  decommission orphaned DM-Ops Attio EFs (do the decommission **now**, decoupled — pure liability). (VER-236)
   - Files: HubSpot UI; DM-Ops Supabase
+- [ ] **T3 (P2, human ~1h / CC ~10min)** — `src/lib/hubspot/` pure mappers + status maps (Vitest 100%,
+  **REAL enums** — 10 booking statuses, 5 ticket statuses; corrected ticket source columns). Buildable now. (VER-237)
+  - Files: `src/lib/hubspot/*.ts`, `src/__tests__/hubspot/*`
+- [ ] **T4 (P2, human ~30min / CC ~5min)** — migration: `hubspot_sync_state` cursor + `sync_log` use +
+  keyset `(updated_at,id)` indexes (and verify `*.contact_id` indexes for the EXISTS predicate). (VER-238)
+  - Files: `supabase/migrations/<ts>_hubspot_sync.sql`
+- [ ] **T1 (P1, human ~2h / CC ~20min)** — `sync-to-hubspot` EF: **allowlist**-scoped cursor sync, **ORDERED**
+  upsert (Contacts→Orders→Tickets), associations w/ parent-before-child, **bearer guard**, **`sync_log`
+  visibility+PII audit**, advisory-lock release on all paths. Gated on first client live in Verco. (VER-239)
+  - Files: `supabase/functions/sync-to-hubspot/index.ts`
+  - Verify: integration tests (mocked HubSpot) — allowlist scope, idempotent upsert, ordering, 429, lock
+- [ ] **T2 (P1, human ~30min / CC ~5min)** — Contact upsert keyed on **email** (not `verco_contact_id`);
+  contacts EXISTS over (booking OR ticket). (VER-240)
+  - Files: `supabase/functions/sync-to-hubspot/index.ts`, `src/lib/hubspot/`
+  - Verify: returning email-keyed contact UPDATED not duplicated; ticket-only contact included
+- [ ] **T7 (P2, human ~30min / CC ~10min) — NEW** — `sync_log` run-outcome row (entity, rows, cursor, error,
+  pii_rows) = the visible failure signal (pg_net swallows the 500) + PII-export audit. *(cross-phase theme)*
+  - Files: `supabase/functions/sync-to-hubspot/index.ts`, migration
+- [x] **T8 (TD1) — DECIDED: drop the contact deeplink** (no `/admin/contacts` page; Order/Ticket deeplinks carry the value).
+- [x] **T9 (TD2) — DECIDED: omit native `amount`** (USD acct; use `verco_amount_aud` only if a figure is ever needed).
+  - Files: HubSpot UI; DM-Ops Supabase
+
+## 11b. /autoplan Review (2026-05-29) — CEO + Eng, dual-voice (subagent-only; Codex unavailable)
+
+Pipeline: CEO → Eng (Design + DX skipped — backend sync, no UI, no external developer surface).
+One blind Claude subagent per phase (Codex binary absent). Both subagents inspected live HubSpot +
+`types.ts` and challenged the spec's own "ENG CLEARED" optimism. **9 CEO + 11 Eng findings.**
+
+**Premise gate (Dan, not auto-decided):** *Confirm EF + harden* — keep the bespoke EF (tech-agent's
+call), AND (1) idProperty spike → task-zero, (2) per-client allowlist instead of blanket
+contractor-scope, (3) currency/timezone decided in-spec. (Rejected: bake-off-Make-first, confirm-as-is.)
+
+**Live facts surfaced:** HubSpot account `442091910` is **STANDARD tier, USD-only (no AUD currency),
+US/Eastern timezone**; **zero `verco_*` properties exist yet** (idProperty model 100% unverified).
+
+**CEO findings:** F1 build may be migration-continuity not a capability gap (call-centre works today
+via Make) · F2 Make-repoint vs bespoke-EF never compared (resolved at gate: EF + harden) · F3 "clean
+break" → **structural per-client allowlist** (applied §5) · F4 currency not cosmetic (applied §9.4) ·
+F5 **timezone** off-by-one (applied §4/§9.5) · F6 idProperty spike → task-zero (applied §10) · F7
+EF↔Make vocab drift → canonicalise strings in `src/lib/hubspot/` · F8 build-ahead-of-reality → mappers
+now, EF gated on live client (applied §9.6) · F9 decommission orphaned Attio EFs now (T6).
+
+**Eng findings (schema-verified by me):** F1 CRIT phantom ticket columns → `message`/`category`/joined
+`mobile_e164`/derived (applied §4) · F2 CRIT wrong status enum (NCN/NP ≠ `service_ticket`) → real
+`ticket_status` (applied §4) · F3 dead deeplinks → `/admin/service-tickets/{id}`, no `/admin/contacts`
+(applied §4, `[GATE-TD1]`) · F4 **pg_net fire-and-forget → 500 invisible**, use `sync_log` (applied
+§3/§7, T7) · F5 association parent-before-child ordering + missing-parent handling (applied §3) · F6
+8→**10** booking statuses (applied §4) · F7 `booking.contractor_id` direct + ticket-only contacts
+(applied §5) · F8 association idempotency + currency gate (applied §7/§9) · F9 no `attio_sync_state`
+in Verco; advisory-lock release on all paths (applied §3/§7) · F10 **PII-export audit** via `sync_log`
+(applied §7, T7) · F11 caller bearer guard on the public EF (applied §7).
+
+**Cross-phase theme:** *visibility of silent failure* flagged independently in BOTH phases (CEO F3
+drift / Eng F4+F10) → the `sync_log` run-outcome row is now a must-have (observability + PII audit), T7.
+
+### Decision Audit Trail
+| # | Phase | Decision | Class | Principle | Rationale |
+|---|---|---|---|---|---|
+| 1 | CEO 0C-bis | Approach A (bespoke EF) over B (repoint Make) / C (contacts-only) | auto | P1+P5 | owned, tested, observable; B = no-test no-code; C loses context |
+| 2 | CEO 0D | E1 sync observability (structured `sync_log`) → in scope | auto | P2 | blast-radius, <5 files, no infra; observability = scope |
+| 3 | CEO 0D | E2 reconciliation/drift check → TODOS | auto | P3 | valuable at cutover but separate codepath |
+| 4 | CEO 0D | E3 two-way sync → defer | auto | P3 | roadmap, out of scope |
+| 5 | CEO gate | Build-vs-reuse: **Confirm EF + harden** | **user** | premise | Dan's call; absorbs F2/F3/F6 risk, keeps tech-agent direction |
+| 6 | Eng F1 | Rewrite ticket mapping to real columns | auto | P5 | phantom columns don't compile |
+| 7 | Eng F2 | Correct ticket status map to real enum | auto | P5 | NCN/NP is a different table |
+| 8 | Eng F3 | Fix ticket deeplink; contact deeplink → `[GATE-TD1]` | auto+taste | P5 | route verified; contacts page absent → Dan decides |
+| 9 | Eng F4/F10 | `sync_log` run-outcome row (visibility + PII audit) | auto | P1 | pg_net swallows 500; compliance |
+| 10 | Eng F5 | Ordered upsert + parent-before-child + lag-one-tick | auto | P5 | associations need both records |
+| 11 | Eng F6 | Map all 10 booking statuses + default | auto | P1 | completeness |
+| 12 | Eng F7 | `booking.contractor_id` direct; contacts EXISTS booking OR ticket | auto | P5 | schema-accurate; don't drop enquirers |
+| 13 | Eng F11 | Caller bearer guard on EF | auto | P1 | public URL → PII-export protection |
+| 14 | CEO F4 / Eng F8 | Currency → `[GATE-TD2]` (default: omit `amount`) | taste | P5 | USD acct + AUD = silent corruption; Dan decides |
+
+**NOT in scope (deferred):** two-way HubSpot→Verco sync (roadmap); reconciliation/drift cron (TODOS);
+`/admin/contacts/{id}` page (TD1 = drop deeplink); native `amount` (TD2 = omit); cross-client benchmarking (PRD-excluded).
+
+**What already exists (reuse):** `nightly-sync-to-dm-ops` (in-repo service-role sync skeleton);
+`src/lib/pricing/calculate.ts` (pure-logic+Vitest pattern); DM-Ops `attio-sync-*` (cross-repo transport ref);
+`hs_external_order_url` (native deeplink field); Make already proves HubSpot upsert capability.
 
 ## 12. References
 
@@ -243,11 +359,11 @@ independent and gates the live smoke only.
 
 | Review | Trigger | Why | Runs | Status | Findings |
 |--------|---------|-----|------|--------|----------|
-| CEO Review | `/plan-ceo-review` | Scope & strategy | 0 | — | n/a (tech-agent set direction) |
-| Codex Review | `/codex review` | Independent 2nd opinion | 0 | — | — |
-| Eng Review | `/plan-eng-review` | Architecture & tests (required) | 1 | CLEAR | 2 issues, 0 critical gaps, both resolved + 1 build-gate |
+| CEO Review | `/autoplan` (CEO phase) | Scope & strategy | 1 | REVIEWED | 9 findings; premise gate → "Confirm EF + harden"; structural allowlist + spike-first adopted |
+| Eng Review | `/plan-eng-review` then `/autoplan` (Eng phase) | Architecture & tests | 2 | CORRECTED | manual: 2 + build-gate; autoplan: 11 (2 CRIT schema, 3 HIGH) — all applied to §3–§10 |
+| Dual voices | `/autoplan` | Independent CEO+Eng subagents | 2 | `[subagent-only]` | Codex unavailable; both subagents inspected live HubSpot + types.ts |
 | Design Review | `/plan-design-review` | UI/UX gaps | 0 | — | n/a (backend sync, no UI) |
-| DX Review | `/plan-devex-review` | Developer experience gaps | 0 | — | — |
+| DX Review | `/plan-devex-review` | Developer experience gaps | 0 | skipped | n/a (internal sync; no external dev surface — keyword matches are infra) |
 
-- **UNRESOLVED:** 0
-- **VERDICT:** ENG CLEARED — plan ready to implement once a client is live in Verco (post-clean-break migration). Build-gate before EF: verify HubSpot `idProperty` upsert on a unique custom property (§9 / T5). No design/CEO review needed (backend sync, no UI; strategy set by tech-agent). Decisions: contractor-scope safe under clean break; Contacts dedupe by email; Orders/Tickets by `verco_*_id`.
+- **UNRESOLVED:** 2 taste decisions pending Dan (`[GATE-TD1]` contact deeplink, `[GATE-TD2]` currency).
+- **VERDICT (revised by /autoplan):** **NOT cleared as originally written — corrected and re-cleared with conditions.** The manual §11a "ENG CLEARED" was over-stated (4 schema errors + a false pg_net visibility claim, now fixed). Direction confirmed at the premise gate (EF + harden). **Build-gate is now TASK ZERO** (§10.0): prove `idProperty` upsert + association idempotency + date-only render on STANDARD tier before any EF code. **EF wiring + final "cleared" gated on the first real client being live in Verco** (build the pure mappers now). Decisions: per-client allowlist (not blanket contractor-scope); Contacts dedupe by email; Orders/Tickets by `verco_*_id`; ticket mapping uses real `service_ticket` columns + `ticket_status` enum; `sync_log` row = visibility + PII audit; omit native `amount`. Linear VER-235..240 to be updated to match.
