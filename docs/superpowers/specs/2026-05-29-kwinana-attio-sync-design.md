@@ -200,6 +200,10 @@ CREATE TABLE attio_sync_state (
   EF. No client/resident/field/ranger access.
 - Also add `booking.attio_record_id text` in this migration (the one reverse-link column
   missing from the schema; contacts + service_ticket already have theirs).
+- **Keyset indexes (eng-review Issue 5):** add `CREATE INDEX ... ON {contacts,booking,
+  service_ticket} (updated_at, id)`. The cursor query orders by `(updated_at, id)`; without
+  these it seq-scans + sorts each table every tick. (`idx_booking_contact` already covers the
+  scope EXISTS.)
 
 ### 6.2 New Edge Function `sync-to-attio`
 
@@ -207,9 +211,24 @@ CREATE TABLE attio_sync_state (
   writes to an external CRM — per CLAUDE.md §11). **Never** invoked from `app/` code.
 - Secrets (Supabase dashboard, never in `.env`): `ATTIO_API_KEY`, and optionally
   `ATTIO_KWN_CLIENT_ID` (the Kwinana `client.id`) to keep the scope filter config-driven.
-- Pattern: auth → read cursor → query ≤N rows per entity → map → upsert to Attio (idempotent)
-  → write Attio id back to the reverse-link column → recompute affected-person summaries →
-  advance cursor. Returns 500 on any per-row failure or Attio 429.
+- Pattern: **acquire `pg_try_advisory_lock`** → auth → read cursor → query ≤N rows per entity
+  → map → upsert to Attio (idempotent) → **conditionally** write Attio id back → recompute
+  affected-person summaries → advance cursor → release lock. Returns 500 on any per-row
+  failure or Attio 429.
+- **Advisory lock (eng-review Issue 2):** `pg_try_advisory_lock(<const>)` at start; if not
+  acquired, another run is in flight → log + return 200 no-op. Prevents two overlapping
+  backfill runs from racing the single cursor row and skipping rows.
+- **Conditional writeback (eng-review Issue 1 — CRITICAL):** write
+  `attio_person_id`/`attio_person_web_url`/`last_synced_by` (and `booking`/`ticket`
+  `attio_record_id`) **only `WHERE attio_person_id IS DISTINCT FROM $new`**. The
+  `handle_updated_at` trigger (`initial_schema.sql:85`) bumps `updated_at` on EVERY update —
+  an unconditional writeback would re-bump `updated_at`, the cursor would re-select the row
+  next tick, and it would re-sync forever. Conditional writeback converges after one cycle
+  (first sync writes once → one extra re-select → value now stable → no write → no bump).
+- **Pure logic placement (eng-review Issue 3):** mappers + `computeContextSummary()` +
+  cursor-compare live in `src/lib/attio/` (Vitest, 100%), mirrored by the EF — same pattern
+  as `src/lib/pricing/calculate.ts` ↔ `_shared/pricing.ts` (CLAUDE.md §6). The future HubSpot
+  emitter reuses the same entity→DTO shaping.
 - **Self-limited** to N rows/entity/run (e.g. 200) so a single invocation never approaches the
   EF wall-clock limit (~150s default / 400s max). Backlog and the initial backfill drain
   across successive */3 ticks (§4 step 7) — there is no "one big run".
@@ -364,6 +383,108 @@ fabricated `booking` columns (`reference`, `address_line`, `suburb`, `postcode`,
 `total_cents`). Correct it there too before that build starts, or it ships a broken payload
 contract to WMRC.
 
+## 12b. Engineering Review (2026-05-29)
+
+Five findings, all resolved into the spec above. Reviewed against the live schema.
+
+| # | Sev | Finding | Resolution |
+|---|---|---|---|
+| 1 | P1 | Reverse-link writeback bumps `updated_at` (unconditional `handle_updated_at`) → cursor re-selects forever → infinite re-sync loop | Conditional writeback `WHERE attio_person_id IS DISTINCT FROM $new` (§6.2) |
+| 2 | P2 | Overlapping backfill runs race the single cursor row → silent row-skips | `pg_try_advisory_lock` at EF start; 2nd run no-ops (§6.2) |
+| 3 | P2 | Inline EF mappers aren't unit-testable + HubSpot would duplicate them | Pure logic in `src/lib/attio/` (Vitest), mirror EF — pricing pattern (§6.2) |
+| 4 | — | No Attio test workspace; live CI calls flaky/costly | Mock the Attio fetch in CI; one manual live smoke at go-live (Test Plan) |
+| 5 | P2 | Cursor orders by `(updated_at, id)` but no `updated_at` index → seq-scan/sort every tick | `(updated_at, id)` keyset indexes on all 3 tables; batch summary query (§6.1) |
+
+### Test Plan (target 100% on pure logic, per CLAUDE.md §14)
+
+**Pure logic — `src/lib/attio/` (Vitest):**
+- `mapContactToAttio`: mobile_e164 null → no phone; name from first+last; email present.
+- `mapBookingToAttio`: address `property → formatted_address ?? address → geo_address →
+  location`; `MIN(collection_date)` across items; total `SUM(unit_price_cents × no_services)`;
+  contact_id null → skip association.
+- `mapTicketToAttio`: nullable booking association; `assigned_to` excluded.
+- `computeContextSummary`: 0 bookings / N bookings + next date / 0|N open tickets.
+- cursor compare: `(updated_at, id)` tuple ordering (no same-timestamp skip); empty batch →
+  no advance; advance to last **successful** row only.
+- `shouldWriteback`: false when `attio_person_id` unchanged (Issue 1 guard).
+
+**EF integration — `sync-to-attio` (Attio fetch MOCKED):**
+- self-limit N; backlog drains across ticks.
+- scope EXISTS: contact w/ OLD Kwinana + NEW non-Kwinana booking **included**; only-non-Kwinana
+  **excluded**.
+- Attio 429 → hold cursor, return 500, resume next tick.
+- per-row failure → HTTP 500 (never silent 200).
+- advisory lock: 2nd concurrent run no-ops (Issue 2).
+- correct endpoint / payload / upsert-key / idempotency asserted against the mock.
+
+**Regression (CRITICAL):** run sync twice → 2nd run does NOT re-select an unchanged row
+(infinite-loop guard, Issue 1).
+
+**RLS:** `attio_sync_state` contractor-admin SELECT only; field/ranger/resident/client denied.
+
+**Manual smoke (go-live, not CI):** change one Kwinana booking → person + booking + summary in
+real Attio within 3 min; deep-link opens live Verco; `attio_person_id` written back once.
+
+### What Already Exists (reused, not rebuilt)
+
+- `supabase/functions/nightly-sync-to-dm-ops` — existing sync-EF shape to follow.
+- `20260327120000_nightly_sync_cron.sql` — pg_cron + `net.http_post` + idempotent unschedule.
+- Notification dispatch queue pattern — error/retry shape reference.
+- `audit_trigger_derive_client_id_admin.sql:118` — contact→client derivation (NOT reused for
+  scope; see §6.3 EXISTS rationale).
+- `src/lib/pricing/calculate.ts` ↔ `_shared/pricing.ts` — the pure-logic-mirror pattern (§6.2).
+- Existing reverse-link columns `contacts.attio_person_id/attio_person_web_url/last_synced_by`,
+  `service_ticket.attio_record_id`.
+
+### Failure Modes
+
+| Codepath | Failure | Test? | Error handling? | Visible? |
+|---|---|---|---|---|
+| Reverse-link writeback | Infinite re-sync loop | Regression test (Issue 1) | Conditional writeback | Would be silent quota burn → guarded |
+| Overlapping runs | Cursor race → row skip | Integration test (Issue 2) | Advisory lock | Was silent → guarded |
+| Attio API down/429 | Sync stalls | Integration test | Hold cursor + 500 | pg_cron logs the 500 |
+| Cursor same-timestamp | Row permanently skipped | Unit test | Compound `(updated_at,id)` cursor | Was silent → guarded |
+| mobile_e164 null | Call won't match in Allo | Unit test | N/A (data reality, §8) | CSO manual-search fallback |
+
+No critical gaps remain (every silent failure mode above now has a test AND handling).
+
+### Parallelization
+
+Sequential implementation, minimal parallelization. Lane A (migration: `attio_sync_state` +
+`booking.attio_record_id` + indexes + pg_cron) must land before Lane B (EF + mappers) can be
+integration-tested. The `src/lib/attio/` pure-logic module (Lane B1) can be built + unit-tested
+in parallel with Lane A since it has no DB dependency. Suggested: A ∥ B1, then B2 (EF wiring)
+after both.
+
+### Implementation Tasks
+
+Synthesised from this review. P1 blocks ship; P2 same branch; P3 follow-up.
+
+- [ ] **T1 (P1, human: ~30min / CC: ~5min)** — sync-to-attio EF — conditional reverse-link writeback
+  - Surfaced by: Architecture Issue 1 — infinite re-sync loop via `handle_updated_at`
+  - Files: `supabase/functions/sync-to-attio/index.ts`
+  - Verify: regression test — second sync run does not re-select an unchanged row
+- [ ] **T2 (P2, human: ~30min / CC: ~5min)** — sync-to-attio EF — pg_advisory lock guard
+  - Surfaced by: Architecture Issue 2 — overlapping-run cursor race
+  - Files: `supabase/functions/sync-to-attio/index.ts`
+  - Verify: integration test — 2nd concurrent invocation returns 200 no-op
+- [ ] **T3 (P2, human: ~1h / CC: ~10min)** — src/lib/attio — pure mapper + summary + cursor module
+  - Surfaced by: Code Quality Issue 3 — testability + DRY vs future HubSpot emitter
+  - Files: `src/lib/attio/*.ts`, `src/__tests__/attio/*.test.ts`, `_shared/attio/` mirror
+  - Verify: `pnpm test` — 100% coverage on pure logic
+- [ ] **T4 (P1, human: ~3h / CC: ~30min)** — sync-to-attio EF — orchestration + mocked integration tests
+  - Surfaced by: Test Review Issue 4 — Attio write path coverage
+  - Files: `supabase/functions/sync-to-attio/index.ts`, test with mocked Attio fetch
+  - Verify: scope-EXISTS, 429, per-row-failure-500, advisory-lock tests pass
+- [ ] **T5 (P2, human: ~30min / CC: ~5min)** — migration — attio_sync_state + booking.attio_record_id + keyset indexes + pg_cron
+  - Surfaced by: Performance Issue 5 + schema (§6.1)
+  - Files: `supabase/migrations/<ts>_attio_sync.sql`
+  - Verify: `pnpm supabase db push`; RLS test for attio_sync_state
+- [ ] **T6 (P2, human: ~20min / CC: ~5min)** — Attio workspace — custom attributes + verco_booking/verco_ticket objects
+  - Surfaced by: §5 (one-time setup, gated on Attio plan tier confirmation §11.2)
+  - Files: Attio UI / setup script (external)
+  - Verify: manual go-live smoke (§15 step 5)
+
 ## 13. Roadmap (NOT this phase)
 
 - **Widen scope** — add clients (VV/WMRC pending §11.3, then Rockingham, Karratha) by
@@ -414,3 +535,16 @@ build now or can wait. In parallel, ask Clarissa for the WMRC call count (#3).
 - You chose the **hybrid** context model — summary *plus* deep-link — over either extreme.
   You're optimising for the CSO's actual moment (a glance while the phone rings, detail one
   click away), not for architectural purity.
+
+## GSTACK REVIEW REPORT
+
+| Review | Trigger | Why | Runs | Status | Findings |
+|--------|---------|-----|------|--------|----------|
+| CEO Review | `/plan-ceo-review` | Scope & strategy | 0 | — | — |
+| Codex Review | `/codex review` | Independent 2nd opinion | 0 | — | — |
+| Eng Review | `/plan-eng-review` | Architecture & tests (required) | 1 | CLEAR | 5 issues, 0 critical gaps, all resolved |
+| Design Review | `/plan-design-review` | UI/UX gaps | 0 | — | n/a (no UI — backend sync) |
+| DX Review | `/plan-devex-review` | Developer experience gaps | 0 | — | — |
+
+- **UNRESOLVED:** 0
+- **VERDICT:** ENG CLEARED — plan ready to implement once the two external build-gates (§11.1 Allo↔Attio mechanics, §11.2 Attio plan tier) are confirmed. No design/CEO review needed (backend sync, no UI, scope already set in office-hours).
