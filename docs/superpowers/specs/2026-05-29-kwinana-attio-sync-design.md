@@ -24,9 +24,11 @@ findings reshape *sequencing* (not the model):
   attributes/objects rendering in the pop is **undocumented, medium-confidence (not
   disproven)**. Verify live before designing the glance around it.
 - **Custom objects require Attio Pro** ($69/seat/mo annual). People + custom *attributes* +
-  REST API work on **any plan** (incl. Free/Plus). Upsert by a unique custom attribute is
-  confirmed for custom objects; **for the standard People object it's undocumented** — the
-  #1 build-time verify (it's our match key).
+  REST API work on **any plan** (incl. Free/Plus).
+- **No custom unique attribute on People (verified — §11.2).** Attio allows them on custom
+  objects + Deals/Users/Workspaces only. So People upsert is by the **cached Attio
+  `record_id`** (`contacts.attio_person_id`), not by `verco_contact_id`. Resolved, not a
+  blocker.
 
 **Decision (2026-05-29): lock the caveat-independent core now; verify the live pop before the
 Pro/objects + glance call.**
@@ -93,12 +95,13 @@ A single `sync-to-attio` Edge Function, invoked by pg_cron every ~3 minutes:
    service_tickets changed since the cursor, `WHERE (updated_at, id) > (last_synced_at,
    last_synced_id)` ordered by `(updated_at, id)`. The compound cursor avoids skipping rows
    that share an `updated_at` (see §6.5).
-3. **Phase 1:** upsert each affected **person** into Attio via the REST API (idempotent
-   assert), keyed on the unique Attio attribute `verco_contact_id` (= `contacts.id`).
-   **Conditionally** write the returned Attio record id + web URL back into
-   `contacts.attio_person_id` / `attio_person_web_url` (column already exists; conditional to
-   avoid the loop — §6.2). Bookings/tickets are read for the summary but **not written to
-   Attio** in Phase 1. (Phase 1.5 adds `verco_booking`/`verco_ticket` object upserts keyed on
+3. **Phase 1:** upsert each affected **person** into Attio via the REST API, matched on the
+   **cached Attio `record_id`** (`contacts.attio_person_id`): NULL → `POST` create + capture
+   id; set → update by id. (Attio doesn't allow a custom unique attribute on People, §11.2, so
+   `verco_contact_id` can't be the key.) **Conditionally** write the returned record id + web
+   URL back into `contacts.attio_person_id` / `attio_person_web_url` (conditional to avoid the
+   loop — §6.2). Bookings/tickets are read for the summary but **not written to Attio** in
+   Phase 1. (Phase 1.5 adds `verco_booking`/`verco_ticket` object upserts keyed on
    `verco_booking_id`/`verco_ticket_id`, writing back to `service_ticket.attio_record_id` +
    `booking.attio_record_id`.)
 4. Recompute and push `verco_context_summary` for every person whose contact/booking/ticket
@@ -154,10 +157,20 @@ Built once; reused unchanged if the sync later graduates to event-driven.
 
 | Attribute (api_slug) | Type | Notes |
 |---|---|---|
-| `verco_contact_id` | text, **unique** | Upsert/dedupe key = Verco `contacts.id` |
+| `verco_contact_id` | text, **NON-unique** | Verco `contacts.id` — reference/search only. **NOT the upsert key** — Attio does not allow custom unique attributes on People (verified §11.2). |
 | `verco_context_summary` | text | Glanceable string, recomputed on any related change (§7) |
 | `verco_url` | text | Deep-link `https://verco.au/admin/contacts/{id}` |
 | `service_area` | text (or select) | e.g. `KWN` — segment now, filter/expand later |
+
+**Upsert mechanism for People (no custom unique attribute available):** match on the cached
+Attio `record_id`, not on `verco_contact_id`.
+- `contacts.attio_person_id` **NULL** → `POST` create the person → capture the returned
+  `record_id` → conditional-writeback into `contacts.attio_person_id` (§6.2, eng-review
+  Issue 1).
+- `contacts.attio_person_id` **set** → update that record by id (`PATCH`/`PUT .../records/{id}`).
+The advisory lock (Issue 2) guarantees no two runs both see NULL and double-create. (Custom
+objects in Phase 1.5 — `verco_booking`/`verco_ticket` — *do* support unique attributes, so
+they upsert by `verco_booking_id`/`verco_ticket_id`; only People needed this change.)
 
 - `phone_numbers` (standard, E.164) is the **Allo match key** — populated from
   `contacts.mobile_e164` (nullable; a contact with no mobile won't match an inbound call).
@@ -166,12 +179,13 @@ Built once; reused unchanged if the sync later graduates to event-driven.
 - `name` (standard personal-name) from `contacts.first_name` + `last_name` (both exist
   alongside the generated `full_name` — verified against `types.ts`).
 
-**Reverse-link (already scaffolded in Verco — use it, don't reinvent):** `contacts` already
-has `attio_person_id`, `attio_person_web_url`, `last_synced_by`. After each upsert, write the
-Attio record id → `attio_person_id`, its web URL → `attio_person_web_url`, and stamp
-`last_synced_by`. The Attio-side `verco_contact_id` unique attribute (= `contacts.id`) is the
-*match key for the upsert*; `attio_person_id` is the *local cache of the Attio id* (enables
-reverse deep-linking and the future two-way path without a lookup).
+**Reverse-link = the upsert key (already scaffolded in Verco — use it, don't reinvent):**
+`contacts` already has `attio_person_id`, `attio_person_web_url`, `last_synced_by`. On create,
+write the Attio record id → `attio_person_id`, web URL → `attio_person_web_url`, stamp
+`last_synced_by`. `attio_person_id` is **both** the local cache of the Attio id (reverse
+deep-linking, future two-way path) **and** the match pointer for subsequent upserts — Attio
+won't let us match on a custom unique attribute on People, so the cached record_id is the key.
+The conditional writeback (§6.2) is doubly load-bearing here.
 
 ### 5.2 New custom object `verco_booking` — PHASE 1.5 (gated: Pro + live pop test, §0)
 
@@ -261,9 +275,10 @@ CREATE TABLE attio_sync_state (
 - Secrets (Supabase dashboard, never in `.env`): `ATTIO_API_KEY`, and optionally
   `ATTIO_KWN_CLIENT_ID` (the Kwinana `client.id`) to keep the scope filter config-driven.
 - Pattern: **acquire `pg_try_advisory_lock`** → auth → read cursor → query ≤N rows per entity
-  → map → upsert to Attio (idempotent) → **conditionally** write Attio id back → recompute
-  affected-person summaries → advance cursor → release lock. Returns 500 on any per-row
-  failure or Attio 429.
+  → for each person: `attio_person_id` NULL → create (capture id), else update by id →
+  **conditionally** write the id back → recompute affected-person summaries → advance cursor →
+  release lock. Returns 500 on any per-row failure or Attio 429. (Match is by cached
+  `record_id`, not a custom unique attribute — §5.1/§11.2.)
 - **Advisory lock (eng-review Issue 2):** `pg_try_advisory_lock(<const>)` at start; if not
   acquired, another run is in flight → log + return 200 no-op. Prevents two overlapping
   backfill runs from racing the single cursor row and skipping rows.
@@ -315,8 +330,8 @@ the next run's strict `>` never revisits the other. Mitigations, combined:
    last_synced_id)` ordered by `(updated_at, id)` — total order, no ties.
 2. **Advance only after a successful Attio upsert**, row by row (or after the batch, to the
    last good row).
-3. **Idempotent upsert** (Attio assert on the unique key) — re-processing a boundary row is a
-   no-op, so even at-least-once delivery is safe.
+3. **Idempotent upsert** — People update by cached `record_id` (custom objects by their unique
+   key) — re-processing a boundary row is a no-op, so even at-least-once delivery is safe.
 
 ## 7. Context Summary Computation
 
@@ -385,12 +400,14 @@ pre-identified, not all. Measure the match rate after go-live (§10).
      watch one real inbound pop. Resolves: (i) does `verco_context_summary` render in the pop
      (else add lists), (ii) does Clarissa need booking/ticket records inside Attio (else
      deep-link suffices, stay on Plus).
-2. **Unique custom attribute on the standard People object — #1 BUILD-TIME VERIFY.** Our
-   upsert match key is `verco_contact_id` as a *unique custom attribute on People*. Research
-   confirmed unique-attribute matching for custom objects + Deals/Users/Workspaces, but it's
-   **undocumented for People**. If People can't take a unique custom attribute, fall back to
-   matching on `email_address` (fails for residents without unique email) — so verify first.
-   Testable now in the live workspace (create one unique attr on People, then archive).
+2. **Unique custom attribute on the standard People object — RESOLVED: NO (✅ verified
+   2026-05-29).** Attio supports custom unique attributes on custom objects + Deals / Users /
+   Workspaces only — **not** on People or Companies (Attio help centre; confirmed by the live
+   workspace showing only system uniques `record_id` / `email_addresses` on People). So
+   `verco_contact_id` cannot be the upsert key. **Resolution:** upsert People by the cached
+   Attio `record_id` (`contacts.attio_person_id`) — create-if-NULL-else-update (§5.1, §6.2).
+   This is more robust than matching on `email_address` (handles residents with no email) and
+   needs no custom unique attribute. Phase 1.5 custom objects keep unique-attribute matching.
 3. **Attio plan tier — RESOLVED (✅).** Phase 1 = Plus ($29/seat). Custom objects = Pro
    ($69/seat), Phase 1.5 only. See §5.4.
 4. **WMRC call volume** — Dan to check with Clarissa how many WMRC/VV calls come in. Decides
@@ -467,13 +484,15 @@ Five findings, all resolved into the spec above. Reviewed against the live schem
 - `shouldWriteback`: false when `attio_person_id` unchanged (Issue 1 guard).
 
 **EF integration — `sync-to-attio` (Attio fetch MOCKED):**
+- **People upsert by cached record_id:** `attio_person_id` NULL → POST create + writes id back;
+  `attio_person_id` set → update by id (no duplicate create). The match-key correction (§11.2).
 - self-limit N; backlog drains across ticks.
 - scope EXISTS: contact w/ OLD Kwinana + NEW non-Kwinana booking **included**; only-non-Kwinana
   **excluded**.
 - Attio 429 → hold cursor, return 500, resume next tick.
 - per-row failure → HTTP 500 (never silent 200).
-- advisory lock: 2nd concurrent run no-ops (Issue 2).
-- correct endpoint / payload / upsert-key / idempotency asserted against the mock.
+- advisory lock: 2nd concurrent run no-ops (Issue 2) — also guards against double-create.
+- correct endpoint / payload / idempotency asserted against the mock.
 
 **Regression (CRITICAL):** run sync twice → 2nd run does NOT re-select an unchanged row
 (infinite-loop guard, Issue 1).
@@ -539,9 +558,9 @@ Synthesised from this review. P1 blocks ship; P2 same branch; P3 follow-up.
   - Files: `supabase/migrations/<ts>_attio_sync.sql`
   - Verify: `pnpm supabase db push`; RLS test for attio_sync_state
 - [ ] **T6 (P2, human: ~20min / CC: ~5min)** — Attio workspace — People custom attributes (Phase 1, Plus tier)
-  - Surfaced by: §5.1 — verco_contact_id (unique), verco_context_summary, verco_url, service_area
-  - Files: Attio UI / setup script (external); verify unique-attr-on-People first (§11.2)
-  - Verify: manual go-live smoke (§15 step 5)
+  - Surfaced by: §5.1 — verco_contact_id (non-unique), verco_context_summary, verco_url, service_area
+  - Files: Attio UI / setup script (external). Upsert is by cached record_id, not a unique attr (§11.2 resolved)
+  - Verify: manual go-live smoke (§15 step 6)
 - [ ] **T7 (P3, gated) ** — live pop test → then Phase 1.5 (Pro + verco_booking/verco_ticket objects, or Attio lists for glance)
   - Surfaced by: §0 phasing + §11.1a — resolve pop rendering before building objects/lists
   - Files: Attio (Pro) / EF object-upsert path (Phase 1.5)
@@ -561,19 +580,19 @@ Synthesised from this review. P1 blocks ship; P2 same branch; P3 follow-up.
 
 ## 14. The Assignment
 
-Allo↔Attio is confirmed (✅ /research). The two things to lock before / during build:
-1. **Verify a unique custom attribute can be set on the standard People object** (§11.2) —
-   it's our upsert match key. Testable in the live workspace in minutes.
-2. **Schedule the live pop test** (§11.1a) — trial Allo Business + connect the Plus Attio
-   workspace, watch one real pop. This resolves the glance mechanism (attribute vs lists) and
-   whether Pro/custom-objects earn their build. Phase 1 doesn't wait on it.
-
-In parallel, ask Clarissa for the WMRC call count (§11.4).
+Allo↔Attio confirmed (✅), and the People-upsert-key question is **resolved** (no custom
+unique attribute on People → upsert by cached `record_id`, §11.2). Phase 1 is fully
+unblocked. Remaining (none block the Phase 1 build):
+1. **Schedule the live pop test** (§11.1a) — Allo is connected; you're provisioning the
+   number. Once live, watch one real pop: resolves the glance mechanism (summary attribute vs
+   Attio lists) and whether Pro/custom-objects earn their build (Phase 1.5).
+2. **WMRC call count** from Clarissa (she's away today) — decides whether VV joins the feed.
 
 ## 15. Build Sequence — Phase 1 (Plus tier, no caveat dependency)
 
-1. **Verify** unique custom attribute on People (§11.2). Then Attio: create the four People
-   custom attributes (§5.1). No custom objects in Phase 1.
+1. Attio: create the four People custom attributes (§5.1), all **non-unique** (People can't
+   take a custom unique attribute — §11.2; upsert is by cached `record_id`). No custom objects
+   in Phase 1.
 2. Verco migration: `attio_sync_state` (compound cursor) + RLS + keyset `(updated_at, id)`
    indexes + pg_cron (`*/3`, idempotent unschedule guard). No `booking.attio_record_id` yet.
 3. `src/lib/attio/` pure module (mappers + `computeContextSummary` + cursor compare) with
@@ -620,8 +639,11 @@ In parallel, ask Clarissa for the WMRC call count (§11.4).
   Attio Plus sufficient for Phase 1, Pro only for Phase 1.5 custom objects (✅ build-gate 2
   resolved). Screen-pop renders standard fields + lists (custom-attr rendering unverified) →
   design re-phased (§0): caveat-independent core ships now on Plus; objects + glance gated on
-  a live pop test.
+  a live pop test. **People upsert key resolved (§11.2):** Attio forbids custom unique
+  attributes on People → upsert by cached Attio `record_id` (`contacts.attio_person_id`), not
+  `verco_contact_id`. More robust (handles no-email residents); reuses the Issue 1 conditional
+  writeback as the match pointer.
 - **VERDICT:** ENG CLEARED — **Phase 1 ready to implement now** (Plus tier, People + custom
-  attributes + summary + deep-link, all eng-review fixes). Verify unique-attr-on-People
-  (§11.2) at build start. Phase 1.5 (Pro objects / Attio-list glance) gated on the live pop
-  test (§11.1a). No design/CEO review needed (backend sync, no UI, scope set in office-hours).
+  attributes + summary + deep-link, upsert by cached record_id, all eng-review fixes). No
+  build-time unknowns remain for Phase 1. Phase 1.5 (Pro objects / Attio-list glance) gated on
+  the live pop test (§11.1a). No design/CEO review needed (backend sync, no UI).
