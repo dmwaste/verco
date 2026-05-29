@@ -139,6 +139,11 @@ Trigger fires on INSERT and UPDATE only. DELETE is not wired — Verco entities 
 
 ## 7. Payload Contract
 
+> **Note:** payload keys are an **external contract with WMRC**, deliberately decoupled from
+> Verco column names. Each per-entity section below lists the Verco source for every field
+> (verified against `src/lib/supabase/types.ts`, 2026-05-29). Do not assume a key maps 1:1 to
+> a `booking`/`contacts` column — several are derived via joins.
+
 ### 7.1 Envelope
 
 ```json
@@ -186,9 +191,7 @@ Production host hard-coded for now. If WMRC ever has a UAT HubSpot tenant pointe
   "reference": "VV-12345",
   "status": "Confirmed",
   "collection_date": "2026-05-30",
-  "address_line": "23 Leda Blvd",
-  "suburb": "Wellard",
-  "postcode": "6170",
+  "address": "23 Leda Blvd, Wellard WA 6170",
   "latitude": -32.27,
   "longitude": 115.79,
   "contact_verco_id": "uuid",
@@ -199,6 +202,26 @@ Production host hard-coded for now. If WMRC ever has a UAT HubSpot tenant pointe
   "updated_at": "..."
 }
 ```
+
+**Verco source mapping** (`booking` has no date/price/address columns of its own — these are derived):
+
+| Payload key | Verco source |
+|---|---|
+| `id` | `booking.id` |
+| `reference` | `booking.ref` (column is `ref`, **not** `reference`) |
+| `status` | `booking.status` |
+| `collection_date` | `MIN(collection_date.date)` via `booking_item.collection_date_id` → `collection_date.date` |
+| `address` | `eligible_properties.formatted_address` ?? `eligible_properties.address` via `booking.property_id`; fallback `booking.geo_address` / `booking.location` |
+| `latitude` / `longitude` | `booking.latitude` / `booking.longitude` (real columns) |
+| `contact_verco_id` | `booking.contact_id` (nullable — skip unassociated bookings) |
+| `contact_email` | `contacts.email` via `contact_id` join |
+| `services_summary` | aggregated from `booking_item` (`service.name` × `no_services`) |
+| `total_cents` | `SUM(booking_item.unit_price_cents × booking_item.no_services)` — there is **no** `booking.total_cents` (price lives on `booking_item`) |
+| `created_at` / `updated_at` | `booking.*` |
+
+**Address is a single string** — Verco does not decompose `suburb`/`postcode` (they exist on
+neither `booking` nor `eligible_properties`). WMRC parses it their side if they need the parts
+(see §12).
 
 `contact_verco_id` + `contact_email` let HubSpot's workflow associate the custom-object booking to the right Contact without a secondary lookup.
 
@@ -289,6 +312,9 @@ Authenticated via HubSpot-issued bearer token (subscription holds a reverse `inb
 5. **CSO Verco accounts** — confirm WMRC CSOs already have `client-admin` (VV-COT, VV-MOS) logins, since `verco_url` deep-links require it. Believed yes; confirm.
 6. **`contacts` filtering** — `contacts` is a shared table across all Verco clients. We only send a contact to WMRC HubSpot if that contact has at least one booking under WMRC's `client_id`. Confirm trigger logic handles this scoping correctly.
 7. **Phase 2/3 appetite** — get WMRC's read on whether they want two-way eventually, so we size and price accordingly.
+8. **Address granularity** — the booking payload sends `address` as a **single string** (Verco
+   stores it as one field; suburb/postcode are not separately available). Confirm WMRC's
+   HubSpot mapping accepts one address string, or that they're happy to parse it their side.
 
 ## 13. Rollout Plan
 
