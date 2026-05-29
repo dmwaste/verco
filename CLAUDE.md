@@ -375,9 +375,7 @@ These are absolute. If a task requires crossing one, stop and flag it.
 
 ### Generated `STORED` columns over NOT NULL inputs need explicit `ALTER COLUMN ... SET NOT NULL` — Supabase CLI infers nullability from metadata, not the expression; without it regen'd TS is `string | null`.
 
-### PostgREST embedded-select gotchas — multi-FK embeds (`select('parent, related(child)')`) silently return empty inner for authed users once `related` accumulates FKs (service-role works). Fix: split queries + stitch, or `related!fk_name(col)`. `.or()` can't filter parents by columns on a nullable LEFT-joined table — pre-fetch ids + `.in(...)` inside the `.or()`. Canonical patterns in `admin/bookings/bookings-list-client.tsx`.
-
-### `.or()` values containing a comma must be double-quoted — a bare comma in any `.or('col.op.value,...')` value is read by PostgREST as the separator BETWEEN conditions → `PGRST100 "failed to parse logic tree"` (HTTP 400), which the Supabase client swallows into `data: null`. Address strings (`"<street>, <suburb>"`) always hit this. Quote each value: `col.ilike."val, with comma"` (escape inner `"`/`\`). Helper: `buildEligibleOrFilter` in `lib/booking/address-match-key.ts`. Bit the public booking eligibility lookup (PR #113); also latent in admin free-text search boxes (`%${search}%`) if a user types a comma.
+### PostgREST `.or()` + embedded-select gotchas — (1) multi-FK embeds (`select('parent, related(child)')`) silently return empty inner for authed users once `related` accumulates FKs (service-role works); fix: split-query+stitch or `related!fk_name(col)`. (2) `.or()` can't filter parents by columns on a nullable LEFT-joined table — pre-fetch ids + `.in(...)`. (3) any `.or()` value with a comma (or other PostgREST-reserved char) must be double-quoted — a bare comma is read as the separator BETWEEN conditions → `PGRST100` 400 swallowed into `data:null`; address/search strings always hit this. Quote each value (`col.ilike."val, x"`, escape inner `"`/`\`). Helpers: `buildEligibleOrFilter` (booking) + `buildSearchOrFilter` (admin search, `lib/search/or-filter.ts`). Canonical: `admin/bookings/bookings-list-client.tsx`.
 
 ### Notification idempotency keys on `(booking_id, type, channel)`, not `(booking_id, type)` — email + SMS must succeed independently. Dispatcher's `isAlreadySent` takes a channel arg; new channels (push, voice) follow the same rule.
 
@@ -397,6 +395,4 @@ These are absolute. If a task requires crossing one, stop and flag it.
 
 ## gstack
 
-Per-machine install: `git clone --single-branch --depth 1 https://github.com/garrytan/gstack.git ~/.claude/skills/gstack && export PATH="$HOME/.bun/bin:$PATH" && bash ~/.claude/skills/gstack/setup`. **Always use `/browse` for web — never `mcp__claude-in-chrome__*`.**
-
-Skills: `/office-hours`, `/plan-ceo-review`, `/plan-eng-review`, `/plan-design-review`, `/design-consultation`, `/design-shotgun`, `/design-html`, `/review`, `/ship`, `/land-and-deploy`, `/canary`, `/benchmark`, `/browse`, `/connect-chrome`, `/qa`, `/qa-only`, `/design-review`, `/setup-browser-cookies`, `/setup-deploy`, `/setup-gbrain`, `/retro`, `/investigate`, `/document-release`, `/document-generate`, `/codex`, `/cso`, `/autoplan`, `/plan-devex-review`, `/devex-review`, `/careful`, `/freeze`, `/guard`, `/unfreeze`, `/gstack-upgrade`, `/learn`
+Per-machine install: `git clone --single-branch --depth 1 https://github.com/garrytan/gstack.git ~/.claude/skills/gstack && export PATH="$HOME/.bun/bin:$PATH" && bash ~/.claude/skills/gstack/setup`. **Always use `/browse` for web — never `mcp__claude-in-chrome__*`.** Full skill list is in the global `~/.claude/CLAUDE.md`.
