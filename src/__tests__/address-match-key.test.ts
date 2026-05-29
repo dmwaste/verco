@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   addressMatchKey,
   buildAddressIlikePattern,
+  buildEligibleOrFilter,
   normaliseStreetTypes,
   buildLookupCandidates,
 } from '@/lib/booking/address-match-key'
@@ -174,6 +175,38 @@ describe('buildAddressIlikePattern', () => {
     expect(
       ilikeMatches('1032 Lake St, Perth WA 6000, Australia', pattern)
     ).toBe(false)
+  })
+})
+
+describe('buildEligibleOrFilter', () => {
+  // Regression: the public booking flow's ILIKE fallback assembled the
+  // .or() string by interpolating the raw pattern. The formatted_address
+  // key is always two comma-parts ("<street>, <suburb>"), so the bare comma
+  // was read by PostgREST as the separator BETWEEN .or() conditions →
+  // PGRST100 "failed to parse logic tree" (HTTP 400) → data:null → an
+  // eligible address shown as "not eligible". Live repro: "1 Baring St,
+  // Mosman Park". Double-quoting each value makes the comma literal.
+  it('wraps the comma-bearing formatted_address pattern in double quotes', () => {
+    expect(
+      buildEligibleOrFilter('1 Baring St, Mosman Park WA 6012%', '1 Baring St%')
+    ).toBe(
+      'formatted_address.ilike."1 Baring St, Mosman Park WA 6012%",address.ilike."1 Baring St%"'
+    )
+  })
+
+  it('quotes both operands even when neither contains a comma', () => {
+    expect(buildEligibleOrFilter('10 Eagle Heights%', '10 Eagle Heights%')).toBe(
+      'formatted_address.ilike."10 Eagle Heights%",address.ilike."10 Eagle Heights%"'
+    )
+  })
+
+  it('escapes embedded double-quotes and backslashes inside the quoted value', () => {
+    // Defensive: PostgREST treats " and \ as special inside a quoted value.
+    // Real WA addresses never contain them, but buildAddressIlikePattern can
+    // emit a backslash when escaping a literal % / _ in an address.
+    expect(buildEligibleOrFilter('a"b%', 'c\\d%')).toBe(
+      'formatted_address.ilike."a\\"b%",address.ilike."c\\\\d%"'
+    )
   })
 })
 

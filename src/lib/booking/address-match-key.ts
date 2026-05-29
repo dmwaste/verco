@@ -96,6 +96,34 @@ export function buildAddressIlikePattern(key: string): string {
 }
 
 /**
+ * Composes the PostgREST `.or()` filter for the booking flow's eligibility
+ * lookup: match a property by EITHER its geocoded `formatted_address` OR its
+ * raw `address` column.
+ *
+ * Both ILIKE patterns legitimately carry a comma — `formatted_address` always
+ * (its key is the two-part `"<street>, <suburb>"` from `addressMatchKey`, which
+ * keeps suburb agreement), `address` potentially. PostgREST reads a *bare*
+ * comma inside `.or()` as the separator BETWEEN conditions, so interpolating
+ * the raw value yields `PGRST100 "failed to parse logic tree"` (HTTP 400). The
+ * Supabase client swallows that 400 into `data: null`, the lookup returns null,
+ * and an eligible address is reported as "not eligible".
+ *
+ * Wrapping each value in double quotes makes the comma literal. Inside a quoted
+ * PostgREST value only `"` and `\` are special, so those are escaped.
+ *
+ * Regression: addresses whose Geocoding place_id diverges from the Autocomplete
+ * place_id miss the primary `google_place_id` match and fall through to this
+ * fallback — ~36% of Verge Valet addresses, e.g. "1 Baring St, Mosman Park".
+ */
+export function buildEligibleOrFilter(
+  formattedAddressPattern: string,
+  addressPattern: string
+): string {
+  const quote = (v: string) => `"${v.replace(/[\\"]/g, (c) => `\\${c}`)}"`
+  return `formatted_address.ilike.${quote(formattedAddressPattern)},address.ilike.${quote(addressPattern)}`
+}
+
+/**
  * Normalises full-form street types to their abbreviations (`Street` → `St`,
  * `Avenue` → `Ave`, etc.) at the END of the first comma-separated segment.
  * Only the last (or second-to-last, when followed by a directional modifier
