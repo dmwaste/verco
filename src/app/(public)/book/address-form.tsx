@@ -12,6 +12,7 @@ import { stripAddressPrefix } from '@/lib/mud/address-strip'
 import {
   addressMatchKey as buildAddressMatchKey,
   buildAddressIlikePattern,
+  buildEligibleOrFilter,
   buildLookupCandidates,
 } from '@/lib/booking/address-match-key'
 import { decideMudRedirect, type MudLookupCandidate } from '@/lib/mud/mud-lookup'
@@ -78,15 +79,16 @@ export function AddressForm({ clientId }: { clientId: string }) {
 
         // Search both formatted_address (geocoded rows) and address (un-geocoded rows
         // such as newly imported MUDs). Use the street-segment only for the address
-        // column because Airtable values often lack the suburb/state suffix — a comma
-        // in the PostgREST .or() value would split the condition incorrectly.
+        // column because Airtable values often lack the suburb/state suffix. Both
+        // patterns can carry a comma, so buildEligibleOrFilter double-quotes each
+        // value — a bare comma would otherwise split the PostgREST .or() condition.
         const fmtPattern = buildAddressIlikePattern(key)
         const streetSegment = s.split(',')[0]?.trim() ?? s
         const addrPattern = buildAddressIlikePattern(addressMatchKey(streetSegment))
         const { data } = await supabase
           .from('eligible_properties')
           .select('*, collection_area!inner(client_id)')
-          .or(`formatted_address.ilike.${fmtPattern},address.ilike.${addrPattern}`)
+          .or(buildEligibleOrFilter(fmtPattern, addrPattern))
           .eq('collection_area.client_id', clientId)
           .limit(2)
         if (data && data.length === 1) return data[0] as unknown as EligibleProperty
