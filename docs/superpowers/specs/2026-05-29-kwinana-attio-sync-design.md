@@ -7,11 +7,42 @@ Status: APPROVED
 Mode: Intrapreneurship (internal D&M tooling)
 Related: [WMRC HubSpot Integration](./2026-05-28-wmrc-hubspot-integration-design.md) — parallel feed, shares the entity model
 
-> **Status APPROVED 2026-05-29.** Survived 2 rounds of adversarial review (6 findings fixed,
-> 9/10). Build gated on two external confirmations: (1) Allo↔Attio caller-ID mechanics +
-> screen-pop content, (2) Attio plan tier supports custom objects. See §11 + §14.
+> **Status APPROVED 2026-05-29**, revised same day after `/research` (see §0). Survived 2
+> rounds of adversarial review (6 fixed, 9/10) + an eng review (5 findings, all resolved).
+> Build-gate (1) Allo↔Attio is now **CONFIRMED** (Allo = withallo.com, native Attio
+> integration). The phasing below splits the build into a caveat-independent core (ship now,
+> Plus tier) and two items gated on a live pop test. See §0, §11, §14.
 
 ---
+
+## 0. Phasing (research-informed, 2026-05-29)
+
+`/research` confirmed Allo = **The Mobile First Company (withallo.com)**, native Attio
+integration, inbound screen-pop matching on **phone number**, contact sync every 5 min. Two
+findings reshape *sequencing* (not the model):
+- **Attio screen-pop renders standard fields + Attio LIST membership only** — custom
+  attributes/objects rendering in the pop is **undocumented, medium-confidence (not
+  disproven)**. Verify live before designing the glance around it.
+- **Custom objects require Attio Pro** ($69/seat/mo annual). People + custom *attributes* +
+  REST API work on **any plan** (incl. Free/Plus). Upsert by a unique custom attribute is
+  confirmed for custom objects; **for the standard People object it's undocumented** — the
+  #1 build-time verify (it's our match key).
+
+**Decision (2026-05-29): lock the caveat-independent core now; verify the live pop before the
+Pro/objects + glance call.**
+
+| | **Phase 1 — build now (Plus tier, pop-agnostic)** | **Phase 1.5 — gated on a live pop test** |
+|---|---|---|
+| Scope | People + custom attributes (`verco_contact_id`, `verco_context_summary`, `verco_url`, `service_area`) + deep-link | (a) `verco_booking`/`verco_ticket` custom objects → needs **Pro**; (b) glance mechanism |
+| Sync | Cron + cursor reads contacts **+ bookings + tickets** (to compute the person summary), writes **only to People** | Writes booking/ticket records (Pro) |
+| Glance | `verco_context_summary` attribute (visible in Attio contact view; pop-visibility TBD) | If the attribute doesn't show in the pop → add **Attio lists** (provably visible) |
+| Eng-review fixes | All apply (conditional writeback, advisory lock, keyset indexes, `src/lib/attio/` module, mocked tests) | Object-mapping tests added when objects land |
+
+**The live pop test resolves both gated items at once:** stand up a trial Allo Business
+account, connect the Plus Attio workspace, watch one real inbound pop. If custom attributes
+render → the doc's summary-in-pop stands. If only standard fields + lists render → add lists.
+If Clarissa needs booking/ticket records *inside* Attio (not just the live-Verco deep-link) →
+upgrade to Pro and build the objects.
 
 ## 1. Problem Statement
 
@@ -26,10 +57,13 @@ their collection area — with a one-click link into live Verco to act.
 
 ## 2. Goals
 
-- A Kwinana resident's inbound call resolves (via phone match) to an Attio person carrying
-  a glanceable Verco context summary + a deep-link to the live Verco admin contact page.
-- Bookings and service tickets appear in Attio as **read-only** records associated to the
-  person, so the CSO can see/click individual ones inside Attio.
+- **(Phase 1)** A Kwinana resident's inbound call resolves (via phone match) to an Attio
+  person carrying a Verco context summary attribute + a deep-link to the live Verco admin
+  contact page. (Pop-visibility of the summary attribute is verified live; lists are the
+  fallback glance — see §0.)
+- **(Phase 1.5, gated)** Bookings and service tickets appear in Attio as **read-only**
+  records associated to the person, so the CSO can see/click individual ones inside Attio.
+  Requires Attio Pro + the live pop test (§0).
 - Verco remains the single source of truth. The CSO acts in Verco (via deep-link), never
   writes resident data back from Attio (this phase).
 - Smallest thing that handles a real Kwinana call. Learn from live usage, then widen.
@@ -45,8 +79,10 @@ their collection area — with a one-click link into live Verco to act.
   event queue this phase.
 - **The generic webhook foundation** from the HubSpot spec — deliberately deferred until a
   second consumer (WMRC HubSpot) is a confirmed co-build (see §6 Approach B).
-- **Allo configuration** — the Allo↔Attio caller-ID link is Allo-side config, not Verco
-  code. We build Verco → Attio only.
+- **Allo configuration** — the Allo↔Attio caller-ID link is Allo-side config (confirmed
+  native, withallo.com), not Verco code. We build Verco → Attio only.
+- **Custom objects + Pro tier (Phase 1)** — `verco_booking`/`verco_ticket` and the Attio Pro
+  upgrade are deferred to Phase 1.5, gated on the live pop test (§0). Phase 1 ships on Plus.
 
 ## 4. Chosen Approach — Batch cron watermark sync (Approach A)
 
@@ -57,14 +93,17 @@ A single `sync-to-attio` Edge Function, invoked by pg_cron every ~3 minutes:
    service_tickets changed since the cursor, `WHERE (updated_at, id) > (last_synced_at,
    last_synced_id)` ordered by `(updated_at, id)`. The compound cursor avoids skipping rows
    that share an `updated_at` (see §6.5).
-3. Upsert each into Attio via the REST API (idempotent assert), keyed on the unique Attio
-   attributes `verco_contact_id` / `verco_booking_id` / `verco_ticket_id`. **Write the
-   returned Attio record id + web URL back** into `contacts.attio_person_id` /
-   `attio_person_web_url`, `service_ticket.attio_record_id`, `booking.attio_record_id`
-   (these reverse-link columns already exist on contacts + service_ticket; `booking` gains
-   one in this migration — see §6.1).
+3. **Phase 1:** upsert each affected **person** into Attio via the REST API (idempotent
+   assert), keyed on the unique Attio attribute `verco_contact_id` (= `contacts.id`).
+   **Conditionally** write the returned Attio record id + web URL back into
+   `contacts.attio_person_id` / `attio_person_web_url` (column already exists; conditional to
+   avoid the loop — §6.2). Bookings/tickets are read for the summary but **not written to
+   Attio** in Phase 1. (Phase 1.5 adds `verco_booking`/`verco_ticket` object upserts keyed on
+   `verco_booking_id`/`verco_ticket_id`, writing back to `service_ticket.attio_record_id` +
+   `booking.attio_record_id`.)
 4. Recompute and push `verco_context_summary` for every person whose contact/booking/ticket
-   was touched this run (the affected-person set — see §7).
+   changed this run (the affected-person set — see §7). A booking/ticket change drives a
+   **person** update (summary), not a separate-object write, in Phase 1.
 5. Advance the cursor to the `(updated_at, id)` of the last successfully-upserted row —
    **only after** its Attio write succeeds. A mid-batch failure leaves the cursor at the
    last good row; the next run resumes there. Idempotent upsert makes re-processing the
@@ -134,7 +173,7 @@ Attio record id → `attio_person_id`, its web URL → `attio_person_web_url`, a
 *match key for the upsert*; `attio_person_id` is the *local cache of the Attio id* (enables
 reverse deep-linking and the future two-way path without a lookup).
 
-### 5.2 New custom object `verco_booking`
+### 5.2 New custom object `verco_booking` — PHASE 1.5 (gated: Pro + live pop test, §0)
 
 `booking` has no date/price/address columns of its own — these come from joins. Verified
 sourcing (against `types.ts`):
@@ -154,7 +193,7 @@ sourcing (against `types.ts`):
 **Reverse-link:** add `booking.attio_record_id text` in this migration (`booking` lacks one;
 contacts + service_ticket already have theirs). Write the Attio booking record id back to it.
 
-### 5.3 New custom object `verco_ticket`
+### 5.3 New custom object `verco_ticket` — PHASE 1.5 (gated: Pro + live pop test, §0)
 
 | Attribute | Source |
 |---|---|
@@ -172,12 +211,19 @@ record id back to it after upsert.
 spec) — minimises PII surface, and it's D&M's own CRM so internal staff routing stays in
 Verco/DM-Ops.
 
-### 5.4 Attio plan check
+### 5.4 Attio plan tiers (confirmed via /research, 2026-05-29)
 
-Custom objects require a paid Attio tier. **Confirm D&M's Attio plan supports custom
-objects before building** (open question §11). If not available, `verco_booking` /
-`verco_ticket` degrade to a structured block inside `verco_context_summary` + deep-links
-(contacts-only fallback) until upgraded.
+| Feature | Min tier | Price (annual) |
+|---|---|---|
+| People + custom **attributes** + REST API + assert/upsert | **Free / Plus** | $0 / $29 seat/mo |
+| **Custom objects** (`verco_booking`/`verco_ticket`) | **Pro** | $69 seat/mo |
+| Native Call Intelligence (not needed — Allo handles call logging) | Pro | — |
+
+**Phase 1 runs on Plus** ($29/seat) — People + custom attributes is all it needs. **Pro is a
+Phase 1.5 decision**, taken only if the live pop test (§0) shows Clarissa needs the
+booking/ticket records *inside* Attio rather than via the live-Verco deep-link. API rate
+limits (plan-independent): 100 read/s, 25 write/s, HTTP 429 + `Retry-After` — our 429
+handling (§6.2) is correct.
 
 ## 6. Verco-Side Changes
 
@@ -198,12 +244,15 @@ CREATE TABLE attio_sync_state (
   an `updated_at` are never skipped (see §6.5).
 - RLS: `contractor-admin` SELECT only (observability). Writes happen via service role in the
   EF. No client/resident/field/ranger access.
-- Also add `booking.attio_record_id text` in this migration (the one reverse-link column
-  missing from the schema; contacts + service_ticket already have theirs).
+- `booking.attio_record_id text` is a **Phase 1.5** addition (only needed once `verco_booking`
+  objects are written back). Phase 1 doesn't write bookings to Attio, so it's not in the
+  first migration. (`contacts.attio_person_id` + `service_ticket.attio_record_id` already
+  exist; Phase 1 only uses `contacts.attio_person_id`.)
 - **Keyset indexes (eng-review Issue 5):** add `CREATE INDEX ... ON {contacts,booking,
-  service_ticket} (updated_at, id)`. The cursor query orders by `(updated_at, id)`; without
-  these it seq-scans + sorts each table every tick. (`idx_booking_contact` already covers the
-  scope EXISTS.)
+  service_ticket} (updated_at, id)`. The cursor reads all three (bookings/tickets drive the
+  person-summary recompute even in Phase 1), ordered by `(updated_at, id)`; without these it
+  seq-scans + sorts each table every tick. (`idx_booking_contact` already covers the scope
+  EXISTS.)
 
 ### 6.2 New Edge Function `sync-to-attio`
 
@@ -219,8 +268,8 @@ CREATE TABLE attio_sync_state (
   acquired, another run is in flight → log + return 200 no-op. Prevents two overlapping
   backfill runs from racing the single cursor row and skipping rows.
 - **Conditional writeback (eng-review Issue 1 — CRITICAL):** write
-  `attio_person_id`/`attio_person_web_url`/`last_synced_by` (and `booking`/`ticket`
-  `attio_record_id`) **only `WHERE attio_person_id IS DISTINCT FROM $new`**. The
+  `attio_person_id`/`attio_person_web_url`/`last_synced_by` (Phase 1; `booking`/`ticket`
+  `attio_record_id` in Phase 1.5) **only `WHERE attio_person_id IS DISTINCT FROM $new`**. The
   `handle_updated_at` trigger (`initial_schema.sql:85`) bumps `updated_at` on EVERY update —
   an unconditional writeback would re-bump `updated_at`, the cursor would re-select the row
   next tick, and it would re-sync forever. Conditional writeback converges after one cycle
@@ -328,28 +377,37 @@ pre-identified, not all. Measure the match rate after go-live (§10).
 
 ## 11. Open Questions
 
-1. **(BUILD-BLOCKER, premise P1) Allo↔Attio mechanics** — confirm with the Allo vendor that
-   Allo natively does caller-ID lookup against Attio, AND what the screen-pop renders: does
-   it show custom attributes (`verco_context_summary`) and associated records, or only
-   name + phone? If the pop only shows name, the rich booking/ticket objects are reachable
-   only by click-through into Attio — which changes how we prioritise §5.2/§5.3.
-2. **Attio plan tier** — does D&M's Attio plan allow custom objects (`verco_booking`,
-   `verco_ticket`)? If not, fall back to contacts-only + summary until upgraded (§5.4).
-3. **WMRC call volume** — Dan to check with Clarissa how many WMRC/VV calls come in. Decides
+1. **Allo↔Attio mechanics — RESOLVED (✅ /research 2026-05-29).** Allo = withallo.com, native
+   Attio integration, screen-pop matches on **phone number**, shows standard fields + Attio
+   **list** membership. Whether custom *attributes* render in the pop is **undocumented** →
+   folded into the live pop test (#1a below), not a blocker.
+   - **1a. Live pop test (Phase 1→1.5 gate):** trial Allo Business + connect Plus Attio →
+     watch one real inbound pop. Resolves: (i) does `verco_context_summary` render in the pop
+     (else add lists), (ii) does Clarissa need booking/ticket records inside Attio (else
+     deep-link suffices, stay on Plus).
+2. **Unique custom attribute on the standard People object — #1 BUILD-TIME VERIFY.** Our
+   upsert match key is `verco_contact_id` as a *unique custom attribute on People*. Research
+   confirmed unique-attribute matching for custom objects + Deals/Users/Workspaces, but it's
+   **undocumented for People**. If People can't take a unique custom attribute, fall back to
+   matching on `email_address` (fails for residents without unique email) — so verify first.
+   Testable now in the live workspace (create one unique attr on People, then archive).
+3. **Attio plan tier — RESOLVED (✅).** Phase 1 = Plus ($29/seat). Custom objects = Pro
+   ($69/seat), Phase 1.5 only. See §5.4.
+4. **WMRC call volume** — Dan to check with Clarissa how many WMRC/VV calls come in. Decides
    whether VV contacts join the Attio feed after Kwinana proves out.
-4. **Upsert semantics** — confirm Attio's assert/upsert endpoint matches on a unique custom
-   attribute (`verco_contact_id`) as expected.
-5. **Cancelled/closed propagation** — bookings/tickets don't hard-delete; a status change
+5. **E.164 format** — Allo's match-field format is undocumented. Test AU mobile `+61412…`
+   (E.164, what we store) vs `0412…` (local) during build to confirm the match resolves.
+6. **Cancelled/closed propagation** — bookings/tickets don't hard-delete; a status change
    (e.g. Cancelled) must update the existing Attio record's `status`, not orphan it. The
    `updated_at` watermark already covers this since status changes bump `updated_at`.
-6. **Scope-exit (reassignment) de-sync — KNOWN LIMITATION this phase.** The scope filter is
+7. **Scope-exit (reassignment) de-sync — KNOWN LIMITATION this phase.** The scope filter is
    inclusion-only. A contact/booking whose Kwinana association is later removed (booking
    reassigned to another client) stays in Attio as a stale record — the cursor sees the
    `updated_at` bump but there is no "demote/remove from Attio" path. For the wedge this is
    acceptable (reassignment across councils is rare). Roadmap: a periodic reconciliation
    sweep that diffs Attio's `service_area=KWN` people against the current Kwinana contact set
    and removes/flags the orphans. Decide before widening scope.
-7. **`verco_url` host** hard-coded to `https://verco.au` (prod). No UAT-Attio story yet
+8. **`verco_url` host** hard-coded to `https://verco.au` (prod). No UAT-Attio story yet
    (matches HubSpot spec) — add a `base_url` config only if a test Attio workspace appears.
 
 ## 12. Distribution / Deployment
@@ -480,10 +538,14 @@ Synthesised from this review. P1 blocks ship; P2 same branch; P3 follow-up.
   - Surfaced by: Performance Issue 5 + schema (§6.1)
   - Files: `supabase/migrations/<ts>_attio_sync.sql`
   - Verify: `pnpm supabase db push`; RLS test for attio_sync_state
-- [ ] **T6 (P2, human: ~20min / CC: ~5min)** — Attio workspace — custom attributes + verco_booking/verco_ticket objects
-  - Surfaced by: §5 (one-time setup, gated on Attio plan tier confirmation §11.2)
-  - Files: Attio UI / setup script (external)
+- [ ] **T6 (P2, human: ~20min / CC: ~5min)** — Attio workspace — People custom attributes (Phase 1, Plus tier)
+  - Surfaced by: §5.1 — verco_contact_id (unique), verco_context_summary, verco_url, service_area
+  - Files: Attio UI / setup script (external); verify unique-attr-on-People first (§11.2)
   - Verify: manual go-live smoke (§15 step 5)
+- [ ] **T7 (P3, gated) ** — live pop test → then Phase 1.5 (Pro + verco_booking/verco_ticket objects, or Attio lists for glance)
+  - Surfaced by: §0 phasing + §11.1a — resolve pop rendering before building objects/lists
+  - Files: Attio (Pro) / EF object-upsert path (Phase 1.5)
+  - Verify: real inbound pop shows the intended glance; records reachable as intended
 
 ## 13. Roadmap (NOT this phase)
 
@@ -499,27 +561,34 @@ Synthesised from this review. P1 blocks ship; P2 same branch; P3 follow-up.
 
 ## 14. The Assignment
 
-**Before any build: confirm with the Allo vendor (a) that Allo natively does caller-ID
-lookup against Attio, and (b) exactly what the screen-pop displays** — name only, or custom
-attributes + associated records. This single answer (open question #1) gates the whole
-design and determines whether the rich `verco_booking`/`verco_ticket` objects earn their
-build now or can wait. In parallel, ask Clarissa for the WMRC call count (#3).
+Allo↔Attio is confirmed (✅ /research). The two things to lock before / during build:
+1. **Verify a unique custom attribute can be set on the standard People object** (§11.2) —
+   it's our upsert match key. Testable in the live workspace in minutes.
+2. **Schedule the live pop test** (§11.1a) — trial Allo Business + connect the Plus Attio
+   workspace, watch one real pop. This resolves the glance mechanism (attribute vs lists) and
+   whether Pro/custom-objects earn their build. Phase 1 doesn't wait on it.
 
-## 15. Build Sequence (once P1 confirmed)
+In parallel, ask Clarissa for the WMRC call count (§11.4).
 
-1. Attio: create People custom attributes + `verco_booking` + `verco_ticket` objects (§5).
-2. Verco migration: `attio_sync_state` (compound cursor) + RLS + `booking.attio_record_id` +
-   pg_cron (`*/3`, idempotent unschedule guard).
-3. `sync-to-attio` EF: cursor read → Kwinana-scoped ≤N-row queries → idempotent Attio upserts
-   → reverse-link writeback → affected-person summary recompute → cursor advance →
-   500-on-failure/429.
-4. Set EF secrets (`ATTIO_API_KEY`, `ATTIO_KWN_CLIENT_ID`).
-5. Smoke: change one Kwinana booking; observe person + booking record in Attio within 3 min;
-   verify deep-link opens live Verco; verify `attio_person_id` written back on the contact.
-6. Backfill: set the cursor to epoch; the */3 cron drains all existing Kwinana history in
-   self-limited batches (no one-shot run). Watch `attio_sync_state.rows_synced` climb to a
-   steady state; watch for 429s.
-7. Shadow week: data flows; Clarissa validates against real calls; measure match rate.
+## 15. Build Sequence — Phase 1 (Plus tier, no caveat dependency)
+
+1. **Verify** unique custom attribute on People (§11.2). Then Attio: create the four People
+   custom attributes (§5.1). No custom objects in Phase 1.
+2. Verco migration: `attio_sync_state` (compound cursor) + RLS + keyset `(updated_at, id)`
+   indexes + pg_cron (`*/3`, idempotent unschedule guard). No `booking.attio_record_id` yet.
+3. `src/lib/attio/` pure module (mappers + `computeContextSummary` + cursor compare) with
+   Vitest 100%; EF mirror.
+4. `sync-to-attio` EF: advisory lock → cursor read → Kwinana-scoped ≤N-row queries (contacts
+   + bookings + tickets, for the summary) → idempotent **People** upsert → conditional
+   `attio_person_id` writeback → affected-person summary recompute → cursor advance →
+   500-on-failure/429. Mocked integration tests.
+5. Set EF secrets (`ATTIO_API_KEY`, `ATTIO_KWN_CLIENT_ID`).
+6. Smoke: change one Kwinana booking; within 3 min the **person**'s `verco_context_summary`
+   updates in Attio; deep-link opens live Verco; `attio_person_id` written back once (no loop).
+7. Backfill: cursor to epoch; the */3 cron drains Kwinana history in self-limited batches
+   (no one-shot run). Watch `rows_synced` climb; watch for 429s.
+8. Shadow week + **live pop test** (§11.1a): Clarissa validates against real calls; measure
+   match rate; decide Phase 1.5 (lists and/or Pro + objects).
 
 ## 16. What I noticed about how you think
 
@@ -547,4 +616,12 @@ build now or can wait. In parallel, ask Clarissa for the WMRC call count (#3).
 | DX Review | `/plan-devex-review` | Developer experience gaps | 0 | — | — |
 
 - **UNRESOLVED:** 0
-- **VERDICT:** ENG CLEARED — plan ready to implement once the two external build-gates (§11.1 Allo↔Attio mechanics, §11.2 Attio plan tier) are confirmed. No design/CEO review needed (backend sync, no UI, scope already set in office-hours).
+- **RESEARCH (2026-05-29):** Allo = withallo.com (native Attio, ✅ build-gate 1 resolved);
+  Attio Plus sufficient for Phase 1, Pro only for Phase 1.5 custom objects (✅ build-gate 2
+  resolved). Screen-pop renders standard fields + lists (custom-attr rendering unverified) →
+  design re-phased (§0): caveat-independent core ships now on Plus; objects + glance gated on
+  a live pop test.
+- **VERDICT:** ENG CLEARED — **Phase 1 ready to implement now** (Plus tier, People + custom
+  attributes + summary + deep-link, all eng-review fixes). Verify unique-attr-on-People
+  (§11.2) at build start. Phase 1.5 (Pro objects / Attio-list glance) gated on the live pop
+  test (§11.1a). No design/CEO review needed (backend sync, no UI, scope set in office-hours).
