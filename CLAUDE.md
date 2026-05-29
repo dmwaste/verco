@@ -377,6 +377,8 @@ These are absolute. If a task requires crossing one, stop and flag it.
 
 ### PostgREST embedded-select gotchas — multi-FK embeds (`select('parent, related(child)')`) silently return empty inner for authed users once `related` accumulates FKs (service-role works). Fix: split queries + stitch, or `related!fk_name(col)`. `.or()` can't filter parents by columns on a nullable LEFT-joined table — pre-fetch ids + `.in(...)` inside the `.or()`. Canonical patterns in `admin/bookings/bookings-list-client.tsx`.
 
+### `.or()` values containing a comma must be double-quoted — a bare comma in any `.or('col.op.value,...')` value is read by PostgREST as the separator BETWEEN conditions → `PGRST100 "failed to parse logic tree"` (HTTP 400), which the Supabase client swallows into `data: null`. Address strings (`"<street>, <suburb>"`) always hit this. Quote each value: `col.ilike."val, with comma"` (escape inner `"`/`\`). Helper: `buildEligibleOrFilter` in `lib/booking/address-match-key.ts`. Bit the public booking eligibility lookup (PR #113); also latent in admin free-text search boxes (`%${search}%`) if a user types a comma.
+
 ### Notification idempotency keys on `(booking_id, type, channel)`, not `(booking_id, type)` — email + SMS must succeed independently. Dispatcher's `isAlreadySent` takes a channel arg; new channels (push, voice) follow the same rule.
 
 ### `useState(searchParams.get(...))` doesn't sync on same-path soft navigation — `router.push` to the same path doesn't remount, so init runs only once. Fix: `useEffect(() => setX(searchParams.get('x') ?? ''), [searchParams])`. Pattern in `admin/bookings/bookings-list-client.tsx`.
