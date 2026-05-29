@@ -92,7 +92,7 @@ records never overlap the Airtable era).
 | Verco (Supabase) | → HubSpot | Mapping | Deeplink (`verco.au`) |
 |---|---|---|---|
 | `contacts` | Contact `0-1` | firstname, lastname, email, phone ← `mobile_e164`; `verco_contact_id` (property, NOT key), `verco_url`. **Upsert key = email** (HubSpot-native; bridges the 17k Make-era contacts — eng-review Issue 2) | **dropped (TD1)** — no `/admin/contacts` page exists; the Order/Ticket deeplinks carry the value |
-| `booking` | Order `0-123` | `hs_order_name` ← `ref`; `hs_external_order_status` ← mapped `booking_status` (**all 10**, incl. `Submitted`, `Missed Collection`); **`hs_external_order_url`** ← Verco deeplink; `collection_date` ← MIN(`collection_date.date`) via `booking_item` as a **date-only `YYYY-MM-DD` string** (AWST; account is US/Eastern — never a timestamp, avoids off-by-one); `address` ← `eligible_properties.formatted_address ?? address` via `property_id`; amount **omitted (TD2)** — never write AUD into the native USD `amount` (§9.4); **`verco_booking_id`** (=`booking.id`, upsert key) | `/admin/bookings/{id}` |
+| `booking` | Order `0-123` | `hs_order_name` ← `ref`; `hs_external_order_status` ← mapped `booking_status` (**all 10**, incl. `Submitted`, `Missed Collection`); **`hs_external_order_url`** ← Verco deeplink; `collection_date` ← MIN(`collection_date.date`) via `booking_item` as a **date-only `YYYY-MM-DD` string** (AWST; account is US/Eastern — never a timestamp, avoids off-by-one); `address` ← `eligible_properties.formatted_address ?? address` via `property_id`; amount **omitted (TD2)** — never write AUD into the native USD `amount` (§9.4); **upsert key = native `hs_external_order_id`** = `booking.id` (VER-235 — no custom Order property needed; `verco_url` optional) | `/admin/bookings/{id}` |
 | `service_ticket` | Ticket `0-5` | subject ← `subject`; content ← **`message`**; `query_type` ← **`category`** (`ticket_category` enum); `phone_number` ← joined **`contacts.mobile_e164`** (no phone on the ticket); `time_to_close` ← computed **`closed_at − created_at`** (null while open); `hs_pipeline_stage` ← mapped `ticket_status` (see below); **`verco_ticket_id`** (=`service_ticket.id`, upsert key), `verco_url`; `booking_ref` ← Verco booking `ref` when `booking_id` set | `/admin/service-tickets/{id}` |
 
 Associations: Order→Contact, Ticket→Contact, Ticket→Order (when `booking_id` set). **Ordering matters** — see §3 (parent before child).
@@ -129,11 +129,13 @@ New clients still auto-include with no code change once added to the allowlist.
 
 ## 6. Upsert & dedupe — simpler than Attio
 
-HubSpot supports **upsert by `idProperty`** (a custom unique property) on the batch upsert API.
-So `verco_contact_id` / `verco_booking_id` / `verco_ticket_id` are the dedupe keys directly —
+HubSpot supports **upsert by `idProperty`** on the batch upsert API. Dedupe keys (refined by VER-235):
+**Contact = `email`** (native), **Order = `hs_external_order_id`** (native external-id field = `booking.id`;
+no custom property), **Ticket = `verco_ticket_id`** (custom unique — no native external-id on tickets).
 **HubSpot owns the match; we never store HubSpot's record id back in Verco.** That means the
 Attio infinite-re-sync-loop (Issue 1 from the Attio eng-review, caused by the `updated_at`
 writeback) **does not exist here**. No reverse-link columns, no conditional writeback. Cleaner.
+⚠️ idProperty on a *custom unique* property (the Ticket path) is unverified on STANDARD tier → §9.1 gate.
 
 ## 7. Transport details (carried from the Attio eng-review)
 
@@ -160,23 +162,40 @@ writeback) **does not exist here**. No reverse-link columns, no conditional writ
 
 ## 8. HubSpot-side configuration (I can start now — connected)
 
-Create custom properties (mark the id ones **unique** for `idProperty` upsert):
-- Contact: `verco_contact_id` (unique), `verco_url`
-- Order: `verco_booking_id` (unique), `verco_url` *(or reuse `hs_external_order_url`)*
-- Ticket: `verco_ticket_id` (unique), `verco_url`
-- **Verify the property-creation path** — the connected HubSpot MCP exposes record + read
-  tools; creating *property definitions* (and marking unique) may be UI/admin or need a
-  different API. Confirm before relying on programmatic creation.
+**Property-creation path — RESOLVED (VER-235, 2026-05-29):** the connected HubSpot MCP is
+**read-only for property *definitions*** (`get_properties`/`search_properties` read; `manage_crm_objects`
+only writes *records* + associations, update-by-`objectId`, **no `idProperty` param**). So properties
+are created in the **HubSpot UI/admin**, and the idProperty batch-upsert is a **direct REST call**
+the EF makes (not the MCP).
+
+**Live property findings (VER-235 read-only pass):**
+- **Order** has native **`hs_external_order_id`** ("unique id in an external system") — currently **empty**
+  on the 20,835 Make-fed Orders (Make keys on `hs_order_name`). **Use it as the Order idProperty
+  (`hs_external_order_id` = `booking.id`) — no custom Order property needed.** `hs_order_name`←`ref`,
+  `hs_external_order_url`←Verco deeplink (currently Airtable links), `hs_external_order_status`←status. ✅ all native.
+- **Ticket** has `booking_ref` (custom, already exists, empty) for the Ticket→Order link, but **no native
+  external-id field** → needs a custom unique **`verco_ticket_id`**.
+- **Contact** dedupes by **email** (native) → `verco_contact_id` is a NON-unique reference prop (not a key).
+
+Properties to create in the UI (minimised):
+- Ticket: **`verco_ticket_id` (unique)** + `verco_url`
+- Order: `verco_url` *(or reuse `hs_external_order_url`)* — **no custom unique key needed** (native `hs_external_order_id`)
+- Contact: `verco_contact_id` (NOT unique), `verco_url`. *(Contact deeplink dropped — TD1.)*
 
 ## 9. Open items / build-time verifies
 
-1. **TASK-ZERO build-gate (blocks EF code):** create `verco_booking_id`/`verco_ticket_id` unique
-   custom properties on the STANDARD-tier account and confirm batch **`idProperty` upsert** actually
-   dedupes (the whole loop-free model depends on it; `verco_*` props don't exist yet, so it's 100%
-   unverified — Make's success may use native email/object-id dedup, not custom-unique-property, so
-   don't assume it transfers). Also confirm property-creation path (MCP vs HubSpot UI) — §8.
-2. **Ticket status map** finalised against the live Support Pipeline stage IDs (source enum is the
-   real `ticket_status`, §4 — not NCN/NP states).
+1. **TASK-ZERO build-gate (blocks EF code) — partially executed (VER-235, 2026-05-29):**
+   - ✅ Property-creation path = **UI-only** (MCP read-only for defs — §8). MCP also can't run idProperty
+     upsert (no `idProperty` param) → the live test is a **direct REST call** (`POST /crm/v3/objects/{type}/batch/upsert`) with `HUBSPOT_ACCESS_TOKEN`.
+   - ✅ `verco_*` props absent; Order native `hs_external_order_id` is free → **Orders need no custom key**.
+   - ⏳ **Still to prove (needs a token + the one UI prop):** that batch `idProperty` upsert dedupes on STANDARD
+     tier for (i) Orders on native **`hs_external_order_id`** and (ii) Tickets on custom unique **`verco_ticket_id`**.
+     The custom-unique-property-as-idProperty path (Tickets) is the real STANDARD-tier unknown — Make keys Orders
+     on `hs_order_name`, so its success does NOT prove custom-unique idProperty works.
+2. **Ticket status map — CONFIRMED live (VER-235):** Support Pipeline = `hs_pipeline` **"0"**; stages
+   `hs_pipeline_stage` = **1** New / **2** Waiting on contact / **3** Waiting on us / **4** Closed. Map:
+   `open`→1, `waiting_on_customer`→2, `in_progress`→3, `resolved`/`closed`→4; unmapped→default. (Source enum
+   is the real `ticket_status`, §4 — not NCN/NP states.)
 3. **D&M contractor id** in Verco (scope filter) — query Verco. Plus the initial **client allowlist** (§5).
 4. **Currency — DECIDED (TD2 = omit):** account is USD-only (no AUD currency, verified). Do **not**
    write AUD into the native USD `amount` (silent ~1.5× corruption in any HubSpot revenue report).
