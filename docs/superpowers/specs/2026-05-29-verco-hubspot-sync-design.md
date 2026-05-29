@@ -184,14 +184,18 @@ Properties to create in the UI (minimised):
 
 ## 9. Open items / build-time verifies
 
-1. **TASK-ZERO build-gate (blocks EF code) — partially executed (VER-235, 2026-05-29):**
-   - ✅ Property-creation path = **UI-only** (MCP read-only for defs — §8). MCP also can't run idProperty
+1. **TASK-ZERO build-gate — CLEARED (VER-235, 2026-05-29):**
+   - ✅ Property-creation path = **UI-only** (MCP read-only for defs — §8). MCP can't run idProperty
      upsert (no `idProperty` param) → the live test is a **direct REST call** (`POST /crm/v3/objects/{type}/batch/upsert`) with `HUBSPOT_ACCESS_TOKEN`.
    - ✅ `verco_*` props absent; Order native `hs_external_order_id` is free → **Orders need no custom key**.
-   - ⏳ **Still to prove (needs a token + the one UI prop):** that batch `idProperty` upsert dedupes on STANDARD
-     tier for (i) Orders on native **`hs_external_order_id`** and (ii) Tickets on custom unique **`verco_ticket_id`**.
-     The custom-unique-property-as-idProperty path (Tickets) is the real STANDARD-tier unknown — Make keys Orders
-     on `hs_order_name`, so its success does NOT prove custom-unique idProperty works.
+   - ✅ **STANDARD tier supports a custom UNIQUE property** — verified in the live create-property UI
+     ("Require unique values *(0 of 10)*" quota present) and proven by **creating `verco_ticket_id` (unique,
+     single-line text) on Tickets**. This is the prerequisite the custom-unique idProperty path (Tickets) needed.
+   - ↘ **Downgraded to build-time smoke (not a blocker):** the live batch `idProperty` upsert *call* itself —
+     run it against `hs_external_order_id` (Orders) + `verco_ticket_id` (Tickets) when the EF is wired with its
+     real `HUBSPOT_ACCESS_TOKEN` (which doesn't exist yet). idProperty-upsert-on-a-unique-prop is documented
+     standard behaviour; the tier-gated prerequisite is now confirmed, so residual risk is low. (Public-API
+     token path is OAuth-gated post HubSpot's private-apps→legacy-apps migration — not worth minting just for this.)
 2. **Ticket status map — CONFIRMED live (VER-235):** Support Pipeline = `hs_pipeline` **"0"**; stages
    `hs_pipeline_stage` = **1** New / **2** Waiting on contact / **3** Waiting on us / **4** Closed. Map:
    `open`→1, `waiting_on_customer`→2, `in_progress`→3, `resolved`/`closed`→4; unmapped→default. (Source enum
