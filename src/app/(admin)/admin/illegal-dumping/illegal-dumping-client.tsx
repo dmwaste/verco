@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { useQuery } from '@tanstack/react-query'
 import { format } from 'date-fns'
 import { createClient } from '@/lib/supabase/client'
+import { buildSearchOrFilter } from '@/lib/search/or-filter'
 import { SkeletonRow } from '@/components/ui/skeleton'
 import { getStatusStyle } from '@/lib/ui/status-styles'
 
@@ -102,7 +103,9 @@ export function IllegalDumpingClient({ clientId }: IllegalDumpingClientProps) {
         query = query.eq('collection_area_id', areaFilter)
       }
       if (debouncedSearch) {
-        query = query.or(`ref.ilike.%${debouncedSearch}%,geo_address.ilike.%${debouncedSearch}%,notes.ilike.%${debouncedSearch}%`)
+        query = query.or(
+          buildSearchOrFilter(['ref', 'geo_address', 'notes'], debouncedSearch)
+        )
       }
       if (clientId) {
         query = query.eq('collection_area.client_id', clientId)

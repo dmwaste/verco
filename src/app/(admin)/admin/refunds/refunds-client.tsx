@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { format } from 'date-fns'
 import { createClient } from '@/lib/supabase/client'
+import { buildSearchOrFilter } from '@/lib/search/or-filter'
 import { getStatusStyle } from '@/lib/ui/status-styles'
 import Link from 'next/link'
 import { SkeletonRow } from '@/components/ui/skeleton'
@@ -41,7 +42,7 @@ export function RefundsClient() {
 
       if (statusFilter) query = query.eq('status', statusFilter)
       if (search) {
-        query = query.or(`reason.ilike.%${search}%`)
+        query = query.or(buildSearchOrFilter(['reason'], search))
       }
 
       const { data, count } = await query
