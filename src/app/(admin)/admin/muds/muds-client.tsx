@@ -4,6 +4,7 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import Link from 'next/link'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
+import { buildSearchOrFilter } from '@/lib/search/or-filter'
 import { SkeletonRow } from '@/components/ui/skeleton'
 
 const PAGE_SIZE = 50
@@ -117,7 +118,10 @@ export function MudsClient({ clientId, isContractorAdmin }: MudsClientProps) {
 
       if (debouncedSearch) {
         query = query.or(
-          `address.ilike.%${debouncedSearch}%,formatted_address.ilike.%${debouncedSearch}%,mud_code.ilike.%${debouncedSearch}%`
+          buildSearchOrFilter(
+            ['address', 'formatted_address', 'mud_code'],
+            debouncedSearch
+          )
         )
       }
       if (areaFilter) {

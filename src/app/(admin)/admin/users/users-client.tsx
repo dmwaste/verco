@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { formatDistanceToNow } from 'date-fns'
 import { createClient } from '@/lib/supabase/client'
+import { buildSearchOrFilter } from '@/lib/search/or-filter'
 import { SkeletonRow } from '@/components/ui/skeleton'
 import { UserFormDialog } from './user-form-dialog'
 import type { EditUserData } from './user-form-dialog'
@@ -101,7 +102,13 @@ export function UsersClient() {
       if (activeFilter === 'active') query = query.eq('is_active', true)
       if (activeFilter === 'inactive') query = query.eq('is_active', false)
       if (debouncedSearch) {
-        query = query.or(`profiles.email.ilike.%${debouncedSearch}%,profiles.display_name.ilike.%${debouncedSearch}%`, { referencedTable: 'profiles' })
+        query = query.or(
+          buildSearchOrFilter(
+            ['profiles.email', 'profiles.display_name'],
+            debouncedSearch
+          ),
+          { referencedTable: 'profiles' }
+        )
       }
 
       const { data, count } = await query

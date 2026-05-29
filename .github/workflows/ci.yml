@@ -14,8 +14,13 @@ on:
   workflow_call:
 
 env:
-  NODE_VERSION: '20'
+  NODE_VERSION: '24'
   PNPM_VERSION: '9'
+  # Run JS-based actions (checkout, setup-node, pnpm, docker/*) on Node 24 now.
+  # GitHub forces this default on 2026-06-02 and Node 20 is removed 2026-09-16;
+  # this opt-in covers every action regardless of its pinned tag and
+  # self-obsoletes once Node 24 is the runner default.
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
 
 jobs:
   build:

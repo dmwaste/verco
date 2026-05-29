@@ -4,6 +4,7 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import Link from 'next/link'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
+import { buildSearchOrFilter } from '@/lib/search/or-filter'
 import { invokeEfWithUserToken } from '@/lib/supabase/invoke-ef-client'
 import { SkeletonRow } from '@/components/ui/skeleton'
 import { AllocationFormModal } from '@/app/(admin)/admin/allocations/allocation-form-modal'
@@ -110,7 +111,9 @@ export function PropertiesClient({ clientId, isContractorAdmin }: PropertiesClie
         .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1)
 
       if (debouncedSearch) {
-        query = query.or(`address.ilike.%${debouncedSearch}%,formatted_address.ilike.%${debouncedSearch}%`)
+        query = query.or(
+          buildSearchOrFilter(['address', 'formatted_address'], debouncedSearch)
+        )
       }
       if (areaFilter) {
         query = query.eq('collection_area_id', areaFilter)
