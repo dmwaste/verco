@@ -175,13 +175,16 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      # VER-243: the chromium download (167 MiB) + secondary ffmpeg/CDN fetch and
-      # the `--with-deps` apt step stalled the gate for 15+ min on the GitHub
-      # runner (reproduced on both 24.04 and 22.04 — not OS-specific). Cache the
-      # browser binaries keyed on the Playwright version so the download is skipped
-      # on a hit; drop `--with-deps` (runner images ship the browser system deps);
-      # bound the install with timeout-minutes so a stuck fetch fails fast instead
-      # of hanging the whole job.
+      # VER-243/244: the chromium download intermittently stalls on the GitHub
+      # runner (1m24s on 2026-05-28, then over 5 min on 05-30 at an identical
+      # Playwright version: a CDN/network blip, not a version or `--with-deps`
+      # issue). Cache the browser binaries keyed on the Playwright version so a warm
+      # run skips the download entirely; on a cold run, retry the install on a fresh
+      # connection so a single stalled fetch is abandoned and re-attempted rather
+      # than failing the gate. Install always runs (no cache-hit skip) because
+      # `playwright install` is idempotent: a real hit is a fast no-op and a partial
+      # cache is completed, which also self-heals a partial-download cache left by a
+      # prior timeout.
       - name: Resolve Playwright version
         id: playwright-version
         run: echo "version=$(pnpm exec playwright --version | cut -d' ' -f2)" >> "$GITHUB_OUTPUT"
@@ -191,12 +194,24 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ steps.playwright-version.outputs.version }}
+          key: playwright-${{ runner.os }}-${{ steps.playwright-version.outputs.version }}-v2
 
-      - name: Install Playwright browsers
-        if: steps.playwright-cache.outputs.cache-hit != 'true'
-        run: pnpm exec playwright install chromium
-        timeout-minutes: 5
+      - name: Install Playwright browsers (retry on stall)
+        timeout-minutes: 16
+        run: |
+          for attempt in 1 2 3; do
+            echo "::group::playwright install — attempt $attempt"
+            if timeout 300 pnpm exec playwright install chromium; then
+              echo "::endgroup::"
+              echo "chromium ready on attempt $attempt"
+              exit 0
+            fi
+            echo "::endgroup::"
+            echo "attempt $attempt stalled or failed; retrying on a fresh connection..."
+            sleep 5
+          done
+          echo "chromium install failed after 3 attempts" >&2
+          exit 1
 
       - run: pnpm test:e2e
         env:
