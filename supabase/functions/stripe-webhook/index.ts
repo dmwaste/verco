@@ -101,7 +101,7 @@ serve(async (req) => {
 
 // ── checkout.session.completed ───────────────────────────────────────────────
 // Updates booking_payment status to 'paid', stores payment_intent and charge_id,
-// transitions booking from 'Pending Payment' → 'Submitted'.
+// transitions booking from 'Pending Payment' → 'Confirmed' (auto-confirm, 2026-05-18).
 
 async function handleCheckoutCompleted(
   supabase: ReturnType<typeof createClient>,
@@ -184,7 +184,7 @@ async function handleCheckoutCompleted(
 
   // Fire booking_created notification on the paid path. Mirrors the
   // free-path call in create-booking/index.ts. Fire-and-forget — failure
-  // never reverts the Submitted transition.
+  // never reverts the Confirmed transition.
   void invokeSendNotification({
     type: 'booking_created',
     booking_id: payment.booking_id,

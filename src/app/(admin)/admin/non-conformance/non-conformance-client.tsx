@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { format } from 'date-fns'
 import { createClient } from '@/lib/supabase/client'
+import { buildSearchOrFilter } from '@/lib/search/or-filter'
 import { getStatusStyle } from '@/lib/ui/status-styles'
 import Link from 'next/link'
 import { SkeletonRow } from '@/components/ui/skeleton'
@@ -53,7 +54,7 @@ export function NonConformanceClient() {
       if (statusFilter) query = query.eq('status', statusFilter as never)
       if (reasonFilter) query = query.eq('reason', reasonFilter as NcnReason)
       if (search) {
-        query = query.or(`notes.ilike.%${search}%,reason.ilike.%${search}%`)
+        query = query.or(buildSearchOrFilter(['notes', 'reason'], search))
       }
 
       const { data, count } = await query

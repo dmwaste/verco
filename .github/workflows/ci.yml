@@ -14,8 +14,13 @@ on:
   workflow_call:
 
 env:
-  NODE_VERSION: '20'
+  NODE_VERSION: '24'
   PNPM_VERSION: '9'
+  # Run JS-based actions (checkout, setup-node, pnpm, docker/*) on Node 24 now.
+  # GitHub forces this default on 2026-06-02 and Node 20 is removed 2026-09-16;
+  # this opt-in covers every action regardless of its pinned tag and
+  # self-obsoletes once Node 24 is the runner default.
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
 
 jobs:
   build:
@@ -170,8 +175,28 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      # VER-243: the chromium download (167 MiB) + secondary ffmpeg/CDN fetch and
+      # the `--with-deps` apt step stalled the gate for 15+ min on the GitHub
+      # runner (reproduced on both 24.04 and 22.04 — not OS-specific). Cache the
+      # browser binaries keyed on the Playwright version so the download is skipped
+      # on a hit; drop `--with-deps` (runner images ship the browser system deps);
+      # bound the install with timeout-minutes so a stuck fetch fails fast instead
+      # of hanging the whole job.
+      - name: Resolve Playwright version
+        id: playwright-version
+        run: echo "version=$(pnpm exec playwright --version | cut -d' ' -f2)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.playwright-version.outputs.version }}
+
       - name: Install Playwright browsers
-        run: pnpm exec playwright install --with-deps chromium
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: pnpm exec playwright install chromium
+        timeout-minutes: 5
 
       - run: pnpm test:e2e
         env:

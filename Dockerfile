@@ -2,7 +2,7 @@
 #
 # Verco — production image
 # Multi-stage build: deps → builder → runner
-# Target: Coolify on BinaryLane (Node 20 Alpine)
+# Target: Coolify on BinaryLane (Node 24 Alpine)
 #
 # Build args (all required for `next build`):
 #   NEXT_PUBLIC_SUPABASE_URL
@@ -14,7 +14,7 @@
 # etc.) do NOT live in this image — they are scoped to Supabase Edge Functions.
 
 # ---------- deps ----------
-FROM node:20-alpine AS deps
+FROM node:24-alpine AS deps
 RUN apk add --no-cache libc6-compat
 WORKDIR /app
 
@@ -24,7 +24,7 @@ COPY package.json pnpm-lock.yaml ./
 RUN pnpm install --frozen-lockfile
 
 # ---------- builder ----------
-FROM node:20-alpine AS builder
+FROM node:24-alpine AS builder
 WORKDIR /app
 
 RUN corepack enable && corepack prepare pnpm@9 --activate
@@ -43,7 +43,7 @@ COPY . .
 RUN pnpm build
 
 # ---------- runner ----------
-FROM node:20-alpine AS runner
+FROM node:24-alpine AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production
