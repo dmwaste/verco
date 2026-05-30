@@ -18,6 +18,20 @@ describe('compareCursor — (updated_at, id)', () => {
   it('returns 0 for identical cursors', () => {
     expect(compareCursor({ updated_at: T1, id: 'a' }, { updated_at: T1, id: 'a' })).toBe(0)
   })
+
+  it('compares updated_at chronologically, not lexicographically (VER-239 §11c)', () => {
+    // '...00Z' text-sorts AFTER '...00.5Z' (Z=0x5A > .=0x2E) but is chronologically BEFORE it.
+    // A lexicographic compare here mis-orders and the cursor would silently skip a row.
+    const whole = { updated_at: '2026-05-01T00:00:00Z', id: 'a' }
+    const frac = { updated_at: '2026-05-01T00:00:00.500Z', id: 'a' }
+    expect(compareCursor(whole, frac)).toBeLessThan(0)
+    expect(compareCursor(frac, whole)).toBeGreaterThan(0)
+
+    // Same instant, different serialization (Z vs +00:00) → equal on updated_at, tiebreak on id.
+    const zulu = { updated_at: '2026-05-01T00:00:00.000Z', id: 'a' }
+    const offset = { updated_at: '2026-05-01T00:00:00.000+00:00', id: 'a' }
+    expect(compareCursor(zulu, offset)).toBe(0)
+  })
 })
 
 describe('isAfterCursor', () => {
