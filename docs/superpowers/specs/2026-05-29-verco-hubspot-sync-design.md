@@ -370,6 +370,46 @@ drift / Eng F4+F10) → the `sync_log` run-outcome row is now a must-have (obser
 `src/lib/pricing/calculate.ts` (pure-logic+Vitest pattern); DM-Ops `attio-sync-*` (cross-repo transport ref);
 `hs_external_order_url` (native deeplink field); Make already proves HubSpot upsert capability.
 
+## 11c. Focused Eng Review (2026-05-30) — pre-build, against the as-built foundation
+
+Run after the foundation shipped (`src/lib/hubspot/*` + the VER-238 migration on prod) and the
+HubSpot props were created (VER-235/236). Scope: eng-only (CEO/premise locked §11b; no UI; DX n/a).
+Reviewed the EF build plan against what actually got built.
+
+**As-built confirmed (no drift):** mappers match the corrected §4 (email-key contacts with null-email
+skip; `hs_external_order_id` orders; real ticket columns content←message / query_type←category /
+phone_number / time_to_close; omit-amount TD2; drop-contact-deeplink TD1; 10 booking statuses passthrough;
+ticket pipeline `0`, stages 1-4). VER-238 migration correct: keyset `(updated_at,id)` indexes present;
+`contact_id` indexes pre-exist (`idx_booking_contact`, `idx_service_ticket_contact`) → the contacts EXISTS
+predicate is covered; RLS contractor-read-only; deliberate no-audit deviation documented.
+
+**Findings:**
+1. **[P2] `cursor.ts` lexicographic timestamp compare → DECIDED (Dan): harden + SQL.** The EF does the
+   `(updated_at,id) > cursor` comparison **in SQL** (index-backed via `idx_*_keyset`, time-correct);
+   `compareCursor()` is hardened to numeric `Date.getTime()` compare (id tiebreak) so the shared helper
+   cannot mis-order under mixed fractional-second precision + a `Z`/`+00:00` suffix. A mis-ordered cursor
+   silently SKIPS a booking update (stale call-centre data) — skip is worse than re-send (idempotent).
+2. **[P2] EF-build requirement:** `mapTicketToHubspotTicket` reads `t.phone_number` + `t.booking_ref`,
+   which tickets do not have as columns — the EF ticket query MUST `JOIN contacts.mobile_e164` (phone) and
+   `booking.ref` (when `booking_id` set), else both silently vanish from the Ticket. Cover with a test.
+3. **[P3] info:** `verco_url` was created on Order (VER-236) but `mapBookingToOrder` writes the deeplink to
+   `hs_external_order_url` and never `verco_url` → a dangling property. Leave it or drop later; harmless.
+4. **Open §9 verifies remain the gating items (not new):** live `idProperty` upsert smoke (needs the real
+   `HUBSPOT_ACCESS_TOKEN`), the D&M contractor id + initial allowlist, date-only render. EF is **buildable
+   now**; **enabling** it stays gated on the first client live in Verco post-cutover (§9.6).
+5. **#1 build risk (confirmed, not new):** advisory-lock release on every path (prefer
+   `pg_advisory_xact_lock` / try-finally) + cursor advances ONLY for fully-synced rows incl. associations
+   (parent-not-synced → lag one tick). Top test focus.
+
+**Added test requirements (VER-239):** (a) cursor skips nothing under same-timestamp + mixed-precision
+rows; (b) ticket query joins phone + booking_ref; (c) advisory lock released on success / 429 / throw
+(2nd concurrent run no-ops); (d) a child whose parent isn't synced does NOT advance the child cursor;
+(e) bearer guard rejects a non-service-role caller.
+
+**Verdict: ENG CLEARED to build.** Spec + as-built foundation are consistent. One P2 helper-hardening
+(decided); the rest are EF-build requirements folded into VER-239/240. Build per §10, keep the EF disabled
+(empty allowlist) until the first client cuts over.
+
 ## 12. References
 
 - Superseded: `2026-05-28-wmrc-hubspot-integration-design.md`
@@ -383,7 +423,7 @@ drift / Eng F4+F10) → the `sync_log` run-outcome row is now a must-have (obser
 | Review | Trigger | Why | Runs | Status | Findings |
 |--------|---------|-----|------|--------|----------|
 | CEO Review | `/autoplan` (CEO phase) | Scope & strategy | 1 | REVIEWED | 9 findings; premise gate → "Confirm EF + harden"; structural allowlist + spike-first adopted |
-| Eng Review | `/plan-eng-review` then `/autoplan` (Eng phase) | Architecture & tests | 2 | CORRECTED | manual: 2 + build-gate; autoplan: 11 (2 CRIT schema, 3 HIGH) — all applied to §3–§10 |
+| Eng Review | `/plan-eng-review` ×2 + `/autoplan` (Eng phase) | Architecture & tests | 3 | CLEARED-TO-BUILD | manual: 2 + build-gate; autoplan: 11 (2 CRIT schema, 3 HIGH) all applied; **2026-05-30 focused pre-build review (§11c): as-built confirmed, 1 P2 cursor-hardening decided, build reqs folded into VER-239/240** |
 | Dual voices | `/autoplan` | Independent CEO+Eng subagents | 2 | `[subagent-only]` | Codex unavailable; both subagents inspected live HubSpot + types.ts |
 | Design Review | `/plan-design-review` | UI/UX gaps | 0 | — | n/a (backend sync, no UI) |
 | DX Review | `/plan-devex-review` | Developer experience gaps | 0 | skipped | n/a (internal sync; no external dev surface — keyword matches are infra) |
