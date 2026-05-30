@@ -1400,6 +1400,39 @@ export type Database = {
         }
         Relationships: []
       }
+      hubspot_sync_state: {
+        Row: {
+          created_at: string
+          cursor_id: string | null
+          cursor_updated_at: string | null
+          entity: string
+          last_error: string | null
+          last_rows_synced: number | null
+          last_run_at: string | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          cursor_id?: string | null
+          cursor_updated_at?: string | null
+          entity: string
+          last_error?: string | null
+          last_rows_synced?: number | null
+          last_run_at?: string | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          cursor_id?: string | null
+          cursor_updated_at?: string | null
+          entity?: string
+          last_error?: string | null
+          last_rows_synced?: number | null
+          last_run_at?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       non_conformance_notice: {
         Row: {
           booking_id: string
@@ -1596,6 +1629,9 @@ export type Database = {
           client_id: string
           contact_id: string | null
           created_at: string
+          delivery_detail: string | null
+          delivery_status: string | null
+          delivery_updated_at: string | null
           error_message: string | null
           id: string
           notification_type: string
@@ -1608,6 +1644,9 @@ export type Database = {
           client_id: string
           contact_id?: string | null
           created_at?: string
+          delivery_detail?: string | null
+          delivery_status?: string | null
+          delivery_updated_at?: string | null
           error_message?: string | null
           id?: string
           notification_type: string
@@ -1620,6 +1659,9 @@ export type Database = {
           client_id?: string
           contact_id?: string | null
           created_at?: string
+          delivery_detail?: string | null
+          delivery_status?: string | null
+          delivery_updated_at?: string | null
           error_message?: string | null
           id?: string
           notification_type?: string
