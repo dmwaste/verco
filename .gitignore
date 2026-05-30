@@ -54,3 +54,6 @@ next-env.d.ts
 # Claude Code worktrees — created on-demand when an agent spins an isolated
 # branch. They have their own .git and shouldn't be tracked by the parent.
 .claude/worktrees/
+
+# gstack per-repo state
+.gstack/
