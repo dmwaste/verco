@@ -159,6 +159,18 @@ jobs:
   e2e:
     name: E2E Tests
     runs-on: ubuntu-latest
+    # VER-244: the chromium download stalls intermittently on the bare runner
+    # (1m24s on 2026-05-28, then over 5 min and ultimately a hung fetch on 05-30 at
+    # an identical Playwright 1.58.2: a CDN/network problem, not our code, and
+    # retrying the download on a fresh connection did not clear it). Run inside the
+    # official Playwright image, which ships the browsers pre-installed at
+    # $PLAYWRIGHT_BROWSERS_PATH, so the gate never depends on a CDN fetch. The tag
+    # MUST track the @playwright/test version in package.json (1.58.2). The image
+    # Node satisfies engines (>=20.9.0), so no setup-node is needed. --user 1001 is
+    # the image pwuser: chromium keeps its sandbox and workspace file perms match.
+    container:
+      image: mcr.microsoft.com/playwright:v1.58.2-jammy
+      options: --user 1001
     if: github.event_name == 'pull_request' && github.base_ref == 'main'
     needs: [build]
     steps:
@@ -168,35 +180,7 @@ jobs:
         with:
           version: ${{ env.PNPM_VERSION }}
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: pnpm
-
       - run: pnpm install --frozen-lockfile
-
-      # VER-243: the chromium download (167 MiB) + secondary ffmpeg/CDN fetch and
-      # the `--with-deps` apt step stalled the gate for 15+ min on the GitHub
-      # runner (reproduced on both 24.04 and 22.04 — not OS-specific). Cache the
-      # browser binaries keyed on the Playwright version so the download is skipped
-      # on a hit; drop `--with-deps` (runner images ship the browser system deps);
-      # bound the install with timeout-minutes so a stuck fetch fails fast instead
-      # of hanging the whole job.
-      - name: Resolve Playwright version
-        id: playwright-version
-        run: echo "version=$(pnpm exec playwright --version | cut -d' ' -f2)" >> "$GITHUB_OUTPUT"
-
-      - name: Cache Playwright browsers
-        id: playwright-cache
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ steps.playwright-version.outputs.version }}
-
-      - name: Install Playwright browsers
-        if: steps.playwright-cache.outputs.cache-hit != 'true'
-        run: pnpm exec playwright install chromium
-        timeout-minutes: 5
 
       - run: pnpm test:e2e
         env:
