@@ -32,11 +32,11 @@ async function getClientBranding(): Promise<ClientBranding | null> {
   return data
 }
 
-async function getIsStaff(): Promise<boolean> {
+async function getAuthState(): Promise<{ isAuthenticated: boolean; isStaff: boolean }> {
   try {
     const supabase = await createClient()
     const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return false
+    if (!user) return { isAuthenticated: false, isStaff: false }
 
     const { data: userRole } = await supabase
       .from('user_roles')
@@ -44,9 +44,9 @@ async function getIsStaff(): Promise<boolean> {
       .eq('user_id', user.id)
       .single()
 
-    return STAFF_ROLES.some(r => r === userRole?.role)
+    return { isAuthenticated: true, isStaff: STAFF_ROLES.some(r => r === userRole?.role) }
   } catch {
-    return false
+    return { isAuthenticated: false, isStaff: false }
   }
 }
 
@@ -81,9 +81,9 @@ export default async function PublicLayout({
     )
   }
 
-  const [branding, isStaff] = await Promise.all([
+  const [branding, { isStaff, isAuthenticated }] = await Promise.all([
     getClientBranding(),
-    getIsStaff(),
+    getAuthState(),
   ])
   const rawPrimary = branding?.primary_colour ?? '#293F52'
   const rawAccent = branding?.accent_colour ?? '#00E47C'
@@ -108,12 +108,13 @@ export default async function PublicLayout({
         logoUrl={branding?.logo_light_url ?? null}
         showPoweredBy={branding?.show_powered_by ?? true}
         showAdminLink={isStaff}
+        showSignOut={isAuthenticated}
       />
       <div className="pb-16 tablet:pb-0">
         {children}
       </div>
       <MobileFab />
-      <MobileBottomNav showAdminLink={isStaff} />
+      <MobileBottomNav showAdminLink={isStaff} showSignOut={isAuthenticated} />
     </div>
   )
 }

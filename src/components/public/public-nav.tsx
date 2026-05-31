@@ -1,10 +1,12 @@
 import Link from 'next/link'
+import { SignOutButton } from '@/components/auth/sign-out-button'
 
 interface PublicNavProps {
   serviceName: string
   logoUrl: string | null
   showPoweredBy: boolean
   showAdminLink?: boolean
+  showSignOut?: boolean
 }
 
 export function PublicNav({
@@ -12,6 +14,7 @@ export function PublicNav({
   logoUrl,
   showPoweredBy,
   showAdminLink,
+  showSignOut,
 }: PublicNavProps) {
   return (
     <nav className="sticky top-0 z-50 bg-[var(--brand)]">
@@ -56,6 +59,12 @@ export function PublicNav({
             >
               Admin
             </Link>
+          )}
+          {showSignOut && (
+            <SignOutButton
+              destination="home"
+              className="text-sm md:text-base font-medium text-[#C7D3DD] hover:text-white"
+            />
           )}
           {showPoweredBy && (
             <div className="ml-4 flex items-center gap-1.5 border-l border-white/10 pl-4 text-[11px] md:text-body-sm text-[#8FA5B8]">

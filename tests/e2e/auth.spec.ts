@@ -78,4 +78,24 @@ test.describe('Auth', () => {
     await expect(page).toHaveURL(/\/book/)
     await expect(page.getByRole('heading', { name: 'Book a Collection' })).toBeVisible()
   })
+
+  // Sign-out is gated on auth state: the resident nav must NOT show a sign-out
+  // control to an unauthenticated visitor (it renders for anon /book visitors).
+  // The authed sign-out flow itself runs through a server action (server-side
+  // signOut), which the mock harness can't exercise — that path is verified via
+  // /qa against the live deploy.
+  test('unauthenticated public page does not show a Sign out control', async ({ page }) => {
+    await mockNoSession(page)
+    await page.route(`${supabaseUrl}/rest/v1/**`, async (route: Route) => {
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify([]),
+      })
+    })
+
+    await page.goto('/book')
+    await expect(page).toHaveURL(/\/book/)
+    await expect(page.getByRole('button', { name: /sign out/i })).toHaveCount(0)
+  })
 })
