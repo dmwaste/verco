@@ -1,8 +1,10 @@
 'use server'
 
 import { headers } from 'next/headers'
+import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { isAdminHostname, isFieldHostname } from '@/lib/proxy/hostnames'
+import { signOutRedirectPath } from '@/lib/auth/sign-out'
 import type { Result } from '@/lib/result'
 
 export async function sendOtp(email: string): Promise<Result<void>> {
@@ -39,4 +41,25 @@ export async function sendOtp(email: string): Promise<Result<void>> {
   }
 
   return { ok: true, data: undefined }
+}
+
+/**
+ * Ends the current session. `scope: 'global'` revokes every refresh token for
+ * the user server-side (true sign-out across all devices) — the right default
+ * for a council PII portal used on shared devices.
+ *
+ * Must run as a server action (not a server component): `server.ts` swallows
+ * cookie writes in a server-component context, so the cookie clearing only
+ * persists from here.
+ *
+ * Destination comes from a hidden form field and is mapped to one of two
+ * hardcoded internal paths — never used as a URL — so a tampered value can
+ * only ever resolve to `/auth` (the default). No open-redirect surface.
+ *   staff/field surfaces → 'login' → /auth   |   resident → 'home' → /
+ */
+export async function signOutAction(formData: FormData): Promise<void> {
+  const target = signOutRedirectPath(formData.get('destination'))
+  const supabase = await createClient()
+  await supabase.auth.signOut({ scope: 'global' })
+  redirect(target)
 }
