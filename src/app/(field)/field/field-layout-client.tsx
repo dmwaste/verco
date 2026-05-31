@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { format } from 'date-fns'
 import { cn } from '@/lib/utils'
+import { SignOutButton } from '@/components/auth/sign-out-button'
 
 interface FieldLayoutClientProps {
   roleLabel: string
@@ -68,9 +69,15 @@ export function FieldLayoutClient({
               VERCO
             </span>
           </div>
-          <span className="rounded-full bg-white/10 px-2.5 py-0.5 text-[11px] font-medium text-[#8FA5B8]">
-            {roleLabel}
-          </span>
+          <div className="flex items-center gap-3">
+            <span className="rounded-full bg-white/10 px-2.5 py-0.5 text-[11px] font-medium text-[#8FA5B8]">
+              {roleLabel}
+            </span>
+            <SignOutButton
+              destination="login"
+              className="text-[11px] font-medium text-[#8FA5B8] transition-colors hover:text-white"
+            />
+          </div>
         </div>
         <div className="flex items-center justify-between">
           <span className="text-body-sm text-[#C7D3DD]">{today}</span>
