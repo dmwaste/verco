@@ -10,6 +10,7 @@ interface ClientBranding {
   landing_headline: string | null
   landing_subheading: string | null
   logo_light_url: string | null
+  privacy_policy_url: string | null
 }
 
 async function getBranding(): Promise<ClientBranding> {
@@ -17,17 +18,17 @@ async function getBranding(): Promise<ClientBranding> {
   const clientId = headerStore.get('x-client-id')
 
   if (!clientId) {
-    return { name: 'Verge Collection', service_name: 'Verge Collection Bookings', show_powered_by: true, landing_headline: null, landing_subheading: null, logo_light_url: null }
+    return { name: 'Verge Collection', service_name: 'Verge Collection Bookings', show_powered_by: true, landing_headline: null, landing_subheading: null, logo_light_url: null, privacy_policy_url: null }
   }
 
   const supabase = await createClient()
   const { data } = await supabase
     .from('client')
-    .select('name, service_name, show_powered_by, landing_headline, landing_subheading, logo_light_url')
+    .select('name, service_name, show_powered_by, landing_headline, landing_subheading, logo_light_url, privacy_policy_url')
     .eq('id', clientId)
     .single()
 
-  return data ?? { name: 'Verge Collection', service_name: 'Verge Collection Bookings', show_powered_by: true, landing_headline: null, landing_subheading: null, logo_light_url: null }
+  return data ?? { name: 'Verge Collection', service_name: 'Verge Collection Bookings', show_powered_by: true, landing_headline: null, landing_subheading: null, logo_light_url: null, privacy_policy_url: null }
 }
 
 const FEATURES = [
@@ -178,7 +179,7 @@ export default async function LandingPage() {
           <HeroSearch />
 
           <p className="mt-2.5 text-xs md:text-sm text-[#8FA5B8]">
-            e.g. 23 Leda Blvd, Wellard WA 6170
+            e.g. 12 Main Street, Perth WA 6000
           </p>
         </div>
       </section>
@@ -348,10 +349,21 @@ export default async function LandingPage() {
             </div>
           )}
           <span className="text-body-sm md:text-body text-[#8FA5B8]">
-            &copy; {new Date().getFullYear()} {branding.name} &middot;{' '}
-            <a href="#" className="text-[#8FA5B8] underline">
-              Privacy Policy
-            </a>
+            &copy; {new Date().getFullYear()} {branding.name}
+            {branding.privacy_policy_url && (
+              <>
+                {' '}
+                &middot;{' '}
+                <a
+                  href={branding.privacy_policy_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-[#8FA5B8] underline"
+                >
+                  Privacy Policy
+                </a>
+              </>
+            )}
           </span>
         </div>
         {branding.show_powered_by && (

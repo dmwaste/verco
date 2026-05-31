@@ -1,6 +1,14 @@
+import { notFound } from 'next/navigation'
+import { createClient } from '@/lib/supabase/server'
 import { NewClientForm } from './new-client-form'
 
-export default function NewClientPage() {
+export default async function NewClientPage() {
+  // Creating a client is contractor-admin only (client INSERT RLS). Gate the
+  // page too so client-tier users can't reach the form. (See QA-A06.)
+  const supabase = await createClient()
+  const { data: role } = await supabase.rpc('current_user_role')
+  if (role !== 'contractor-admin') notFound()
+
   return (
     <div className="flex h-full flex-col">
       <div className="border-b border-gray-100 bg-white px-7 pb-5 pt-6">

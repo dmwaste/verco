@@ -4,6 +4,7 @@ import { AdminSidebar } from '@/components/admin/admin-sidebar'
 import { AdminSearchBar } from '@/components/admin/admin-search-bar'
 import { ClientSwitcher } from '@/components/admin/client-switcher'
 import { BugReportFab } from '@/components/bug-report/bug-report-fab'
+import { SignOutButton } from '@/components/auth/sign-out-button'
 
 interface AdminLayoutClientProps {
   currentClient: { id: string; name: string } | null
@@ -50,9 +51,15 @@ export function AdminLayoutClient({
         {/* Search */}
         <AdminSearchBar />
 
-        {/* Avatar */}
-        <div className="flex size-8 items-center justify-center rounded-full bg-[#3A5A73] text-body-sm font-semibold text-white">
-          {initials}
+        {/* Avatar + sign-out */}
+        <div className="flex items-center gap-3">
+          <div className="flex size-8 items-center justify-center rounded-full bg-[#3A5A73] text-body-sm font-semibold text-white">
+            {initials}
+          </div>
+          <SignOutButton
+            destination="login"
+            className="text-body-sm font-medium text-[#8FA5B8] transition-colors hover:text-white"
+          />
         </div>
       </div>
 

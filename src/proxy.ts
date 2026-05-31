@@ -7,6 +7,7 @@ import {
   toAdminHostname,
   toFieldHostname,
 } from '@/lib/proxy/hostnames'
+import { resolveOnBehalfClient } from '@/lib/proxy/resolve-on-behalf-client'
 
 type AppRole = Database['public']['Enums']['app_role']
 
@@ -253,27 +254,37 @@ async function handleContractorHost(
   // x-client-id from headers just as it does on a client subdomain —
   // hostname is replaced by the cookie as the resolution input.
   if (isAdmin && (path.startsWith('/book') || path.startsWith('/survey'))) {
-    const switcherClientId = request.cookies.get(SWITCHER_COOKIE)?.value
-    let resolvedClient: {
-      id: string
-      slug: string
-      contractor_id: string
-    } | null = null
-
-    if (switcherClientId) {
-      const { data } = await supabase
-        .from('client')
-        .select('id, slug, contractor_id')
-        .eq('id', switcherClientId)
-        .eq('is_active', true)
-        .maybeSingle()
-      if (data) resolvedClient = data
-    }
+    // Resolve the "act on behalf of" client the same way the admin UI does
+    // (getCurrentAdminClient tiers 1 + 3): explicit switcher cookie, else the
+    // user's first accessible active client. The tier-3 fallback is what fixes
+    // VER-233 — without it a first-visit admin (switcher cookie not yet
+    // written) was silently bounced from "+ New Booking" back to /admin even
+    // though the rest of the admin UI defaults to a client just fine.
+    const resolvedClient = await resolveOnBehalfClient(
+      request.cookies.get(SWITCHER_COOKIE)?.value,
+      async (id) => {
+        const { data } = await supabase
+          .from('client')
+          .select('id, slug, contractor_id')
+          .eq('id', id)
+          .eq('is_active', true)
+          .maybeSingle()
+        return data
+      },
+      async () => {
+        const { data } = await supabase
+          .from('client')
+          .select('id, slug, contractor_id')
+          .eq('is_active', true)
+          .order('name', { ascending: true })
+          .limit(1)
+          .maybeSingle()
+        return data
+      },
+    )
 
     if (!resolvedClient) {
-      // No valid switcher selection — bounce to /admin so the user picks
-      // a client first. Beats serving the booking wizard against an
-      // empty client_id and getting confusing downstream errors.
+      // The user genuinely has no accessible active client — bounce to /admin.
       return NextResponse.redirect(new URL('/admin', request.url))
     }
 

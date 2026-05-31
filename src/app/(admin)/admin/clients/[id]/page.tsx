@@ -1,4 +1,4 @@
-import { redirect } from 'next/navigation'
+import { redirect, notFound } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { ClientDetail } from './client-detail'
 
@@ -9,6 +9,12 @@ interface ClientDetailPageProps {
 export default async function ClientDetailPage({ params }: ClientDetailPageProps) {
   const { id } = await params
   const supabase = await createClient()
+
+  // Client management is a contractor-level surface. Gate to contractor-admin —
+  // the `client` table is public-SELECT (USING(is_active)), so without this a
+  // client-tier user could fetch another tenant's config by id. (See QA-A06.)
+  const { data: role } = await supabase.rpc('current_user_role')
+  if (role !== 'contractor-admin') notFound()
 
   const { data: client } = await supabase
     .from('client')

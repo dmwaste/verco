@@ -3,9 +3,18 @@ import { format, startOfWeek, endOfWeek, formatDistanceToNow } from 'date-fns'
 import { BookingStatusBadge } from '@/components/booking/booking-status-badge'
 import Link from 'next/link'
 import { effectiveCapacity, indexPoolDates } from '@/lib/capacity/effective-capacity'
+import { getCurrentAdminClient } from '@/lib/admin/current-client'
 
 export default async function AdminDashboardPage() {
   const supabase = await createClient()
+
+  // Public-SELECT tables (collection_date, collection_area, allocation_rules) are
+  // RLS USING(true) — NOT tenant-scoped by RLS. Resolve the active admin client
+  // and filter those queries explicitly, or they leak other tenants' data (e.g. a
+  // Verge Valet client-admin seeing City of Kwinana collection dates). Booking-based
+  // queries below stay RLS-scoped. Mirrors the collection-dates page pattern.
+  const currentClient = await getCurrentAdminClient()
+  const clientId = currentClient?.id ?? ''
 
   const now = new Date()
   const weekStart = startOfWeek(now, { weekStartsOn: 1 }).toISOString()
@@ -18,7 +27,8 @@ export default async function AdminDashboardPage() {
     .eq('is_current', true)
     .single()
 
-  // Parallel data fetches (RLS-scoped)
+  // Parallel data fetches. Booking/service_ticket queries are RLS-scoped;
+  // collection_date is public-SELECT so it is explicitly filtered by clientId.
   const [
     weekBookingsResult,
     completedResult,
@@ -63,9 +73,10 @@ export default async function AdminDashboardPage() {
          bulk_capacity_limit, bulk_units_booked, bulk_is_closed,
          anc_capacity_limit, anc_units_booked, anc_is_closed,
          id_capacity_limit, id_units_booked, id_is_closed,
-         collection_area!inner(name, code, capacity_pool_id)`
+         collection_area!inner(name, code, capacity_pool_id, client_id)`
       )
       .eq('is_open', true)
+      .eq('collection_area.client_id', clientId)
       .gte('date', now.toISOString().split('T')[0])
       .order('date', { ascending: true })
       .limit(5),
@@ -119,10 +130,13 @@ export default async function AdminDashboardPage() {
   const bulkTotal = generalCount + greenCount
   const ancTotal = mattressCount + ewasteCount + whitegoodsCount
 
-  // Get total allocation maximums from allocation rules
+  // Get total allocation maximums from allocation rules. allocation_rules is
+  // public-SELECT (RLS USING(true)) — scope to the active client via its area,
+  // else the Max denominator sums other tenants' rules and skews consumption %.
   const { data: allocRules } = await supabase
     .from('allocation_rules')
-    .select('max_collections, category!inner(code)')
+    .select('max_collections, category!inner(code), collection_area!inner(client_id)')
+    .eq('collection_area.client_id', clientId)
 
   let bulkMax = 0
   let ancMax = 0
