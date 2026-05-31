@@ -179,7 +179,7 @@ export default async function LandingPage() {
           <HeroSearch />
 
           <p className="mt-2.5 text-xs md:text-sm text-[#8FA5B8]">
-            e.g. 23 Leda Blvd, Wellard WA 6170
+            e.g. 12 Main Street, Perth WA 6000
           </p>
         </div>
       </section>
