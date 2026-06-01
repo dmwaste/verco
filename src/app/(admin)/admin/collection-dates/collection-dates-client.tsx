@@ -10,6 +10,7 @@ import type { ResolvedAuditEntry } from '@/lib/audit/resolve'
 import { AuditTimeline } from '@/components/audit-timeline'
 import { fetchCollectionDateAudit } from './actions'
 import { effectiveCapacity, indexPoolDates } from '@/lib/capacity/effective-capacity'
+import { closureStatus } from '@/lib/collection-dates/closure-status'
 
 const PAGE_SIZE = 50
 
@@ -77,6 +78,7 @@ export function CollectionDatesClient({ clientId, isContractorAdmin }: Collectio
   const [editAncLimit, setEditAncLimit] = useState(60)
   const [editIdLimit, setEditIdLimit] = useState(10)
   const [editIsOpen, setEditIsOpen] = useState(true)
+  const [editForMud, setEditForMud] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
 
   // Fetch areas — must filter by clientId because collection_area has a
@@ -135,6 +137,22 @@ export function CollectionDatesClient({ clientId, isContractorAdmin }: Collectio
 
   const dates = datesData?.dates ?? []
   const total = datesData?.total ?? 0
+
+  // WA public holidays, resolved at read time so a holiday closure can be
+  // distinguished from an admin/capacity closure in the Open column (VER-221).
+  // public_holiday is a small (~dozen-row) `USING(true)` table, fetched once
+  // and cached by TanStack Query. Not tenant-scoped — WA holidays apply to all.
+  const { data: holidays } = useQuery({
+    queryKey: ['public-holidays'],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from('public_holiday')
+        .select('date, name')
+        .eq('jurisdiction', 'WA')
+      return data ?? []
+    },
+  })
+  const holidayNames = new Map((holidays ?? []).map((h) => [h.date, h.name]))
 
   // For pool-member areas in the visible page, fetch authoritative pool
   // counters. Per-area `collection_date.*` stays at 0 by design for these
@@ -248,6 +266,7 @@ export function CollectionDatesClient({ clientId, isContractorAdmin }: Collectio
     setEditAncLimit(d.anc_capacity_limit)
     setEditIdLimit(d.id_capacity_limit)
     setEditIsOpen(d.is_open)
+    setEditForMud(d.for_mud)
   }
 
   async function handleSaveEdit(id: string) {
@@ -259,6 +278,7 @@ export function CollectionDatesClient({ clientId, isContractorAdmin }: Collectio
         anc_capacity_limit: editAncLimit,
         id_capacity_limit: editIdLimit,
         is_open: editIsOpen,
+        for_mud: editForMud,
       })
       .eq('id', id)
 
@@ -506,7 +526,12 @@ export function CollectionDatesClient({ clientId, isContractorAdmin }: Collectio
                     <tr key={d.id} className="border-b border-gray-50 bg-blue-50/50">
                       <td className="px-4 py-2.5 font-medium text-[#293F52]">{format(new Date(d.date + 'T00:00:00'), 'EEE d MMM yyyy')}</td>
                       <td className="px-4 py-2.5 text-gray-600">{area.code}</td>
-                      <td className="px-4 py-2.5 text-center">{d.for_mud && <span className="rounded-full bg-[#F3EEFF] px-2 py-0.5 text-2xs font-semibold text-[#805AD5]">MUD</span>}</td>
+                      <td className="px-4 py-2.5 text-center">
+                        <label className="flex items-center justify-center gap-1.5 text-2xs font-semibold text-[#805AD5]">
+                          <input type="checkbox" checked={editForMud} onChange={(e) => setEditForMud(e.target.checked)} className="rounded" />
+                          MUD
+                        </label>
+                      </td>
                       <td className="px-4 py-2.5 text-center">
                         <input type="checkbox" checked={editIsOpen} onChange={(e) => setEditIsOpen(e.target.checked)} className="rounded" />
                       </td>
@@ -541,11 +566,21 @@ export function CollectionDatesClient({ clientId, isContractorAdmin }: Collectio
                       {d.for_mud && <span className="rounded-full bg-[#F3EEFF] px-2 py-0.5 text-2xs font-semibold text-[#805AD5]">MUD</span>}
                     </td>
                     <td className="px-4 py-2.5 text-center">
-                      {d.is_open ? (
-                        <span className="inline-block size-2 rounded-full bg-emerald-500" title="Open" />
-                      ) : (
-                        <span className="inline-block size-2 rounded-full bg-gray-300" title="Closed" />
-                      )}
+                      {(() => {
+                        const status = closureStatus(d.is_open, d.date, holidayNames)
+                        if (status === 'open') {
+                          return <span className="inline-block size-2 rounded-full bg-emerald-500" title="Open" />
+                        }
+                        if (status === 'holiday') {
+                          const name = holidayNames.get(d.date) ?? 'Public holiday'
+                          return (
+                            <span className="whitespace-nowrap rounded-full bg-amber-100 px-2 py-0.5 text-2xs font-semibold text-amber-700" title={`Closed — ${name}`}>
+                              {name}
+                            </span>
+                          )
+                        }
+                        return <span className="inline-block size-2 rounded-full bg-gray-300" title="Closed" />
+                      })()}
                     </td>
                     {/* Bulk capacity */}
                     <td className="px-4 py-2.5">
