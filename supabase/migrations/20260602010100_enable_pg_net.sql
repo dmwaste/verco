@@ -1,0 +1,27 @@
+-- F1 (BR-0014): enable pg_net so pg_cron jobs can invoke Edge Functions.
+--
+-- Root cause: pg_cron is enabled and the cron jobs fire on schedule, but every
+-- job calls `net.http_post(...)` which failed with `ERROR: schema "net" does
+-- not exist` because the pg_net extension was never enabled. This silently
+-- broke 6 of 7 crons: handle-expired-payments, transition-scheduled (Confirmed
+-- → Scheduled), auto-close-notices, generate-collection-dates,
+-- nightly-sync-to-dm-ops, and send-collection-reminders.
+--
+-- pg_net is NOT relocatable; it always installs into schema `net`, which is
+-- exactly what the cron SQL references (`net.http_post`).
+--
+-- ⚠️ POST-DEPLOY VERIFICATION (cannot be done in this migration):
+--   1. The cron SQL also reads `app.settings.supabase_url` and
+--      `app.settings.service_role_key` via current_setting(). The service-role
+--      key is a secret and MUST NOT be committed, so these GUCs are set
+--      out-of-band (Supabase dashboard / `ALTER DATABASE ... SET ...`). After
+--      this migration, confirm both resolve, otherwise the crons will fail with
+--      a *different* error ("unrecognized configuration parameter").
+--   2. Check `cron.job_run_details` shows `status = 'succeeded'` on the next
+--      runs of handle-expired-payments + transition-scheduled.
+--   3. Expect the first transition-scheduled run to clear a backlog of
+--      past-dated Confirmed bookings; configure the Stripe webhook (F2) FIRST
+--      so genuinely-paid bookings confirm before the expiry cron can cancel
+--      them.
+
+CREATE EXTENSION IF NOT EXISTS pg_net;

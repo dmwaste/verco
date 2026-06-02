@@ -233,7 +233,12 @@ export function BookingsListClient({ isContractorAdmin }: BookingsListClientProp
             </button>
           )}
           <Link
-            href="/book"
+            // F6 (BR-0015): mark admin-created bookings as on-behalf so the
+            // confirm step does NOT pre-fill the staff member's own contact,
+            // forwards the staff JWT to create-booking, and returns to the
+            // admin booking detail. Without this the booking silently attaches
+            // to the admin's contact.
+            href="/book?on_behalf=true"
             className="inline-flex items-center gap-1.5 rounded-lg bg-[#293F52] px-4 py-2 text-body-sm font-semibold text-white"
           >
             + New Booking
