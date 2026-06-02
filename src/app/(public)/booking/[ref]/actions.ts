@@ -134,12 +134,18 @@ export async function disputeNcn(ncnId: string): Promise<Result<void>> {
   const supabase = await createClient()
 
   // RLS policy ncn_resident_update_dispute enforces: status must be 'Issued' + own booking
-  const { error } = await supabase
+  const { data: disputed, error } = await supabase
     .from('non_conformance_notice')
     .update({ status: 'Disputed' })
     .eq('id', ncnId)
+    .select('id')
 
-  if (error) return { ok: false, error: error.message }
+  const guard = assertRowsAffected(
+    disputed,
+    error,
+    'Unable to dispute this notice. It may already be under review or no longer disputable.',
+  )
+  if (!guard.ok) return guard
   return { ok: true, data: undefined }
 }
 
@@ -151,11 +157,17 @@ export async function disputeNp(npId: string): Promise<Result<void>> {
 
   const supabase = await createClient()
 
-  const { error } = await supabase
+  const { data: disputed, error } = await supabase
     .from('nothing_presented')
     .update({ status: 'Disputed' })
     .eq('id', npId)
+    .select('id')
 
-  if (error) return { ok: false, error: error.message }
+  const guard = assertRowsAffected(
+    disputed,
+    error,
+    'Unable to dispute this notice. It may already be under review or no longer disputable.',
+  )
+  if (!guard.ok) return guard
   return { ok: true, data: undefined }
 }

@@ -125,7 +125,11 @@ function formatMobile(e164: string): string {
   return e164
 }
 
-const CANCELLABLE_STATUSES: BookingStatus[] = ['Pending Payment', 'Submitted', 'Confirmed']
+// Residents cannot self-cancel a Pending Payment booking — that transition is
+// owned by the Stripe/expiry flow, not the resident (F3/VER-249). Offering it
+// here showed a cancel that silently failed and falsely promised a refund.
+// Staff cancel Pending Payment bookings via the admin booking detail.
+const CANCELLABLE_STATUSES: BookingStatus[] = ['Submitted', 'Confirmed']
 const TERMINAL_STATUSES: BookingStatus[] = [
   'Completed', 'Cancelled', 'Non-conformance', 'Nothing Presented', 'Rebooked', 'Missed Collection',
 ]
@@ -684,7 +688,7 @@ export function BookingDetailClient({ booking, tickets, receiptUrl, ncn, np, pay
 
         {/* Action buttons — single row on desktop */}
         <div className="flex flex-col gap-2 md:flex-row md:gap-3">
-          {booking.status === 'Pending Payment' && (
+          {booking.status === 'Pending Payment' && !isPolling && (
             <button
               type="button"
               onClick={handlePayNow}
