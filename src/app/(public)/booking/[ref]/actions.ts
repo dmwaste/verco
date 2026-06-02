@@ -2,6 +2,7 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { invokeSendNotification } from '@/lib/notifications/invoke'
+import { assertRowsAffected } from '@/lib/db/assert-rows-affected'
 import type { Result } from '@/lib/result'
 
 /**
@@ -67,18 +68,24 @@ export async function cancelBooking(bookingId: string): Promise<Result<void>> {
     }
   }
 
-  // Perform the cancellation
-  const { error: updateError } = await supabase
+  // Perform the cancellation. `.select()` returns the affected rows so a silent
+  // RLS no-op (0 rows changed, no error) surfaces as an explicit error instead
+  // of a false success — see assertRowsAffected / F5 (VER-247).
+  const { data: cancelled, error: updateError } = await supabase
     .from('booking')
     .update({
       status: 'Cancelled',
       cancelled_at: new Date().toISOString(),
     })
     .eq('id', bookingId)
+    .select('id')
 
-  if (updateError) {
-    return { ok: false, error: updateError.message }
-  }
+  const guard = assertRowsAffected(
+    cancelled,
+    updateError,
+    'Unable to cancel this booking. It may no longer be cancellable, or you may not have permission.',
+  )
+  if (!guard.ok) return guard
 
   // If booking has paid extras, create a pending refund_request for admin review
   const paidItems = items.filter((i) => i.is_extra && i.unit_price_cents > 0)
