@@ -103,6 +103,14 @@ const ROLE_FIXTURES: Record<RoleName, { contractorId: string | null; clientId: s
   resident: { contractorId: null, clientId: null, email: 'rls-resident@example.test' },
 }
 
+// F5 (VER-247) fixtures: a contact linked to the resident user + a Confirmed
+// booking they own, plus a Confirmed booking owned by a different contact (for
+// the negative "can't cancel someone else's" case).
+const F5_RESIDENT_CONTACT = 'bbbbbbbb-0001-4000-8000-000000000001'
+const F5_RESIDENT_BOOKING = 'bbbbbbbb-0002-4000-8000-000000000002'
+const F5_OTHER_CONTACT = 'bbbbbbbb-0003-4000-8000-000000000003'
+const F5_OTHER_BOOKING = 'bbbbbbbb-0004-4000-8000-000000000004'
+
 // -----------------------------------------------------------------------------
 // Public-anon suite — always runs (only needs anon key)
 // -----------------------------------------------------------------------------
@@ -227,6 +235,40 @@ if (!haveDb) {
       )
     }
 
+    // F5 (VER-247) fixture: link the resident user to a contact and give them a
+    // Confirmed booking, plus a Confirmed booking owned by someone else. Uses a
+    // real Kwinana collection_area + the current FY for valid FKs. Idempotent;
+    // the booking status is reset to Confirmed on re-run.
+    const area = await pg.query<{ id: string }>(
+      `SELECT id FROM collection_area WHERE client_id = $1 LIMIT 1`,
+      [CLIENT_ID],
+    )
+    const fy = await pg.query<{ id: string }>(
+      `SELECT id FROM financial_year WHERE is_current LIMIT 1`,
+    )
+    if (area.rows[0] && fy.rows[0]) {
+      const areaId = area.rows[0].id
+      const fyId = fy.rows[0].id
+      await pg.query(
+        `INSERT INTO public.contacts (id, email, first_name, last_name)
+         VALUES ($1, 'rls-resident@example.test', 'RLS', 'Resident'),
+                ($2, 'rls-other@example.test', 'RLS', 'Other')
+         ON CONFLICT (id) DO NOTHING`,
+        [F5_RESIDENT_CONTACT, F5_OTHER_CONTACT],
+      )
+      await pg.query(`UPDATE public.profiles SET contact_id = $1 WHERE id = $2`, [
+        F5_RESIDENT_CONTACT,
+        USERS.resident,
+      ])
+      await pg.query(
+        `INSERT INTO public.booking (id, ref, type, status, contact_id, collection_area_id, client_id, contractor_id, fy_id)
+         VALUES ($1, 'RLS-F5-OWN', 'Residential', 'Confirmed', $3, $5, $6, $7, $8),
+                ($2, 'RLS-F5-OTHER', 'Residential', 'Confirmed', $4, $5, $6, $7, $8)
+         ON CONFLICT (id) DO UPDATE SET status = 'Confirmed', cancelled_at = NULL`,
+        [F5_RESIDENT_BOOKING, F5_OTHER_BOOKING, F5_RESIDENT_CONTACT, F5_OTHER_CONTACT, areaId, CLIENT_ID, CONTRACTOR_ID, fyId],
+      )
+    }
+
     // Sanity: silence unused warning in case admin client isn't used for
     // anything else (kept here for future fixture extension).
     void admin
@@ -255,6 +297,25 @@ if (!haveDb) {
       ])
       const r = await pg.query<{ c: string }>(`SELECT count(*)::text AS c FROM (${sql}) _t`)
       return Number.parseInt(r.rows[0]!.c, 10)
+    } finally {
+      await pg.query('ROLLBACK')
+    }
+  }
+
+  /**
+   * Run a write (UPDATE/DELETE) under impersonation and return rows affected,
+   * in a transaction we ROLLBACK. A `0` here is exactly the silent RLS no-op
+   * that bit F5 — the write is permitted to "succeed" but changes nothing.
+   */
+  async function updateAs(userId: string, sql: string): Promise<number> {
+    await pg.query('BEGIN')
+    try {
+      await pg.query(`SET LOCAL ROLE authenticated`)
+      await pg.query(`SELECT set_config('request.jwt.claims', $1, true)`, [
+        JSON.stringify({ sub: userId, role: 'authenticated' }),
+      ])
+      const r = await pg.query(sql)
+      return r.rowCount ?? 0
     } finally {
       await pg.query('ROLLBACK')
     }
@@ -320,6 +381,33 @@ if (!haveDb) {
     ] as const)('%s can query booking without error', async (_role, uid) => {
       const n = await countAs(uid, 'SELECT id FROM booking')
       expect(n).toBeGreaterThanOrEqual(0)
+    })
+  })
+
+  // ---------------------------------------------------------------------------
+  // TC-F5 (VER-247): residents can cancel their OWN booking. The bug was an
+  // implicit WITH CHECK on booking_resident_update that rejected status
+  // 'Cancelled' (0 rows, no error). These assert the policy now lets a resident
+  // transition their own Confirmed booking → Cancelled, but not someone else's,
+  // while staff retain the ability.
+  // ---------------------------------------------------------------------------
+  describe('TC-F5: resident booking cancellation (VER-247)', () => {
+    const cancelSql = (id: string) =>
+      `UPDATE booking SET status = 'Cancelled', cancelled_at = now() WHERE id = '${id}'`
+
+    it('resident CAN cancel their OWN Confirmed booking (1 row)', async () => {
+      const n = await updateAs(USERS.resident, cancelSql(F5_RESIDENT_BOOKING))
+      expect(n).toBe(1)
+    })
+
+    it('resident CANNOT cancel a booking they do not own (0 rows)', async () => {
+      const n = await updateAs(USERS.resident, cancelSql(F5_OTHER_BOOKING))
+      expect(n).toBe(0)
+    })
+
+    it('staff (contractor-admin) CAN still cancel a booking (1 row)', async () => {
+      const n = await updateAs(USERS['contractor-admin'], cancelSql(F5_RESIDENT_BOOKING))
+      expect(n).toBe(1)
     })
   })
 

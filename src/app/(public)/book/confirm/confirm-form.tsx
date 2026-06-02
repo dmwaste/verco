@@ -300,17 +300,19 @@ export function ConfirmForm() {
         ...(replacesParam ? { replaces: replacesParam } : {}),
       }
 
-      // For admin "on-behalf" bookings, send the staff member's session JWT
-      // so the EF's auth.getUser() resolves and the booking's audit_log entry
-      // records the staff actor (not "System"). Residents reach /book/confirm
-      // pre-auth so anon-key is the only thing available — and correct, since
-      // they ARE anonymous bookers at this point.
+      // Forward the user's session JWT to create-booking whenever a session
+      // exists (not only on-behalf). The EF's auth.getUser() then resolves the
+      // acting user, which lets it (a) link a self-booking resident's profile
+      // to their contact [F4/VER-248] — without which create-checkout 403s and
+      // the dashboard can't find their bookings — and (b) record the real actor
+      // in audit_log instead of "System". A pre-auth guest booker has no
+      // session, so we correctly fall back to the anon key. The EF only links a
+      // profile when the acting user's email matches the contact's, so an
+      // on-behalf staff booking (different email) never mis-links.
       let authHeader = `Bearer ${process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY}`
-      if (onBehalf) {
-        const { data: { session } } = await supabase.auth.getSession()
-        if (session?.access_token) {
-          authHeader = `Bearer ${session.access_token}`
-        }
+      const { data: { session } } = await supabase.auth.getSession()
+      if (session?.access_token) {
+        authHeader = `Bearer ${session.access_token}`
       }
 
       const res = await fetch(functionUrl, {

@@ -2,6 +2,7 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { invokeSendNotification } from '@/lib/notifications/invoke'
+import { assertRowsAffected } from '@/lib/db/assert-rows-affected'
 import type { Result } from '@/lib/result'
 
 /**
@@ -67,18 +68,24 @@ export async function cancelBooking(bookingId: string): Promise<Result<void>> {
     }
   }
 
-  // Perform the cancellation
-  const { error: updateError } = await supabase
+  // Perform the cancellation. `.select()` returns the affected rows so a silent
+  // RLS no-op (0 rows changed, no error) surfaces as an explicit error instead
+  // of a false success — see assertRowsAffected / F5 (VER-247).
+  const { data: cancelled, error: updateError } = await supabase
     .from('booking')
     .update({
       status: 'Cancelled',
       cancelled_at: new Date().toISOString(),
     })
     .eq('id', bookingId)
+    .select('id')
 
-  if (updateError) {
-    return { ok: false, error: updateError.message }
-  }
+  const guard = assertRowsAffected(
+    cancelled,
+    updateError,
+    'Unable to cancel this booking. It may no longer be cancellable, or you may not have permission.',
+  )
+  if (!guard.ok) return guard
 
   // If booking has paid extras, create a pending refund_request for admin review
   const paidItems = items.filter((i) => i.is_extra && i.unit_price_cents > 0)
@@ -127,12 +134,18 @@ export async function disputeNcn(ncnId: string): Promise<Result<void>> {
   const supabase = await createClient()
 
   // RLS policy ncn_resident_update_dispute enforces: status must be 'Issued' + own booking
-  const { error } = await supabase
+  const { data: disputed, error } = await supabase
     .from('non_conformance_notice')
     .update({ status: 'Disputed' })
     .eq('id', ncnId)
+    .select('id')
 
-  if (error) return { ok: false, error: error.message }
+  const guard = assertRowsAffected(
+    disputed,
+    error,
+    'Unable to dispute this notice. It may already be under review or no longer disputable.',
+  )
+  if (!guard.ok) return guard
   return { ok: true, data: undefined }
 }
 
@@ -144,11 +157,17 @@ export async function disputeNp(npId: string): Promise<Result<void>> {
 
   const supabase = await createClient()
 
-  const { error } = await supabase
+  const { data: disputed, error } = await supabase
     .from('nothing_presented')
     .update({ status: 'Disputed' })
     .eq('id', npId)
+    .select('id')
 
-  if (error) return { ok: false, error: error.message }
+  const guard = assertRowsAffected(
+    disputed,
+    error,
+    'Unable to dispute this notice. It may already be under review or no longer disputable.',
+  )
+  if (!guard.ok) return guard
   return { ok: true, data: undefined }
 }
