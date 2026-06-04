@@ -159,18 +159,37 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      # Each deploy bundles the function, which fetches imports from esm.sh.
+      # esm.sh intermittently returns 522 (Cloudflare origin timeout); a single
+      # blip used to fail the whole job (and cascade-skip the Coolify release).
+      # Retry each function with linear backoff so a transient CDN hiccup is
+      # ridden out rather than aborting the deploy.
       - name: Deploy every function with --no-verify-jwt
         run: |
           set -euo pipefail
+          deploy_with_retry() {
+            local name="$1"
+            local attempts=5
+            local n=1
+            until pnpm supabase functions deploy "$name" \
+              --project-ref "$SUPABASE_PROJECT_REF" \
+              --no-verify-jwt; do
+              if [ "$n" -ge "$attempts" ]; then
+                echo "::error::Failed to deploy $name after $attempts attempts"
+                return 1
+              fi
+              echo "Deploy of $name failed (attempt $n/$attempts) — retrying in $((n * 15))s..."
+              sleep $((n * 15))
+              n=$((n + 1))
+            done
+          }
           for dir in supabase/functions/*/; do
             name=$(basename "$dir")
             if [ "$name" = "_shared" ]; then
               continue
             fi
             echo "::group::Deploying $name"
-            pnpm supabase functions deploy "$name" \
-              --project-ref "$SUPABASE_PROJECT_REF" \
-              --no-verify-jwt
+            deploy_with_retry "$name"
             echo "::endgroup::"
           done
 
