@@ -363,7 +363,7 @@ These are absolute. If a task requires crossing one, stop and flag it.
 
 ### EFs that access PII accept dual auth (per §20 Red Line #3) — server actions MUST NOT use service role. EFs needing PII (`send-notification`, etc.) accept EITHER a service-role bearer (EF→EF) OR a user JWT whose `current_user_role()` is in a permitted set. Internal loads use service role; the user role gates the trigger.
 
-### Notification module — use `templates/template-helpers.ts` + `invokeSendNotification` from `src/lib/notifications/invoke.ts`. Resume-by-log-id only for `RESUMABLE_TYPES` in `dispatch.ts`.
+### Notification module — use `templates/template-helpers.ts` + `invokeSendNotification` from `src/lib/notifications/invoke.ts`. Resume-by-log-id only for `RESUMABLE_TYPES` in `dispatch.ts`. `_shared/`↔`src/lib` mirror pairs (dispatch, health, templates) are kept in sync by `scripts/sync-mirrors.sh` (`_shared/` is source of truth; the script strips Deno `.ts` import extensions). A NEW mirror pair must be registered in that script — its CI `--check` only guards listed files, so an unregistered mirror drifts silently.
 
 ### Public-SELECT RLS (`USING(true)`) doesn't tenant-scope — filter in app. `eligible_properties`, `collection_area`, `collection_date` etc. are cross-tenant readable for the unauthenticated `/book` flow. Server pages must read `x-client-id` from `headers()`, pass `clientId` to client components, and queries must join via embedded `!inner` FK + `.eq('<fk>.client_id', clientId)`. See `book/page.tsx` + `book/address-form.tsx`.
 
