@@ -93,24 +93,30 @@ serve(async (_req) => {
     }
 
     // 2. Most-recent successful send per channel (may predate the window) —
-    //    gives "last good" context in the alert. One small bounded query.
-    const { data: recentSent, error: sentErr } = await supabase
-      .from('notification_log')
-      .select('channel, created_at')
-      .eq('status', 'sent')
-      .order('created_at', { ascending: false })
-      .limit(50)
-
-    if (sentErr) {
-      console.error('notification-health-check: last-success query failed', sentErr.message)
-      return jsonResponse({ ok: false, error: sentErr.message }, 500)
-    }
-
+    //    gives "last good" context in the alert. Queried per channel rather
+    //    than one capped query over all channels: a chatty channel could
+    //    otherwise push a quiet channel's last success out of the result set
+    //    and mislabel it "never".
     const lastSuccessByChannel = new Map<string, string>()
-    for (const row of recentSent ?? []) {
-      const ch = row.channel as string
-      if (!lastSuccessByChannel.has(ch)) {
-        lastSuccessByChannel.set(ch, row.created_at as string)
+    for (const channel of CHANNELS) {
+      const { data: lastSent, error: sentErr } = await supabase
+        .from('notification_log')
+        .select('created_at')
+        .eq('channel', channel)
+        .eq('status', 'sent')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+
+      if (sentErr) {
+        console.error(
+          `notification-health-check: last-success query failed for ${channel}`,
+          sentErr.message,
+        )
+        return jsonResponse({ ok: false, error: sentErr.message }, 500)
+      }
+      if (lastSent) {
+        lastSuccessByChannel.set(channel, lastSent.created_at as string)
       }
     }
 
