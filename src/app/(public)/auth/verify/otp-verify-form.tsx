@@ -325,10 +325,8 @@ export function OtpVerifyForm({ postLoginPath }: OtpVerifyFormProps) {
         <div className="text-center text-body-sm text-gray-500">
           {resendCooldown > 0 ? (
             <>
-              Code expires in{' '}
+              You can request a new code in{' '}
               <strong className="text-[var(--brand)]">{countdownText}</strong>
-              {' · '}
-              <span className="text-gray-300">Resend code</span>
             </>
           ) : (
             <button
