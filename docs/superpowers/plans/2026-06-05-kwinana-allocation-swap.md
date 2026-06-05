@@ -13,9 +13,10 @@
 **Hard dependency:** PR [#147](https://github.com/dmwaste/verco/pull/147) (confirm-page breakdown → shared engine) must merge to `develop` first — the swap relies on the confirm breakdown coming from `computeLineItems`.
 
 **Release sequencing (CLAUDE.md §21 — ghost-release + types-freshness):**
-- **PR-A** = Phase 1 (migration + seed) only → release to prod → regen types.
-- **PR-B** = Phases 2–6 (engine, EF, UI, sync, E2E) against the regen'd types.
-A single PR fails Types Freshness CI because the new tables/columns aren't in prod-generated types yet.
+Migrations apply only on `deploy.yml` (`branches: [main]`), so the new tables aren't in prod-generated types until a release. The split follows that gate, refined so the non-type-gated work lands early (Beck: make the change easy, then make the easy change):
+- **PR-A** = migration + seed **+ the pure engine `conversion` capability** (`calculate.ts` + EF mirror `_shared/pricing.ts`) **+ `swap.ts` eligibility helper + unit tests**. None of these import generated DB types (the EF uses an untyped `SupabaseClient`), and the engine change is dormant behind `if (conversion)`. Releases → applies migration → regen types.
+- **PR-B** = the type-gated wiring (services-form refactor + checkbox, confirm display, create-booking re-validation, E2E) against the regen'd types.
+A single PR fails Types Freshness CI because the new tables aren't in prod-generated types yet.
 
 ---
 
