@@ -1,10 +1,14 @@
 import { Suspense } from 'react'
+import { getCurrentAdminClient } from '@/lib/admin/current-client'
 import { NotificationsClient } from './notifications-client'
 
-export default function NotificationsPage() {
+export default async function NotificationsPage() {
+  const currentClient = await getCurrentAdminClient()
+  const clientId = currentClient?.id ?? ''
+
   return (
     <Suspense>
-      <NotificationsClient />
+      <NotificationsClient clientId={clientId} />
     </Suspense>
   )
 }

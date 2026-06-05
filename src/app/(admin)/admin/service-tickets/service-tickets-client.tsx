@@ -59,7 +59,11 @@ const CATEGORY_LABELS: Record<TicketCategory, string> = {
   other: 'Other',
 }
 
-export function ServiceTicketsClient() {
+interface ServiceTicketsClientProps {
+  clientId: string
+}
+
+export function ServiceTicketsClient({ clientId }: ServiceTicketsClientProps) {
   const supabase = createClient()
   const queryClient = useQueryClient()
 
@@ -97,7 +101,7 @@ export function ServiceTicketsClient() {
   }
 
   const { data: ticketsData, isLoading } = useQuery({
-    queryKey: ['admin-tickets', statusFilter, priorityFilter, categoryFilter, debouncedSearch, page],
+    queryKey: ['admin-tickets', clientId, statusFilter, priorityFilter, categoryFilter, debouncedSearch, page],
     queryFn: async () => {
       let query = supabase
         .from('service_ticket')
@@ -110,6 +114,7 @@ export function ServiceTicketsClient() {
         .order('created_at', { ascending: false })
         .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1)
 
+      if (clientId) query = query.eq('client_id', clientId)
       if (statusFilter) query = query.eq('status', statusFilter as TicketStatus)
       if (priorityFilter) query = query.eq('priority', priorityFilter as TicketPriority)
       if (categoryFilter) query = query.eq('category', categoryFilter as TicketCategory)

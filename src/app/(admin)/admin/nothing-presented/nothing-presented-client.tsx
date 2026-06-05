@@ -12,7 +12,11 @@ const STATUS_OPTIONS: string[] = ['Issued', 'Disputed', 'Under Review', 'Resolve
 
 const PAGE_SIZE = 20
 
-export function NothingPresentedClient() {
+interface NothingPresentedClientProps {
+  clientId: string
+}
+
+export function NothingPresentedClient({ clientId }: NothingPresentedClientProps) {
   const supabase = createClient()
 
   const [page, setPage] = useState(0)
@@ -21,7 +25,7 @@ export function NothingPresentedClient() {
   const [search, setSearch] = useState('')
 
   const { data: npData, isLoading } = useQuery({
-    queryKey: ['admin-np', statusFilter, faultFilter, search, page],
+    queryKey: ['admin-np', clientId, statusFilter, faultFilter, search, page],
     queryFn: async () => {
       let query = supabase
         .from('nothing_presented')
@@ -36,6 +40,7 @@ export function NothingPresentedClient() {
         .order('reported_at', { ascending: false })
         .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1)
 
+      if (clientId) query = query.eq('client_id', clientId)
       if (statusFilter) query = query.eq('status', statusFilter as never)
       if (faultFilter === 'dm') query = query.eq('contractor_fault', true)
       if (faultFilter === 'resident') query = query.eq('contractor_fault', false)
