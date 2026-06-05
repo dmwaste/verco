@@ -4,29 +4,32 @@ import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
 
-export function ReportsClient() {
+export function ReportsClient({ clientId }: { clientId: string }) {
   const supabase = createClient()
   const [selectedArea, setSelectedArea] = useState('')
 
   const { data: areas } = useQuery({
-    queryKey: ['report-areas'],
+    queryKey: ['report-areas', clientId],
     queryFn: async () => {
-      const { data } = await supabase
+      let q = supabase
         .from('collection_area')
         .select('id, code, name')
         .eq('is_active', true)
         .order('code')
+      if (clientId) q = q.eq('client_id', clientId)
+      const { data } = await q
       return data ?? []
     },
   })
 
   const { data: stats, isLoading } = useQuery({
-    queryKey: ['report-stats', selectedArea],
+    queryKey: ['report-stats', selectedArea, clientId],
     queryFn: async () => {
       // Bookings by status
       let bookingQuery = supabase
         .from('booking')
         .select('status', { count: 'exact', head: false })
+      if (clientId) bookingQuery = bookingQuery.eq('client_id', clientId)
       if (selectedArea) bookingQuery = bookingQuery.eq('collection_area_id', selectedArea)
       const { data: bookings } = await bookingQuery
 
@@ -37,25 +40,28 @@ export function ReportsClient() {
 
       // NCN count
       let ncnQuery = supabase.from('non_conformance_notice').select('id', { count: 'exact', head: true })
-      if (selectedArea) {
-        // NCN doesn't have collection_area_id directly — filter via booking
-        ncnQuery = ncnQuery
-      }
+      if (clientId) ncnQuery = ncnQuery.eq('client_id', clientId)
       const { count: ncnCount } = await ncnQuery
 
       // NP count
-      const { count: npCount } = await supabase.from('nothing_presented').select('id', { count: 'exact', head: true })
+      let npQuery = supabase.from('nothing_presented').select('id', { count: 'exact', head: true })
+      if (clientId) npQuery = npQuery.eq('client_id', clientId)
+      const { count: npCount } = await npQuery
 
       // Refund totals
-      const { data: refunds } = await supabase.from('refund_request').select('amount_cents, status')
+      let refundQuery = supabase.from('refund_request').select('amount_cents, status')
+      if (clientId) refundQuery = refundQuery.eq('client_id', clientId)
+      const { data: refunds } = await refundQuery
       const refundPending = (refunds ?? []).filter((r) => r.status === 'pending').reduce((sum, r) => sum + r.amount_cents, 0)
       const refundProcessed = (refunds ?? []).filter((r) => r.status === 'processed').reduce((sum, r) => sum + r.amount_cents, 0)
 
       // Open tickets
-      const { count: openTickets } = await supabase
+      let ticketQuery = supabase
         .from('service_ticket')
         .select('id', { count: 'exact', head: true })
         .in('status', ['open', 'in_progress'])
+      if (clientId) ticketQuery = ticketQuery.eq('client_id', clientId)
+      const { count: openTickets } = await ticketQuery
 
       return {
         statusCounts,

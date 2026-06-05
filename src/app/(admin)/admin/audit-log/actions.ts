@@ -1,6 +1,7 @@
 'use server'
 
 import { createClient } from '@/lib/supabase/server'
+import { getCurrentAdminClient } from '@/lib/admin/current-client'
 import {
   collectFkUuids,
   diffData,
@@ -27,12 +28,19 @@ export async function fetchAuditLogs(
   const supabase = await createClient()
   const { tableName, action, limit = 50, offset = 0 } = params
 
+  // Scope to the tenant selected in the admin switcher. audit_log is RLS-gated
+  // by accessible_client_ids(), so a contractor-admin (who can see every client)
+  // would otherwise get a merged cross-tenant audit trail.
+  const currentClient = await getCurrentAdminClient()
+  const clientId = currentClient?.id ?? ''
+
   let query = supabase
     .from('audit_log')
     .select('id, table_name, record_id, action, old_data, new_data, changed_by, created_at', { count: 'exact' })
     .order('created_at', { ascending: false })
     .range(offset, offset + limit - 1)
 
+  if (clientId) query = query.eq('client_id', clientId)
   if (tableName) query = query.eq('table_name', tableName)
   if (action) query = query.eq('action', action)
 

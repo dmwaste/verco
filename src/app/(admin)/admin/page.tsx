@@ -27,8 +27,60 @@ export default async function AdminDashboardPage() {
     .eq('is_current', true)
     .single()
 
-  // Parallel data fetches. Booking/service_ticket queries are RLS-scoped;
-  // collection_date is public-SELECT so it is explicitly filtered by clientId.
+  // Parallel data fetches. booking/service_ticket queries are RLS-scoped, but
+  // contractor users can see ALL their clients via RLS — so the stat cards must
+  // also be filtered to the active switcher client (clientId), else a contractor
+  // admin sees every tenant's counts merged. collection_date is public-SELECT so
+  // it is explicitly filtered by clientId via its area. Each .eq is guarded by
+  // `if (clientId)` so the no-client fallback keeps the historical behaviour.
+  const weekBookingsQuery = supabase
+    .from('booking')
+    .select('id', { count: 'exact', head: true })
+    .gte('created_at', weekStart)
+    .lte('created_at', weekEnd)
+  const completedQuery = supabase
+    .from('booking')
+    .select('id', { count: 'exact', head: true })
+    .eq('status', 'Completed')
+  const ncnQuery = supabase
+    .from('booking')
+    .select('id', { count: 'exact', head: true })
+    .eq('status', 'Non-conformance')
+  const npQuery = supabase
+    .from('booking')
+    .select('id', { count: 'exact', head: true })
+    .eq('status', 'Nothing Presented')
+  const ticketsQuery = supabase
+    .from('service_ticket')
+    .select('id', { count: 'exact', head: true })
+    .in('status', ['open', 'in_progress'])
+  const weeklySubmittedQuery = supabase.from('booking').select('id', { count: 'exact', head: true }).eq('status', 'Submitted').gte('created_at', weekStart).lte('created_at', weekEnd)
+  const weeklyConfirmedQuery = supabase.from('booking').select('id', { count: 'exact', head: true }).eq('status', 'Confirmed').gte('created_at', weekStart).lte('created_at', weekEnd)
+  const weeklyCompletedQuery = supabase.from('booking').select('id', { count: 'exact', head: true }).eq('status', 'Completed').gte('created_at', weekStart).lte('created_at', weekEnd)
+  const weeklyCancelledQuery = supabase.from('booking').select('id', { count: 'exact', head: true }).eq('status', 'Cancelled').gte('created_at', weekStart).lte('created_at', weekEnd)
+  const weeklyNcnQuery = supabase.from('booking').select('id', { count: 'exact', head: true }).eq('status', 'Non-conformance').gte('created_at', weekStart).lte('created_at', weekEnd)
+  const weeklyNpQuery = supabase.from('booking').select('id', { count: 'exact', head: true }).eq('status', 'Nothing Presented').gte('created_at', weekStart).lte('created_at', weekEnd)
+  const openTicketsQuery = supabase
+    .from('service_ticket')
+    .select('id, display_id, subject, status, priority, created_at, contact!inner(full_name)')
+    .in('status', ['open', 'in_progress'])
+    .order('created_at', { ascending: false })
+    .limit(5)
+  if (clientId) {
+    weekBookingsQuery.eq('client_id', clientId)
+    completedQuery.eq('client_id', clientId)
+    ncnQuery.eq('client_id', clientId)
+    npQuery.eq('client_id', clientId)
+    ticketsQuery.eq('client_id', clientId)
+    weeklySubmittedQuery.eq('client_id', clientId)
+    weeklyConfirmedQuery.eq('client_id', clientId)
+    weeklyCompletedQuery.eq('client_id', clientId)
+    weeklyCancelledQuery.eq('client_id', clientId)
+    weeklyNcnQuery.eq('client_id', clientId)
+    weeklyNpQuery.eq('client_id', clientId)
+    openTicketsQuery.eq('client_id', clientId)
+  }
+
   const [
     weekBookingsResult,
     completedResult,
@@ -45,27 +97,11 @@ export default async function AdminDashboardPage() {
     openTicketsResult,
     mudRemindersResult,
   ] = await Promise.all([
-    supabase
-      .from('booking')
-      .select('id', { count: 'exact', head: true })
-      .gte('created_at', weekStart)
-      .lte('created_at', weekEnd),
-    supabase
-      .from('booking')
-      .select('id', { count: 'exact', head: true })
-      .eq('status', 'Completed'),
-    supabase
-      .from('booking')
-      .select('id', { count: 'exact', head: true })
-      .eq('status', 'Non-conformance'),
-    supabase
-      .from('booking')
-      .select('id', { count: 'exact', head: true })
-      .eq('status', 'Nothing Presented'),
-    supabase
-      .from('service_ticket')
-      .select('id', { count: 'exact', head: true })
-      .in('status', ['open', 'in_progress']),
+    weekBookingsQuery,
+    completedQuery,
+    ncnQuery,
+    npQuery,
+    ticketsQuery,
     supabase
       .from('collection_date')
       .select(
@@ -80,18 +116,13 @@ export default async function AdminDashboardPage() {
       .gte('date', now.toISOString().split('T')[0])
       .order('date', { ascending: true })
       .limit(5),
-    supabase.from('booking').select('id', { count: 'exact', head: true }).eq('status', 'Submitted').gte('created_at', weekStart).lte('created_at', weekEnd),
-    supabase.from('booking').select('id', { count: 'exact', head: true }).eq('status', 'Confirmed').gte('created_at', weekStart).lte('created_at', weekEnd),
-    supabase.from('booking').select('id', { count: 'exact', head: true }).eq('status', 'Completed').gte('created_at', weekStart).lte('created_at', weekEnd),
-    supabase.from('booking').select('id', { count: 'exact', head: true }).eq('status', 'Cancelled').gte('created_at', weekStart).lte('created_at', weekEnd),
-    supabase.from('booking').select('id', { count: 'exact', head: true }).eq('status', 'Non-conformance').gte('created_at', weekStart).lte('created_at', weekEnd),
-    supabase.from('booking').select('id', { count: 'exact', head: true }).eq('status', 'Nothing Presented').gte('created_at', weekStart).lte('created_at', weekEnd),
-    supabase
-      .from('service_ticket')
-      .select('id, display_id, subject, status, priority, created_at, contact!inner(full_name)')
-      .in('status', ['open', 'in_progress'])
-      .order('created_at', { ascending: false })
-      .limit(5),
+    weeklySubmittedQuery,
+    weeklyConfirmedQuery,
+    weeklyCompletedQuery,
+    weeklyCancelledQuery,
+    weeklyNcnQuery,
+    weeklyNpQuery,
+    openTicketsQuery,
     // MUD reminders: Registered MUDs with next_expected_date <= 14 days from today
     // (or NULL — for new MUDs that haven't had a booking yet, surfacing them
     // gives admins a chance to schedule the first one).
@@ -104,14 +135,20 @@ export default async function AdminDashboardPage() {
 
   const openExceptions = (ncnResult.count ?? 0) + (npResult.count ?? 0)
 
-  // FY allocation consumption — aggregate booking items by service type
-  const { data: fyItems } = fy
-    ? await supabase
+  // FY allocation consumption — aggregate booking items by service type. Scope to
+  // the active client via the booking embed so a contractor admin's consumption
+  // bars reflect only the selected tenant (booking_item has no client_id of its own).
+  let fyItemsQuery = fy
+    ? supabase
         .from('booking_item')
-        .select('no_services, service!inner(name, category!inner(name, code)), booking!inner(fy_id, status)')
+        .select('no_services, service!inner(name, category!inner(name, code)), booking!inner(fy_id, status, client_id)')
         .eq('booking.fy_id', fy.id)
         .not('booking.status', 'in', '("Cancelled","Pending Payment")')
-    : { data: null }
+    : null
+  if (fyItemsQuery && clientId) {
+    fyItemsQuery = fyItemsQuery.eq('booking.client_id', clientId)
+  }
+  const { data: fyItems } = fyItemsQuery ? await fyItemsQuery : { data: null }
 
   // Sum by service type name
   const serviceUsage = new Map<string, number>()

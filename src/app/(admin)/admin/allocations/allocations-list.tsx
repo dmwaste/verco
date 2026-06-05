@@ -34,23 +34,35 @@ interface AllocationOverrideRow {
   }
 }
 
-export function AllocationsList() {
+interface AllocationsListProps {
+  /** Selected tenant from the admin switcher. allocation_override has no
+   *  client_id column, so we scope through property → collection_area → client. */
+  clientId: string
+}
+
+export function AllocationsList({ clientId }: AllocationsListProps) {
   const supabase = createClient()
   const [search, setSearch] = useState('')
   const [filterFyId, setFilterFyId] = useState<string>('')
 
   const { data: overrides, isLoading } = useQuery({
-    queryKey: ['allocation_overrides', filterFyId],
+    queryKey: ['allocation_overrides', clientId, filterFyId],
     queryFn: async () => {
       let query = supabase
         .from('allocation_override')
         .select(
           `*,
-          eligible_properties!inner(address, formatted_address, collection_area_id),
+          eligible_properties!inner(address, formatted_address, collection_area_id, collection_area:collection_area_id!inner(client_id)),
           service!inner(name, category!inner(name)),
           financial_year(label),
           profiles:created_by(email)`
         )
+
+      // Scope to the selected tenant via the property's collection area
+      // (allocation_override itself carries no client_id).
+      if (clientId) {
+        query = query.eq('eligible_properties.collection_area.client_id', clientId)
+      }
 
       if (filterFyId) {
         query = query.eq('fy_id', filterFyId)

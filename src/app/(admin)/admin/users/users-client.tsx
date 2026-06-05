@@ -34,7 +34,14 @@ const ROLE_STYLE: Record<AppRole, { bg: string; text: string; label: string }> =
 
 const PAGE_SIZE = 50
 
-export function UsersClient() {
+interface UsersClientProps {
+  /** Selected tenant from the admin switcher. Scopes the list to that client's
+   *  users PLUS contractor-tier staff (client_id IS NULL) — never hide D&M's own
+   *  staff, who manage every client. */
+  clientId: string
+}
+
+export function UsersClient({ clientId }: UsersClientProps) {
   const supabase = createClient()
   const queryClient = useQueryClient()
 
@@ -72,7 +79,7 @@ export function UsersClient() {
   }
 
   const { data: usersData, isLoading } = useQuery({
-    queryKey: ['admin-users', roleFilter, activeFilter, debouncedSearch, page],
+    queryKey: ['admin-users', clientId, roleFilter, activeFilter, debouncedSearch, page],
     queryFn: async () => {
       let query = supabase
         .from('user_roles')
@@ -98,6 +105,9 @@ export function UsersClient() {
         .order('created_at', { ascending: false })
         .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1)
 
+      // Scope to the selected tenant's users, but keep contractor-tier staff
+      // (client_id IS NULL) visible — they manage every client.
+      if (clientId) query = query.or(`client_id.eq.${clientId},client_id.is.null`)
       if (roleFilter) query = query.eq('role', roleFilter as AppRole)
       if (activeFilter === 'active') query = query.eq('is_active', true)
       if (activeFilter === 'inactive') query = query.eq('is_active', false)
