@@ -12,6 +12,7 @@ import { BookingStepper } from '@/components/booking/booking-stepper'
 import { BookingCancelLink } from '@/components/booking/booking-cancel-link'
 import { VercoButton } from '@/components/ui/verco-button'
 import { decodeItems } from '@/lib/booking/search-params'
+import { buildConfirmBreakdown } from '@/lib/pricing/build-breakdown'
 // replaceBookingAfterEdit import removed — edits now in-place via the EF's
 // update branch (no cancel-and-replace dance).
 import {
@@ -144,46 +145,66 @@ export function ConfirmForm() {
     queryFn: async () => {
       const serviceIds = Array.from(selectedItems.keys())
 
-      const [servicesResult, dateResult, fyResult] = await Promise.all([
-        supabase
-          .from('service')
-          .select('id, name, category!inner(name, code)')
-          .in('id', serviceIds),
-        supabase
-          .from('collection_date')
-          .select('date')
-          .eq('id', collectionDateId)
-          .single(),
-        supabase
-          .from('financial_year')
-          .select('id')
-          .eq('is_current', true)
-          .single(),
-      ])
+      const [servicesResult, dateResult, fyResult, allocationRulesResult] =
+        await Promise.all([
+          supabase
+            .from('service')
+            .select('id, name, category!inner(name, code)')
+            .in('id', serviceIds),
+          supabase
+            .from('collection_date')
+            .select('date')
+            .eq('id', collectionDateId)
+            .single(),
+          supabase
+            .from('financial_year')
+            .select('id')
+            .eq('is_current', true)
+            .single(),
+          supabase
+            .from('allocation_rules')
+            .select('max_collections, category!inner(code)')
+            .eq('collection_area_id', collectionAreaId),
+        ])
 
-      // Get FY usage to determine free vs paid
-      const usage = new Map<string, number>()
+      // Category-level budget maxes (Bulk, Ancillary) for this area
+      const categoryMaxMap = new Map<string, number>()
+      for (const r of allocationRulesResult.data ?? []) {
+        const cat = r.category as unknown as { code: string }
+        categoryMaxMap.set(cat.code, r.max_collections)
+      }
+
+      // FY usage to determine free vs paid — at BOTH the per-service and the
+      // per-category level. The dual-limit engine needs both; the old confirm
+      // calc only had per-service, so category-cap-driven paid units silently
+      // vanished from the breakdown while the total still charged for them.
+      const serviceUsageMap = new Map<string, number>()
+      const categoryUsageMap = new Map<string, number>()
       if (fyResult.data) {
-        const { data: items } = await supabase
+        const { data: usageItems } = await supabase
           .from('booking_item')
           .select(
-            'no_services, service_id, booking!inner(property_id, fy_id, status)'
+            'no_services, service_id, service!inner(category!inner(code)), booking!inner(property_id, fy_id, status)'
           )
           .eq('booking.property_id', propertyId)
           .eq('booking.fy_id', fyResult.data.id)
           .not('booking.status', 'in', '("Cancelled","Pending Payment")')
 
-        if (items) {
-          for (const item of items) {
-            usage.set(
-              item.service_id,
-              (usage.get(item.service_id) ?? 0) + item.no_services
-            )
-          }
+        for (const item of usageItems ?? []) {
+          serviceUsageMap.set(
+            item.service_id,
+            (serviceUsageMap.get(item.service_id) ?? 0) + item.no_services
+          )
+          const svc = item.service as unknown as { category: { code: string } }
+          const code = svc.category.code
+          categoryUsageMap.set(
+            code,
+            (categoryUsageMap.get(code) ?? 0) + item.no_services
+          )
         }
       }
 
-      // Get service rules for pricing
+      // Service rules (per-service max + extra price)
       const { data: rules } = await supabase
         .from('service_rules')
         .select('service_id, max_collections, extra_unit_price')
@@ -191,48 +212,41 @@ export function ConfirmForm() {
         .in('service_id', serviceIds)
 
       const rulesMap = new Map(
-        (rules ?? []).map((r) => [r.service_id, r])
+        (rules ?? []).map((r) => [
+          r.service_id,
+          {
+            max_collections: r.max_collections,
+            extra_unit_price: r.extra_unit_price,
+          },
+        ])
       )
 
-      // Build line items with free/paid breakdown
+      // service_id → name and → category code (from the services fetch)
       type ServiceWithCategory = {
         id: string
         name: string
         category: { name: string; code: string }
       }
-
-      const included: Array<{ name: string; qty: number }> = []
-      const extras: Array<{
-        name: string
-        qty: number
-        unitPrice: number
-        lineTotal: number
-      }> = []
-
-      if (servicesResult.data) {
-        for (const st of servicesResult.data as unknown as ServiceWithCategory[]) {
-          const qty = selectedItems.get(st.id) ?? 0
-          const rule = rulesMap.get(st.id)
-          const used = usage.get(st.id) ?? 0
-          const maxFree = rule?.max_collections ?? 0
-          const remainingFree = Math.max(0, maxFree - used)
-          const freeQty = Math.min(qty, remainingFree)
-          const paidQty = qty - freeQty
-
-          if (freeQty > 0) {
-            included.push({ name: st.name, qty: freeQty })
-          }
-          if (paidQty > 0 && rule) {
-            const unitPrice = rule.extra_unit_price
-            extras.push({
-              name: st.name,
-              qty: paidQty,
-              unitPrice,
-              lineTotal: paidQty * unitPrice,
-            })
-          }
-        }
+      const serviceNames = new Map<string, string>()
+      const serviceCategoryMap = new Map<string, string>()
+      for (const st of (servicesResult.data ?? []) as unknown as ServiceWithCategory[]) {
+        serviceNames.set(st.id, st.name)
+        serviceCategoryMap.set(st.id, st.category.code)
       }
+
+      // Price via the shared dual-limit engine — keeps the breakdown in lockstep
+      // with the services-step total (both honour the category cap).
+      const { included, extras } = buildConfirmBreakdown({
+        items: Array.from(selectedItems.entries()).map(
+          ([service_id, quantity]) => ({ service_id, quantity })
+        ),
+        serviceNames,
+        serviceCategoryMap,
+        rulesMap,
+        categoryMaxMap,
+        serviceUsageMap,
+        categoryUsageMap,
+      })
 
       return {
         collectionDate: dateResult.data?.date ?? '',
