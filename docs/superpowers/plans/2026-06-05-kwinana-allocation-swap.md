@@ -32,8 +32,9 @@ A single PR fails Types Freshness CI because the new tables/columns aren't in pr
 | `src/lib/pricing/build-breakdown.ts` | accept optional `conversion` (confirm display) | 4 |
 | `src/app/(public)/book/confirm/confirm-form.tsx` | read `swap` param, pass conversion to breakdown + EF | 4 |
 | `supabase/functions/create-booking/index.ts` | accept `swap`, re-validate, insert `allocation_swap` | 5 |
-| `supabase/functions/nightly-sync-to-dm-ops/index.ts` | include swap state outbound | 5 |
 | `tests/e2e/allocation-swap.spec.ts` | end-to-end resident swap flow | 6 |
+
+> **Scope decision (eng review, D1):** DM-Ops nightly-sync of the explicit swap-state is **deferred to a fast follow** (NOT in this plan). The triggering Green booking still reaches DM-Ops via existing booking sync; only DM-Ops's *awareness of why ancillary was forfeited* waits. See "NOT in scope".
 
 ---
 
@@ -268,9 +269,12 @@ Immediately before `const categoryFormUsed = new Map<string, number>()`, derive 
 
 ```ts
   // Apply an active allocation swap as a budget adjustment on local copies.
+  // Guard (eng review A2): the swap is residential-only — its from/to units are
+  // NOT scaled by unitMultiplier, and MUD swaps are out of scope, so only apply
+  // when unitMultiplier === 1. A MUD + conversion combination would mis-scale.
   const effectiveCategoryMax = new Map(categoryMaxMap)
   const serviceMaxBonus = new Map<string, number>()
-  if (conversion) {
+  if (conversion && unitMultiplier === 1) {
     effectiveCategoryMax.set(
       conversion.from_category_code,
       Math.max(0, (effectiveCategoryMax.get(conversion.from_category_code) ?? 0) - conversion.from_units),
@@ -417,7 +421,7 @@ const swapEligible = isSwapEligible({
 })
 ```
 
-- [ ] **Step 3: Pass the conversion into the client preview.** In the `pricingItems` `useMemo`, when `swapApplied && conversionRule`, route the preview through the engine with the conversion (replace the inline dual-limit loop with `computeLineItems(..., toActiveConversion(conversionRule))`, or apply the same budget adjustment the engine does). Keep the badge `getLiveRemaining` consistent (Ancillary shows 0, Bulk shows +1 when swapped).
+- [ ] **Step 3: Refactor the preview onto the shared engine (eng review A1).** Replace the inline dual-limit loop in the `pricingItems` `useMemo` (`services-form.tsx:187-235`) with a `computeLineItems(...)` call — the same single source the bug fix gave the confirm page. Pass `swapApplied && conversionRule ? toActiveConversion(conversionRule) : undefined` as the conversion arg. Derive `categoryFreeUsed`/`getLiveRemaining` from the returned `line_items` (sum `free_units` per category) so the badges stay correct (Ancillary → 0, Bulk → +1 when swapped). This eliminates the 4th private copy of the pricing rule — the swap conversion then lives in exactly ONE place (the engine).
 
 - [ ] **Step 4: Render the checkbox** below the Ancillary section, only when `swapEligible || swapApplied`:
 
@@ -466,7 +470,6 @@ git commit -m "feat(book): allocation swap checkbox + preview wiring"
 
 **Files:**
 - Modify: `supabase/functions/create-booking/index.ts`
-- Modify: `supabase/functions/nightly-sync-to-dm-ops/index.ts`
 
 - [ ] **Step 1: Accept `swap` in the request body** (Zod-validate: `swap: z.boolean().optional()`).
 
@@ -486,16 +489,17 @@ if (swap) {
 
 Use `assertRowsAffected`-style checking (a failed insert must surface, not silently no-op — CLAUDE.md cron memory). The `unique(property_id, fy_id)` guards double-swap.
 
-- [ ] **Step 4: nightly-sync** — include the `allocation_swap` (and/or a `swap_applied` marker on the synced booking) in the DM-Ops payload so DM-Ops reflects the swap. Verco only writes its own → DM-Ops via this EF (red line #6).
+- [ ] **Step 4: Handle the unique-violation gracefully.** If the `allocation_swap` insert fails on `unique(property_id, fy_id)` (a concurrent booking already swapped), return a clear 409/400 (`error: 'A swap has already been applied for this property this year.'`) — not a 500. This is the server-side backstop for the client-side eligibility race.
 
 - [ ] **Step 5: Deploy + commit.**
 
 ```bash
 pnpm supabase functions deploy create-booking --no-verify-jwt
-pnpm supabase functions deploy nightly-sync-to-dm-ops --no-verify-jwt
-git add supabase/functions/create-booking/index.ts supabase/functions/nightly-sync-to-dm-ops/index.ts
-git commit -m "feat(ef): create-booking re-validates + records allocation swap; sync to DM-Ops"
+git add supabase/functions/create-booking/index.ts
+git commit -m "feat(ef): create-booking re-validates + records allocation swap"
 ```
+
+> **Deferred (fast follow, not this plan):** `nightly-sync-to-dm-ops` to carry the explicit `allocation_swap` state so DM-Ops knows *why* ancillary was forfeited. The triggering Green booking already syncs via existing machinery, so this is reporting-completeness, not an ops break.
 
 ---
 
@@ -519,11 +523,119 @@ git commit -m "test(e2e): resident allocation swap flow"
 
 ---
 
+## Review additions (eng review — Sections 2 & 3)
+
+### Edit-flow reconciliation (Code Quality — confidence 6)
+The admin/resident "Edit services" flow keeps the same `booking_id` (via `?replaces=`). If someone edits a swap booking and removes the Green or unticks the swap, the `allocation_swap` row would go stale (property shows ancillary forfeited but the booking no longer reflects a swap). **Handle in Task 5:** in `create-booking`'s update branch, after re-pricing, reconcile — `delete from allocation_swap where booking_id = <id>` when the updated booking is not a swap; (re-)insert when it is. Add a unit/integration assertion for the un-swap-on-edit path.
+
+### Test gaps to close (Test review — these are plan-required, not optional)
+- **[CRITICAL — regression]** `src/__tests__/pricing/conversion.test.ts` already covers the engine swap math (Task 2). **Add** an assertion that a swap + an Ancillary item in the cart yields `paid_units > 0` for that ancillary (proves the budget really zeroed).
+- **EF re-validation** (Task 5): integration tests — (a) `swap:true` with prior ancillary usage → 400; (b) `swap:true`, no active rule for area → 400; (c) happy path inserts exactly one `allocation_swap` row; (d) concurrent double-swap → 2nd returns 409, not 500 (the `unique` backstop).
+- **Revert trigger** (Task 1): a DB test — insert a swap, cancel the booking, assert the `allocation_swap` row is gone; and the edit-flow un-swap above.
+- **E2E** (Task 6): the existing happy-path + the post-swap "ancillary blocked / checkbox gone" negative (already in the plan).
+
+### Coverage diagram
+
+```
+ENGINE (computeLineItems + EF mirror)
+  └── conversion branch
+      ├── [★★★] 2 General + 1 Green free          conversion.test.ts
+      ├── [★★★] 3 General → 1 paid (Green-only)    conversion.test.ts
+      ├── [★★★] ancillary zeroed → paid            conversion.test.ts (add assertion)
+      └── [★★★] no conversion = unchanged          conversion.test.ts
+ELIGIBILITY (isSwapEligible)                        [★★★] swap.test.ts
+EF create-booking (swap path)                       [GAP→add] reject-used / reject-no-rule / insert / 409
+DB revert trigger + edit un-swap                    [GAP→add] DB test
+USER FLOW: tick swap → free Green → dashboard        [→E2E] allocation-swap.spec.ts
+USER FLOW: post-swap ancillary blocked               [→E2E] allocation-swap.spec.ts
+COVERAGE TARGET: engine 100%, EF paths + trigger covered, 2 E2E
+```
+
+## Performance review
+No issues. Two small added queries (active conversion rule + existing-swap check) are per-area/per-property point lookups, no N+1, negligible. The services-form engine refactor (A1) removes a hand-rolled loop in favour of the same O(n) engine pass — net neutral.
+
+## NOT in scope (deferred, with rationale)
+- **DM-Ops nightly-sync of swap state** — Green booking already syncs; DM-Ops swap-awareness is a fast follow (D1).
+- **Admin UI to edit conversion rules** — seeded by migration; admin-config later.
+- **Bidirectional / partial swaps, non-Green targets** — Kwinana needs only Ancillary→Green 3→1.
+- **MUD / admin-on-behalf swaps** — resident self-serve only; guarded by `unitMultiplier === 1` (A2).
+
+## What already exists (reused, not rebuilt)
+- `computeLineItems` dual-limit engine — swap is a budget delta on it, not new pricing.
+- `build-breakdown.ts` (PR #147) — reused for confirm display.
+- DM-Ops `allocation_conversion_rule` — mirrored, not reinvented.
+- `allocation_override` hook — deliberately NOT reused (additive-only; a swap needs −from & +to).
+
+## Failure modes
+| Codepath | Failure | Test? | Handled? | User sees |
+|---|---|---|---|---|
+| EF swap re-validation | client sends swap but ancillary already used | yes (add) | 400 reject | clear error |
+| concurrent double-swap | 2 bookings race the eligibility check | yes (add) | `unique` → 409 | clear error |
+| edit removes Green | stale `allocation_swap` row | yes (add) | reconcile-on-edit | correct allocation |
+| cancel swap booking | ancillary not restored | yes (add) | revert trigger | ancillary back |
+
+No critical (untested AND unhandled AND silent) gaps after the additions above.
+
 ## Out of scope (v1)
-Admin UI to edit conversion rules; bidirectional/partial swaps; non-Green targets; MUD / admin-on-behalf swaps. (Spec §9.)
+Admin UI to edit conversion rules; bidirectional/partial swaps; non-Green targets; MUD / admin-on-behalf swaps; DM-Ops swap-state sync. (Spec §9 + D1.)
 
 ## Testing summary
 - Pricing engine 100% incl. all swap permutations (Task 2) — Node + EF mirror identical.
 - Eligibility predicate unit-tested (Task 3).
+- EF re-validation + revert/edit reconciliation tested (Task 5 / Task 1).
 - E2E swap happy-path + post-swap block (Task 6).
 - RLS smoke: `allocation_conversion_rule` public-SELECT; `allocation_swap` owner/staff/EF-insert.
+
+## Parallelization
+PR-A (migration) must land + release before any PR-B work. Within PR-B, the
+dependency graph is mostly sequential because the type flows downhill:
+
+```
+Task 2 (engine + ActiveConversion type)
+   ├──> Task 3 (swap.ts — imports ActiveConversion)
+   │       └──> Task 4 (services-form + confirm — use helpers)
+   └──> Task 5 (create-booking EF — uses the EF-mirror conversion)   [parallel with 3→4]
+                 └──> Task 6 (E2E — needs 4 + 5)
+```
+
+- **Lane A:** Task 2 → 3 → 4 (sequential — shared types + `src/lib/pricing` + booking UI).
+- **Lane B:** Task 5 (after Task 2's EF mirror exists — touches `supabase/functions`, no overlap with Lane A's `src/`).
+- Then Task 6 after both lanes merge. Two lanes; modest parallelism (Lane A is the long pole).
+
+## Implementation Tasks
+Synthesized from this review. The phase tasks above are the build steps; these are the review-derived deltas folded in.
+
+- [ ] **T1 (P1, human: ~1h / CC: ~15min)** — services-form — refactor pricing memo onto `computeLineItems` (A1)
+  - Surfaced by: Architecture — `services-form.tsx:187-235` is a 4th copy of the dual-limit loop
+  - Files: `src/app/(public)/book/services/services-form.tsx`
+  - Verify: services-step preview + badges match `computeLineItems`; existing E2E green
+- [ ] **T2 (P2, human: ~10min / CC: ~3min)** — engine — guard conversion to `unitMultiplier === 1` (A2)
+  - Surfaced by: Architecture — MUD × conversion mis-scales from/to units
+  - Files: `src/lib/pricing/calculate.ts`, `supabase/functions/_shared/pricing.ts`
+  - Verify: add a unit test asserting MUD multiplier ignores conversion
+- [ ] **T3 (P2, human: ~20min / CC: ~5min)** — swap.ts — centralise the multi-FK conversion-rule query helper (A3)
+  - Surfaced by: Architecture — same gotcha-prone embed in 3 call sites
+  - Files: `src/lib/pricing/swap.ts` (+ callers)
+  - Verify: one helper imported by services-form, confirm-form, and the EF query path
+- [ ] **T4 (P1, human: ~45min / CC: ~10min)** — create-booking — edit-flow un-swap reconciliation + tests
+  - Surfaced by: Code Quality — editing away the Green leaves a stale `allocation_swap`
+  - Files: `supabase/functions/create-booking/index.ts`
+  - Verify: edit a swap booking to drop Green → `allocation_swap` row removed
+- [ ] **T5 (P1, human: ~1h / CC: ~15min)** — tests — EF re-validation + revert-trigger coverage
+  - Surfaced by: Test review — EF reject paths + DB revert untested
+  - Files: EF integration tests, DB trigger test
+  - Verify: reject-used/reject-no-rule/insert/409 + cancel-reverts-swap all green
+
+---
+
+## GSTACK REVIEW REPORT
+
+| Review | Trigger | Why | Runs | Status | Findings |
+|--------|---------|-----|------|--------|----------|
+| CEO Review | `/plan-ceo-review` | Scope & strategy | 0 | — | not run |
+| Eng Review | `/plan-eng-review` | Architecture & tests (required) | 1 | CLEAR | scope reduced (defer DM-Ops sync) + 1 architecture decision (DRY refactor) + 4 bake-ins; 0 critical gaps after additions |
+| Design Review | `/plan-design-review` | UI/UX gaps | 0 | — | not run (one checkbox; minimal UI) |
+| Outside Voice | `/codex` | Independent 2nd opinion | 0 | — | skipped |
+
+- **UNRESOLVED:** none — both decisions (D1 scope, A1 DRY) answered; A2/A3/edit-flow/tests baked in.
+- **VERDICT:** ENG CLEARED — ready to implement. Land bug fix PR #147 + PR-A migration first, then PR-B.
