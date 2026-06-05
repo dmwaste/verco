@@ -1,12 +1,12 @@
 # VERCO Kwinana — City of Kwinana User Guide
 
 **For:** City of Kwinana team members trialling the VERCO Kwinana portal before go-live — both the **resident** experience (Parts A + B) and the **admin operational** workflows their staff will run after launch (Part C).
-**Version:** 1.0 — 2026-06-05 _(rebranded from the WMRC / Verge Valet guide v1.2; resident screenshots are Verge Valet placeholders pending a Kwinana re-shoot — see banner below)_
+**Version:** 1.1 — 2026-06-05 _(rebranded from the WMRC / Verge Valet guide v1.2; resident screenshots (Parts A + B) captured live from `kwntest.verco.au`; admin screens in Part C are described but not yet captured — see banner below)_
 **Audience:** City of Kwinana team members and customer service staff — covering resident-side testing AND client-staff back-office training.
 
 ---
 
-> **⚠️ Screenshots are placeholders in this revision.** The portal images embedded below were captured from the **Verge Valet (WMRC)** UAT site, not the Kwinana site. **The words, screens, and outcomes are correct for Kwinana** — but the colours, logo, and sample addresses in the *images* still show Verge Valet branding. A Kwinana re-shoot from [`kwntest.verco.au`](https://kwntest.verco.au) is the next pass. Until then, follow the text, not the pixels.
+> **ℹ️ About the screenshots.** All resident-flow screenshots (Parts A + B, images 01–20) were captured **live from the Kwinana UAT site** [`kwntest.verco.au`](https://kwntest.verco.au) — they show the real City of Kwinana branding, addresses, and service catalogue. The **admin** screens in Part C (§4.1–§4.7) are described in full but their screenshots are still to be captured from the admin app, so those sections are marked *"screenshot to follow"* inline.
 
 ---
 
@@ -136,12 +136,12 @@ The booking wizard has **five visible steps** in the progress bar at the top of 
 
 Open [`https://kwntest.verco.au`](https://kwntest.verco.au). You should see the VERCO Kwinana hero page:
 
-![VERCO Kwinana landing page](screenshots/01-landing.png)
+![VERCO Kwinana landing page](screenshots/kwn/01-landing.png)
 
 - **Headline:** "Welcome to Verco Kwinana"
 - **Subheading:** "Make a booking for a bulk verge collection of general household items and green waste."
 - **Address search box** with placeholder *"Enter your property address to get started…"*
-- **"Why book online"** section with three feature tiles
+- **"Fast, Simple, Paperless"** section with three feature tiles (*Included in Your Rates*, *Choose Your Date*, *Reminders Sent to You*)
 - **"How it works"** strip with five numbered steps
 - **"What We Collect"** grid showing the Bulk services (General, Green) and the Ancillary services (E-Waste, Whitegoods, Mattress)
 - **"Ready to book your collection?"** CTA band
@@ -149,7 +149,7 @@ Open [`https://kwntest.verco.au`](https://kwntest.verco.au). You should see the 
 
 **Action:** Click into the address box and start typing a City of Kwinana address. Google Places suggestions appear in a dropdown.
 
-![Address autocomplete dropdown](screenshots/02-address-autocomplete.png)
+![Address autocomplete dropdown](screenshots/kwn/02-address-autocomplete.png)
 
 Click the correct suggestion. You're taken to **Step 1 — Address confirmation**.
 
@@ -163,7 +163,7 @@ The system looks up the address in the Kwinana eligibility list. One of three th
 
 A **green banner** appears: *"Property found! This property qualifies for verge collection services."*
 
-![Property found — eligible address with allocations](screenshots/04-address-confirmed.png)
+![Property found — eligible address with allocations](screenshots/kwn/04-address-confirmed.png)
 
 Below the banner you'll see:
 
@@ -178,7 +178,7 @@ Below the banner you'll see:
 
 A **red banner** appears: *"Address not eligible — This address is not registered for verge collection services."*
 
-![Address not eligible banner](screenshots/03-address-not-eligible.png)
+![Address not eligible banner](screenshots/kwn/03-address-not-eligible.png)
 
 There is no Continue button. The resident is expected to contact the City of Kwinana directly. **Use this branch to test the rejection message** — try an address outside the City of Kwinana catchment.
 
@@ -192,7 +192,7 @@ This branch is for apartment buildings, retirement villages, and other propertie
 
 Page header: **"Select Services"** (step 2).
 
-![Services step — fresh / empty](screenshots/05-services-empty.png)
+![Services step — fresh / empty](screenshots/kwn/05-services-empty.png)
 
 Two sections appear — **Bulk Collection** and **Ancillary Collection** — each with a live "**X of Y remaining**" badge at its top right (Bulk starts at 2 remaining, Ancillary at 3). Each service row has:
 
@@ -203,7 +203,7 @@ Two sections appear — **Bulk Collection** and **Ancillary Collection** — eac
 
 Click `+` on General to add 1. The Bulk badge decrements to "1 of 2 remaining".
 
-![One General item selected](screenshots/06-services-one-selected.png)
+![One General item selected](screenshots/kwn/06-services-one-selected.png)
 
 **Next Step** stays greyed out until at least one item is in the cart, then it activates.
 
@@ -217,7 +217,7 @@ And a bottom totals strip shows:
 
 > **Total Extra Services Cost: $89.67**
 
-![Services with paid extras — over allocation](screenshots/07-services-paid-extras.png)
+![Services with paid extras — over allocation](screenshots/kwn/07-services-paid-extras.png)
 
 > **Tester note:** The price displayed here is calculated client-side for live feedback. The **real** price is re-calculated server-side when you submit the booking on step 5 — the two must match. If you ever see the confirm page reject a booking with "price mismatch", screenshot it and send to Dan.
 
@@ -227,7 +227,7 @@ And a bottom totals strip shows:
 
 Page header: **"Select Collection Date"** (step 3).
 
-![Date picker grid](screenshots/08-date-picker.png)
+![Date picker grid](screenshots/kwn/08-date-picker.png)
 
 Above the date grid, a "Selected Services" chip strip (e.g. *"General × 1"*).
 
@@ -240,7 +240,7 @@ Below, a **3-column grid of available collection dates**. Each tile shows:
 
 If no dates are available for this collection area, you'll see *"No available dates for this collection area."* — that means the collection schedule for this area hasn't been opened up for bookings yet.
 
-![Date tile selected](screenshots/09-date-selected.png)
+![Date tile selected](screenshots/kwn/09-date-selected.png)
 
 **Action:** Click a date tile, then **Next Step →**.
 
@@ -250,7 +250,7 @@ If no dates are available for this collection area, you'll see *"No available da
 
 Page header: **"Collection Details"** (step 4). Despite the name, this step is **only** about where the bin/items will be on the property and any notes for the driver.
 
-![Details / Location step](screenshots/10-details-location.png)
+![Details / Location step](screenshots/kwn/10-details-location.png)
 
 - **Address** — shown read-only at the top.
 - **Location on Property** — pill-style buttons: *Front Verge*, *Side Verge*, *Driveway*, *Laneway*.
@@ -258,13 +258,13 @@ Page header: **"Collection Details"** (step 4). Despite the name, this step is *
 
 **Action:** Pick a location, optionally add a note, click **Next Step →**.
 
-![Location selected + driver note filled](screenshots/11-details-filled.png)
+![Location selected + driver note filled](screenshots/kwn/11-details-filled.png)
 
 ### 2.6 Enter contact details, verify your email, pay
 
 Page header: **"Confirm Your Booking"** (step 5).
 
-![Confirm page — empty contact form](screenshots/12-confirm-page.png)
+![Confirm page — empty contact form](screenshots/kwn/12-confirm-page.png)
 
 #### Top of page — Contact Information
 
@@ -297,7 +297,7 @@ Two sub-sections:
 - If everything is included: shows the word **Included** (no payment needed)
 - If there are extras: shows the dollar total and the small footnote *"Payment will be collected via Stripe before your booking is confirmed."*
 
-![Confirm page — contact form filled](screenshots/13-confirm-filled.png)
+![Confirm page — contact form filled](screenshots/kwn/13-confirm-filled.png)
 
 #### Submit button
 
@@ -312,7 +312,7 @@ Label changes depending on the booking:
 
 **If you're a guest** (first-time tester, fresh browser session) — this is the path Kwinana testers will hit most often. The bottom of the page swaps in an **inline 6-digit OTP verification panel**:
 
-![Inline OTP verification panel on confirm page](screenshots/14-otp-panel.png)
+![Inline OTP verification panel on confirm page](screenshots/kwn/14-otp-panel.png)
 
 > *"Verify Email — We sent a 6-digit code to {your email}"*
 
@@ -320,7 +320,7 @@ Label changes depending on the booking:
 2. **Type the 6 digits** into the boxes. The form auto-submits when you finish the last digit.
 3. If the code is wrong (or stale), you get a clear inline error and "Try Again" / "Request a new code" options:
 
-   ![OTP error state](screenshots/15-otp-error.png)
+   ![OTP error state](screenshots/kwn/15-otp-error.png)
 
 4. After 30 seconds you can request a fresh code.
 5. Once verified, the booking is created.
@@ -350,13 +350,13 @@ From any page on `kwntest.verco.au`:
 
 1. Click **My Dashboard** in the top nav, or visit `/auth` directly.
 
-   ![Sign-in page — email entry](screenshots/16-auth-signin.png)
+   ![Sign-in page — email entry](screenshots/kwn/16-auth-signin.png)
 
 2. Page header: **"Sign in"** with the message *"Enter your email address and we'll send you a one-time code to sign in."*
 3. Type your email, click **Send Code**.
 4. You're redirected to `/auth/verify?email=…` showing **"Check your email — We sent a 6-digit code to {email}"**.
 
-   ![Verify code screen](screenshots/17-auth-verify.png)
+   ![Verify code screen](screenshots/kwn/17-auth-verify.png)
 
 5. Six numeric cells, paste-friendly. Auto-verifies on the sixth digit.
 6. On success: green tick *"You're signed in — Taking you to your dashboard now"* then you land on your dashboard.
@@ -367,7 +367,7 @@ Codes expire after 10 minutes; if it lapses, click **Resend code** (the 30-secon
 
 URL: `/dashboard`. Page header: **"My Dashboard"** with a greeting like *"Good morning, Daniel."*
 
-![Resident dashboard](screenshots/18-dashboard.png)
+![Resident dashboard](screenshots/kwn/18-dashboard.png)
 
 Four stat cards at the top:
 
@@ -398,7 +398,7 @@ Each booking card on the dashboard shows:
 
 Click any booking card on the dashboard. You land on `/booking/<ref>`.
 
-![Booking detail page](screenshots/19-booking-detail.png)
+![Booking detail page](screenshots/kwn/19-booking-detail.png)
 
 The booking detail page shows:
 
@@ -441,7 +441,7 @@ When you confirm the edit, the booking keeps its original reference and `booking
 
 Click **Cancel Booking** on the booking detail page.
 
-![Cancel confirmation dialog](screenshots/20-cancel-dialog.png)
+![Cancel confirmation dialog](screenshots/kwn/20-cancel-dialog.png)
 
 A confirmation dialog appears:
 
@@ -1018,12 +1018,13 @@ Inside the admin app, the floating **"Report a bug"** button (bottom-right corne
 
 ---
 
-**Document version:** 1.0
+**Document version:** 1.1
 **Last updated:** 2026-06-05
-**Next review:** after first round of City of Kwinana dummy bookings + the Kwinana screenshot re-shoot
+**Next review:** after first round of City of Kwinana dummy bookings + the Part C admin screenshot capture
 
 ### Revision log
 
-- **1.0 — 2026-06-05**: Initial City of Kwinana release, rebranded from the WMRC / Verge Valet user guide (v1.2). Single-LGA structure (no sub-clients, no member councils — four collection areas KWN-1 to KWN-4); Kwinana service catalogue (Bulk + Ancillary, dual-limit allocation); 48-hour place-out window; `kwntest.verco.au`; VERCO Kwinana contact details. Resident screenshots (01-20) are reused Verge Valet placeholders pending a Kwinana re-shoot; admin screenshots (21-32) to be captured in the same pass.
+- **1.1 — 2026-06-05**: Replaced the placeholder resident screenshots with **live Kwinana captures** (images 01–20, shot from `kwntest.verco.au` and stored under `screenshots/kwn/`). Updated the §2.1 hero description and screenshots banner to match the live site. Part C admin screens (21–32) still pending capture.
+- **1.0 — 2026-06-05**: Initial City of Kwinana release, rebranded from the WMRC / Verge Valet user guide (v1.2). Single-LGA structure (no sub-clients, no member councils — four collection areas KWN-1 to KWN-4); Kwinana service catalogue (Bulk + Ancillary, dual-limit allocation); 48-hour place-out window; `kwntest.verco.au`; VERCO Kwinana contact details. Resident screenshots shipped as reused Verge Valet placeholders (replaced in v1.1).
 
-*Resident-side screenshots (01-20) are placeholders carried over from the Verge Valet (WMRC) build (`vvtest.verco.au`, captured 2026-05-19). They will be re-shot from `kwntest.verco.au` so the images match Kwinana branding. The words and outcomes are stable and correct for Kwinana; only the on-screen colours, logo, and sample addresses in the placeholder images differ.*
+*Resident-side screenshots (01–20) were captured live from the Kwinana UAT site `kwntest.verco.au` on 2026-06-05 (booking ref `KWN-1-0ZXHZR`, test resident on a `+`-suffixed inbox). Part C admin screenshots (21–32) are described from a live walk-through but not yet captured — they require an admin session and contact/strata PII redaction before publishing.*
