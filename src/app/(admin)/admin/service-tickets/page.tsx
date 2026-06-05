@@ -1,10 +1,14 @@
 import { Suspense } from 'react'
+import { getCurrentAdminClient } from '@/lib/admin/current-client'
 import { ServiceTicketsClient } from './service-tickets-client'
 
-export default function ServiceTicketsPage() {
+export default async function ServiceTicketsPage() {
+  const currentClient = await getCurrentAdminClient()
+  const clientId = currentClient?.id ?? ''
+
   return (
     <Suspense>
-      <ServiceTicketsClient />
+      <ServiceTicketsClient clientId={clientId} />
     </Suspense>
   )
 }

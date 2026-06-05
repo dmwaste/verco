@@ -42,10 +42,14 @@ const TYPE_DOT_COLOR: Record<string, string> = {
 const PAGE_SIZE = 20
 
 interface BookingsListClientProps {
+  /** The selected tenant from the admin switcher. Scopes every query so the
+   *  view matches the chosen client (and closes the public-SELECT area-dropdown
+   *  cross-tenant leak for client-admins). */
+  clientId: string
   isContractorAdmin: boolean
 }
 
-export function BookingsListClient({ isContractorAdmin }: BookingsListClientProps) {
+export function BookingsListClient({ clientId, isContractorAdmin }: BookingsListClientProps) {
   const searchParams = useSearchParams()
   const supabase = createClient()
   const [payingBookingId, setPayingBookingId] = useState<string | null>(null)
@@ -72,22 +76,26 @@ export function BookingsListClient({ isContractorAdmin }: BookingsListClientProp
     setPage(0)
   }, [searchParams])
 
-  // Fetch collection areas for filter dropdown
+  // Fetch collection areas for filter dropdown — scoped to the selected client
+  // (collection_area is public-SELECT, so without this a client-admin sees
+  // every tenant's area codes).
   const { data: areas } = useQuery({
-    queryKey: ['collection-areas'],
+    queryKey: ['collection-areas', clientId],
     queryFn: async () => {
-      const { data } = await supabase
+      let q = supabase
         .from('collection_area')
         .select('id, code, name')
         .eq('is_active', true)
         .order('code')
+      if (clientId) q = q.eq('client_id', clientId)
+      const { data } = await q
       return data ?? []
     },
   })
 
   // Fetch bookings
   const { data: bookingsData, isLoading } = useQuery({
-    queryKey: ['admin-bookings', search, statusFilter, areaFilter, typeFilter, page],
+    queryKey: ['admin-bookings', clientId, search, statusFilter, areaFilter, typeFilter, page],
     queryFn: async () => {
       // Multi-column search: match against booking.ref, property formatted_address,
       // and contact full_name. booking.property_id and booking.contact_id are both
@@ -126,6 +134,13 @@ export function BookingsListClient({ isContractorAdmin }: BookingsListClientProp
         )
         .order('created_at', { ascending: false })
         .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1)
+
+      // Scope to the selected tenant. booking.client_id is RLS-gated too, but
+      // for a contractor-admin (who can see every client) this is what makes
+      // the list match the switcher instead of merging all tenants.
+      if (clientId) {
+        query = query.eq('client_id', clientId)
+      }
 
       if (statusFilter) {
         query = query.eq('status', statusFilter as BookingStatus)

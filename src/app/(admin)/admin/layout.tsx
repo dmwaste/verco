@@ -46,27 +46,38 @@ export default async function AdminLayout({
     getAccessibleAdminClients(),
   ])
 
-  // Badge counts (RLS-scoped — contractor users see all their clients;
-  // client users see only their own client).
+  // Badge counts. RLS scopes these to a contractor user's accessible clients,
+  // but contractors can see ALL their clients — so the sidebar badges must also
+  // be narrowed to the active switcher client (clientId), else the counts merge
+  // every tenant's data. Guarded by `if (clientId)` to preserve the no-client
+  // fallback behaviour.
+  const clientId = currentClient?.id ?? ''
+
+  const bookingsQuery = supabase
+    .from('booking')
+    .select('id', { count: 'exact', head: true })
+    .in('status', ['Submitted', 'Confirmed', 'Scheduled'])
+  const ncnQuery = supabase
+    .from('booking')
+    .select('id', { count: 'exact', head: true })
+    .eq('status', 'Non-conformance')
+  const npQuery = supabase
+    .from('booking')
+    .select('id', { count: 'exact', head: true })
+    .eq('status', 'Nothing Presented')
+  const ticketsQuery = supabase
+    .from('service_ticket')
+    .select('id', { count: 'exact', head: true })
+    .in('status', ['open', 'in_progress'])
+  if (clientId) {
+    bookingsQuery.eq('client_id', clientId)
+    ncnQuery.eq('client_id', clientId)
+    npQuery.eq('client_id', clientId)
+    ticketsQuery.eq('client_id', clientId)
+  }
+
   const [bookingsResult, ncnResult, npResult, ticketsResult] =
-    await Promise.all([
-      supabase
-        .from('booking')
-        .select('id', { count: 'exact', head: true })
-        .in('status', ['Submitted', 'Confirmed', 'Scheduled']),
-      supabase
-        .from('booking')
-        .select('id', { count: 'exact', head: true })
-        .eq('status', 'Non-conformance'),
-      supabase
-        .from('booking')
-        .select('id', { count: 'exact', head: true })
-        .eq('status', 'Nothing Presented'),
-      supabase
-        .from('service_ticket')
-        .select('id', { count: 'exact', head: true })
-        .in('status', ['open', 'in_progress']),
-    ])
+    await Promise.all([bookingsQuery, ncnQuery, npQuery, ticketsQuery])
 
   const counts = {
     bookings: bookingsResult.count ?? 0,

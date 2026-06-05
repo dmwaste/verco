@@ -16,7 +16,11 @@ const STATUS_OPTIONS: string[] = ['Issued', 'Disputed', 'Under Review', 'Resolve
 
 const PAGE_SIZE = 20
 
-export function NonConformanceClient() {
+interface NonConformanceClientProps {
+  clientId: string
+}
+
+export function NonConformanceClient({ clientId }: NonConformanceClientProps) {
   const supabase = createClient()
 
   const [page, setPage] = useState(0)
@@ -36,7 +40,7 @@ export function NonConformanceClient() {
   })
 
   const { data: ncnData, isLoading } = useQuery({
-    queryKey: ['admin-ncn', statusFilter, reasonFilter, search, page],
+    queryKey: ['admin-ncn', clientId, statusFilter, reasonFilter, search, page],
     queryFn: async () => {
       let query = supabase
         .from('non_conformance_notice')
@@ -51,6 +55,7 @@ export function NonConformanceClient() {
         .order('reported_at', { ascending: false })
         .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1)
 
+      if (clientId) query = query.eq('client_id', clientId)
       if (statusFilter) query = query.eq('status', statusFilter as never)
       if (reasonFilter) query = query.eq('reason', reasonFilter as NcnReason)
       if (search) {

@@ -29,7 +29,11 @@ const TYPE_OPTIONS = [
   { value: 'payment_expired', label: 'Payment Expired' },
 ]
 
-export function NotificationsClient() {
+interface NotificationsClientProps {
+  clientId: string
+}
+
+export function NotificationsClient({ clientId }: NotificationsClientProps) {
   const supabase = createClient()
   const queryClient = useQueryClient()
   const [typeFilter, setTypeFilter] = useState('')
@@ -37,7 +41,7 @@ export function NotificationsClient() {
   const [retryErrors, setRetryErrors] = useState<Record<string, string>>({})
 
   const { data: logs, isLoading } = useQuery({
-    queryKey: ['admin-notification-failures', typeFilter],
+    queryKey: ['admin-notification-failures', clientId, typeFilter],
     queryFn: async () => {
       // Date.now() lives inside queryFn (impurity is expected here) rather
       // than at render scope. Result: react-hooks/purity stays happy, and
@@ -54,6 +58,7 @@ export function NotificationsClient() {
         .gt('created_at', sevenDaysAgo)
         .order('created_at', { ascending: false })
 
+      if (clientId) query = query.eq('client_id', clientId)
       if (typeFilter) {
         query = query.eq('notification_type', typeFilter)
       }
