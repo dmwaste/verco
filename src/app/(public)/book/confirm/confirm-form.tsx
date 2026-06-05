@@ -13,6 +13,13 @@ import { BookingCancelLink } from '@/components/booking/booking-cancel-link'
 import { VercoButton } from '@/components/ui/verco-button'
 import { decodeItems } from '@/lib/booking/search-params'
 import { buildConfirmBreakdown } from '@/lib/pricing/build-breakdown'
+import { type ActiveConversion } from '@/lib/pricing/calculate'
+import {
+  CONVERSION_RULE_SELECT,
+  flattenConversionRule,
+  toActiveConversion,
+  type RawConversionRuleRow,
+} from '@/lib/pricing/swap'
 // replaceBookingAfterEdit import removed — edits now in-place via the EF's
 // update branch (no cancel-and-replace dance).
 import {
@@ -37,6 +44,7 @@ export function ConfirmForm() {
   const location = searchParams.get('location') ?? ''
   const notes = searchParams.get('notes') ?? ''
   const onBehalf = searchParams.get('on_behalf') === 'true'
+  const swap = searchParams.get('swap') === 'true'
   // On-behalf edit flow params — extracted at component scope so the
   // useEffect/useCallback below can depend on the stable values, not the
   // whole searchParams object.
@@ -140,7 +148,7 @@ export function ConfirmForm() {
 
   // Fetch service details + collection date for display
   const { data: summaryData } = useQuery({
-    queryKey: ['booking-summary', itemsParam, collectionDateId],
+    queryKey: ['booking-summary', itemsParam, collectionDateId, swap],
     enabled: selectedItems.size > 0 && !!collectionDateId,
     queryFn: async () => {
       const serviceIds = Array.from(selectedItems.keys())
@@ -234,8 +242,22 @@ export function ConfirmForm() {
         serviceCategoryMap.set(st.id, st.category.code)
       }
 
+      // Active allocation swap (if the resident ticked it) — load the rule so
+      // the breakdown shows the extra Green as included.
+      let conversion: ActiveConversion | undefined
+      if (swap) {
+        const { data: ruleData } = await supabase
+          .from('allocation_conversion_rule')
+          .select(CONVERSION_RULE_SELECT)
+          .eq('is_active', true)
+          .eq('from_allocation_rules.collection_area_id', collectionAreaId)
+        const raw = (ruleData ?? [])[0] as unknown as RawConversionRuleRow | undefined
+        const rule = raw ? flattenConversionRule(raw) : null
+        if (rule) conversion = toActiveConversion(rule)
+      }
+
       // Price via the shared dual-limit engine — keeps the breakdown in lockstep
-      // with the services-step total (both honour the category cap).
+      // with the services-step total (both honour the category cap + swap).
       const { included, extras } = buildConfirmBreakdown({
         items: Array.from(selectedItems.entries()).map(
           ([service_id, quantity]) => ({ service_id, quantity })
@@ -246,12 +268,14 @@ export function ConfirmForm() {
         categoryMaxMap,
         serviceUsageMap,
         categoryUsageMap,
+        conversion,
       })
 
       return {
         collectionDate: dateResult.data?.date ?? '',
         included,
         extras,
+        swapped: !!conversion,
       }
     },
   })
@@ -312,6 +336,8 @@ export function ConfirmForm() {
         // both the server-side re-price AND the post-create cleanup
         // (replaceBookingAfterEdit) know which booking is being replaced.
         ...(replacesParam ? { replaces: replacesParam } : {}),
+        // Allocation swap — the EF re-validates + records it.
+        ...(swap ? { swap: true } : {}),
       }
 
       // Forward the user's session JWT to create-booking whenever a session
@@ -401,7 +427,7 @@ export function ConfirmForm() {
       setSubmitError('An unexpected error occurred. Please try again.')
       setIsSubmitting(false)
     }
-  }, [selectedItems, propertyId, collectionAreaId, collectionDateId, location, notes, router, onBehalf, replacesParam, supabase])
+  }, [selectedItems, propertyId, collectionAreaId, collectionDateId, location, notes, router, onBehalf, replacesParam, swap, supabase])
 
   // OTP verification after code entry
   const verifyOtp = useCallback(async (code: string) => {
@@ -715,6 +741,13 @@ export function ConfirmForm() {
             <h2 className="mb-3.5 font-[family-name:var(--font-heading)] text-body font-semibold text-[var(--brand)]">
               Services
             </h2>
+
+            {summaryData.swapped && (
+              <div className="mb-3 rounded-lg border border-[var(--brand-accent-dark)] bg-[#F0FBF5] px-3.5 py-2.5 text-body-sm text-[#2f5320]">
+                <strong className="text-[var(--brand)]">Ancillary allocation swapped</strong>{' '}
+                — your extra green waste collection is included free.
+              </div>
+            )}
 
             {summaryData.included.length > 0 && (
               <>
