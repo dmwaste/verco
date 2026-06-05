@@ -41,6 +41,20 @@ export interface ServiceRule {
 }
 
 /**
+ * An applied allocation swap (e.g. 3 Ancillary -> 1 Green). Drops the `from`
+ * category budget by `from_units`, raises the `to` category budget and the
+ * `to_service_id` service budget by `to_units`. Residential only — never scaled
+ * by unitMultiplier (see the guard in computeLineItems).
+ */
+export interface ActiveConversion {
+  from_category_code: string
+  to_category_code: string
+  to_service_id: string
+  from_units: number
+  to_units: number
+}
+
+/**
  * Pure pricing calculation implementing the dual-limit free unit model.
  *
  * A unit becomes paid (extra) when EITHER limit is exhausted:
@@ -67,6 +81,11 @@ export function computeLineItems(
    * Defaults to 1 (no scaling) for standard residential properties.
    */
   unitMultiplier = 1,
+  /**
+   * An applied allocation swap. Residential only — ignored when unitMultiplier
+   * != 1 (MUD swaps are out of scope; their from/to units must not be scaled).
+   */
+  conversion?: ActiveConversion,
 ): PriceCalculationResult {
   // Build override maps: service_id → SUM(extra_allocations), category_code → SUM(extra_allocations)
   const serviceExtraMap = new Map<string, number>()
@@ -93,17 +112,34 @@ export function computeLineItems(
 
   const categoryFormUsed = new Map<string, number>()
 
+  // Apply an active allocation swap as a budget delta on LOCAL copies (never
+  // mutate the caller's maps). Residential only: the guard skips it for MUDs
+  // (unitMultiplier != 1) so the swap units are never scaled by unit count.
+  const effectiveCategoryMax = new Map(categoryMaxMap)
+  const serviceMaxBonus = new Map<string, number>()
+  if (conversion && unitMultiplier === 1) {
+    effectiveCategoryMax.set(
+      conversion.from_category_code,
+      Math.max(0, (effectiveCategoryMax.get(conversion.from_category_code) ?? 0) - conversion.from_units),
+    )
+    effectiveCategoryMax.set(
+      conversion.to_category_code,
+      (effectiveCategoryMax.get(conversion.to_category_code) ?? 0) + conversion.to_units,
+    )
+    serviceMaxBonus.set(conversion.to_service_id, conversion.to_units)
+  }
+
   const line_items: PricedLineItem[] = items.map((item) => {
     const rule = rulesMap.get(item.service_id)
     const catCode = serviceCategoryMap.get(item.service_id) ?? ''
 
     // Service-level remaining (with additive extra allocations; scaled by unit count for MUDs)
     const serviceUsed = serviceUsageMap.get(item.service_id) ?? 0
-    const serviceMax = (rule?.max_collections ?? 0) * unitMultiplier
+    const serviceMax = (rule?.max_collections ?? 0) * unitMultiplier + (serviceMaxBonus.get(item.service_id) ?? 0)
     const serviceRemaining = Math.max(0, (serviceMax + (serviceExtraMap.get(item.service_id) ?? 0)) - serviceUsed)
 
     // Category-level remaining (with additive extra allocations; scaled by unit count for MUDs)
-    const catMax = (categoryMaxMap.get(catCode) ?? 0) * unitMultiplier
+    const catMax = (effectiveCategoryMax.get(catCode) ?? 0) * unitMultiplier
     const catFyUsed = categoryUsageMap.get(catCode) ?? 0
     const catAlreadyConsumedByForm = categoryFormUsed.get(catCode) ?? 0
     const categoryRemaining = Math.max(0, (catMax + (categoryExtraMap.get(catCode) ?? 0)) - catFyUsed - catAlreadyConsumedByForm)
