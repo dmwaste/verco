@@ -1,7 +1,7 @@
 'use client'
 
 import { useSearchParams, useRouter } from 'next/navigation'
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
 import { BookingStepper } from '@/components/booking/booking-stepper'
@@ -10,6 +10,15 @@ import { VercoButton } from '@/components/ui/verco-button'
 import { Spinner } from '@/components/ui/spinner'
 import { encodeItems, decodeItems } from '@/lib/booking/search-params'
 import type { BookingItem } from '@/lib/booking/schemas'
+import { computeLineItems, type ServiceRule } from '@/lib/pricing/calculate'
+import {
+  isSwapEligible,
+  toActiveConversion,
+  flattenConversionRule,
+  CONVERSION_RULE_SELECT,
+  type ConversionRuleRow,
+  type RawConversionRuleRow,
+} from '@/lib/pricing/swap'
 
 interface ServiceRuleRow {
   id: string
@@ -42,6 +51,13 @@ export function ServicesForm() {
   // Prefill from ?items= param (edit flow) or start empty
   const initialItems = searchParams.get('items') ?? ''
   const [quantities, setQuantities] = useState<Map<string, number>>(() => decodeItems(initialItems))
+
+  // Allocation swap (e.g. 3 Ancillary -> 1 Green). Synced from the URL so it
+  // survives back/forward through the wizard (same-path soft-nav remount gotcha).
+  const [swapApplied, setSwapApplied] = useState(searchParams.get('swap') === 'true')
+  useEffect(() => {
+    setSwapApplied(searchParams.get('swap') === 'true')
+  }, [searchParams])
 
   // Fetch service rules for this collection area
   const { data: serviceRules, isLoading: serviceRulesLoading } = useQuery({
@@ -162,6 +178,42 @@ export function ServicesForm() {
     },
   })
 
+  // Active allocation conversion rule for this area (e.g. 3 Ancillary -> 1 Green).
+  // null when the area has no swap configured.
+  const { data: conversionRule } = useQuery({
+    queryKey: ['conversion-rule', collectionAreaId],
+    enabled: !!collectionAreaId,
+    queryFn: async (): Promise<ConversionRuleRow | null> => {
+      const { data } = await supabase
+        .from('allocation_conversion_rule')
+        .select(CONVERSION_RULE_SELECT)
+        .eq('is_active', true)
+        .eq('from_allocation_rules.collection_area_id', collectionAreaId)
+      const raw = (data ?? [])[0] as unknown as RawConversionRuleRow | undefined
+      return raw ? flattenConversionRule(raw) : null
+    },
+  })
+
+  // Whether this property already applied a swap this FY (one per property/FY).
+  const { data: hasExistingSwap } = useQuery({
+    queryKey: ['existing-swap', propertyId],
+    enabled: !!propertyId,
+    queryFn: async (): Promise<boolean> => {
+      const { data: fy } = await supabase
+        .from('financial_year')
+        .select('id')
+        .eq('is_current', true)
+        .single()
+      if (!fy) return false
+      const { count } = await supabase
+        .from('allocation_swap')
+        .select('id', { count: 'exact', head: true })
+        .eq('property_id', propertyId)
+        .eq('fy_id', fy.id)
+      return (count ?? 0) > 0
+    },
+  })
+
   // Show loading state if any critical query is loading
   const isLoadingData = serviceRulesLoading || categoryAllocationsLoading || fyUsageByCategoryLoading || fyUsageByServiceLoading
 
@@ -189,57 +241,112 @@ export function ServicesForm() {
       return { pricingItems: [] as BookingItem[], categoryFreeUsed: new Map<string, number>() }
     }
 
-    const formUsed = new Map<string, number>()
-
     const activeRules = serviceRules.filter(
       (rule) => (quantities.get(rule.service_id) ?? 0) > 0
     )
+    const ruleByService = new Map(serviceRules.map((r) => [r.service_id, r]))
+    const rulesMap = new Map<string, ServiceRule>(
+      serviceRules.map((r) => [
+        r.service_id,
+        { max_collections: r.max_collections, extra_unit_price: r.extra_unit_price },
+      ])
+    )
+    const serviceCategoryMap = new Map<string, string>(
+      serviceRules.map((r) => [r.service_id, r.service.category.code])
+    )
+    const conversion = swapApplied && conversionRule ? toActiveConversion(conversionRule) : undefined
 
-    const items = activeRules.map((rule) => {
-      const qty = quantities.get(rule.service_id) ?? 0
-      const catCode = rule.service.category.code
+    // Single source of pricing truth — the same engine the EF + confirm page use
+    // (the inline copy this replaced is the bug class fixed in PR #147).
+    const priced = computeLineItems(
+      activeRules.map((r) => ({ service_id: r.service_id, quantity: quantities.get(r.service_id) ?? 0 })),
+      rulesMap,
+      categoryAllocations,
+      serviceCategoryMap,
+      fyUsageByService,
+      fyUsageByCategory,
+      undefined,
+      1,
+      conversion,
+    )
 
-      // Service-level remaining
-      const serviceUsed = fyUsageByService.get(rule.service_id) ?? 0
-      const serviceRemaining = Math.max(0, rule.max_collections - serviceUsed)
-
-      // Category-level remaining (minus free units already consumed by earlier items in this form)
-      const catMax = categoryAllocations.get(catCode) ?? 0
-      const catFyUsed = fyUsageByCategory.get(catCode) ?? 0
-      const catAlreadyConsumedByForm = formUsed.get(catCode) ?? 0
-      const categoryRemaining = Math.max(0, catMax - catFyUsed - catAlreadyConsumedByForm)
-
-      // Dual-limit: free units = MIN(qty, category_remaining, service_remaining)
-      const freeUnits = Math.min(qty, categoryRemaining, serviceRemaining)
-      const paidUnits = qty - freeUnits
-
-      // Only free units consume category budget — paid units do not
-      formUsed.set(catCode, catAlreadyConsumedByForm + freeUnits)
-
-      const unitPriceCents = Math.round(rule.extra_unit_price * 100)
-
+    const items: BookingItem[] = priced.line_items.map((li) => {
+      const rule = ruleByService.get(li.service_id)!
       return {
-        service_id: rule.service_id,
+        service_id: li.service_id,
         service_name: rule.service.name,
         category_name: rule.service.category.name,
-        code: catCode as 'bulk' | 'anc' | 'id',
-        no_services: qty,
-        free_units: freeUnits,
-        paid_units: paidUnits,
-        unit_price_cents: unitPriceCents,
-        line_charge_cents: paidUnits * unitPriceCents,
+        code: li.category_code as 'bulk' | 'anc' | 'id',
+        no_services: li.quantity,
+        free_units: li.free_units,
+        paid_units: li.paid_units,
+        unit_price_cents: li.unit_price_cents,
+        line_charge_cents: li.line_charge_cents,
       }
     })
 
-    return { pricingItems: items, categoryFreeUsed: formUsed }
-  }, [serviceRules, fyUsageByService, fyUsageByCategory, categoryAllocations, quantities])
+    // Free units consumed per category bucket — drives the "X of Y remaining" badges.
+    const formUsed = new Map<string, number>()
+    for (const li of priced.line_items) {
+      formUsed.set(li.category_code, (formUsed.get(li.category_code) ?? 0) + li.free_units)
+    }
 
-  // Badge remaining: max - fyUsed - freeUnitsConsumedByForm
+    return { pricingItems: items, categoryFreeUsed: formUsed }
+  }, [serviceRules, fyUsageByService, fyUsageByCategory, categoryAllocations, quantities, swapApplied, conversionRule])
+
+  // Effective category max, accounting for an applied swap (e.g. the from
+  // category loses from_units, the to category gains to_units).
+  function effectiveCategoryMax(categoryCode: string): number {
+    const base = categoryAllocations?.get(categoryCode) ?? 0
+    if (swapApplied && conversionRule) {
+      if (categoryCode === conversionRule.from_category_code) {
+        return Math.max(0, base - conversionRule.from_units)
+      }
+      if (categoryCode === conversionRule.to_category_code) {
+        return base + conversionRule.to_units
+      }
+    }
+    return base
+  }
+
+  // Badge remaining: effective_max - fyUsed - freeUnitsConsumedByForm
   function getLiveRemaining(categoryCode: string): number {
-    const max = categoryAllocations?.get(categoryCode) ?? 0
+    const max = effectiveCategoryMax(categoryCode)
     const fyUsed = fyUsageByCategory?.get(categoryCode) ?? 0
     const formFreeUsed = categoryFreeUsed.get(categoryCode) ?? 0
     return Math.max(0, max - fyUsed - formFreeUsed)
+  }
+
+  // Swap eligibility (e.g. 3 Ancillary -> 1 Green). The "from" category is the
+  // one the resident forfeits.
+  const fromCat = conversionRule?.from_category_code
+  const ancillaryInCart = useMemo(() => {
+    if (!serviceRules || !fromCat) return 0
+    return serviceRules
+      .filter((r) => r.service.category.code === fromCat)
+      .reduce((n, r) => n + (quantities.get(r.service_id) ?? 0), 0)
+  }, [serviceRules, quantities, fromCat])
+
+  const swapEligible = isSwapEligible({
+    hasRule: !!conversionRule,
+    ancillaryFyUsed: fromCat ? (fyUsageByCategory?.get(fromCat) ?? 0) : 0,
+    hasExistingSwap: hasExistingSwap ?? false,
+    ancillaryInCart,
+  })
+
+  function toggleSwap(checked: boolean) {
+    setSwapApplied(checked)
+    // Forfeit the from-category: ticking the swap clears any of those items
+    // from the cart (you can't book ancillary and swap it away at once).
+    if (checked && serviceRules && fromCat) {
+      setQuantities((prev) => {
+        const next = new Map(prev)
+        serviceRules
+          .filter((r) => r.service.category.code === fromCat)
+          .forEach((r) => next.delete(r.service_id))
+        return next
+      })
+    }
   }
 
   const totalChargeCents = pricingItems.reduce(
@@ -297,6 +404,7 @@ export function ServicesForm() {
       items: encodeItems(pricingItems),
       total_cents: totalChargeCents.toString(),
       ...(onBehalf ? { on_behalf: 'true' } : {}),
+      ...(swapApplied ? { swap: 'true' } : {}),
       ...carryParams,
     })
     router.push(`/book/date?${params.toString()}`)
@@ -315,9 +423,10 @@ export function ServicesForm() {
   function renderServiceSection(
     title: string,
     categoryCode: string,
-    rules: ServiceRuleRow[]
+    rules: ServiceRuleRow[],
+    disabled = false
   ) {
-    const max = categoryAllocations?.get(categoryCode) ?? 0
+    const max = effectiveCategoryMax(categoryCode)
     const remaining = getLiveRemaining(categoryCode)
     const badgeClass =
       remaining > 0
@@ -366,11 +475,12 @@ export function ServicesForm() {
                     </span>
                   </div>
                 </div>
-                <div className="flex items-center gap-2.5 rounded-full bg-gray-50 px-2.5 py-1">
+                <div className={`flex items-center gap-2.5 rounded-full bg-gray-50 px-2.5 py-1 ${disabled ? 'opacity-40' : ''}`}>
                   <button
                     type="button"
+                    disabled={disabled}
                     onClick={() => updateQty(rule.service_id, -1)}
-                    className="flex size-7 items-center justify-center rounded-full text-lg font-semibold text-gray-700"
+                    className="flex size-7 items-center justify-center rounded-full text-lg font-semibold text-gray-700 disabled:cursor-not-allowed"
                   >
                     &minus;
                   </button>
@@ -379,8 +489,9 @@ export function ServicesForm() {
                   </span>
                   <button
                     type="button"
+                    disabled={disabled}
                     onClick={() => updateQty(rule.service_id, 1)}
-                    className="flex size-7 items-center justify-center rounded-full bg-[var(--brand)] text-lg font-semibold text-[var(--brand-foreground)]"
+                    className="flex size-7 items-center justify-center rounded-full bg-[var(--brand)] text-lg font-semibold text-[var(--brand-foreground)] disabled:cursor-not-allowed"
                   >
                     +
                   </button>
@@ -440,7 +551,26 @@ export function ServicesForm() {
               renderServiceSection('Bulk Collection', 'bulk', grouped.bulk)}
 
             {grouped.anc.length > 0 &&
-              renderServiceSection('Ancillary Collection', 'anc', grouped.anc)}
+              renderServiceSection('Ancillary Collection', 'anc', grouped.anc, swapApplied)}
+
+            {/* Allocation swap — forfeit the ancillary allocation for an extra Green */}
+            {(swapEligible || swapApplied) && conversionRule && (
+              <label className="flex cursor-pointer items-start gap-3 rounded-xl border-[1.5px] border-[var(--brand-accent-dark)] bg-[#F0FBF5] px-4 py-3.5 shadow-sm">
+                <input
+                  type="checkbox"
+                  checked={swapApplied}
+                  onChange={(e) => toggleSwap(e.target.checked)}
+                  className="mt-0.5 size-4 shrink-0 accent-[var(--brand-accent-dark)]"
+                />
+                <span className="text-body-sm text-gray-700">
+                  <strong className="text-[var(--brand)]">
+                    Swap your {conversionRule.from_units} ancillary collections for{' '}
+                    {conversionRule.to_units} extra green waste collection.
+                  </strong>{' '}
+                  You won&rsquo;t be able to book e-waste, whitegoods or mattresses this financial year.
+                </span>
+              </label>
+            )}
           </>
         )}
 

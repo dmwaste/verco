@@ -65,7 +65,10 @@ export function toActiveConversion(rule: ConversionRuleRow): ActiveConversion {
  */
 export const CONVERSION_RULE_SELECT =
   'id, from_units, to_units, to_service_id, ' +
-  'from_allocation_rules:from_allocation_rules_id ( collection_area_id, category:category_id ( code ) ), ' +
+  // `!inner` on from_allocation_rules so callers can filter by
+  // `from_allocation_rules.collection_area_id` (an embedded-column filter only
+  // narrows top-level rows on an inner join).
+  'from_allocation_rules:from_allocation_rules_id!inner ( collection_area_id, category:category_id ( code ) ), ' +
   'to_allocation_rules:to_allocation_rules_id ( category:category_id ( code ) )'
 
 /** Raw embedded row from CONVERSION_RULE_SELECT, before flattening. */
