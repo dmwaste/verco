@@ -1,7 +1,7 @@
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.100.0'
 import { z } from 'https://esm.sh/zod@3.23.8'
-import { calculatePrice } from '../_shared/pricing.ts'
+import { calculatePrice, type ActiveConversion } from '../_shared/pricing.ts'
 
 /**
  * Fire-and-forget POST to the send-notification Edge Function. Returns
@@ -76,6 +76,10 @@ const CreateBookingRequest = z.object({
   // appears as "additional" services and gets charged as extras even though
   // the resident is just modifying their existing booking.
   replaces: z.string().uuid().optional(),
+  // Allocation swap (e.g. 3 Ancillary -> 1 Green). When true the EF loads the
+  // active conversion rule for the area, re-validates eligibility server-side
+  // (red line #1 — the client cannot grant itself a swap), and records it.
+  swap: z.boolean().optional(),
 })
 
 serve(async (req) => {
@@ -113,7 +117,7 @@ serve(async (req) => {
       return jsonResponse({ error: parsed.error.message }, 400)
     }
 
-    const { property_id, collection_area_id, collection_date_id, location, notes, contact, items, replaces } = parsed.data
+    const { property_id, collection_area_id, collection_date_id, location, notes, contact, items, replaces, swap } = parsed.data
 
     // ── 2. Resolve collection area → client_id, contractor_id, area code ─────
 
@@ -171,6 +175,80 @@ serve(async (req) => {
       return jsonResponse({ error: 'Collection date is no longer open for bookings' }, 400)
     }
 
+    // ── 5b. Resolve + re-validate an allocation swap (if requested) ──────────
+    // The swap (e.g. 3 Ancillary -> 1 Green) is config-driven by
+    // allocation_conversion_rule. Re-validated here so the client can't grant
+    // itself a swap (red line #1). Residential only — swaps are not offered for
+    // MUDs, and calculatePrice ignores the conversion when unitMultiplier != 1.
+    let conversion: ActiveConversion | undefined
+    let swapRuleId: string | undefined
+    if (swap) {
+      const { data: ruleRows, error: ruleErr } = await supabaseAnon
+        .from('allocation_conversion_rule')
+        .select(
+          'id, from_units, to_units, to_service_id, ' +
+          'from_allocation_rules:from_allocation_rules_id!inner ( collection_area_id, category:category_id ( code ) ), ' +
+          'to_allocation_rules:to_allocation_rules_id ( category:category_id ( code ) )'
+        )
+        .eq('is_active', true)
+        .eq('from_allocation_rules.collection_area_id', collection_area_id)
+      if (ruleErr) {
+        return jsonResponse({ error: `Failed to load swap rule: ${ruleErr.message}` }, 500)
+      }
+      const rule = (ruleRows ?? [])[0] as {
+        id: string
+        from_units: number
+        to_units: number
+        to_service_id: string
+        from_allocation_rules: { collection_area_id: string; category: { code: string } | null } | null
+        to_allocation_rules: { category: { code: string } | null } | null
+      } | undefined
+      if (!rule?.from_allocation_rules?.category || !rule?.to_allocation_rules?.category) {
+        return jsonResponse({ error: 'No allocation swap is available for this area.' }, 400)
+      }
+      const fromCode = rule.from_allocation_rules.category.code
+
+      // Eligibility A: the cart must not contain any item from the swapped-away category.
+      const { data: cartCats } = await supabaseAnon
+        .from('service')
+        .select('id, category:category_id!inner ( code )')
+        .in('id', items.map((i) => i.service_id))
+      const cartHasFrom = (cartCats ?? []).some(
+        (s: { category: { code: string } | null }) => s.category?.code === fromCode
+      )
+      if (cartHasFrom) {
+        return jsonResponse({ error: 'You cannot book that category and swap it away in the same booking.' }, 400)
+      }
+
+      // Eligibility B: 0 of the swapped-away category used this FY (excl. the edited booking).
+      let usageQ = supabaseAnon
+        .from('booking_item')
+        .select('no_services, service:service_id!inner ( category:category_id!inner ( code ) ), booking:booking_id!inner ( property_id, fy_id, status )')
+        .eq('booking.property_id', property_id)
+        .eq('booking.fy_id', fy.id)
+        .eq('service.category.code', fromCode)
+        .not('booking.status', 'in', '("Cancelled","Pending Payment")')
+      if (replaces) usageQ = usageQ.neq('booking_id', replaces)
+      const { data: fromUsage } = await usageQ
+      const fromUsed = (fromUsage ?? []).reduce(
+        (n: number, r: { no_services: number }) => n + r.no_services, 0
+      )
+      if (fromUsed > 0) {
+        return jsonResponse({
+          error: 'The allocation swap is only available before any ancillary collection is used this year.',
+        }, 400)
+      }
+
+      conversion = {
+        from_category_code: fromCode,
+        to_category_code: rule.to_allocation_rules.category.code,
+        to_service_id: rule.to_service_id,
+        from_units: rule.from_units,
+        to_units: rule.to_units,
+      }
+      swapRuleId = rule.id
+    }
+
     // ── 6. Re-run pricing engine server-side (NEVER trust client prices) ─────
 
     // MUD properties: allocations scale by unit count
@@ -189,6 +267,7 @@ serve(async (req) => {
       pricingItems,
       replaces,
       unitMultiplier,
+      conversion,
     )
 
     // Pre-step: actingUser is needed by both branches (edit + create).
@@ -265,6 +344,29 @@ serve(async (req) => {
       }
 
       const edited = editResult as { booking_id: string; ref: string }
+
+      // Reconcile the allocation swap on edit: ensure exactly one swap row iff
+      // this edit is still a swap. Editing the swap away removes the forfeiture
+      // (restores the resident's ancillary allocation).
+      if (swap && swapRuleId) {
+        const { error: swapUpsertErr } = await supabaseService
+          .from('allocation_swap')
+          .upsert({
+            property_id,
+            fy_id: fy.id,
+            collection_area_id,
+            allocation_conversion_rule_id: swapRuleId,
+            booking_id: edited.booking_id,
+          }, { onConflict: 'property_id,fy_id' })
+        if (swapUpsertErr) console.error('allocation_swap upsert (edit) error:', swapUpsertErr)
+      } else {
+        const { error: swapDelErr } = await supabaseService
+          .from('allocation_swap')
+          .delete()
+          .eq('booking_id', edited.booking_id)
+        if (swapDelErr) console.error('allocation_swap delete (edit) error:', swapDelErr)
+      }
+
       return jsonResponse({
         booking_id: edited.booking_id,
         ref: edited.ref,
@@ -444,6 +546,31 @@ serve(async (req) => {
 
     const bookingId = rpcResult.booking_id
     const ref = rpcResult.ref
+
+    // ── 10b. Record the allocation swap (forfeits the from-category for the FY) ─
+    // The unique(property_id, fy_id) constraint is the concurrency backstop: a
+    // second booking that races the eligibility check fails here with 23505.
+    if (conversion && swapRuleId) {
+      const { error: swapErr } = await supabaseService
+        .from('allocation_swap')
+        .insert({
+          property_id,
+          fy_id: fy.id,
+          collection_area_id,
+          allocation_conversion_rule_id: swapRuleId,
+          booking_id: bookingId,
+        })
+      if (swapErr) {
+        if ((swapErr as { code?: string }).code === '23505') {
+          return jsonResponse({
+            error: 'A swap has already been applied for this property this year.',
+          }, 409)
+        }
+        // Non-unique failure: the booking exists but the forfeiture didn't
+        // record. Log loudly; worst case is a recoverable over-grant.
+        console.error('allocation_swap insert error (booking already created):', swapErr)
+      }
+    }
 
     // ── 11. Fire booking_created notification (free path only) ──────────────
     // Paid bookings land in 'Pending Payment' and get notified via

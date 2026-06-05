@@ -8,7 +8,7 @@
  * This helper drives the breakdown from `computeLineItems` (the same engine
  * services-form and the create-booking EF use) so the two can never diverge.
  */
-import { computeLineItems, type ServiceRule } from './calculate'
+import { computeLineItems, type ServiceRule, type ActiveConversion } from './calculate'
 
 export interface BreakdownInput {
   /** Selected service_id → quantity, in the same order the cart was built. */
@@ -25,6 +25,8 @@ export interface BreakdownInput {
   serviceUsageMap: Map<string, number>
   /** category code → FY units already used this year. */
   categoryUsageMap: Map<string, number>
+  /** An applied allocation swap (e.g. 3 Ancillary → 1 Green), if active. */
+  conversion?: ActiveConversion
 }
 
 export interface IncludedLine {
@@ -54,6 +56,9 @@ export function buildConfirmBreakdown(input: BreakdownInput): ConfirmBreakdown {
     input.serviceCategoryMap,
     input.serviceUsageMap,
     input.categoryUsageMap,
+    undefined,
+    1,
+    input.conversion,
   )
 
   const included: IncludedLine[] = []
