@@ -57,3 +57,7 @@ next-env.d.ts
 
 # gstack per-repo state
 .gstack/
+
+# user-guide build intermediate — regeneratable from the .md + .css via pandoc
+# (only the .md, .css, and built .pdf are tracked; see memory wmrc-user-guide-build-pipeline)
+docs/*-user-guide.html
