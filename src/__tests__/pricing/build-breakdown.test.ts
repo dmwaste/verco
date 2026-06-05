@@ -104,4 +104,26 @@ describe('buildConfirmBreakdown', () => {
       { name: 'Green', qty: 1, unitPrice: 89.67, lineTotal: 89.67 },
     ])
   })
+
+  it('reflects an active swap: the extra Green is included, no extras', () => {
+    // With the swap, 2 General + 1 Green are all free (2 base Bulk + 1 swapped Green).
+    const result = buildConfirmBreakdown({
+      ...kwinanaInput([
+        { service_id: SVC_GENERAL, quantity: 2 },
+        { service_id: SVC_GREEN, quantity: 1 },
+      ]),
+      conversion: {
+        from_category_code: CAT_ANC,
+        to_category_code: CAT_BULK,
+        to_service_id: SVC_GREEN,
+        from_units: 3,
+        to_units: 1,
+      },
+    })
+    expect(result.extras).toEqual([])
+    expect(result.included).toEqual([
+      { name: 'General', qty: 2 },
+      { name: 'Green', qty: 1 },
+    ])
+  })
 })

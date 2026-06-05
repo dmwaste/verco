@@ -14,6 +14,64 @@ export type Database = {
   }
   public: {
     Tables: {
+      allocation_conversion_rule: {
+        Row: {
+          created_at: string
+          from_allocation_rules_id: string
+          from_units: number
+          id: string
+          is_active: boolean
+          to_allocation_rules_id: string
+          to_service_id: string
+          to_units: number
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          from_allocation_rules_id: string
+          from_units: number
+          id?: string
+          is_active?: boolean
+          to_allocation_rules_id: string
+          to_service_id: string
+          to_units: number
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          from_allocation_rules_id?: string
+          from_units?: number
+          id?: string
+          is_active?: boolean
+          to_allocation_rules_id?: string
+          to_service_id?: string
+          to_units?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "allocation_conversion_rule_from_allocation_rules_id_fkey"
+            columns: ["from_allocation_rules_id"]
+            isOneToOne: false
+            referencedRelation: "allocation_rules"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "allocation_conversion_rule_to_allocation_rules_id_fkey"
+            columns: ["to_allocation_rules_id"]
+            isOneToOne: false
+            referencedRelation: "allocation_rules"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "allocation_conversion_rule_to_service_id_fkey"
+            columns: ["to_service_id"]
+            isOneToOne: false
+            referencedRelation: "service"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       allocation_override: {
         Row: {
           created_at: string
@@ -118,6 +176,79 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "collection_area"
             referencedColumns: ["id"]
+          },
+        ]
+      }
+      allocation_swap: {
+        Row: {
+          allocation_conversion_rule_id: string
+          booking_id: string
+          collection_area_id: string
+          created_at: string
+          fy_id: string
+          id: string
+          property_id: string
+        }
+        Insert: {
+          allocation_conversion_rule_id: string
+          booking_id: string
+          collection_area_id: string
+          created_at?: string
+          fy_id: string
+          id?: string
+          property_id: string
+        }
+        Update: {
+          allocation_conversion_rule_id?: string
+          booking_id?: string
+          collection_area_id?: string
+          created_at?: string
+          fy_id?: string
+          id?: string
+          property_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "allocation_swap_allocation_conversion_rule_id_fkey"
+            columns: ["allocation_conversion_rule_id"]
+            isOneToOne: false
+            referencedRelation: "allocation_conversion_rule"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "allocation_swap_booking_id_fkey"
+            columns: ["booking_id"]
+            isOneToOne: false
+            referencedRelation: "booking"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "allocation_swap_collection_area_id_fkey"
+            columns: ["collection_area_id"]
+            isOneToOne: false
+            referencedRelation: "collection_area"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "allocation_swap_fy_id_fkey"
+            columns: ["fy_id"]
+            isOneToOne: false
+            referencedRelation: "financial_year"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "allocation_swap_property_id_fkey"
+            columns: ["property_id"]
+            isOneToOne: false
+            referencedRelation: "eligible_properties"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "allocation_swap_property_id_fkey"
+            columns: ["property_id"]
+            isOneToOne: false
+            referencedRelation: "v_mud_next_expected"
+            referencedColumns: ["property_id"]
           },
         ]
       }
