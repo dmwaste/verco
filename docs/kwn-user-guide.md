@@ -115,10 +115,10 @@ City of Kwinana offers services in **two** categories. A unit is **included** (f
 | Service | Per-service free limit | Extra (paid) unit price |
 |---|---|---|
 | **E-Waste** — electronic waste (TVs, computers, appliances with a plug) | 3 | **$38.36** |
-| **Whitegoods** — fridges, washers, dryers, dishwashers | 2 | **$38.36** |
-| **Mattress** — mattresses & bed bases | 1 | **$45.00** |
+| **Whitegoods** — fridges, washers, dryers, dishwashers | 3 | **$38.36** |
+| **Mattress** — mattresses & bed bases | 3 | **$45.00** |
 
-So, for example, a household can take **2 Bulk + 3 Ancillary** items free in a year — but no more than **1 mattress** and no more than **2 whitegoods** within that Ancillary budget. A 3rd Bulk item, a 2nd mattress, or anything beyond the category cap becomes a **paid extra** (Stripe handles checkout).
+So, for example, a household can take **2 Bulk + 3 Ancillary** items free in a year — in **any mix** of E-Waste, Whitegoods and Mattress within that 3-item Ancillary budget (e.g. 3 mattresses, or 1 of each). A 3rd Bulk item, or a 4th Ancillary item, becomes a **paid extra** (Stripe handles checkout).
 
 > **This is a deliberate difference from Verge Valet.** Verge Valet is Bulk-only (no ancillary services). Kwinana adds the E-Waste / Whitegoods / Mattress ancillary stream, with its own separate free budget.
 
@@ -930,7 +930,7 @@ Pick three to five testers, give each one a fresh test email, and run the follow
 | 2 | Book 1 × General + 1 × Green (fills the 2-Bulk allocation) | Free booking, confirmed |
 | 3 | Book 3 × General (exceeds the 2 included Bulk) | 2 free + 1 paid; Stripe Checkout for the extra; payment with `4242…` card @ $89.67 |
 | 4 | Book 1 × E-Waste + 1 × Whitegoods + 1 × Mattress (fills the 3 included Ancillary) | Free booking, confirmed |
-| 5 | Book 2 × Mattress (exceeds the 1-mattress per-service limit) | 1 free + 1 paid @ $45.00, even though the Ancillary category budget isn't fully used |
+| 5 | Book 4 × Mattress (exceeds the 3 included Ancillary) | 3 free + 1 paid @ $45.00; Stripe Checkout for the extra |
 | 6 | Test a payment failure | Use card `4000 0000 0000 0002`; booking should stay Pending Payment with **Pay Now** button |
 | 7 | Edit a confirmed booking (add an extra service) | Same booking ref, audit trail updated |
 | 8 | Cancel a confirmed booking before the cutoff | Status → Cancelled; refund request queued if paid |
@@ -1019,11 +1019,12 @@ Inside the admin app, the floating **"Report a bug"** button (bottom-right corne
 ---
 
 **Document version:** 1.1
-**Last updated:** 2026-06-05
+**Last updated:** 2026-06-08
 **Next review:** after first round of City of Kwinana dummy bookings + the Part C admin screenshot capture
 
 ### Revision log
 
+- **1.2 — 2026-06-08**: Corrected the Ancillary service catalogue — **all three services (E-Waste, Whitegoods, Mattress) now have a per-service free limit of 3**, matching the live config (previously listed 3 / 2 / 1). The Ancillary category cap stays at 3 per FY, so residents take 3 free Ancillary collections in any mix. Updated the catalogue table, the worked example, and UAT scenario 5.
 - **1.1 — 2026-06-05**: Replaced the placeholder resident screenshots with **live Kwinana captures** (images 01–20, shot from `kwntest.verco.au` and stored under `screenshots/kwn/`). Updated the §2.1 hero description and screenshots banner to match the live site. Part C admin screens (21–32) still pending capture.
 - **1.0 — 2026-06-05**: Initial City of Kwinana release, rebranded from the WMRC / Verge Valet user guide (v1.2). Single-LGA structure (no sub-clients, no member councils — four collection areas KWN-1 to KWN-4); Kwinana service catalogue (Bulk + Ancillary, dual-limit allocation); 48-hour place-out window; `kwntest.verco.au`; VERCO Kwinana contact details. Resident screenshots shipped as reused Verge Valet placeholders (replaced in v1.1).
 
