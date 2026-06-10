@@ -1945,6 +1945,7 @@ export type Database = {
           error_message: string | null
           id: string
           notification_type: string
+          reference_id: string | null
           status: string
           to_address: string
         }
@@ -1960,6 +1961,7 @@ export type Database = {
           error_message?: string | null
           id?: string
           notification_type: string
+          reference_id?: string | null
           status?: string
           to_address: string
         }
@@ -1975,6 +1977,7 @@ export type Database = {
           error_message?: string | null
           id?: string
           notification_type?: string
+          reference_id?: string | null
           status?: string
           to_address?: string
         }

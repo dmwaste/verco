@@ -35,20 +35,28 @@ interface CollectionDate {
 
 interface IdBookingFormProps {
   collectionDates: CollectionDate[]
+  /** From the lookup tool's "Raise ID at this address". With coordinates,
+   *  GPS acquisition is skipped and the property's pin is used; an
+   *  address-only prefill (un-geocoded property) seeds the address field
+   *  while GPS still acquires. */
+  prefill: { latitude: number | null; longitude: number | null; address: string } | null
 }
 
 type GpsState = 'acquiring' | 'locked' | 'error'
 
-export function IdBookingForm({ collectionDates }: IdBookingFormProps) {
+export function IdBookingForm({ collectionDates, prefill }: IdBookingFormProps) {
   const supabase = createClient()
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  // GPS state
-  const [gpsState, setGpsState] = useState<GpsState>('acquiring')
-  const [latitude, setLatitude] = useState<number | null>(null)
-  const [longitude, setLongitude] = useState<number | null>(null)
+  // GPS state — a lookup prefill WITH coordinates starts locked on the
+  // property's pin; an address-only prefill seeds the address but still
+  // acquires GPS (submit requires coordinates).
+  const prefillHasCoords = prefill?.latitude != null && prefill?.longitude != null
+  const [gpsState, setGpsState] = useState<GpsState>(prefillHasCoords ? 'locked' : 'acquiring')
+  const [latitude, setLatitude] = useState<number | null>(prefill?.latitude ?? null)
+  const [longitude, setLongitude] = useState<number | null>(prefill?.longitude ?? null)
   const [accuracy, setAccuracy] = useState<number | null>(null)
-  const [geoAddress, setGeoAddress] = useState('')
+  const [geoAddress, setGeoAddress] = useState(prefill?.address ?? '')
   const [gpsError, setGpsError] = useState<string | null>(null)
 
   // Form state
@@ -82,7 +90,8 @@ export function IdBookingForm({ collectionDates }: IdBookingFormProps) {
         { latlng: `${lat},${lng}`, type: 'reverse' }
       )
       if (data?.address) {
-        setGeoAddress(data.address)
+        // Never clobber a lookup-seeded or hand-edited address.
+        setGeoAddress((prev) => (prev ? prev : data.address ?? ''))
       }
     } catch {
       // Fallback: use raw coordinates as address
@@ -90,8 +99,10 @@ export function IdBookingForm({ collectionDates }: IdBookingFormProps) {
     }
   }
 
-  // Request geolocation on mount
+  // Request geolocation on mount — skipped when the lookup tool supplied
+  // the property's coordinates (the ranger may not be standing at the pile).
   useEffect(() => {
+    if (prefillHasCoords) return
     if (!navigator.geolocation) {
       // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional initialization-failed signal; the async geolocation API path also calls setState in callbacks, so this matches the established pattern
       setGpsState('error')
@@ -119,6 +130,7 @@ export function IdBookingForm({ collectionDates }: IdBookingFormProps) {
       },
       { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
     )
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only acquisition; prefill is read once
   }, [])
 
   function toggleWasteType(type: string) {
@@ -326,7 +338,9 @@ export function IdBookingForm({ collectionDates }: IdBookingFormProps) {
             )}
           />
           {isLocked
-            ? `GPS locked · \u00b1${accuracy}m accuracy`
+            ? accuracy !== null
+              ? `GPS locked · \u00b1${accuracy}m accuracy`
+              : 'Location pinned from property lookup'
             : 'Searching for GPS signal...'}
         </div>
 
