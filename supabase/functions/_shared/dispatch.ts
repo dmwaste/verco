@@ -307,6 +307,7 @@ function renderTemplate(
         notes: payload.notes,
         photos: payload.photos,
         contractor_fault: payload.contractor_fault,
+        stream: payload.stream,
       }
       return renderNcnRaised(booking, appUrl, opts)
     }
@@ -315,6 +316,7 @@ function renderTemplate(
         notes: payload.notes,
         photos: payload.photos,
         contractor_fault: payload.contractor_fault,
+        stream: payload.stream,
       }
       return renderNpRaised(booking, appUrl, opts)
     }

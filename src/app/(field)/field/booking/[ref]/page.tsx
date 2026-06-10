@@ -24,7 +24,8 @@ export default async function BookingCloseoutPage({
          id, no_services, is_extra, unit_price_cents, actual_services,
          service!inner(name),
          collection_date!inner(date)
-       )`
+       ),
+       collection_stop(id, stream, status, stop_sequence)`
     )
     .eq('ref', ref)
     .single()

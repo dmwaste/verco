@@ -17,6 +17,27 @@ async function validateFieldRole(): Promise<Result<string>> {
 }
 
 /**
+ * Legacy guard (mixed-mode window): once a booking has per-stream stops,
+ * the whole-booking closeout path is closed — closing the booking directly
+ * would race the stop rollup and strand sibling streams. Crews work stops
+ * from the Runs tab instead.
+ */
+async function bookingHasStops(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  bookingId: string,
+): Promise<boolean> {
+  const { data } = await supabase
+    .from('collection_stop')
+    .select('id')
+    .eq('booking_id', bookingId)
+    .limit(1)
+  return (data ?? []).length > 0
+}
+
+const STOPS_GUARD_ERROR =
+  'This booking is closed out per waste stream — open it from the Runs tab instead.'
+
+/**
  * Per brief Q2 (2026-04-08): MUD bookings cannot transition to Completed,
  * Non-conformance, or Nothing Presented until every booking_item has
  * actual_services set. The crew enters the count first, then picks the
@@ -62,6 +83,10 @@ export async function completeBooking(bookingId: string): Promise<Result<void>> 
   if (!booking) return { ok: false, error: 'Booking not found.' }
   if (booking.status !== 'Scheduled') {
     return { ok: false, error: `Cannot complete a booking with status "${booking.status}".` }
+  }
+
+  if (await bookingHasStops(supabase, bookingId)) {
+    return { ok: false, error: STOPS_GUARD_ERROR }
   }
 
   const mudGate = await assertMudActualServicesSet(bookingId)
@@ -122,6 +147,10 @@ export async function raiseNcn(
   if (!booking) return { ok: false, error: 'Booking not found.' }
   if (booking.status !== 'Scheduled') {
     return { ok: false, error: `Cannot raise NCN for a booking with status "${booking.status}".` }
+  }
+
+  if (await bookingHasStops(supabase, bookingId)) {
+    return { ok: false, error: STOPS_GUARD_ERROR }
   }
 
   const mudGate = await assertMudActualServicesSet(bookingId)
@@ -192,6 +221,10 @@ export async function raiseNothingPresented(
   if (!booking) return { ok: false, error: 'Booking not found.' }
   if (booking.status !== 'Scheduled') {
     return { ok: false, error: `Cannot raise NP for a booking with status "${booking.status}".` }
+  }
+
+  if (await bookingHasStops(supabase, bookingId)) {
+    return { ok: false, error: STOPS_GUARD_ERROR }
   }
 
   const mudGate = await assertMudActualServicesSet(bookingId)

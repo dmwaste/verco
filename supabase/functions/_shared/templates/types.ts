@@ -74,8 +74,8 @@ export type NotificationPayload =
   | { type: 'booking_cancelled'; booking_id: string; reason?: string; refund_status?: 'processed' | 'pending_review' }
   | { type: 'payment_reminder'; booking_id: string }
   | { type: 'payment_expired'; booking_id: string }
-  | { type: 'ncn_raised'; booking_id: string; ncn_id: string; reason: string; notes?: string; photos?: string[]; contractor_fault?: boolean }
-  | { type: 'np_raised'; booking_id: string; np_id: string; notes?: string; photos?: string[]; contractor_fault?: boolean }
+  | { type: 'ncn_raised'; booking_id: string; ncn_id: string; reason: string; notes?: string; photos?: string[]; contractor_fault?: boolean; stream?: string }
+  | { type: 'np_raised'; booking_id: string; np_id: string; notes?: string; photos?: string[]; contractor_fault?: boolean; stream?: string }
   | { type: 'completion_survey'; booking_id: string; survey_token: string }
   | { type: 'collection_reminder'; booking_id: string }
 

@@ -40,14 +40,16 @@ export async function rebookNcn(
 
   const { supabase, userId } = auth
 
-  // Fetch the NCN with its booking and items
+  // Fetch the NCN with its booking and items (+ the stop's stream when the
+  // notice was raised against a per-stream collection stop)
   const { data: ncn, error: ncnError } = await supabase
     .from('non_conformance_notice')
     .select(
-      `id, status, booking_id,
+      `id, status, booking_id, collection_stop_id,
+       collection_stop:collection_stop_id(stream),
        booking:booking_id(
          id, ref, status, type, property_id, contact_id, collection_area_id, client_id, contractor_id, fy_id, location, notes,
-         booking_item(no_services, is_extra, unit_price_cents, service_id)
+         booking_item(no_services, is_extra, unit_price_cents, service_id, service!inner(waste_stream))
        )`
     )
     .eq('id', ncnId)
@@ -76,10 +78,21 @@ export async function rebookNcn(
       is_extra: boolean
       unit_price_cents: number
       service_id: string
+      service: { waste_stream: string }
     }>
   }
 
   if (!booking) return { ok: false, error: 'Linked booking not found.' }
+
+  // Stream-scoped rebook: an NCN raised against one waste-stream's stop
+  // only failed THAT pass — clone just that stream's items. Whole-booking
+  // (legacy) NCNs keep cloning everything. Falls back to all items if the
+  // stream filter somehow matches nothing.
+  const stopStream = (ncn.collection_stop as unknown as { stream: string } | null)?.stream
+  const streamItems = stopStream
+    ? booking.booking_item.filter((i) => i.service.waste_stream === stopStream)
+    : booking.booking_item
+  const itemsToClone = streamItems.length > 0 ? streamItems : booking.booking_item
 
   // Fetch the selected collection date
   const { data: collDate } = await supabase
@@ -125,7 +138,7 @@ export async function rebookNcn(
   }
 
   // Clone booking items with the new collection date
-  const newItems = booking.booking_item.map((item) => ({
+  const newItems = itemsToClone.map((item) => ({
     booking_id: newBooking.id,
     service_id: item.service_id,
     collection_date_id: collectionDateId,
