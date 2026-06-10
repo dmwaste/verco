@@ -353,6 +353,7 @@ export type Database = {
           contact_id: string | null
           contractor_id: string
           created_at: string
+          created_by: string | null
           crew_id: string | null
           deleted_at: string | null
           fy_id: string
@@ -381,6 +382,7 @@ export type Database = {
           contact_id?: string | null
           contractor_id: string
           created_at?: string
+          created_by?: string | null
           crew_id?: string | null
           deleted_at?: string | null
           fy_id: string
@@ -409,6 +411,7 @@ export type Database = {
           contact_id?: string | null
           contractor_id?: string
           created_at?: string
+          created_by?: string | null
           crew_id?: string | null
           deleted_at?: string | null
           fy_id?: string
@@ -462,6 +465,13 @@ export type Database = {
             columns: ["contractor_id"]
             isOneToOne: false
             referencedRelation: "contractor"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "booking_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
           {
@@ -1286,6 +1296,45 @@ export type Database = {
           },
         ]
       }
+      collection_run_meta: {
+        Row: {
+          created_at: string
+          date: string
+          depot_labels: Json
+          driver_name: string | null
+          driver_serial: string
+          finish_time: string | null
+          id: string
+          routes_pulled_at: string | null
+          start_time: string | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          date: string
+          depot_labels?: Json
+          driver_name?: string | null
+          driver_serial: string
+          finish_time?: string | null
+          id?: string
+          routes_pulled_at?: string | null
+          start_time?: string | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          date?: string
+          depot_labels?: Json
+          driver_name?: string | null
+          driver_serial?: string
+          finish_time?: string | null
+          id?: string
+          routes_pulled_at?: string | null
+          start_time?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       collection_schedule: {
         Row: {
           anc_capacity_limit: number
@@ -1326,6 +1375,116 @@ export type Database = {
             columns: ["collection_area_id"]
             isOneToOne: false
             referencedRelation: "collection_area"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      collection_stop: {
+        Row: {
+          address: string | null
+          booking_id: string
+          cancelled_at: string | null
+          client_id: string
+          collection_date_id: string
+          completed_at: string | null
+          completed_by: string | null
+          created_at: string
+          driver_name: string | null
+          driver_serial: string | null
+          external_deleted_at: string | null
+          external_order_ref: string | null
+          id: string
+          last_push_error: string | null
+          latitude: number | null
+          longitude: number | null
+          pushed_at: string | null
+          routes_pulled_at: string | null
+          scheduled_at: string | null
+          services_summary: Json
+          status: Database["public"]["Enums"]["stop_status"]
+          stop_sequence: number | null
+          stream: Database["public"]["Enums"]["waste_stream"]
+          updated_at: string
+        }
+        Insert: {
+          address?: string | null
+          booking_id: string
+          cancelled_at?: string | null
+          client_id: string
+          collection_date_id: string
+          completed_at?: string | null
+          completed_by?: string | null
+          created_at?: string
+          driver_name?: string | null
+          driver_serial?: string | null
+          external_deleted_at?: string | null
+          external_order_ref?: string | null
+          id?: string
+          last_push_error?: string | null
+          latitude?: number | null
+          longitude?: number | null
+          pushed_at?: string | null
+          routes_pulled_at?: string | null
+          scheduled_at?: string | null
+          services_summary?: Json
+          status?: Database["public"]["Enums"]["stop_status"]
+          stop_sequence?: number | null
+          stream: Database["public"]["Enums"]["waste_stream"]
+          updated_at?: string
+        }
+        Update: {
+          address?: string | null
+          booking_id?: string
+          cancelled_at?: string | null
+          client_id?: string
+          collection_date_id?: string
+          completed_at?: string | null
+          completed_by?: string | null
+          created_at?: string
+          driver_name?: string | null
+          driver_serial?: string | null
+          external_deleted_at?: string | null
+          external_order_ref?: string | null
+          id?: string
+          last_push_error?: string | null
+          latitude?: number | null
+          longitude?: number | null
+          pushed_at?: string | null
+          routes_pulled_at?: string | null
+          scheduled_at?: string | null
+          services_summary?: Json
+          status?: Database["public"]["Enums"]["stop_status"]
+          stop_sequence?: number | null
+          stream?: Database["public"]["Enums"]["waste_stream"]
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "collection_stop_booking_id_fkey"
+            columns: ["booking_id"]
+            isOneToOne: false
+            referencedRelation: "booking"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "collection_stop_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "client"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "collection_stop_collection_date_id_fkey"
+            columns: ["collection_date_id"]
+            isOneToOne: false
+            referencedRelation: "collection_date"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "collection_stop_completed_by_fkey"
+            columns: ["completed_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
         ]
@@ -1568,6 +1727,7 @@ export type Database = {
         Row: {
           booking_id: string
           client_id: string
+          collection_stop_id: string | null
           contractor_fault: boolean
           created_at: string
           id: string
@@ -1587,6 +1747,7 @@ export type Database = {
         Insert: {
           booking_id: string
           client_id: string
+          collection_stop_id?: string | null
           contractor_fault?: boolean
           created_at?: string
           id?: string
@@ -1606,6 +1767,7 @@ export type Database = {
         Update: {
           booking_id?: string
           client_id?: string
+          collection_stop_id?: string | null
           contractor_fault?: boolean
           created_at?: string
           id?: string
@@ -1638,6 +1800,13 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "non_conformance_notice_collection_stop_id_fkey"
+            columns: ["collection_stop_id"]
+            isOneToOne: false
+            referencedRelation: "collection_stop"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "non_conformance_notice_reported_by_fkey"
             columns: ["reported_by"]
             isOneToOne: false
@@ -1664,6 +1833,7 @@ export type Database = {
         Row: {
           booking_id: string
           client_id: string
+          collection_stop_id: string | null
           contractor_fault: boolean
           created_at: string
           id: string
@@ -1682,6 +1852,7 @@ export type Database = {
         Insert: {
           booking_id: string
           client_id: string
+          collection_stop_id?: string | null
           contractor_fault?: boolean
           created_at?: string
           id?: string
@@ -1700,6 +1871,7 @@ export type Database = {
         Update: {
           booking_id?: string
           client_id?: string
+          collection_stop_id?: string | null
           contractor_fault?: boolean
           created_at?: string
           id?: string
@@ -1728,6 +1900,13 @@ export type Database = {
             columns: ["client_id"]
             isOneToOne: false
             referencedRelation: "client"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "nothing_presented_collection_stop_id_fkey"
+            columns: ["collection_stop_id"]
+            isOneToOne: false
+            referencedRelation: "collection_stop"
             referencedColumns: ["id"]
           },
           {
@@ -2002,6 +2181,7 @@ export type Database = {
           is_active: boolean
           name: string
           updated_at: string
+          waste_stream: Database["public"]["Enums"]["waste_stream"]
         }
         Insert: {
           category_id: string
@@ -2010,6 +2190,7 @@ export type Database = {
           is_active?: boolean
           name: string
           updated_at?: string
+          waste_stream: Database["public"]["Enums"]["waste_stream"]
         }
         Update: {
           category_id?: string
@@ -2018,6 +2199,7 @@ export type Database = {
           is_active?: boolean
           name?: string
           updated_at?: string
+          waste_stream?: Database["public"]["Enums"]["waste_stream"]
         }
         Relationships: [
           {
@@ -2622,6 +2804,12 @@ export type Database = {
         | "Issued"
         | "Disputed"
         | "Closed"
+      stop_status:
+        | "Pending"
+        | "Completed"
+        | "Non-conformance"
+        | "Nothing Presented"
+        | "Cancelled"
       ticket_category:
         | "general"
         | "booking"
@@ -2637,6 +2825,7 @@ export type Database = {
         | "waiting_on_customer"
         | "resolved"
         | "closed"
+      waste_stream: "general" | "green" | "ancillary" | "illegal_dumping"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -2849,6 +3038,13 @@ export const Constants = {
         "Disputed",
         "Closed",
       ],
+      stop_status: [
+        "Pending",
+        "Completed",
+        "Non-conformance",
+        "Nothing Presented",
+        "Cancelled",
+      ],
       ticket_category: [
         "general",
         "booking",
@@ -2866,6 +3062,7 @@ export const Constants = {
         "resolved",
         "closed",
       ],
+      waste_stream: ["general", "green", "ancillary", "illegal_dumping"],
     },
   },
 } as const

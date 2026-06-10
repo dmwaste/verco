@@ -10,10 +10,15 @@ export default async function BookingsPage() {
   const supabase = await createClient()
   const { data: role } = await supabase.rpc('current_user_role')
   const isContractorAdmin = role === 'contractor-admin'
+  const isContractorUser = role === 'contractor-admin' || role === 'contractor-staff'
 
   return (
     <Suspense>
-      <BookingsListClient clientId={clientId} isContractorAdmin={isContractorAdmin} />
+      <BookingsListClient
+        clientId={clientId}
+        isContractorAdmin={isContractorAdmin}
+        isContractorUser={isContractorUser}
+      />
     </Suspense>
   )
 }
