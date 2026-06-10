@@ -1,5 +1,6 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
+import { awstDateFromUtc } from '@/lib/booking/schedule-transition'
 import { IdBookingForm } from './id-booking-form'
 
 export default async function NewIdBookingPage() {
@@ -11,7 +12,9 @@ export default async function NewIdBookingPage() {
     redirect('/field/run-sheet')
   }
 
-  const today = new Date().toISOString().split('T')[0]
+  // AWST calendar date — toISOString() is UTC and resolves to *yesterday*
+  // between midnight and 8am Perth time.
+  const today = awstDateFromUtc(new Date())
 
   // Fetch ID-eligible collection dates (RLS scopes to accessible clients)
   const { data: dates } = await supabase
