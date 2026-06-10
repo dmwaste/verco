@@ -1,7 +1,33 @@
+import type { Metadata, Viewport } from 'next'
 import { redirect } from 'next/navigation'
 import { headers } from 'next/headers'
 import { createClient } from '@/lib/supabase/server'
 import { FieldLayoutClient } from './field-layout-client'
+
+// PWA metadata scoped to the field surface via this nested layout — a root
+// app/manifest.ts would advertise the Verco-brand manifest on white-label
+// resident pages too.
+export const metadata: Metadata = {
+  title: 'Verco Field',
+  manifest: '/field.webmanifest',
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: 'default',
+    title: 'Verco Field',
+  },
+  icons: {
+    apple: '/icons/apple-touch-icon.png',
+  },
+}
+
+export const viewport: Viewport = {
+  themeColor: '#293F52',
+  width: 'device-width',
+  initialScale: 1,
+  // Draw under the iOS notch/home-indicator; safe-area insets are handled
+  // with env() padding in FieldLayoutClient.
+  viewportFit: 'cover',
+}
 
 export default async function FieldLayout({
   children,
@@ -65,7 +91,7 @@ export default async function FieldLayout({
         '--brand-accent-dark': `color-mix(in srgb, ${accentColour} 75%, black)`,
       } as React.CSSProperties}
     >
-      <FieldLayoutClient roleLabel={roleLabel} areaCodes={areaCodes}>
+      <FieldLayoutClient role={role} roleLabel={roleLabel} areaCodes={areaCodes}>
         {children}
       </FieldLayoutClient>
     </div>

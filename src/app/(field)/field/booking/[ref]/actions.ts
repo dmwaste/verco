@@ -1,6 +1,5 @@
 'use server'
 
-import { headers } from 'next/headers'
 import { createClient } from '@/lib/supabase/server'
 import { invokeSendNotification } from '@/lib/notifications/invoke'
 import type { Database } from '@/lib/supabase/types'
@@ -56,7 +55,7 @@ export async function completeBooking(bookingId: string): Promise<Result<void>> 
 
   const { data: booking } = await supabase
     .from('booking')
-    .select('id, status')
+    .select('id, status, client_id')
     .eq('id', bookingId)
     .single()
 
@@ -75,29 +74,27 @@ export async function completeBooking(bookingId: string): Promise<Result<void>> 
 
   if (error) return { ok: false, error: error.message }
 
-  // Create survey + fire completion notification
-  const headerStore = await headers()
-  const clientId = headerStore.get('x-client-id')
+  // Create survey + fire completion notification. client_id comes from the
+  // booking row, NOT the x-client-id header — the field host
+  // (field.verco.au) never sets that header, so deriving it from the row is
+  // the only path that works on every host.
+  const surveyToken = crypto.randomUUID()
+  const { error: surveyError } = await supabase
+    .from('booking_survey')
+    .insert({
+      booking_id: bookingId,
+      client_id: booking.client_id,
+      token: surveyToken,
+    })
 
-  if (clientId) {
-    const surveyToken = crypto.randomUUID()
-    const { error: surveyError } = await supabase
-      .from('booking_survey')
-      .insert({
-        booking_id: bookingId,
-        client_id: clientId,
-        token: surveyToken,
-      })
-
-    if (surveyError) {
-      console.error('Failed to create booking_survey:', surveyError.message)
-    } else {
-      await invokeSendNotification(supabase, {
-        type: 'completion_survey',
-        booking_id: bookingId,
-        survey_token: surveyToken,
-      })
-    }
+  if (surveyError) {
+    console.error('Failed to create booking_survey:', surveyError.message)
+  } else {
+    await invokeSendNotification(supabase, {
+      type: 'completion_survey',
+      booking_id: bookingId,
+      survey_token: surveyToken,
+    })
   }
 
   return { ok: true, data: undefined }
@@ -113,14 +110,12 @@ export async function raiseNcn(
   if (!roleCheck.ok) return roleCheck
 
   const supabase = await createClient()
-  const headerStore = await headers()
-  const clientId = headerStore.get('x-client-id')
 
-  if (!clientId) return { ok: false, error: 'Unable to resolve tenant.' }
-
+  // client_id from the booking row, not x-client-id — the field host never
+  // sets that header (it only sets x-contractor-id).
   const { data: booking } = await supabase
     .from('booking')
-    .select('id, status')
+    .select('id, status, client_id')
     .eq('id', bookingId)
     .single()
 
@@ -141,7 +136,7 @@ export async function raiseNcn(
     .from('non_conformance_notice')
     .insert({
       booking_id: bookingId,
-      client_id: clientId,
+      client_id: booking.client_id,
       reason,
       notes: notes || null,
       photos: photoUrls,
@@ -185,14 +180,12 @@ export async function raiseNothingPresented(
   if (!roleCheck.ok) return roleCheck
 
   const supabase = await createClient()
-  const headerStore = await headers()
-  const clientId = headerStore.get('x-client-id')
 
-  if (!clientId) return { ok: false, error: 'Unable to resolve tenant.' }
-
+  // client_id from the booking row, not x-client-id — the field host never
+  // sets that header (it only sets x-contractor-id).
   const { data: booking } = await supabase
     .from('booking')
-    .select('id, status')
+    .select('id, status, client_id')
     .eq('id', bookingId)
     .single()
 
@@ -212,7 +205,7 @@ export async function raiseNothingPresented(
     .from('nothing_presented')
     .insert({
       booking_id: bookingId,
-      client_id: clientId,
+      client_id: booking.client_id,
       notes: notes || null,
       photos: photoUrls,
       contractor_fault: dmFault,

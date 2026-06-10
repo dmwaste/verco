@@ -285,7 +285,7 @@ These are explicitly out of scope for v2. If a task seems to require one of thes
 
 | Out of scope | Why |
 |---|---|
-| OptimoRoute integration | Future — schema has nullable `optimo_stop_id` placeholder only |
+| OptimoRoute Driver app usage / status feedback to OptimoRoute | OR is **plan-only** (decision 10/06/2026): Verco pushes orders at T-3 hard close, ops plan in OR web, Verco pulls sequences back. Crews work in Verco's field UI; closeout never flows back to OR. (`booking.optimo_stop_id` is a dead placeholder — stops use `collection_stop.external_order_ref`.) |
 | Stripe Connect | Future — `client_id` on payments is prep only |
 | Cross-client benchmarking in reports | Explicitly excluded — tenant data only |
 | Email template management UI | Templates are code-defined in Edge Functions |
@@ -390,6 +390,8 @@ These are absolute. If a task requires crossing one, stop and flag it.
 ### SRF in RLS USING — Postgres rejects set-returning funcs in RLS (`SQLSTATE 0A000`). Use `col IN (SELECT srf())`, NOT `col = ANY(srf())`. Pattern: `contacts_staff_select_via_profiles`.
 
 ### RLS coverage lags data plumbing — new FK or relationship to a table with tight RLS needs a matching SELECT policy IN THE SAME MIGRATION. Symptom: data imports fine, admin embeds silently return null. Memory: `rls-coverage-lags-data-plumbing.md`.
+
+### Collection stops (field crew model, 10/06/2026) — a stop = booking × `service.waste_stream` (general/green/ancillary/illegal_dumping); crews collect streams in separate passes. `collection_stop` rows are generated ONLY by the `push-orders-to-optimoroute` EF at T-3 hard close (no INSERT policy). Stop state machine: Pending → terminal, DB-enforced. Booking status derives from stops via `rollup_booking_status_from_stops` (exception wins: NCN > NP > Completed) — never set it directly when stops exist; the reverse trigger `sync_stops_on_booking_status` keeps legacy per-booking closeouts and cancellations consistent. Address/lat/lng/services are denormalised onto the stop so field UIs never join `booking`→`contacts` (PII) and avoid the multi-FK embed gotcha. OptimoRoute sync = 3 cron EFs (push 19:10 UTC / cancel-sweep hourly / pull 4-hourly + admin manual refresh); `OPTIMOROUTE_API_KEY` is an EF secret; pure helpers live in the `_shared/stops.ts` ↔ `src/lib/stops/stops.ts` mirror pair.
 
 ---
 
