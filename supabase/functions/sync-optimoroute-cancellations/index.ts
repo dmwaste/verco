@@ -11,13 +11,17 @@ import { deleteOrders, getRoutingApiKey } from '../_shared/optimoroute.ts'
  * The DB trigger sync_stops_on_booking_status cancels Pending stops the
  * moment a booking is cancelled — by any path (resident, admin,
  * handle-expired-payments). This sweep is the OptimoRoute-side reconciler:
- * it deletes the routing-engine orders for stops that were pushed and have
- * since been cancelled, covering the T-3 → day-prior-cutoff cancellation
- * window. The date filter (>= today AWST) self-bounds the sweep; past dates
- * age out naturally.
+ * it deletes the routing-engine orders for cancelled stops, covering the
+ * T-3 → day-prior-cutoff cancellation window. The date filter (>= today
+ * AWST) self-bounds the sweep; past dates age out naturally.
  *
- * Idempotent: ORDER_NOT_FOUND counts as success, and external_deleted_at
- * keeps handled stops out of the next run.
+ * Cancelled stops are swept regardless of pushed_at: if the push EF died
+ * between the routing-API call and the pushed_at stamp, the order exists in
+ * OptimoRoute with no stamp — filtering on pushed_at would orphan it there
+ * forever. Sweeping never-pushed stops is a harmless not-found no-op.
+ *
+ * Idempotent: not-found (ERR_ORD_NOT_FOUND) counts as success, and
+ * external_deleted_at keeps handled stops out of the next run.
  */
 
 serve(async (_req) => {
@@ -35,16 +39,20 @@ serve(async (_req) => {
   }
 
   try {
-    const { data: stops, error: fetchError } = await supabase
-      .from('collection_stop')
-      .select('id, external_order_ref, collection_date!inner(date)')
-      .eq('status', 'Cancelled')
-      .not('pushed_at', 'is', null)
-      .is('external_deleted_at', null)
-      .gte('collection_date.date', today)
-    if (fetchError) throw new Error(`cancelled stops fetch: ${fetchError.message}`)
-
-    const candidates = (stops ?? []) as Array<{ id: string; external_order_ref: string }>
+    const candidates: Array<{ id: string; external_order_ref: string }> = []
+    for (let from = 0; ; from += 1000) {
+      const { data: page, error: fetchError } = await supabase
+        .from('collection_stop')
+        .select('id, external_order_ref, collection_date!inner(date)')
+        .eq('status', 'Cancelled')
+        .is('external_deleted_at', null)
+        .gte('collection_date.date', today)
+        .order('id')
+        .range(from, from + 999)
+      if (fetchError) throw new Error(`cancelled stops fetch: ${fetchError.message}`)
+      candidates.push(...((page ?? []) as Array<{ id: string; external_order_ref: string }>))
+      if ((page ?? []).length < 1000) break
+    }
     results.candidates = candidates.length
 
     if (candidates.length > 0) {

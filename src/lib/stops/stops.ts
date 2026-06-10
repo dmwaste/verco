@@ -59,9 +59,13 @@ export function buildOrderNo(bookingRef: string, stream: WasteStream): string {
   return `${bookingRef}-${STREAM_SUFFIX[stream]}`
 }
 
-/** Groups booking items into their waste-stream passes. */
-export function groupItemsByStream(items: StopItem[]): Map<WasteStream, StopItem[]> {
-  const groups = new Map<WasteStream, StopItem[]>()
+/**
+ * Groups booking items into their waste-stream passes. Generic so callers
+ * carrying extra fields (e.g. collection_date_id) keep them typed through
+ * the grouping — items are passed by reference, never copied.
+ */
+export function groupItemsByStream<T extends StopItem>(items: T[]): Map<WasteStream, T[]> {
+  const groups = new Map<WasteStream, T[]>()
   for (const item of items) {
     const stream = item.service.waste_stream
     const group = groups.get(stream)
@@ -74,9 +78,34 @@ export function groupItemsByStream(items: StopItem[]): Map<WasteStream, StopItem
   return groups
 }
 
-/** services_summary jsonb payload for a stop: what THIS pass collects. */
+/**
+ * Stop state-machine parity with the DB trigger enforce_stop_state_transition
+ * (migration 20260610010100) — the trigger is authoritative; this exists for
+ * UI checks and tests. Pending → any terminal for all writers; Cancelled →
+ * Pending only for privileged writers (the push EF reviving a stop whose
+ * stream reappeared after a post-push amendment); terminal states otherwise
+ * immutable.
+ */
+export function canStopTransition(
+  from: StopStatus,
+  to: StopStatus,
+  opts: { privileged?: boolean } = {},
+): boolean {
+  if (from === to) return false
+  if (from === 'Pending') return true
+  if (from === 'Cancelled' && to === 'Pending') return opts.privileged === true
+  return false
+}
+
+/**
+ * services_summary jsonb payload for a stop: what THIS pass collects.
+ * Sorted by name so the output is deterministic regardless of DB row order —
+ * the push EF diffs summaries to decide whether a stop needs re-pushing.
+ */
 export function buildServicesSummary(items: StopItem[]): ServiceSummaryEntry[] {
-  return items.map((item) => ({ name: item.service.name, qty: item.no_services }))
+  return items
+    .map((item) => ({ name: item.service.name, qty: item.no_services }))
+    .sort((a, b) => a.name.localeCompare(b.name))
 }
 
 /** Human-readable order notes, e.g. "General x2, Mattress x1". Never PII. */

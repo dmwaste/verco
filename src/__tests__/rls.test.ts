@@ -841,6 +841,214 @@ if (!haveDb) {
   })
 
   // ---------------------------------------------------------------------------
+  // collection_stop / collection_run_meta — field-crew stop model (PR #158)
+  //
+  // Guarded: the tables ship with the field-stops release. Until those
+  // migrations reach the remote project this suite self-skips (ctx.skip), so
+  // the file stays runnable across the PR-A → release window.
+  // ---------------------------------------------------------------------------
+  describe('collection_stop / collection_run_meta — RLS + state machine', () => {
+    const STOP_BOOKING = 'cccccccc-0001-4000-8000-000000000001' // Scheduled booking
+    const STOP_GENERAL = 'cccccccc-0002-4000-8000-000000000002' // Pending stop on it
+    const STOP_ON_CONFIRMED = 'cccccccc-0003-4000-8000-000000000003' // Pending stop on the F5 Confirmed booking
+
+    let ready = false
+    let hasCreatedBy = false
+
+    beforeAll(async () => {
+      const reg = await pg.query<{ t: string | null; c: string | null }>(
+        `SELECT to_regclass('public.collection_stop')::text AS t,
+                (SELECT column_name FROM information_schema.columns
+                  WHERE table_schema = 'public' AND table_name = 'booking'
+                    AND column_name = 'created_by') AS c`,
+      )
+      if (!reg.rows[0]?.t) return // pre-release remote — suite self-skips
+      hasCreatedBy = Boolean(reg.rows[0]?.c)
+
+      const area = await pg.query<{ id: string }>(
+        `SELECT id FROM collection_area WHERE client_id = $1 LIMIT 1`,
+        [CLIENT_ID],
+      )
+      const date = await pg.query<{ id: string }>(
+        `SELECT cd.id FROM collection_date cd
+           JOIN collection_area ca ON ca.id = cd.collection_area_id
+          WHERE ca.client_id = $1 LIMIT 1`,
+        [CLIENT_ID],
+      )
+      const fy = await pg.query<{ id: string }>(
+        `SELECT id FROM financial_year WHERE is_current LIMIT 1`,
+      )
+      if (!area.rows[0] || !date.rows[0] || !fy.rows[0]) return
+
+      // Scheduled booking + Pending stop (the closeout-eligible pair), plus a
+      // Pending stop on the F5 Confirmed booking (closeout must be refused
+      // until the booking reaches Scheduled). Idempotent; tests ROLLBACK.
+      await pg.query(
+        `INSERT INTO public.booking (id, ref, type, status, collection_area_id, client_id, contractor_id, fy_id)
+         VALUES ($1, 'RLS-STOP-BKG', 'Residential', 'Scheduled', $2, $3, $4, $5)
+         ON CONFLICT (id) DO UPDATE SET status = 'Scheduled'`,
+        [STOP_BOOKING, area.rows[0].id, CLIENT_ID, CONTRACTOR_ID, fy.rows[0].id],
+      )
+      await pg.query(
+        `INSERT INTO public.collection_stop
+           (id, booking_id, client_id, stream, collection_date_id, status, external_order_ref, services_summary)
+         VALUES ($1, $2, $3, 'general', $4, 'Pending', 'RLS-STOP-BKG-GEN', '[{"name":"General","qty":1}]'),
+                ($5, $6, $3, 'general', $4, 'Pending', 'RLS-F5-OWN-GEN', '[{"name":"General","qty":1}]')
+         ON CONFLICT (id) DO UPDATE
+           SET status = 'Pending', cancelled_at = NULL, completed_at = NULL, completed_by = NULL`,
+        [STOP_GENERAL, STOP_BOOKING, CLIENT_ID, date.rows[0].id, STOP_ON_CONFIRMED, F5_RESIDENT_BOOKING],
+      )
+      await pg.query(
+        `INSERT INTO public.collection_run_meta (driver_serial, date, driver_name)
+         VALUES ('RLS-TEST', CURRENT_DATE, 'RLS Test Crew')
+         ON CONFLICT (driver_serial, date) DO NOTHING`,
+      )
+      ready = true
+    }, 30_000)
+
+    it('field SELECTs stops in their tenant', async (ctx) => {
+      if (!ready) return ctx.skip()
+      const n = await countAs(USERS.field, `SELECT id FROM collection_stop WHERE id = '${STOP_GENERAL}'`)
+      expect(n).toBe(1)
+    })
+
+    it('resident gets ZERO stop rows even for their own booking (routing internals)', async (ctx) => {
+      if (!ready) return ctx.skip()
+      const n = await countAs(
+        USERS.resident,
+        `SELECT id FROM collection_stop WHERE booking_id = '${F5_RESIDENT_BOOKING}'`,
+      )
+      expect(n).toBe(0)
+    })
+
+    it('field completes a Pending stop on a Scheduled booking (1 row + rollup)', async (ctx) => {
+      if (!ready) return ctx.skip()
+      const n = await updateAs(
+        USERS.field,
+        `UPDATE collection_stop
+            SET status = 'Completed', completed_at = now(), completed_by = '${USERS.field}'
+          WHERE id = '${STOP_GENERAL}'`,
+      )
+      expect(n).toBe(1)
+    })
+
+    it('ranger cannot terminalise a stop (0 rows — write policy is field-only)', async (ctx) => {
+      if (!ready) return ctx.skip()
+      const n = await updateAs(
+        USERS.ranger,
+        `UPDATE collection_stop SET status = 'Completed' WHERE id = '${STOP_GENERAL}'`,
+      )
+      expect(n).toBe(0)
+    })
+
+    it('field cannot close a stop while its booking is still Confirmed (0 rows)', async (ctx) => {
+      if (!ready) return ctx.skip()
+      const n = await updateAs(
+        USERS.field,
+        `UPDATE collection_stop SET status = 'Completed' WHERE id = '${STOP_ON_CONFIRMED}'`,
+      )
+      expect(n).toBe(0)
+    })
+
+    it('field cannot set a stop to Cancelled (WITH CHECK)', async (ctx) => {
+      if (!ready) return ctx.skip()
+      await expect(
+        updateAs(
+          USERS.field,
+          `UPDATE collection_stop SET status = 'Cancelled' WHERE id = '${STOP_GENERAL}'`,
+        ),
+      ).rejects.toThrow(/row-level security/)
+    })
+
+    it('field cannot rewrite identity columns in the closeout UPDATE', async (ctx) => {
+      if (!ready) return ctx.skip()
+      await expect(
+        updateAs(
+          USERS.field,
+          `UPDATE collection_stop
+              SET status = 'Completed', external_order_ref = 'HIJACKED'
+            WHERE id = '${STOP_GENERAL}'`,
+        ),
+      ).rejects.toThrow(/immutable/)
+    })
+
+    it('field cannot forge completed_by to another user', async (ctx) => {
+      if (!ready) return ctx.skip()
+      await expect(
+        updateAs(
+          USERS.field,
+          `UPDATE collection_stop
+              SET status = 'Completed', completed_by = '${USERS.ranger}'
+            WHERE id = '${STOP_GENERAL}'`,
+        ),
+      ).rejects.toThrow(/acting user/)
+    })
+
+    it('authenticated roles cannot INSERT stops (push EF only)', async (ctx) => {
+      if (!ready) return ctx.skip()
+      await expect(
+        updateAs(
+          USERS.field,
+          `INSERT INTO collection_stop (booking_id, client_id, stream, collection_date_id)
+           SELECT '${STOP_BOOKING}', '${CLIENT_ID}', 'green', collection_date_id
+             FROM collection_stop WHERE id = '${STOP_GENERAL}'`,
+        ),
+      ).rejects.toThrow(/row-level security/)
+    })
+
+    it('collection_run_meta: contractor roles read it; ranger/client-admin/resident get zero', async (ctx) => {
+      if (!ready) return ctx.skip()
+      const sql = `SELECT id FROM collection_run_meta WHERE driver_serial = 'RLS-TEST'`
+      expect(await countAs(USERS.field, sql)).toBe(1)
+      expect(await countAs(USERS['contractor-staff'], sql)).toBe(1)
+      expect(await countAs(USERS.ranger, sql)).toBe(0)
+      expect(await countAs(USERS['client-admin'], sql)).toBe(0)
+      expect(await countAs(USERS.resident, sql)).toBe(0)
+    })
+
+    it('ID RPC stamps created_by with the acting ranger', async (ctx) => {
+      if (!ready || !hasCreatedBy) return ctx.skip()
+      await pg.query('BEGIN')
+      try {
+        const row = await pg.query<{ id: string; collection_area_id: string }>(
+          `SELECT cd.id, cd.collection_area_id
+             FROM collection_date cd
+             JOIN collection_area ca ON ca.id = cd.collection_area_id
+            WHERE ca.client_id = $1 AND ca.capacity_pool_id IS NULL
+            LIMIT 1`,
+          [CLIENT_ID],
+        )
+        if (!row.rows[0]) return ctx.skip()
+        await pg.query(
+          `UPDATE collection_date
+              SET id_capacity_limit = 10, id_units_booked = 0, id_is_closed = false
+            WHERE id = $1`,
+          [row.rows[0].id],
+        )
+        await pg.query('SET LOCAL ROLE authenticated')
+        await pg.query(`SELECT set_config('request.jwt.claims', $1, true)`, [
+          JSON.stringify({ sub: USERS.ranger, role: 'authenticated' }),
+        ])
+        const res = await pg.query<{ r: { booking_id: string } }>(
+          `SELECT create_id_booking_with_capacity_check(
+             $1::uuid, $2::uuid, -32.27, 115.75, 'x', '', '{}'::text[],
+             ARRAY['General / Mixed']::text[], 'Small'
+           ) AS r`,
+          [row.rows[0].id, row.rows[0].collection_area_id],
+        )
+        await pg.query('RESET ROLE')
+        const b = await pg.query<{ created_by: string | null }>(
+          `SELECT created_by FROM booking WHERE id = $1`,
+          [res.rows[0]!.r.booking_id],
+        )
+        expect(b.rows[0]!.created_by).toBe(USERS.ranger)
+      } finally {
+        await pg.query('ROLLBACK')
+      }
+    })
+  })
+
+  // ---------------------------------------------------------------------------
   // Illegal Dumping RPC — create_id_booking_with_capacity_check (VER-225/226)
   //
   // Exercises the SECURITY DEFINER booking path under ranger impersonation:

@@ -77,8 +77,29 @@ interface OrBulkResponse {
   orders?: Array<{ success: boolean; code?: string; message?: string }>
 }
 
+/**
+ * Network-failure messages from fetch embed the full request URL — which
+ * carries the API key as a query param. Every EF's top-level catch returns
+ * err.message to (anon-invocable) callers, so rethrow sanitised instead of
+ * letting the raw TypeError bubble.
+ */
+async function safeFetch(
+  apiKey: string,
+  endpoint: string,
+  init?: RequestInit,
+  extraQuery = '',
+): Promise<Response> {
+  try {
+    return await fetch(`${BASE_URL}/${endpoint}?key=${encodeURIComponent(apiKey)}${extraQuery}`, init)
+  } catch (err) {
+    throw new Error(
+      `OptimoRoute ${endpoint} request failed: ${err instanceof Error ? err.name : 'network error'}`,
+    )
+  }
+}
+
 async function post(apiKey: string, endpoint: string, body: unknown): Promise<Response> {
-  return await fetch(`${BASE_URL}/${endpoint}?key=${encodeURIComponent(apiKey)}`, {
+  return await safeFetch(apiKey, endpoint, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -149,8 +170,10 @@ export async function createOrUpdateOrders(
 }
 
 /**
- * Deletes orders by orderNo. ORDER_NOT_FOUND counts as success — the order
+ * Deletes orders by orderNo. A not-found result counts as success — the order
  * is gone either way, which is the post-condition the sweep cares about.
+ * Docs name the code ERR_ORD_NOT_FOUND; ORDER_NOT_FOUND is accepted
+ * defensively in case the live API differs from the docs.
  */
 export async function deleteOrders(apiKey: string, orderNos: string[]): Promise<OrOrderResult[]> {
   const results: OrOrderResult[] = []
@@ -179,7 +202,7 @@ export async function deleteOrders(apiKey: string, orderNos: string[]): Promise<
 
     batch.forEach((orderNo, i) => {
       const r = data.orders![i]
-      const notFound = r?.code === 'ORDER_NOT_FOUND'
+      const notFound = r?.code === 'ERR_ORD_NOT_FOUND' || r?.code === 'ORDER_NOT_FOUND'
       results.push({
         orderNo,
         success: (r?.success ?? false) || notFound,
@@ -191,10 +214,18 @@ export async function deleteOrders(apiKey: string, orderNos: string[]): Promise<
   return results
 }
 
-/** Fetches planned routes for a date. Empty array = nothing planned yet. */
+/**
+ * Fetches planned routes for a date. Empty array = nothing planned yet.
+ * includeRouteStartEnd adds the route's depot start/end entries to stops[]
+ * (type "depot") so the run-sheet header can show them — without it a route
+ * with no mid-route reloads would have no depot entries at all.
+ */
 export async function getRoutes(apiKey: string, date: string): Promise<OrRoute[]> {
-  const res = await fetch(
-    `${BASE_URL}/get_routes?key=${encodeURIComponent(apiKey)}&date=${encodeURIComponent(date)}`,
+  const res = await safeFetch(
+    apiKey,
+    'get_routes',
+    undefined,
+    `&date=${encodeURIComponent(date)}&includeRouteStartEnd=true`,
   )
   if (!res.ok) {
     throw new Error(`get_routes(${date}) failed: HTTP ${res.status}: ${await res.text()}`)

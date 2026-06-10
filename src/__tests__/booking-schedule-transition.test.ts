@@ -78,14 +78,17 @@ describe('filterBookingsReadyToSchedule', () => {
     expect(filterBookingsReadyToSchedule(bookings, tomorrow)).toEqual([])
   })
 
-  it('excludes bookings where earliest date is not tomorrow (past)', () => {
+  it('includes straggler bookings whose earliest date is already past (catch-up)', () => {
+    // <= semantics: a booking confirmed after its date's 15:25 tick (e.g. a
+    // late admin Confirm on a rebook) transitions on the next tick rather
+    // than sitting Confirmed forever.
     const bookings: BookingWithItemDates[] = [
       {
         id: 'b1',
         booking_item: [{ collection_date: { date: '2026-04-14' } }],
       },
     ]
-    expect(filterBookingsReadyToSchedule(bookings, tomorrow)).toEqual([])
+    expect(filterBookingsReadyToSchedule(bookings, tomorrow)).toEqual(['b1'])
   })
 
   it('uses the MIN of multiple item dates', () => {
@@ -101,7 +104,7 @@ describe('filterBookingsReadyToSchedule', () => {
     expect(filterBookingsReadyToSchedule(bookings, tomorrow)).toEqual(['b1'])
   })
 
-  it('excludes a booking where the earliest item date is today (past cutoff)', () => {
+  it('includes a booking whose earliest item date is today (straggler catch-up)', () => {
     const bookings: BookingWithItemDates[] = [
       {
         id: 'b1',
@@ -111,7 +114,7 @@ describe('filterBookingsReadyToSchedule', () => {
         ],
       },
     ]
-    expect(filterBookingsReadyToSchedule(bookings, tomorrow)).toEqual([])
+    expect(filterBookingsReadyToSchedule(bookings, tomorrow)).toEqual(['b1'])
   })
 
   it('excludes bookings with no items', () => {

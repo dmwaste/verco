@@ -70,6 +70,7 @@ CREATE INDEX idx_collection_stop_date ON collection_stop(collection_date_id);
 CREATE INDEX idx_collection_stop_driver_date ON collection_stop(driver_serial, collection_date_id);
 CREATE INDEX idx_collection_stop_client ON collection_stop(client_id);
 CREATE INDEX idx_collection_stop_pending ON collection_stop(status) WHERE status = 'Pending';
+CREATE INDEX idx_collection_stop_completed_by ON collection_stop(completed_by) WHERE completed_by IS NOT NULL;
 
 CREATE TRIGGER collection_stop_updated_at BEFORE UPDATE ON collection_stop
   FOR EACH ROW EXECUTE FUNCTION handle_updated_at();
@@ -79,16 +80,49 @@ CREATE TRIGGER audit_collection_stop
   FOR EACH ROW EXECUTE FUNCTION audit_trigger_fn();
 
 -- ---------------------------------------------------------------------------
--- Stop state machine: Pending → {Completed, Non-conformance,
--- Nothing Presented, Cancelled}. Terminal states immutable. Mirrors the
--- booking state machine style (§7) — application code must never force it.
+-- Stop state machine + column integrity. Transitions:
+--   Pending   → {Completed, Non-conformance, Nothing Presented, Cancelled}
+--   Cancelled → Pending   (privileged only — the push EF revives a stop whose
+--                          stream reappeared after a post-push amendment;
+--                          without this carve-out the UNIQUE(booking_id,
+--                          stream) row would block the stream forever)
+-- All other terminal states are immutable.
+--
+-- Column integrity (review hardening, PR #158): RLS WITH CHECK can only
+-- constrain whole rows, so identity/sync columns are pinned here — a field
+-- JWT passing the UPDATE policy must not be able to repoint a stop at another
+-- booking/tenant or rewrite its routing identity in the closeout UPDATE.
+-- "Privileged" = service role (EFs) or direct DB access (no JWT claims).
 -- ---------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION enforce_stop_state_transition()
 RETURNS trigger
 LANGUAGE plpgsql
 AS $$
+DECLARE
+  v_claims     jsonb;
+  v_privileged boolean;
 BEGIN
+  v_claims := nullif(current_setting('request.jwt.claims', true), '')::jsonb;
+  v_privileged := v_claims IS NULL OR v_claims->>'role' = 'service_role';
+
+  IF NOT v_privileged THEN
+    IF NEW.booking_id IS DISTINCT FROM OLD.booking_id
+       OR NEW.client_id IS DISTINCT FROM OLD.client_id
+       OR NEW.stream IS DISTINCT FROM OLD.stream
+       OR NEW.collection_date_id IS DISTINCT FROM OLD.collection_date_id
+       OR NEW.external_order_ref IS DISTINCT FROM OLD.external_order_ref THEN
+      RAISE EXCEPTION 'Stop identity columns are immutable for non-service writers';
+    END IF;
+    IF NEW.completed_by IS DISTINCT FROM OLD.completed_by
+       AND NEW.completed_by IS DISTINCT FROM auth.uid() THEN
+      RAISE EXCEPTION 'completed_by must be the acting user';
+    END IF;
+  END IF;
+
   IF NEW.status IS DISTINCT FROM OLD.status THEN
+    IF OLD.status = 'Cancelled' AND NEW.status = 'Pending' AND v_privileged THEN
+      RETURN NEW; -- push-EF revival of a reappeared stream
+    END IF;
     IF OLD.status <> 'Pending' THEN
       RAISE EXCEPTION 'Invalid stop transition: % → % (terminal stop statuses are immutable)',
         OLD.status, NEW.status;
@@ -100,7 +134,7 @@ END;
 $$;
 
 CREATE TRIGGER enforce_stop_state_transition
-  BEFORE UPDATE OF status ON collection_stop
+  BEFORE UPDATE ON collection_stop
   FOR EACH ROW EXECUTE FUNCTION enforce_stop_state_transition();
 
 -- ---------------------------------------------------------------------------
@@ -129,6 +163,15 @@ DECLARE
   v_live     integer;  -- non-Cancelled terminal stops
   v_rollup   booking_status;
 BEGIN
+  -- Serialise rollups per booking. Without this, two crews closing the last
+  -- two sibling stops concurrently each see the other as Pending in their
+  -- READ COMMITTED snapshot, BOTH skip the rollup, and the booking strands
+  -- in Scheduled forever (terminal stops are immutable, so nothing re-fires).
+  -- After blocking here, the count statement below gets a fresh snapshot and
+  -- sees the other transaction's committed terminal status. Same key scheme
+  -- as the capacity RPCs.
+  PERFORM pg_advisory_xact_lock(('x' || substr(NEW.booking_id::text, 1, 8))::bit(32)::bigint);
+
   SELECT
     count(*) FILTER (WHERE status = 'Pending'),
     count(*) FILTER (WHERE status = 'Non-conformance'),
@@ -213,23 +256,33 @@ CREATE TRIGGER sync_stops_on_booking_status
 -- ---------------------------------------------------------------------------
 ALTER TABLE collection_stop ENABLE ROW LEVEL SECURITY;
 
--- Transitive SELECT: whoever can see the booking can see its stops (same
--- pattern as booking_item_select). Inherits the whole role matrix including
--- sub-client narrowing and resident own-booking scope. Stops carry no PII.
+-- Transitive SELECT gated to operational roles: whoever can see the booking
+-- can see its stops (same transitive scope as booking_item_select, inheriting
+-- sub-client narrowing) — but residents/strata are deliberately excluded.
+-- Stops carry routing internals (driver identity, scheduled_at,
+-- last_push_error with raw routing-API responses) that end users have no
+-- need for; a curated resident surface can be added later if ever wanted.
 CREATE POLICY collection_stop_select ON collection_stop FOR SELECT
   USING (
     booking_id IN (SELECT id FROM booking)
+    AND (is_field_user() OR is_client_staff() OR is_contractor_user())
   );
 
 -- Field closeout: Pending → terminal only, own tenant, sub-client narrowed.
 -- Ranger deliberately excluded from writes (has_role('field'), not
--- is_field_user()) — matches booking_field_update.
+-- is_field_user()) — matches booking_field_update. Booking must be Scheduled:
+-- stops exist from T-3 but crews must not close them while the booking is
+-- still Confirmed (pre day-prior transition) — the rollup would silently
+-- no-op and the booking could never complete.
+-- WITH CHECK re-pins tenant + sub-client on the NEW row (USING only gates
+-- the OLD row); identity columns are pinned by enforce_stop_state_transition.
 CREATE POLICY collection_stop_field_update ON collection_stop FOR UPDATE
   USING (
     client_id IN (SELECT accessible_client_ids())
     AND has_role('field'::app_role)
     AND status = 'Pending'::stop_status
     AND user_sub_client_allows_booking(booking_id)
+    AND booking_id IN (SELECT id FROM booking WHERE status = 'Scheduled'::booking_status)
   )
   WITH CHECK (
     status = ANY (ARRAY[
@@ -237,6 +290,8 @@ CREATE POLICY collection_stop_field_update ON collection_stop FOR UPDATE
       'Non-conformance'::stop_status,
       'Nothing Presented'::stop_status
     ])
+    AND client_id IN (SELECT accessible_client_ids())
+    AND user_sub_client_allows_booking(booking_id)
   );
 
 -- No INSERT/DELETE policies: only the push EF (service role) creates stops,
@@ -270,10 +325,19 @@ COMMENT ON TABLE collection_run_meta IS
 CREATE TRIGGER collection_run_meta_updated_at BEFORE UPDATE ON collection_run_meta
   FOR EACH ROW EXECUTE FUNCTION handle_updated_at();
 
+-- audit_trigger_fn deliberately NOT attached: rows are machine-written by the
+-- pull EF (service role — actor would always log as System), carry no
+-- client_id for the trigger to derive, and are overwritten on every pull —
+-- auditing them is pure noise.
+
 ALTER TABLE collection_run_meta ENABLE ROW LEVEL SECURITY;
 
+-- Contractor roles only (admin/staff/field — the crews working the runs).
+-- The table has no tenant column (a driver's day can span clients), so
+-- exposing it to client-tier roles would leak one council's run operations
+-- (driver identity, schedules) to another. Rangers don't work runs.
 CREATE POLICY collection_run_meta_select ON collection_run_meta FOR SELECT
   USING (
-    is_field_user() OR is_client_staff() OR is_contractor_user()
+    is_contractor_user()
   );
 -- No INSERT/UPDATE/DELETE policies — pull EF (service role) owns writes.

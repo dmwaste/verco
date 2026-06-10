@@ -7,23 +7,38 @@ import { getRoutes, getRoutingApiKey, type OrRoute } from '../_shared/optimorout
  * pull-optimoroute-routes Edge Function
  *
  * Two callers (dual auth per CLAUDE.md §21):
- *  - pg_cron every 4h (anon routing bearer — no user) — scheduled pulls
- *  - the admin "Refresh routes" server action (user JWT) — right after ops
- *    finish planning. Requires contractor-admin/contractor-staff.
- * Privileged work always runs on the env service-role client.
+ *  - pg_cron every 4h — sends the public anon key as its routing bearer
+ *  - the admin "Refresh routes" server action (user JWT) — requires
+ *    contractor-admin/contractor-staff
+ * Any other bearer (garbage, expired, non-staff user) is rejected; a missing
+ * bearer is rejected outright. Privileged work runs on the env service-role
+ * client.
  *
- * For each date in today..today+3 AWST that has stops: fetch planned routes,
- * stamp driver/sequence/ETA onto Pending stops by orderNo (skipping
- * depot/break entries, which have no orderNo), null-out stops that fell out
- * of the plan, and upsert per-(driver, date) run metadata (start/finish
- * times + depot labels) for the run-sheet header.
+ * For each date in today..today+3 AWST: fetch planned routes, stamp
+ * driver/sequence/ETA onto Pending stops by orderNo — only when values
+ * actually changed (every 4h re-stamping unchanged rows would generate
+ * thousands of pure-noise audit_log rows a day) — and upsert per-(driver,
+ * date) run metadata. Stops that fell out of the plan are cleared per date
+ * using the WHOLE window's planned refs, so an order ops moved to a
+ * different date in the OR web UI keeps its stamp instead of being cleared
+ * by its home date's sweep. Dates whose fetch failed are skipped for
+ * clearing (their refs are unknown) and retried next tick.
  *
  * Pending-only stamping: terminal stops keep the sequence they were worked
- * under. Per-stop updates are sequential row-by-row — bounded by ~6 routes ×
- * ~80 stops, fine for a cron.
+ * under.
  */
 
 const PULL_WINDOW_DAYS = 3
+
+interface WindowStop {
+  id: string
+  external_order_ref: string
+  driver_serial: string | null
+  driver_name: string | null
+  stop_sequence: number | null
+  scheduled_at: string | null
+  collection_date: { date: string }
+}
 
 serve(async (req) => {
   const supabaseUrl = Deno.env.get('SUPABASE_URL')!
@@ -31,36 +46,48 @@ serve(async (req) => {
   const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
 
   // --- Dual auth -------------------------------------------------------
-  // A real user JWT must belong to contractor staff; the cron's anon
-  // routing bearer resolves to no user and passes as the scheduled path.
   const bearer = (req.headers.get('Authorization') ?? '').replace(/^Bearer\s+/i, '')
-  if (bearer) {
+  if (!bearer) {
+    return new Response(JSON.stringify({ ok: false, error: 'Missing Authorization bearer.' }), {
+      status: 401,
+      headers: { 'Content-Type': 'application/json' },
+    })
+  }
+  if (bearer !== anonKey) {
+    // Not the cron's routing bearer — must be a valid contractor-staff JWT.
     const callerClient = createClient(supabaseUrl, anonKey, {
       global: { headers: { Authorization: `Bearer ${bearer}` } },
     })
     const {
       data: { user },
     } = await callerClient.auth.getUser()
-    if (user) {
-      const { data: role, error: roleError } = await callerClient.rpc('current_user_role')
-      if (roleError || !['contractor-admin', 'contractor-staff'].includes(role ?? '')) {
-        return new Response(
-          JSON.stringify({ ok: false, error: 'Insufficient permissions to refresh routes.' }),
-          { status: 403, headers: { 'Content-Type': 'application/json' } },
-        )
-      }
+    if (!user) {
+      return new Response(JSON.stringify({ ok: false, error: 'Invalid bearer token.' }), {
+        status: 401,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }
+    const { data: role, error: roleError } = await callerClient.rpc('current_user_role')
+    if (roleError || !['contractor-admin', 'contractor-staff'].includes(role ?? '')) {
+      return new Response(
+        JSON.stringify({ ok: false, error: 'Insufficient permissions to refresh routes.' }),
+        { status: 403, headers: { 'Content-Type': 'application/json' } },
+      )
     }
   }
 
   const supabase = createClient(supabaseUrl, serviceRoleKey)
 
   const today = awstDateFromUtc(new Date())
-  let windowEnd = today
-  for (let i = 0; i < PULL_WINDOW_DAYS; i++) windowEnd = addOneDay(windowEnd)
+  const windowDates: string[] = [today]
+  for (let i = 0; i < PULL_WINDOW_DAYS; i++) {
+    windowDates.push(addOneDay(windowDates[windowDates.length - 1]!))
+  }
 
   const results = {
     today_awst: today,
-    dates_checked: 0,
+    dates_checked: windowDates.length,
+    dates_failed: 0,
     routes_seen: 0,
     stops_stamped: 0,
     stops_unplanned: 0,
@@ -71,35 +98,64 @@ serve(async (req) => {
   try {
     const apiKey = getRoutingApiKey()
 
-    // Dates in the window that actually have stops.
-    const { data: stopDates, error: datesError } = await supabase
-      .from('collection_stop')
-      .select('collection_date!inner(date)')
-      .gte('collection_date.date', today)
-      .lte('collection_date.date', windowEnd)
-    if (datesError) throw new Error(`stop dates fetch: ${datesError.message}`)
+    // Current Pending stops across the window, keyed by orderNo — both the
+    // stamp-only-on-change diff and the fell-out sweep work off this.
+    const windowStops: WindowStop[] = []
+    for (let from = 0; ; from += 1000) {
+      const { data: page, error } = await supabase
+        .from('collection_stop')
+        .select(
+          `id, external_order_ref, driver_serial, driver_name, stop_sequence, scheduled_at,
+           collection_date!inner(date)`,
+        )
+        .eq('status', 'Pending')
+        .gte('collection_date.date', windowDates[0]!)
+        .lte('collection_date.date', windowDates[windowDates.length - 1]!)
+        .order('id')
+        .range(from, from + 999)
+      if (error) throw new Error(`window stops fetch: ${error.message}`)
+      windowStops.push(...((page ?? []) as unknown as WindowStop[]))
+      if ((page ?? []).length < 1000) break
+    }
+    const stopByRef = new Map(windowStops.map((s) => [s.external_order_ref, s]))
 
-    const dates = [
-      ...new Set(
-        ((stopDates ?? []) as unknown as Array<{ collection_date: { date: string } }>).map(
-          (s) => s.collection_date.date,
-        ),
-      ),
-    ].sort()
-    results.dates_checked = dates.length
+    const plannedRefs = new Set<string>()
+    const succeededDates: string[] = []
 
-    for (const date of dates) {
-      const routes: OrRoute[] = await getRoutes(apiKey, date)
+    for (const date of windowDates) {
+      let routes: OrRoute[]
+      try {
+        routes = await getRoutes(apiKey, date)
+      } catch (err) {
+        // One bad date must not abort the rest of the window.
+        results.dates_failed++
+        results.failed++
+        console.error(`getRoutes(${date}) failed:`, err instanceof Error ? err.message : err)
+        continue
+      }
+      succeededDates.push(date)
       results.routes_seen += routes.length
 
-      const plannedRefs = new Set<string>()
+      const driversSeen = new Set<string>()
 
       for (const route of routes) {
-        const orderStops = route.stops.filter((s) => s.orderNo)
-        const depotStops = route.stops.filter((s) => !s.orderNo)
+        driversSeen.add(route.driverSerial)
+        // Order stops carry an orderNo and no type; depot/break entries are
+        // discriminated by the documented `type` field.
+        const orderStops = route.stops.filter((s) => s.orderNo && !s.type)
+        const depotStops = route.stops.filter((s) => s.type === 'depot')
 
         for (const stop of orderStops) {
           plannedRefs.add(stop.orderNo!)
+          const current = stopByRef.get(stop.orderNo!)
+          if (!current) continue // not ours / terminal — nothing to stamp
+          const unchanged =
+            current.driver_serial === route.driverSerial &&
+            current.driver_name === route.driverName &&
+            current.stop_sequence === stop.stopNumber &&
+            (current.scheduled_at ?? '').slice(0, 5) === (stop.scheduledAt ?? '')
+          if (unchanged) continue
+
           const { error: stampError } = await supabase
             .from('collection_stop')
             .update({
@@ -109,7 +165,7 @@ serve(async (req) => {
               scheduled_at: stop.scheduledAt ?? null,
               routes_pulled_at: new Date().toISOString(),
             })
-            .eq('external_order_ref', stop.orderNo!)
+            .eq('id', current.id)
             .eq('status', 'Pending')
           if (stampError) {
             results.failed++
@@ -119,7 +175,8 @@ serve(async (req) => {
           }
         }
 
-        // Run-sheet header metadata: route start/finish + depot labels.
+        // Run-sheet header metadata: route start/finish + depot labels
+        // (includeRouteStartEnd=true adds the route's start/end entries).
         const times = route.stops
           .map((s) => s.scheduledAt)
           .filter((t): t is string => Boolean(t))
@@ -148,36 +205,47 @@ serve(async (req) => {
         }
       }
 
-      // Stops that fell out of the plan (ops re-planned without them) go
-      // back to unsequenced so the run sheet shows them as unplanned.
-      const { data: unplanned, error: unplannedError } = await supabase
+      // Ghost run headers: a driver dropped from a re-plan would otherwise
+      // keep a stale run_meta row for this date forever.
+      const { error: ghostError } = driversSeen.size > 0
+        ? await supabase
+            .from('collection_run_meta')
+            .delete()
+            .eq('date', date)
+            .not('driver_serial', 'in', `(${[...driversSeen].map((d) => `"${d}"`).join(',')})`)
+        : await supabase.from('collection_run_meta').delete().eq('date', date)
+      if (ghostError) {
+        results.failed++
+        console.error(`Run meta cleanup failed for ${date}: ${ghostError.message}`)
+      }
+    }
+
+    // Fell-out-of-plan clearing — per succeeded date, against the WHOLE
+    // window's planned refs (cross-date moves in OR keep their stamp).
+    const succeeded = new Set(succeededDates)
+    const fellOut = windowStops
+      .filter(
+        (s) =>
+          s.driver_serial !== null &&
+          succeeded.has(s.collection_date.date) &&
+          !plannedRefs.has(s.external_order_ref),
+      )
+      .map((s) => s.id)
+
+    if (fellOut.length > 0) {
+      const { error: clearError } = await supabase
         .from('collection_stop')
-        .select('id, external_order_ref, collection_date!inner(date)')
+        .update({
+          driver_serial: null,
+          driver_name: null,
+          stop_sequence: null,
+          scheduled_at: null,
+          routes_pulled_at: new Date().toISOString(),
+        })
+        .in('id', fellOut)
         .eq('status', 'Pending')
-        .eq('collection_date.date', date)
-        .not('driver_serial', 'is', null)
-      if (unplannedError) {
-        throw new Error(`unplanned fetch (${date}): ${unplannedError.message}`)
-      }
-
-      const fellOut = ((unplanned ?? []) as Array<{ id: string; external_order_ref: string }>)
-        .filter((s) => !plannedRefs.has(s.external_order_ref))
-        .map((s) => s.id)
-
-      if (fellOut.length > 0) {
-        const { error: clearError } = await supabase
-          .from('collection_stop')
-          .update({
-            driver_serial: null,
-            driver_name: null,
-            stop_sequence: null,
-            scheduled_at: null,
-            routes_pulled_at: new Date().toISOString(),
-          })
-          .in('id', fellOut)
-        if (clearError) throw new Error(`unplanned clear (${date}): ${clearError.message}`)
-        results.stops_unplanned += fellOut.length
-      }
+      if (clearError) throw new Error(`unplanned clear: ${clearError.message}`)
+      results.stops_unplanned = fellOut.length
     }
 
     console.log(JSON.stringify({ event: 'pull_optimoroute_routes', ...results }))

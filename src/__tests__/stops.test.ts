@@ -3,6 +3,7 @@ import {
   buildOrderNo,
   buildOrderNotes,
   buildServicesSummary,
+  canStopTransition,
   computeRollup,
   groupItemsByStream,
   STOP_DURATION_MINUTES,
@@ -73,8 +74,56 @@ describe('buildServicesSummary / buildOrderNotes', () => {
     expect(buildOrderNotes(summary)).toBe('General x2, Green x1')
   })
 
+  it('is deterministic regardless of input order (push EF diffs summaries)', () => {
+    const a = buildServicesSummary([item('Whitegoods', 'ancillary'), item('Mattress', 'ancillary')])
+    const b = buildServicesSummary([item('Mattress', 'ancillary'), item('Whitegoods', 'ancillary')])
+    expect(a).toEqual(b)
+    expect(a.map((s) => s.name)).toEqual(['Mattress', 'Whitegoods'])
+  })
+
   it('empty summary renders empty notes', () => {
     expect(buildOrderNotes([])).toBe('')
+  })
+})
+
+describe('canStopTransition — parity with enforce_stop_state_transition', () => {
+  const STATUSES: StopStatus[] = [
+    'Pending',
+    'Completed',
+    'Non-conformance',
+    'Nothing Presented',
+    'Cancelled',
+  ]
+
+  it('Pending reaches every other status', () => {
+    for (const to of STATUSES.filter((s) => s !== 'Pending')) {
+      expect(canStopTransition('Pending', to)).toBe(true)
+    }
+  })
+
+  it('self-transitions are not transitions', () => {
+    for (const s of STATUSES) {
+      expect(canStopTransition(s, s)).toBe(false)
+      expect(canStopTransition(s, s, { privileged: true })).toBe(false)
+    }
+  })
+
+  it('terminal states are immutable for normal writers', () => {
+    for (const from of STATUSES.filter((s) => s !== 'Pending')) {
+      for (const to of STATUSES.filter((s) => s !== from)) {
+        expect(canStopTransition(from, to)).toBe(false)
+      }
+    }
+  })
+
+  it('privileged writers may revive Cancelled → Pending, and nothing else', () => {
+    expect(canStopTransition('Cancelled', 'Pending', { privileged: true })).toBe(true)
+    for (const from of ['Completed', 'Non-conformance', 'Nothing Presented'] as StopStatus[]) {
+      for (const to of STATUSES.filter((s) => s !== from)) {
+        expect(canStopTransition(from, to, { privileged: true })).toBe(false)
+      }
+    }
+    expect(canStopTransition('Cancelled', 'Completed', { privileged: true })).toBe(false)
   })
 })
 

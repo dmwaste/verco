@@ -17,6 +17,10 @@ export const NOISE_FIELDS = new Set([
   'google_place_id',
   'has_geocode',
   'address', // raw address — formatted_address is the human-readable version
+  // collection_stop sync metadata — machine stamps, not operator actions
+  'pushed_at',
+  'routes_pulled_at',
+  'external_deleted_at',
 ])
 
 /** Map of column name → human-readable label. */
@@ -129,6 +133,23 @@ export const FIELD_LABELS: Record<string, string> = {
   code: 'Code',
   dm_job_code: 'DM-Ops Job Code',
   sub_client_id: 'Sub-Client',
+
+  // Collection stop (field-crew stop model)
+  stream: 'Waste Stream',
+  services_summary: 'Services',
+  external_order_ref: 'Routing Order Ref',
+  pushed_at: 'Pushed to Routing At',
+  last_push_error: 'Last Push Error',
+  external_deleted_at: 'Routing Order Deleted At',
+  driver_serial: 'Crew (Driver Serial)',
+  driver_name: 'Crew Name',
+  stop_sequence: 'Collection Number',
+  scheduled_at: 'Planned Arrival',
+  routes_pulled_at: 'Routes Pulled At',
+  completed_at: 'Completed At',
+  completed_by: 'Completed By',
+  collection_stop_id: 'Collection Stop',
+  waste_stream: 'Waste Stream',
 
   // Allocation rules / service rules
   category_id: 'Category',
