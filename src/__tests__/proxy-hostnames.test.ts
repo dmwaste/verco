@@ -4,6 +4,7 @@ import {
   isFieldHostname,
   toAdminHostname,
   toFieldHostname,
+  adminOrigin,
   ADMIN_HOSTNAME_PROD,
   FIELD_HOSTNAME_PROD,
 } from '@/lib/proxy/hostnames'
@@ -84,6 +85,39 @@ describe('toFieldHostname', () => {
 
   it('prepends field prefix to bare hostnames', () => {
     expect(toFieldHostname('localhost:3000')).toBe('field.localhost:3000')
+  })
+})
+
+describe('adminOrigin', () => {
+  it('returns the fixed prod constant for any *.verco.au tenant', () => {
+    expect(adminOrigin('kwntest.verco.au')).toBe('https://admin.verco.au')
+    expect(adminOrigin('vvtest.verco.au')).toBe('https://admin.verco.au')
+  })
+
+  it('returns the prod constant for the root host', () => {
+    expect(adminOrigin('verco.au')).toBe('https://admin.verco.au')
+  })
+
+  it('returns the prod constant for a custom resident-facing domain (still us)', () => {
+    expect(adminOrigin('bins.council.wa.gov.au')).toBe('https://admin.verco.au')
+  })
+
+  it('mirrors the localhost port for a dev tenant subdomain', () => {
+    expect(adminOrigin('kwntest.localhost:3000')).toBe('http://admin.localhost:3000')
+  })
+
+  it('handles bare localhost', () => {
+    expect(adminOrigin('localhost:3000')).toBe('http://admin.localhost:3000')
+    expect(adminOrigin('localhost')).toBe('http://admin.localhost')
+  })
+
+  it('is already-admin-host safe (idempotent target)', () => {
+    expect(adminOrigin('admin.verco.au')).toBe('https://admin.verco.au')
+    expect(adminOrigin('admin.localhost:3000')).toBe('http://admin.localhost:3000')
+  })
+
+  it('falls back to the prod constant for an empty host', () => {
+    expect(adminOrigin('')).toBe('https://admin.verco.au')
   })
 })
 

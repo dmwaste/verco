@@ -57,9 +57,10 @@ const ADMIN_TAB: Tab = {
 interface MobileBottomNavProps {
   showAdminLink?: boolean
   showSignOut?: boolean
+  adminUrl: string
 }
 
-export function MobileBottomNav({ showAdminLink, showSignOut }: MobileBottomNavProps) {
+export function MobileBottomNav({ showAdminLink, showSignOut, adminUrl }: MobileBottomNavProps) {
   const pathname = usePathname()
 
   function isActive(href: string) {
@@ -67,11 +68,9 @@ export function MobileBottomNav({ showAdminLink, showSignOut }: MobileBottomNavP
     return pathname.startsWith(href)
   }
 
-  const tabs = showAdminLink ? [...BASE_TABS, ADMIN_TAB] : BASE_TABS
-
   return (
     <div className="fixed bottom-0 left-0 right-0 z-40 flex border-t border-gray-100 bg-white tablet:hidden">
-      {tabs.map((tab) => {
+      {BASE_TABS.map((tab) => {
         const active = isActive(tab.href)
         return (
           <Link
@@ -86,6 +85,18 @@ export function MobileBottomNav({ showAdminLink, showSignOut }: MobileBottomNavP
           </Link>
         )
       })}
+      {showAdminLink && (
+        // Cross-host link to the operator surface (admin.verco.au) — a plain
+        // <a> for a full navigation, not an in-app <Link>. Never "active"
+        // since it lives on a different host than this resident page.
+        <a
+          href={adminUrl}
+          className="flex flex-1 flex-col items-center gap-1 pb-4 pt-2.5 text-2xs font-medium text-gray-500"
+        >
+          {ADMIN_TAB.icon(false)}
+          {ADMIN_TAB.label}
+        </a>
+      )}
       {showSignOut && (
         <SignOutButton
           destination="home"

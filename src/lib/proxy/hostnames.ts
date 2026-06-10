@@ -61,3 +61,31 @@ export function toAdminHostname(host: string): string {
 export function toFieldHostname(host: string): string {
   return rewriteFirstSegment(host, 'field')
 }
+
+function isLocalhostHost(host: string): boolean {
+  const hostname = host.toLowerCase().split(':')[0] ?? ''
+  return hostname === 'localhost' || hostname.endsWith('.localhost')
+}
+
+/**
+ * Absolute origin of the operator surface, for an "Admin" link rendered on a
+ * resident-facing (tenant) page. The admin surface is ALWAYS `admin.verco.au`
+ * in production — never per-tenant, even for a council on a custom
+ * resident-facing domain. In local dev it mirrors the current localhost port
+ * (`admin.localhost:3000`) so the cross-host link still resolves.
+ *
+ * Unlike `toAdminHostname` (a first-segment rewrite used by the proxy's
+ * redirect), the prod branch here is the fixed constant — so it is correct
+ * regardless of which tenant host rendered the page:
+ *
+ * - `kwntest.verco.au`         → `https://admin.verco.au`
+ * - `bins.council.wa.gov.au`   → `https://admin.verco.au`  (custom domain: still us)
+ * - `kwntest.localhost:3000`   → `http://admin.localhost:3000`
+ * - `localhost:3000`           → `http://admin.localhost:3000`
+ */
+export function adminOrigin(currentHost: string): string {
+  if (isLocalhostHost(currentHost)) {
+    return `http://${toAdminHostname(currentHost)}`
+  }
+  return `https://${ADMIN_HOSTNAME_PROD}`
+}
