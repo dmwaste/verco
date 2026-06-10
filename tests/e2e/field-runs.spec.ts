@@ -46,3 +46,25 @@ test.describe('Field runs (stop model)', () => {
     await expect(page).toHaveURL(/\/auth/)
   })
 })
+
+// Ranger track boundaries (lookup / my-ids are ranger-gated server-side; the
+// per-role redirect to /field is covered by rls.test.ts role fixtures).
+test.describe('Ranger lookup (zero-PII)', () => {
+  test('unauthenticated access to /field/lookup redirects to /auth', async ({ page }) => {
+    await mockNoSession(page)
+    await page.goto('/field/lookup')
+    await expect(page).toHaveURL(/\/auth/)
+  })
+
+  test('unauthenticated access to /field/my-ids redirects to /auth', async ({ page }) => {
+    await mockNoSession(page)
+    await page.goto('/field/my-ids')
+    await expect(page).toHaveURL(/\/auth/)
+  })
+
+  test('unauthenticated access to a lookup property redirects to /auth', async ({ page }) => {
+    await mockNoSession(page)
+    await page.goto('/field/lookup/00000000-0000-0000-0000-000000000000')
+    await expect(page).toHaveURL(/\/auth/)
+  })
+})

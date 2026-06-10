@@ -28,9 +28,8 @@ export default async function RunPickerPage() {
 
   const { data: role } = await supabase.rpc('current_user_role')
   if (role === 'ranger') {
-    // Rangers don't work runs — their lookup surface lands in the ranger
-    // track; until then the legacy run sheet remains their home.
-    redirect('/field/run-sheet')
+    // Rangers don't work runs — their home is the address lookup.
+    redirect('/field/lookup')
   }
 
   const today = awstDateFromUtc(new Date())
