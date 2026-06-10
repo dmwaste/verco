@@ -7,12 +7,39 @@ import { cn } from '@/lib/utils'
 import { SignOutButton } from '@/components/auth/sign-out-button'
 
 interface FieldLayoutClientProps {
+  role: string
   roleLabel: string
   areaCodes: string
   children: React.ReactNode
 }
 
+const runSheetTab = {
+  label: 'Run Sheet',
+  href: '/field/run-sheet',
+  icon: (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/>
+      <rect x="8" y="2" width="8" height="4" rx="1"/>
+      <line x1="9" y1="12" x2="15" y2="12"/>
+      <line x1="9" y1="16" x2="13" y2="16"/>
+    </svg>
+  ),
+}
+
+const newIdTab = {
+  label: 'New ID',
+  href: '/field/illegal-dumping/new',
+  icon: (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="10"/>
+      <line x1="12" y1="8" x2="12" y2="16"/>
+      <line x1="8" y1="12" x2="16" y2="12"/>
+    </svg>
+  ),
+}
+
 export function FieldLayoutClient({
+  role,
   roleLabel,
   areaCodes,
   children,
@@ -20,46 +47,16 @@ export function FieldLayoutClient({
   const pathname = usePathname()
   const today = format(new Date(), 'EEEE d MMMM yyyy')
 
-  const tabs = [
-    {
-      label: 'Run Sheet',
-      href: '/field/run-sheet',
-      icon: (
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/>
-          <rect x="8" y="2" width="8" height="4" rx="1"/>
-          <line x1="9" y1="12" x2="15" y2="12"/>
-          <line x1="9" y1="16" x2="13" y2="16"/>
-        </svg>
-      ),
-    },
-    {
-      label: 'Exceptions',
-      href: '/field/exceptions',
-      icon: (
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
-          <line x1="12" y1="9" x2="12" y2="13"/>
-          <line x1="12" y1="17" x2="12.01" y2="17"/>
-        </svg>
-      ),
-    },
-    {
-      label: 'History',
-      href: '/field/history',
-      icon: (
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <circle cx="12" cy="12" r="10"/>
-          <polyline points="12 6 12 12 16 14"/>
-        </svg>
-      ),
-    },
-  ]
+  // Rangers get a visible entry point for raising illegal-dumping bookings
+  // (previously reachable only by typing the URL). Crews get the run sheet
+  // alone — the run picker joins it once the stop model lands.
+  const tabs = role === 'ranger' ? [runSheetTab, newIdTab] : [runSheetTab]
 
   return (
     <div className="flex min-h-screen flex-col bg-gray-50">
-      {/* Header */}
-      <div className="shrink-0 bg-[var(--brand)] px-5 pb-3 pt-3.5">
+      {/* Header — top padding absorbs the iOS status bar in standalone PWA
+          mode (viewport-fit=cover); env() is 0 in regular browsers */}
+      <div className="shrink-0 bg-[var(--brand)] px-5 pb-3 pt-[calc(0.875rem+env(safe-area-inset-top))]">
         <div className="mb-2 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <div className="flex size-7 items-center justify-center rounded-[7px] bg-[var(--brand-accent)] font-[family-name:var(--font-heading)] text-base font-bold text-[var(--brand)]">
@@ -89,13 +86,14 @@ export function FieldLayoutClient({
         </div>
       </div>
 
-      {/* Content */}
-      <div className="flex flex-1 flex-col overflow-y-auto pb-20">
+      {/* Content — bottom padding clears the fixed nav plus the iOS home
+          indicator */}
+      <div className="flex flex-1 flex-col overflow-y-auto pb-[calc(5rem+env(safe-area-inset-bottom))]">
         {children}
       </div>
 
       {/* Bottom nav */}
-      <div className="fixed bottom-0 left-0 right-0 flex border-t border-gray-100 bg-white">
+      <div className="fixed bottom-0 left-0 right-0 flex border-t border-gray-100 bg-white pb-[env(safe-area-inset-bottom)]">
         {tabs.map((tab) => {
           const isActive =
             tab.href === '/field/run-sheet'
