@@ -18,6 +18,8 @@ interface StopMudFormProps {
   stop: StopDetail
   /** Pre-filtered to THIS stop's stream — the other pass enters its own. */
   items: StopMudItem[]
+  /** Where to land after saving — preserves a requested ?action=ncn/np. */
+  returnTo: string
 }
 
 /**
@@ -26,7 +28,7 @@ interface StopMudFormProps {
  * enters general counts, the green crew enters green counts.
  * Persists via the same `bulk_update_booking_item_actuals` RPC.
  */
-export function StopMudForm({ stop, items }: StopMudFormProps) {
+export function StopMudForm({ stop, items, returnTo }: StopMudFormProps) {
   const router = useRouter()
   const [counts, setCounts] = useState<Record<string, number>>(() => {
     const initial: Record<string, number> = {}
@@ -61,10 +63,10 @@ export function StopMudForm({ stop, items }: StopMudFormProps) {
         setError(result.error)
         return
       }
-      // Back to the stop close-out screen: with this stream's counts saved,
-      // the early-return into this form falls through and Complete/NCN/NP
-      // render enabled.
-      router.replace(`/field/stops/${stop.id}`)
+      // With this stream's counts saved the early-return into this form
+      // falls through — back to the close-out screen, or straight into the
+      // NCN/NP form the crew originally asked for.
+      router.replace(returnTo)
       router.refresh()
     } catch {
       setError('No connection — check signal and retry.')
@@ -87,7 +89,7 @@ export function StopMudForm({ stop, items }: StopMudFormProps) {
           {stop.booking.ref}
         </Link>
         <div>
-          <div className="font-[family-name:var(--font-heading)] text-base font-bold text-[#293F52]">
+          <div className="font-[family-name:var(--font-heading)] text-base font-bold text-[var(--brand)]">
             {stop.booking.ref}{' '}
             <span className="text-xs font-normal text-gray-500">
               &middot; MUD &middot; {STREAM_LABEL[stop.stream]}
@@ -129,8 +131,8 @@ export function StopMudForm({ stop, items }: StopMudFormProps) {
               </div>
 
               <div className="flex flex-col items-center gap-4 py-4">
-                <div className="flex size-[88px] items-center justify-center rounded-full bg-[#293F52] shadow-[0_8px_24px_rgba(41,63,82,0.3)]">
-                  <span className="font-[family-name:var(--font-heading)] text-[36px] font-bold text-[#00E47C]">
+                <div className="flex size-[88px] items-center justify-center rounded-full bg-[var(--brand)] shadow-[0_8px_24px_rgba(41,63,82,0.3)]">
+                  <span className="font-[family-name:var(--font-heading)] text-[36px] font-bold text-[var(--brand-accent)]">
                     {count}
                   </span>
                 </div>
@@ -138,7 +140,7 @@ export function StopMudForm({ stop, items }: StopMudFormProps) {
                   <button
                     type="button"
                     onClick={() => bump(item.id, -1)}
-                    className="flex size-[48px] items-center justify-center rounded-full border-2 border-gray-100 bg-white text-[26px] font-bold text-[#293F52] shadow-sm"
+                    className="flex size-[48px] items-center justify-center rounded-full border-2 border-gray-100 bg-white text-[26px] font-bold text-[var(--brand)] shadow-sm"
                   >
                     &minus;
                   </button>
@@ -146,7 +148,7 @@ export function StopMudForm({ stop, items }: StopMudFormProps) {
                   <button
                     type="button"
                     onClick={() => bump(item.id, 1)}
-                    className="flex size-[48px] items-center justify-center rounded-full border-2 border-[#293F52] bg-[#293F52] text-[26px] font-bold text-[#00E47C] shadow-[0_4px_12px_rgba(41,63,82,0.3)]"
+                    className="flex size-[48px] items-center justify-center rounded-full border-2 border-[var(--brand)] bg-[var(--brand)] text-[26px] font-bold text-[var(--brand-accent)] shadow-[0_4px_12px_rgba(41,63,82,0.3)]"
                   >
                     +
                   </button>
@@ -166,7 +168,7 @@ export function StopMudForm({ stop, items }: StopMudFormProps) {
           type="button"
           onClick={handleSubmit}
           disabled={isSubmitting}
-          className="flex w-full items-center justify-center rounded-xl bg-[#00E47C] px-3.5 py-3.5 text-sm font-semibold text-[#293F52] disabled:opacity-50"
+          className="flex w-full items-center justify-center rounded-xl bg-[var(--brand-accent)] px-3.5 py-3.5 text-sm font-semibold text-[var(--brand)] disabled:opacity-50"
         >
           {isSubmitting ? 'Saving...' : 'Save Counts & Continue'}
         </button>

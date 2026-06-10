@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { compressImage } from '@/lib/images/compress'
+import { NCN_REASONS } from '@/lib/ncn/reasons'
 import { STREAM_LABEL } from '@/lib/stops/labels'
 import { raiseNcnForStop } from './actions'
 import { cn } from '@/lib/utils'
@@ -13,22 +14,6 @@ import type { Database } from '@/lib/supabase/types'
 import type { StopDetail } from './stop-closeout-client'
 
 type NcnReason = Database['public']['Enums']['ncn_reason']
-
-const NCN_REASONS: NcnReason[] = [
-  'Collection Limit Exceeded',
-  'Items Obstructed or Not On Verge',
-  'Building Waste',
-  'Car Parts',
-  'Asbestos / Fibre Fence',
-  'Food or Domestic Waste',
-  'Glass',
-  'Medical Waste',
-  'Tyres',
-  'Greens in Container',
-  'Hazardous Waste',
-  'Items Oversize',
-  'Other',
-]
 
 interface StopNcnFormProps {
   stop: StopDetail
@@ -52,28 +37,44 @@ export function StopNcnForm({ stop, runHref }: StopNcnFormProps) {
     if (!files || files.length === 0) return
 
     setIsUploading(true)
+    setError(null)
     const newUrls: string[] = []
+    let failed = 0
 
-    for (const file of Array.from(files)) {
-      // Downscale before upload — crew phones shoot 12MP+, and originals
-      // stall the closeout flow on 4G. compressImage re-encodes as JPEG.
-      const blob = await compressImage(file)
-      const path = `${stop.booking.id}/${crypto.randomUUID()}.jpg`
+    try {
+      for (const file of Array.from(files)) {
+        // Downscale before upload — crew phones shoot 12MP+, and originals
+        // stall the closeout flow on 4G. compressImage re-encodes as JPEG.
+        const blob = await compressImage(file)
+        const path = `${stop.booking.id}/${crypto.randomUUID()}.jpg`
 
-      const { data, error: uploadError } = await supabase.storage
-        .from('ncn-photos')
-        .upload(path, blob, { contentType: 'image/jpeg' })
-
-      if (!uploadError && data) {
-        const { data: urlData } = supabase.storage
+        const { data, error: uploadError } = await supabase.storage
           .from('ncn-photos')
-          .getPublicUrl(data.path)
-        newUrls.push(urlData.publicUrl)
+          .upload(path, blob, { contentType: 'image/jpeg' })
+
+        if (!uploadError && data) {
+          const { data: urlData } = supabase.storage
+            .from('ncn-photos')
+            .getPublicUrl(data.path)
+          newUrls.push(urlData.publicUrl)
+        } else {
+          failed++
+        }
       }
+    } catch {
+      failed++
+    } finally {
+      // finally: an unexpected throw must never leave the submit button
+      // permanently disabled behind a stuck isUploading flag.
+      setPhotos((prev) => [...prev, ...newUrls])
+      setIsUploading(false)
     }
 
-    setPhotos((prev) => [...prev, ...newUrls])
-    setIsUploading(false)
+    // A missing thumbnail is easy to miss in glare/gloves — say it loudly
+    // so the crew never submits thinking the evidence is attached.
+    if (failed > 0) {
+      setError(`${failed} photo${failed === 1 ? '' : 's'} failed to upload — try again.`)
+    }
   }
 
   async function handleSubmit() {

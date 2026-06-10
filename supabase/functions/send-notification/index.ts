@@ -288,15 +288,20 @@ serve(async (req) => {
       booking_id: string,
       type: NotificationType,
       channel: NotificationChannel,
+      referenceId?: string | null,
     ): Promise<boolean> => {
-      const { data } = await supabaseService
+      // Per-notice key when a reference id is supplied (ncn_id / np_id) —
+      // the stop model raises one notice per waste stream, so a booking can
+      // legitimately have several same-type sends.
+      let query = supabaseService
         .from('notification_log')
         .select('id')
         .eq('booking_id', booking_id)
         .eq('notification_type', type)
         .eq('channel', channel)
         .eq('status', 'sent')
-        .limit(1)
+      if (referenceId) query = query.eq('reference_id', referenceId)
+      const { data } = await query.limit(1)
       return Array.isArray(data) && data.length > 0
     },
 
@@ -312,6 +317,7 @@ serve(async (req) => {
           to_address: row.to_address,
           status: row.status,
           error_message: row.error_message ?? null,
+          reference_id: row.reference_id ?? null,
         })
         .select('id')
         .single()

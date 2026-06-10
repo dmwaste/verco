@@ -1,7 +1,9 @@
 'use server'
 
+import { z } from 'zod'
 import { createClient } from '@/lib/supabase/server'
 import { invokeSendNotification } from '@/lib/notifications/invoke'
+import { NCN_REASONS } from '@/lib/ncn/reasons'
 import { STREAM_LABEL } from '@/lib/stops/labels'
 import type { WasteStream } from '@/lib/stops/stops'
 import type { Database } from '@/lib/supabase/types'
@@ -9,6 +11,26 @@ import type { Result } from '@/lib/result'
 
 type NcnReason = Database['public']['Enums']['ncn_reason']
 type StopTerminalStatus = 'Completed' | 'Non-conformance' | 'Nothing Presented'
+
+const stopIdSchema = z.string().uuid()
+
+// Photos must be evidence the crew actually uploaded — a field JWT must not
+// be able to inject arbitrary external URLs into a resident-facing email.
+const storagePublicPrefix = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/`
+const closeoutDetailsSchema = z.object({
+  notes: z.string().max(2000),
+  photoUrls: z
+    .array(
+      z
+        .string()
+        .url()
+        .refine((u) => u.startsWith(storagePublicPrefix), {
+          message: 'Photos must be uploaded evidence.',
+        }),
+    )
+    .max(8),
+})
+const ncnReasonSchema = z.enum(NCN_REASONS)
 
 type SupabaseServerClient = Awaited<ReturnType<typeof createClient>>
 
@@ -81,10 +103,17 @@ async function assertMudStreamCounts(
   bookingId: string,
   stream: WasteStream,
 ): Promise<Result<void>> {
-  const { data: items } = await supabase
+  const { data: items, error } = await supabase
     .from('booking_item')
     .select('id, actual_services, service!inner(waste_stream)')
     .eq('booking_id', bookingId)
+
+  // Fail CLOSED: the server action is the only line of defence for the
+  // counts rule — a swallowed query error must not let a MUD stop close
+  // with actual_services still NULL.
+  if (error) {
+    return { ok: false, error: `Could not verify MUD counts: ${error.message}` }
+  }
 
   const streamItems = (items ?? []).filter(
     (i) => (i.service as unknown as { waste_stream: WasteStream }).waste_stream === stream,
@@ -177,6 +206,10 @@ async function maybeCreateCompletionSurvey(
 }
 
 export async function completeStop(stopId: string): Promise<Result<void>> {
+  if (!stopIdSchema.safeParse(stopId).success) {
+    return { ok: false, error: 'Invalid stop reference.' }
+  }
+
   const supabase = await createClient()
 
   const roleCheck = await validateFieldOnly(supabase)
@@ -210,6 +243,17 @@ export async function raiseNcnForStop(
   notes: string,
   photoUrls: string[],
 ): Promise<Result<void>> {
+  if (!stopIdSchema.safeParse(stopId).success) {
+    return { ok: false, error: 'Invalid stop reference.' }
+  }
+  if (!ncnReasonSchema.safeParse(reason).success) {
+    return { ok: false, error: 'Please select a valid reason.' }
+  }
+  const details = closeoutDetailsSchema.safeParse({ notes, photoUrls })
+  if (!details.success) {
+    return { ok: false, error: details.error.issues[0]?.message ?? 'Invalid input.' }
+  }
+
   const supabase = await createClient()
 
   const roleCheck = await validateFieldOnly(supabase)
@@ -231,6 +275,7 @@ export async function raiseNcnForStop(
 
   // Record first, then transition — same order as the legacy per-booking
   // path: a reason-less NCN'd stop is worse than an orphan Issued notice.
+  // The terminalise-failure branch below compensates by deleting the notice.
   const { data: ncnRow, error: ncnError } = await supabase
     .from('non_conformance_notice')
     .insert({
@@ -250,7 +295,26 @@ export async function raiseNcnForStop(
   if (ncnError) return { ok: false, error: ncnError.message }
 
   const updated = await terminaliseStop(supabase, stop.id, 'Non-conformance', user.id)
-  if (!updated.ok) return updated
+  if (!updated.ok) {
+    // Lost the closeout race (another crew just closed this stop) — remove
+    // the orphan Issued notice or an admin could action both notices and
+    // double-book the same stream. Delete policy: own Issued notices only.
+    const { data: deleted, error: deleteError } = await supabase
+      .from('non_conformance_notice')
+      .delete()
+      .eq('id', ncnRow.id)
+      .select('id')
+    if (deleteError || !deleted || deleted.length === 0) {
+      console.error(
+        `NCN compensation delete failed for ${ncnRow.id}: ${deleteError?.message ?? '0 rows'}`,
+      )
+      return {
+        ok: false,
+        error: `${updated.error} A duplicate notice may have been recorded — mention it to your supervisor.`,
+      }
+    }
+    return updated
+  }
 
   // Immediate per-stop comms, stream named (locked decision 10/06/2026).
   await invokeSendNotification(supabase, {
@@ -272,6 +336,14 @@ export async function raiseNpForStop(
   photoUrls: string[],
   dmFault: boolean,
 ): Promise<Result<void>> {
+  if (!stopIdSchema.safeParse(stopId).success) {
+    return { ok: false, error: 'Invalid stop reference.' }
+  }
+  const details = closeoutDetailsSchema.safeParse({ notes, photoUrls })
+  if (!details.success) {
+    return { ok: false, error: details.error.issues[0]?.message ?? 'Invalid input.' }
+  }
+
   const supabase = await createClient()
 
   const roleCheck = await validateFieldOnly(supabase)
@@ -310,7 +382,24 @@ export async function raiseNpForStop(
   if (npError) return { ok: false, error: npError.message }
 
   const updated = await terminaliseStop(supabase, stop.id, 'Nothing Presented', user.id)
-  if (!updated.ok) return updated
+  if (!updated.ok) {
+    // Same compensation as the NCN path — see comment there.
+    const { data: deleted, error: deleteError } = await supabase
+      .from('nothing_presented')
+      .delete()
+      .eq('id', npRow.id)
+      .select('id')
+    if (deleteError || !deleted || deleted.length === 0) {
+      console.error(
+        `NP compensation delete failed for ${npRow.id}: ${deleteError?.message ?? '0 rows'}`,
+      )
+      return {
+        ok: false,
+        error: `${updated.error} A duplicate notice may have been recorded — mention it to your supervisor.`,
+      }
+    }
+    return updated
+  }
 
   await invokeSendNotification(supabase, {
     type: 'np_raised',

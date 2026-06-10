@@ -207,6 +207,12 @@ export interface NotificationLogRow {
   to_address: string
   status: NotificationLogStatus
   error_message?: string
+  /**
+   * Per-notice idempotency discriminator (ncn_id / np_id). The stop model
+   * raises one notice per waste stream, so a booking can legitimately have
+   * several same-type notifications — each keyed by its notice id.
+   */
+  reference_id?: string | null
 }
 
 export interface RenderedEmail {

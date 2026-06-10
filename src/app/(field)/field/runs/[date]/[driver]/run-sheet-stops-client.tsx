@@ -124,7 +124,7 @@ function StopCard({ stop, error, isPending, onComplete }: StopCardProps) {
           <button
             type="button"
             onClick={() => onComplete(stop)}
-            className="shrink-0 rounded-md bg-white px-2.5 py-1 text-[11px] font-semibold text-red-700 shadow-sm"
+            className="shrink-0 rounded-md bg-white px-3 py-2.5 text-[11px] font-semibold text-red-700 shadow-sm"
           >
             Retry
           </button>
@@ -137,7 +137,7 @@ function StopCard({ stop, error, isPending, onComplete }: StopCardProps) {
             href={mapsUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className="flex min-h-[36px] items-center gap-1 text-[11px] font-medium text-[var(--brand-accent-dark)]"
+            className="flex min-h-[44px] items-center gap-1 text-[11px] font-medium text-[var(--brand-accent-dark)]"
           >
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
               <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/>
@@ -153,20 +153,20 @@ function StopCard({ stop, error, isPending, onComplete }: StopCardProps) {
           <div className="flex gap-1.5">
             <Link
               href={`/field/stops/${stop.id}?action=ncn`}
-              className="flex min-h-[36px] items-center rounded-lg border-[1.5px] border-gray-100 bg-gray-50 px-3 text-xs font-semibold text-gray-700"
+              className="flex min-h-[44px] items-center rounded-lg border-[1.5px] border-gray-100 bg-gray-50 px-3 text-xs font-semibold text-gray-700"
             >
               NCN
             </Link>
             <Link
               href={`/field/stops/${stop.id}?action=np`}
-              className="flex min-h-[36px] items-center rounded-lg border-[1.5px] border-gray-100 bg-gray-50 px-3 text-xs font-semibold text-gray-700"
+              className="flex min-h-[44px] items-center rounded-lg border-[1.5px] border-gray-100 bg-gray-50 px-3 text-xs font-semibold text-gray-700"
             >
               NP
             </Link>
             {isMud ? (
               <Link
                 href={`/field/stops/${stop.id}`}
-                className="flex min-h-[36px] items-center rounded-lg bg-[var(--brand)] px-3 text-xs font-semibold"
+                className="flex min-h-[44px] items-center rounded-lg bg-[var(--brand)] px-3 text-xs font-semibold"
                 style={{ color: 'var(--brand-foreground, #FFFFFF)' }}
               >
                 Enter Count
@@ -176,7 +176,7 @@ function StopCard({ stop, error, isPending, onComplete }: StopCardProps) {
                 type="button"
                 onClick={() => onComplete(stop)}
                 disabled={isPending}
-                className="flex min-h-[36px] items-center rounded-lg bg-[var(--brand)] px-3 text-xs font-semibold disabled:opacity-50"
+                className="flex min-h-[44px] items-center rounded-lg bg-[var(--brand)] px-3 text-xs font-semibold disabled:opacity-50"
                 style={{ color: 'var(--brand-foreground, #FFFFFF)' }}
               >
                 {isPending ? 'Saving…' : 'Done ✓'}
@@ -198,7 +198,9 @@ export function RunSheetStopsClient({
   const router = useRouter()
   useRefreshOnFocus()
 
-  const [pendingId, setPendingId] = useState<string | null>(null)
+  // Per-stop pending set: a single pendingId would re-enable an in-flight
+  // card the moment a second card is tapped, opening double-submits.
+  const [pendingIds, setPendingIds] = useState<Set<string>>(new Set())
   const [errors, setErrors] = useState<Record<string, string>>({})
 
   const live = stops.filter((s) => s.status !== 'Cancelled')
@@ -214,7 +216,8 @@ export function RunSheetStopsClient({
   const finishTime = formatTime(runMeta?.finishTime ?? null)
 
   async function handleComplete(stop: RunStop) {
-    setPendingId(stop.id)
+    if (pendingIds.has(stop.id)) return
+    setPendingIds((prev) => new Set(prev).add(stop.id))
     setErrors((prev) => ({ ...prev, [stop.id]: '' }))
     try {
       const result = await completeStop(stop.id)
@@ -229,7 +232,11 @@ export function RunSheetStopsClient({
         [stop.id]: 'No connection — check signal and retry.',
       }))
     } finally {
-      setPendingId(null)
+      setPendingIds((prev) => {
+        const next = new Set(prev)
+        next.delete(stop.id)
+        return next
+      })
     }
   }
 
@@ -294,7 +301,7 @@ export function RunSheetStopsClient({
           key={stop.id}
           stop={stop}
           error={errors[stop.id] || undefined}
-          isPending={pendingId === stop.id}
+          isPending={pendingIds.has(stop.id)}
           onComplete={handleComplete}
         />
       ))}
@@ -311,7 +318,7 @@ export function RunSheetStopsClient({
               key={stop.id}
               stop={stop}
               error={errors[stop.id] || undefined}
-              isPending={pendingId === stop.id}
+              isPending={pendingIds.has(stop.id)}
               onComplete={handleComplete}
             />
           ))}

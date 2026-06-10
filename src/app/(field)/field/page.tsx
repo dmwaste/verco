@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
+import { fetchAllRows } from '@/lib/supabase/fetch-all'
 import { awstDateFromUtc } from '@/lib/booking/schedule-transition'
 import { groupStopsIntoRuns, UNASSIGNED_RUN_SEGMENT, type PickerStop } from '@/lib/stops/runs'
 import { STREAM_LABEL } from '@/lib/stops/labels'
@@ -36,9 +37,8 @@ export default async function RunPickerPage() {
 
   // Paginate past PostgREST max_rows (1000) — a big suburb day's stop count
   // across all drivers can exceed one page.
-  const stops: PickerStop[] = []
-  for (let from = 0; ; from += 1000) {
-    const { data: page } = await supabase
+  const rows = await fetchAllRows<StopRow>((from, to) =>
+    supabase
       .from('collection_stop')
       .select(
         `id, stream, status, driver_serial, driver_name, stop_sequence,
@@ -47,21 +47,21 @@ export default async function RunPickerPage() {
       )
       .eq('collection_date.date', today)
       .order('id')
-      .range(from, from + 999)
+      .range(from, to) as unknown as PromiseLike<{
+      data: StopRow[] | null
+      error: { message: string } | null
+    }>,
+  )
 
-    for (const row of (page ?? []) as unknown as StopRow[]) {
-      stops.push({
-        id: row.id,
-        stream: row.stream,
-        status: row.status,
-        driver_serial: row.driver_serial,
-        driver_name: row.driver_name,
-        stop_sequence: row.stop_sequence,
-        client_name: row.client?.name ?? '',
-      })
-    }
-    if ((page ?? []).length < 1000) break
-  }
+  const stops: PickerStop[] = rows.map((row) => ({
+    id: row.id,
+    stream: row.stream,
+    status: row.status,
+    driver_serial: row.driver_serial,
+    driver_name: row.driver_name,
+    stop_sequence: row.stop_sequence,
+    client_name: row.client?.name ?? '',
+  }))
 
   const runs = groupStopsIntoRuns(stops)
 

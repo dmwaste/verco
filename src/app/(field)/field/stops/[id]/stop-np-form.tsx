@@ -36,26 +36,42 @@ export function StopNpForm({ stop, runHref }: StopNpFormProps) {
     if (!files || files.length === 0) return
 
     setIsUploading(true)
+    setError(null)
     const newUrls: string[] = []
+    let failed = 0
 
-    for (const file of Array.from(files)) {
-      const blob = await compressImage(file)
-      const path = `${stop.booking.id}/${crypto.randomUUID()}.jpg`
+    try {
+      for (const file of Array.from(files)) {
+        const blob = await compressImage(file)
+        const path = `${stop.booking.id}/${crypto.randomUUID()}.jpg`
 
-      const { data, error: uploadError } = await supabase.storage
-        .from('ncn-photos')
-        .upload(path, blob, { contentType: 'image/jpeg' })
-
-      if (!uploadError && data) {
-        const { data: urlData } = supabase.storage
+        const { data, error: uploadError } = await supabase.storage
           .from('ncn-photos')
-          .getPublicUrl(data.path)
-        newUrls.push(urlData.publicUrl)
+          .upload(path, blob, { contentType: 'image/jpeg' })
+
+        if (!uploadError && data) {
+          const { data: urlData } = supabase.storage
+            .from('ncn-photos')
+            .getPublicUrl(data.path)
+          newUrls.push(urlData.publicUrl)
+        } else {
+          failed++
+        }
       }
+    } catch {
+      failed++
+    } finally {
+      // finally: an unexpected throw must never leave the submit button
+      // permanently disabled behind a stuck isUploading flag.
+      setPhotos((prev) => [...prev, ...newUrls])
+      setIsUploading(false)
     }
 
-    setPhotos((prev) => [...prev, ...newUrls])
-    setIsUploading(false)
+    // A missing thumbnail is easy to miss in glare/gloves — say it loudly
+    // so the crew never submits thinking the evidence is attached.
+    if (failed > 0) {
+      setError(`${failed} photo${failed === 1 ? '' : 's'} failed to upload — try again.`)
+    }
   }
 
   async function handleSubmit() {

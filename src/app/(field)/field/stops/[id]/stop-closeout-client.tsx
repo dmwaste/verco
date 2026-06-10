@@ -66,15 +66,11 @@ function CloseoutInner({ stop, runHref }: StopCloseoutClientProps) {
 
   const actionable = stop.status === 'Pending' && stop.booking.status === 'Scheduled'
 
-  if (action === 'ncn' && actionable) {
-    return <StopNcnForm stop={stop} runHref={runHref} />
-  }
-  if (action === 'np' && actionable) {
-    return <StopNpForm stop={stop} runHref={runHref} />
-  }
-
-  // Per-stream MUD gate: counts required for this stream's items before any
-  // closeout path. ?recount=1 re-opens the form once filled.
+  // Per-stream MUD gate: counts required for this stream's items before ANY
+  // closeout path — evaluated BEFORE honouring ?action=ncn/np deep links from
+  // the run sheet, or the crew fills a whole NCN form (reason, photos, notes)
+  // only to be rejected server-side and lose the lot. ?recount=1 re-opens the
+  // form once filled; a requested action is preserved through the save.
   const wantsRecount = searchParams.get('recount') === '1'
   const needsMudCounts =
     isMud &&
@@ -84,7 +80,18 @@ function CloseoutInner({ stop, runHref }: StopCloseoutClientProps) {
       streamItems.some((i) => i.actual_services === null || i.actual_services === undefined))
 
   if (needsMudCounts) {
-    return <StopMudForm stop={stop} items={streamItems} />
+    const returnTo =
+      action === 'ncn' || action === 'np'
+        ? `/field/stops/${stop.id}?action=${action}`
+        : `/field/stops/${stop.id}`
+    return <StopMudForm stop={stop} items={streamItems} returnTo={returnTo} />
+  }
+
+  if (action === 'ncn' && actionable) {
+    return <StopNcnForm stop={stop} runHref={runHref} />
+  }
+  if (action === 'np' && actionable) {
+    return <StopNpForm stop={stop} runHref={runHref} />
   }
 
   async function handleComplete() {
@@ -186,7 +193,7 @@ function CloseoutInner({ stop, runHref }: StopCloseoutClientProps) {
               <span className="font-semibold">Counts saved</span>
               <Link
                 href={`/field/stops/${stop.id}?recount=1`}
-                className="text-[11px] font-medium text-emerald-700 underline"
+                className="-m-3 inline-block p-3 text-[11px] font-medium text-emerald-700 underline"
               >
                 Edit counts
               </Link>

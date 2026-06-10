@@ -26,11 +26,14 @@ async function bookingHasStops(
   supabase: Awaited<ReturnType<typeof createClient>>,
   bookingId: string,
 ): Promise<boolean> {
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from('collection_stop')
     .select('id')
     .eq('booking_id', bookingId)
     .limit(1)
+  // Fail CLOSED: a transient query error must not let the whole-booking
+  // path proceed on a stop-model booking.
+  if (error) return true
   return (data ?? []).length > 0
 }
 

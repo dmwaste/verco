@@ -1,5 +1,6 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
+import { fetchAllRows } from '@/lib/supabase/fetch-all'
 import { UNASSIGNED_RUN_SEGMENT } from '@/lib/stops/runs'
 import { RunSheetStopsClient, type RunStop } from './run-sheet-stops-client'
 
@@ -23,21 +24,28 @@ export default async function RunSheetByDriverPage({ params }: RunSheetPageProps
 
   const supabase = await createClient()
 
-  let query = supabase
-    .from('collection_stop')
-    .select(
-      `id, stream, status, address, latitude, longitude, services_summary,
-       stop_sequence, scheduled_at, driver_serial, driver_name,
-       booking:booking_id(id, ref, status, type),
-       collection_date!inner(date)`,
-    )
-    .eq('collection_date.date', date)
-    .order('stop_sequence', { ascending: true, nullsFirst: false })
-    .order('id')
-
-  query = isUnassigned ? query.is('driver_serial', null) : query.eq('driver_serial', driver)
-
-  const { data: stops } = await query
+  // Paginated past max_rows: the unassigned bucket is the entire day's
+  // unplanned stops — exactly the dataset that can exceed one page.
+  const stops = await fetchAllRows<RunStop>((from, to) => {
+    const query = supabase
+      .from('collection_stop')
+      .select(
+        `id, stream, status, address, latitude, longitude, services_summary,
+         stop_sequence, scheduled_at, driver_serial, driver_name,
+         booking:booking_id(id, ref, status, type),
+         collection_date!inner(date)`,
+      )
+      .eq('collection_date.date', date)
+      .order('stop_sequence', { ascending: true, nullsFirst: false })
+      .order('id')
+      .range(from, to)
+    return (isUnassigned
+      ? query.is('driver_serial', null)
+      : query.eq('driver_serial', driver)) as unknown as PromiseLike<{
+      data: RunStop[] | null
+      error: { message: string } | null
+    }>
+  })
 
   // Run-sheet header metadata (route start/finish + depot labels) pulled
   // from the routing engine. RLS: contractor roles only — exactly who works
@@ -55,7 +63,7 @@ export default async function RunSheetByDriverPage({ params }: RunSheetPageProps
     <RunSheetStopsClient
       date={date}
       driverSerial={isUnassigned ? null : driver}
-      stops={(stops ?? []) as unknown as RunStop[]}
+      stops={stops}
       runMeta={
         runMeta
           ? {
