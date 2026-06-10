@@ -1,10 +1,13 @@
 import { createClient } from '@/lib/supabase/server'
+import { awstDateFromUtc } from '@/lib/booking/schedule-transition'
 import { RunSheetClient } from './run-sheet-client'
 
 export default async function RunSheetPage() {
   const supabase = await createClient()
 
-  const today = new Date().toISOString().split('T')[0]
+  // AWST calendar date — toISOString() is UTC and resolves to *yesterday*
+  // between midnight and 8am Perth time, which is exactly when crews start.
+  const today = awstDateFromUtc(new Date())
 
   // Fetch today's scheduled bookings — NO PII fields. Structural exclusion.
   // Never select contacts.full_name, contacts.email, contacts.mobile_e164.
