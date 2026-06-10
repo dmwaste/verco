@@ -33,9 +33,15 @@ export function addOneDay(yyyymmdd: string): string {
 }
 
 /**
- * Filters bookings whose earliest collection_date equals targetDate.
+ * Filters bookings whose earliest collection_date is on or before targetDate.
  * Returns IDs. Bookings with zero valid dates are skipped — callers that need
  * visibility on that case should inspect inputs separately.
+ *
+ * <= (not ===) so stragglers transition: a booking confirmed AFTER the daily
+ * 15:25 tick for tomorrow (e.g. rebookNcn → Submitted → admin Confirm that
+ * evening) is caught on the next tick instead of sitting Confirmed forever —
+ * which matters because the collection_stop rollup only completes bookings
+ * that reached Scheduled.
  */
 export function filterBookingsReadyToSchedule(
   bookings: BookingWithItemDates[],
@@ -48,7 +54,7 @@ export function filterBookingsReadyToSchedule(
       .filter((d): d is string => Boolean(d))
     if (dates.length === 0) continue
     const earliest = dates.reduce((min, d) => (d < min ? d : min))
-    if (earliest === targetDate) ids.push(booking.id)
+    if (earliest <= targetDate) ids.push(booking.id)
   }
   return ids
 }
