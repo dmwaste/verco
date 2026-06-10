@@ -92,11 +92,17 @@ export interface DispatchDeps {
    * Check idempotency — returns true if `(booking_id, type, channel)` already
    * has a `sent` row in `notification_log`. Per-channel: a successful email
    * does NOT block the SMS for the same notification.
+   *
+   * `referenceId` (ncn_id / np_id) narrows the key for types that can
+   * legitimately recur per booking (one notice per waste-stream stop) —
+   * implementations must match on it when provided so a second stream's
+   * notice is never suppressed by the first stream's send.
    */
   isAlreadySent: (
     booking_id: string,
     type: NotificationType,
     channel: NotificationChannel,
+    referenceId?: string | null,
   ) => Promise<boolean>
   /** Insert a notification_log row; return the new id on success, null on failure. */
   writeLog: (row: NotificationLogRow) => Promise<string | null>
@@ -307,6 +313,7 @@ function renderTemplate(
         notes: payload.notes,
         photos: payload.photos,
         contractor_fault: payload.contractor_fault,
+        stream: payload.stream,
       }
       return renderNcnRaised(booking, appUrl, opts)
     }
@@ -315,6 +322,7 @@ function renderTemplate(
         notes: payload.notes,
         photos: payload.photos,
         contractor_fault: payload.contractor_fault,
+        stream: payload.stream,
       }
       return renderNpRaised(booking, appUrl, opts)
     }
@@ -323,6 +331,18 @@ function renderTemplate(
     case 'collection_reminder':
       return renderCollectionReminder(booking, appUrl)
   }
+}
+
+/**
+ * Per-notice idempotency reference. ncn_raised / np_raised can legitimately
+ * recur on one booking (one notice per waste-stream stop); keying them by
+ * notice id stops the first stream's send from suppressing the second's.
+ * All other types stay keyed per booking (null).
+ */
+function idempotencyRef(payload: NotificationPayload): string | null {
+  if (payload.type === 'ncn_raised') return payload.ncn_id || null
+  if (payload.type === 'np_raised') return payload.np_id || null
+  return null
 }
 
 // ── Email dispatch ────────────────────────────────────────────────────────
@@ -342,7 +362,7 @@ async function dispatchEmail(
   log: (extras: Record<string, unknown>) => void,
 ): Promise<DispatchResult> {
   // 1. Idempotency check (email channel only)
-  const alreadySent = await deps.isAlreadySent(payload.booking_id, payload.type, 'email')
+  const alreadySent = await deps.isAlreadySent(payload.booking_id, payload.type, 'email', idempotencyRef(payload))
   if (alreadySent) {
     log({ ...baseLog, status: 'skipped', sendgrid_status: null })
     return { ok: true, skipped: true }
@@ -360,6 +380,7 @@ async function dispatchEmail(
       client_id: booking.client_id,
       channel: 'email',
       notification_type: payload.type,
+      reference_id: idempotencyRef(payload),
       to_address: 'unknown',
       status: 'failed',
       error_message: error,
@@ -380,6 +401,7 @@ async function dispatchEmail(
       client_id: booking.client_id,
       channel: 'email',
       notification_type: payload.type,
+      reference_id: idempotencyRef(payload),
       to_address: booking.contact.email,
       status: 'failed',
       error_message: `Template render failed: ${error}`,
@@ -405,6 +427,7 @@ async function dispatchEmail(
     client_id: booking.client_id,
     channel: 'email',
     notification_type: payload.type,
+    reference_id: idempotencyRef(payload),
     to_address: booking.contact.email,
     status: sendResult.ok ? 'sent' : 'failed',
     error_message: sendResult.ok ? undefined : sendResult.error,
@@ -492,7 +515,7 @@ async function dispatchSms(
   }
 
   try {
-    const alreadySent = await deps.isAlreadySent(payload.booking_id, payload.type, 'sms')
+    const alreadySent = await deps.isAlreadySent(payload.booking_id, payload.type, 'sms', idempotencyRef(payload))
     if (alreadySent) {
       smsLog({ status: 'skipped', twilio_status: null })
       return
@@ -510,6 +533,7 @@ async function dispatchSms(
       client_id: booking.client_id,
       channel: 'sms',
       notification_type: payload.type,
+      reference_id: idempotencyRef(payload),
       to_address: booking.contact.mobile_e164,
       status: sendResult.ok ? 'sent' : 'failed',
       error_message: sendResult.ok ? undefined : sendResult.error,

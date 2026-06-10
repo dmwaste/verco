@@ -152,6 +152,8 @@ export interface MockDispatchState {
     notification_type: NotificationType
     status: 'queued' | 'sent' | 'failed'
     channel?: NotificationChannel
+    /** Per-notice key (ncn_id / np_id) — null/omitted = booking-level row. */
+    reference_id?: string | null
   }>
   /**
    * What `sendEmail` should return. Default: `{ ok: true }`.
@@ -214,6 +216,7 @@ export function createMockDispatchDeps(
       booking_id: string,
       type: NotificationType,
       channel: NotificationChannel,
+      referenceId?: string | null,
     ) => {
       return (
         state.existingLog?.some(
@@ -221,7 +224,10 @@ export function createMockDispatchDeps(
             e.booking_id === booking_id &&
             e.notification_type === type &&
             (e.channel ?? 'email') === channel &&
-            e.status === 'sent'
+            e.status === 'sent' &&
+            // Mirrors the EF: a reference id narrows the key; without one
+            // the match stays booking-level.
+            (!referenceId || e.reference_id === referenceId)
         ) ?? false
       )
     },

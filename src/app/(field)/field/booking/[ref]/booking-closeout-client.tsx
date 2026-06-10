@@ -9,9 +9,19 @@ import { BookingStatusBadge } from '@/components/booking/booking-status-badge'
 import { NcnForm } from './ncn-form'
 import { MudAllocationForm } from './mud-allocation-form'
 import { completeBooking, raiseNothingPresented } from './actions'
+import { StreamBadge } from '@/components/field/stream-badge'
+import { StopStatusBadge } from '@/components/field/stop-status-badge'
+import type { StopStatus, WasteStream } from '@/lib/stops/stops'
 import type { Database } from '@/lib/supabase/types'
 
 type BookingStatus = Database['public']['Enums']['booking_status']
+
+interface BookingStop {
+  id: string
+  stream: WasteStream
+  status: StopStatus
+  stop_sequence: number | null
+}
 
 interface BookingItem {
   id: string
@@ -44,6 +54,7 @@ interface Booking {
     longitude: number | null
   } | null
   booking_item: BookingItem[]
+  collection_stop: BookingStop[]
 }
 
 function CloseoutInner({ booking }: { booking: Booking }) {
@@ -72,8 +83,14 @@ function CloseoutInner({ booking }: { booking: Booking }) {
 
   const isScheduled = booking.status === 'Scheduled'
 
+  // Mixed-mode guard: bookings with per-stream stops close out from the
+  // stop pages (the server actions reject the whole-booking path too) —
+  // this page becomes a read-only summary linking to each stop.
+  const stops = booking.collection_stop ?? []
+  const hasStops = stops.length > 0
+
   // Show NCN form
-  if (action === 'ncn' && isScheduled) {
+  if (action === 'ncn' && isScheduled && !hasStops) {
     return (
       <NcnForm
         bookingId={booking.id}
@@ -90,6 +107,7 @@ function CloseoutInner({ booking }: { booking: Booking }) {
   const wantsRecount = searchParams.get('recount') === '1'
   const needsMudCounts =
     isMud &&
+    !hasStops &&
     isScheduled &&
     booking.booking_item.length > 0 &&
     (wantsRecount ||
@@ -245,7 +263,7 @@ function CloseoutInner({ booking }: { booking: Booking }) {
         </a>
 
         {/* MUD counts confirmation banner — only when all counts are saved */}
-        {isMud && isScheduled && (
+        {isMud && isScheduled && !hasStops && (
           <div className="rounded-[10px] border border-emerald-200 bg-emerald-50 px-3.5 py-2.5 text-[12px] text-emerald-800">
             <div className="flex items-center justify-between">
               <span className="font-semibold">Counts saved</span>
@@ -267,8 +285,36 @@ function CloseoutInner({ booking }: { booking: Booking }) {
           </div>
         )}
 
+        {/* Per-stream stops — supersede whole-booking closeout */}
+        {hasStops && (
+          <div className="flex flex-col gap-2 rounded-xl bg-white p-3.5 shadow-sm">
+            <div className="text-2xs font-semibold uppercase tracking-wide text-gray-500">
+              Collection Stops
+            </div>
+            <div className="rounded-lg bg-[#E8EEF2] px-3 py-2 text-xs text-[var(--brand)]">
+              This booking is collected in separate passes — close out each
+              stream from its stop.
+            </div>
+            {stops.map((stop) => (
+              <Link
+                key={stop.id}
+                href={`/field/stops/${stop.id}`}
+                className="flex items-center justify-between rounded-lg border-[1.5px] border-gray-100 px-3 py-2.5"
+              >
+                <div className="flex items-center gap-2">
+                  <StreamBadge stream={stop.stream} />
+                  {stop.stop_sequence !== null && (
+                    <span className="text-[11px] text-gray-500">#{stop.stop_sequence}</span>
+                  )}
+                </div>
+                <StopStatusBadge status={stop.status} />
+              </Link>
+            ))}
+          </div>
+        )}
+
         {/* Close out actions */}
-        {isScheduled && (
+        {isScheduled && !hasStops && (
           <div className="flex flex-col gap-2 rounded-xl bg-white p-3.5 shadow-sm">
             <div className="text-2xs font-semibold uppercase tracking-wide text-gray-500">
               Close Out

@@ -36,6 +36,63 @@ describe('dispatch', () => {
       expect(deps.writtenLogs).toHaveLength(0)
     })
 
+    it('does NOT suppress a second per-stream NCN on the same booking (per-notice key)', async () => {
+      // Stop model: green crew NCNs the green stop, general crew NCNs the
+      // general stop hours later — same booking, same type, different ncn_id.
+      // The old (booking, type, channel) key silently dropped the second
+      // notice while its 14-day dispute window ran.
+      const booking = makeMockBooking({ id: 'b-streams' })
+      const deps = createMockDispatchDeps({
+        bookings: { 'b-streams': booking },
+        existingLog: [
+          {
+            booking_id: 'b-streams',
+            notification_type: 'ncn_raised',
+            status: 'sent',
+            reference_id: 'ncn-green',
+          },
+        ],
+      })
+
+      const result = await dispatch(deps, {
+        type: 'ncn_raised',
+        booking_id: 'b-streams',
+        ncn_id: 'ncn-general',
+        reason: 'Building Waste',
+      })
+
+      expect(result.ok).toBe(true)
+      expect('skipped' in result).toBe(false)
+      expect(deps.sendEmailMock).toHaveBeenCalledTimes(1)
+      // The new log row carries its own notice id for future dedupe
+      expect(deps.writtenLogs[0]?.reference_id).toBe('ncn-general')
+    })
+
+    it('DOES skip a true duplicate of the same notice (same ncn_id)', async () => {
+      const booking = makeMockBooking({ id: 'b-dup' })
+      const deps = createMockDispatchDeps({
+        bookings: { 'b-dup': booking },
+        existingLog: [
+          {
+            booking_id: 'b-dup',
+            notification_type: 'ncn_raised',
+            status: 'sent',
+            reference_id: 'ncn-1',
+          },
+        ],
+      })
+
+      const result = await dispatch(deps, {
+        type: 'ncn_raised',
+        booking_id: 'b-dup',
+        ncn_id: 'ncn-1',
+        reason: 'Building Waste',
+      })
+
+      expect(result).toEqual({ ok: true, skipped: true })
+      expect(deps.sendEmailMock).not.toHaveBeenCalled()
+    })
+
     it('does NOT skip when a prior failed row exists for the same booking+type', async () => {
       const booking = makeMockBooking({ id: 'b2' })
       const deps = createMockDispatchDeps({

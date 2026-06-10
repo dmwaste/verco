@@ -30,6 +30,13 @@ export interface RenderNcnRaisedOptions {
   notes?: string | undefined
   photos?: string[] | undefined
   contractor_fault?: boolean | undefined
+  /**
+   * Waste-stream label (e.g. "Green") when the notice was raised against a
+   * single per-stream collection stop. Bookings with multiple streams are
+   * collected in separate passes — naming the stream tells the resident
+   * which part of their collection this notice covers.
+   */
+  stream?: string | undefined
 }
 
 export function renderNcnRaised(
@@ -65,6 +72,7 @@ export function renderNcnRaised(
     <p style="margin:0 0 16px 0;color:#8FA5B8;font-size:13px">You have 14 days from the date of this notice to dispute it.</p>
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 16px 0;border-collapse:collapse">
       <tr><td style="padding:6px 12px 6px 0;color:#8FA5B8;font-size:13px;white-space:nowrap">Reference</td><td style="padding:6px 0;color:#293F52;font-size:13px;text-align:right;font-family:'SF Mono',monospace">${escapeHtml(ref)}</td></tr>
+      ${options.stream ? `<tr><td style="padding:6px 12px 6px 0;color:#8FA5B8;font-size:13px;white-space:nowrap">Collection</td><td style="padding:6px 0;color:#293F52;font-size:13px;text-align:right">${escapeHtml(options.stream)}</td></tr>` : ''}
       <tr><td style="padding:6px 12px 6px 0;color:#8FA5B8;font-size:13px;white-space:nowrap">Collection date</td><td style="padding:6px 0;color:#293F52;font-size:13px;text-align:right">${escapeHtml(dateStr)}</td></tr>
       <tr><td style="padding:6px 12px 6px 0;color:#8FA5B8;font-size:13px;white-space:nowrap;vertical-align:top">Address</td><td style="padding:6px 0;color:#293F52;font-size:13px;text-align:right">${escapeHtml(address)}</td></tr>
     </table>

@@ -40,14 +40,16 @@ export async function rebookNcn(
 
   const { supabase, userId } = auth
 
-  // Fetch the NCN with its booking and items
+  // Fetch the NCN with its booking and items (+ the stop's stream when the
+  // notice was raised against a per-stream collection stop)
   const { data: ncn, error: ncnError } = await supabase
     .from('non_conformance_notice')
     .select(
-      `id, status, booking_id,
+      `id, status, booking_id, collection_stop_id,
+       collection_stop:collection_stop_id(stream),
        booking:booking_id(
          id, ref, status, type, property_id, contact_id, collection_area_id, client_id, contractor_id, fy_id, location, notes,
-         booking_item(no_services, is_extra, unit_price_cents, service_id)
+         booking_item(no_services, is_extra, unit_price_cents, service_id, service!inner(waste_stream))
        )`
     )
     .eq('id', ncnId)
@@ -76,10 +78,44 @@ export async function rebookNcn(
       is_extra: boolean
       unit_price_cents: number
       service_id: string
+      service: { waste_stream: string }
     }>
   }
 
   if (!booking) return { ok: false, error: 'Linked booking not found.' }
+
+  // Stream-scoped rebook: an NCN raised against one waste-stream's stop
+  // only failed THAT pass — clone just that stream's items. Whole-booking
+  // (legacy) NCNs keep cloning everything. Falls back to all items if the
+  // stream filter somehow matches nothing.
+  const stopStream = (ncn.collection_stop as unknown as { stream: string } | null)?.stream
+  const streamItems = stopStream
+    ? booking.booking_item.filter((i) => i.service.waste_stream === stopStream)
+    : booking.booking_item
+  const itemsToClone = streamItems.length > 0 ? streamItems : booking.booking_item
+
+  // Stop-linked rebooks must wait until every pass for the booking is closed
+  // out: the source booking is only eligible to leave 'Scheduled' once the
+  // stop rollup runs, and enforce_booking_state_transition rejects
+  // Scheduled→Rebooked — silently stranding the linkage if we proceeded now.
+  if (stopStream) {
+    const { data: pendingSiblings, error: siblingError } = await supabase
+      .from('collection_stop')
+      .select('id')
+      .eq('booking_id', booking.id)
+      .eq('status', 'Pending')
+      .limit(1)
+    if (siblingError) {
+      return { ok: false, error: `Could not verify the booking's stops: ${siblingError.message}` }
+    }
+    if ((pendingSiblings ?? []).length > 0) {
+      return {
+        ok: false,
+        error:
+          'Another waste-stream pass for this booking is still pending — rebook once all passes are closed out.',
+      }
+    }
+  }
 
   // Fetch the selected collection date
   const { data: collDate } = await supabase
@@ -125,7 +161,7 @@ export async function rebookNcn(
   }
 
   // Clone booking items with the new collection date
-  const newItems = booking.booking_item.map((item) => ({
+  const newItems = itemsToClone.map((item) => ({
     booking_id: newBooking.id,
     service_id: item.service_id,
     collection_date_id: collectionDateId,
@@ -161,11 +197,18 @@ export async function rebookNcn(
     return { ok: false, error: `Rebook created but NCN update failed: ${ncnUpdateError.message}` }
   }
 
-  // Update original booking status to Rebooked
-  await supabase
+  // Update original booking status to Rebooked. With the sibling-Pending
+  // guard above this transition is always valid; log loudly if it ever
+  // isn't rather than silently reporting success over a stuck booking.
+  const { error: rebookStatusError } = await supabase
     .from('booking')
     .update({ status: 'Rebooked' })
     .eq('id', booking.id)
+  if (rebookStatusError) {
+    console.error(
+      `Rebooked-status transition failed for booking ${booking.id} (NCN rebook): ${rebookStatusError.message}`,
+    )
+  }
 
   return { ok: true, data: { newBookingRef: newBooking.ref } }
 }

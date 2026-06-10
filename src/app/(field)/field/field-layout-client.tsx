@@ -13,6 +13,20 @@ interface FieldLayoutClientProps {
   children: React.ReactNode
 }
 
+const runsTab = {
+  label: 'Runs',
+  href: '/field',
+  icon: (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="5.5" cy="18.5" r="2.5"/>
+      <circle cx="18.5" cy="18.5" r="2.5"/>
+      <path d="M8 18.5h8"/>
+      <path d="M3 14V7a2 2 0 0 1 2-2h9v9"/>
+      <path d="M14 8h4l3 4v2.5"/>
+    </svg>
+  ),
+}
+
 const runSheetTab = {
   label: 'Run Sheet',
   href: '/field/run-sheet',
@@ -48,9 +62,10 @@ export function FieldLayoutClient({
   const today = format(new Date(), 'EEEE d MMMM yyyy')
 
   // Rangers get a visible entry point for raising illegal-dumping bookings
-  // (previously reachable only by typing the URL). Crews get the run sheet
-  // alone — the run picker joins it once the stop model lands.
-  const tabs = role === 'ranger' ? [runSheetTab, newIdTab] : [runSheetTab]
+  // (previously reachable only by typing the URL). Crews work the stop-model
+  // Runs picker; the legacy per-booking Run Sheet stays as the mixed-mode
+  // fallback until cutover (Phase 4).
+  const tabs = role === 'ranger' ? [runSheetTab, newIdTab] : [runsTab, runSheetTab]
 
   return (
     <div className="flex min-h-screen flex-col bg-gray-50">
@@ -95,10 +110,16 @@ export function FieldLayoutClient({
       {/* Bottom nav */}
       <div className="fixed bottom-0 left-0 right-0 flex border-t border-gray-100 bg-white pb-[env(safe-area-inset-bottom)]">
         {tabs.map((tab) => {
+          // /field (Runs) owns the picker plus the stop-model surfaces;
+          // Run Sheet owns the legacy per-booking pages.
           const isActive =
-            tab.href === '/field/run-sheet'
-              ? pathname === '/field/run-sheet' || pathname === '/field'
-              : pathname.startsWith(tab.href)
+            tab.href === '/field'
+              ? pathname === '/field' ||
+                pathname.startsWith('/field/runs') ||
+                pathname.startsWith('/field/stops')
+              : tab.href === '/field/run-sheet'
+                ? pathname === '/field/run-sheet' || pathname.startsWith('/field/booking')
+                : pathname.startsWith(tab.href)
 
           return (
             <Link
