@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { placeOutStart, placeOutVerdict } from '@/lib/booking/place-out'
+import {
+  formatPlaceOutStart,
+  placeOutStart,
+  placeOutVerdict,
+} from '@/lib/booking/place-out'
 
 describe('placeOutStart', () => {
   it('subtracts the place-out hours from AWST midnight on the collection date', () => {
@@ -17,6 +21,16 @@ describe('placeOutStart', () => {
     // 24h before midnight AWST = 16:00 UTC two days prior
     const start = placeOutStart('2026-01-10', 24)
     expect(start.toISOString()).toBe('2026-01-08T16:00:00.000Z')
+  })
+})
+
+describe('formatPlaceOutStart', () => {
+  it('renders in AWST regardless of the runtime timezone', () => {
+    // 2026-06-12T16:00Z == Sat 13 Jun 00:00 AWST — a UTC server must NOT
+    // display this as Friday afternoon.
+    const rendered = formatPlaceOutStart(new Date('2026-06-12T16:00:00Z'))
+    expect(rendered).toContain('13 Jun')
+    expect(rendered.toLowerCase()).toContain('12:00')
   })
 })
 

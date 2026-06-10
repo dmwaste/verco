@@ -4,7 +4,7 @@ import { format } from 'date-fns'
 import { createClient } from '@/lib/supabase/server'
 import { getRangerScope } from '@/lib/field/ranger-scope'
 import { awstDateFromUtc } from '@/lib/booking/schedule-transition'
-import { placeOutStart, placeOutVerdict } from '@/lib/booking/place-out'
+import { formatPlaceOutStart, placeOutStart, placeOutVerdict } from '@/lib/booking/place-out'
 import { BookingStatusBadge } from '@/components/booking/booking-status-badge'
 import { getStopMapsUrl } from '@/lib/stops/labels'
 import type { Database } from '@/lib/supabase/types'
@@ -76,29 +76,55 @@ export default async function LookupPropertyPage({ params }: PropertyBookingPage
   const lng = property.longitude !== null ? Number(property.longitude) : null
   const mapsUrl = getStopMapsUrl(lat, lng, address)
 
-  // Booking history — RLS (booking_field_select) scopes to the ranger's
-  // client; no contact columns, ever.
-  const { data: bookings } = await supabase
-    .from('booking')
-    .select(
-      `id, ref, status, type, created_at,
-       booking_item(no_services, service!inner(name), collection_date!inner(date))`,
-    )
-    .eq('property_id', propertyId)
-    .order('created_at', { ascending: false })
-    .limit(50)
+  const BOOKING_COLUMNS = `id, ref, status, type, created_at,
+       booking_item(no_services, service!inner(name), collection_date!inner(date))`
+
+  // Two targeted queries — RLS (booking_field_select) scopes both to the
+  // ranger's client; no contact columns, ever. The verdict query filters by
+  // status server-side so a busy MUD property's history volume can never
+  // evict a live booking past a row limit and flip the verdict to "none".
+  const [liveResult, historyResult] = await Promise.all([
+    supabase
+      .from('booking')
+      .select(BOOKING_COLUMNS)
+      .eq('property_id', propertyId)
+      .in('status', UPCOMING_STATUSES)
+      .limit(20),
+    supabase
+      .from('booking')
+      .select(BOOKING_COLUMNS)
+      .eq('property_id', propertyId)
+      .order('created_at', { ascending: false })
+      .limit(50),
+  ])
+
+  // The verdict IS this page's answer — a failed query must render as an
+  // error, never as the red "no booking, raise an ID" banner.
+  const queryFailed = Boolean(liveResult.error || historyResult.error)
 
   const now = new Date()
   const today = awstDateFromUtc(now)
-  const all = (bookings ?? []) as unknown as PropertyBooking[]
+  const live = (liveResult.data ?? []) as unknown as PropertyBooking[]
+  const history = (historyResult.data ?? []) as unknown as PropertyBooking[]
 
-  const upcoming = all
-    .filter((b) => UPCOMING_STATUSES.includes(b.status))
-    .filter((b) => (earliestDate(b) ?? '') >= today)
+  // Upcoming: future collections, PLUS Scheduled bookings whose date has
+  // passed but were never closed out — exactly the case where a pile is
+  // still on the verge and must not read as illegal dumping.
+  const upcoming = live
+    .filter((b) => (earliestDate(b) ?? '') >= today || b.status === 'Scheduled')
     .sort((a, b) => (earliestDate(a) ?? '').localeCompare(earliestDate(b) ?? ''))
+  const upcomingIds = new Set(upcoming.map((b) => b.id))
 
-  const cutoff = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000).toISOString()
-  const recent = all.filter((b) => !upcoming.includes(b) && b.created_at >= cutoff)
+  // "Last 90 Days" by when the collection happened (or was created — covers
+  // date-less drafts): residents book weeks ahead, so created_at alone hides
+  // a just-collected booking and invites a wrong ID.
+  const cutoffDate = awstDateFromUtc(new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000))
+  const cutoffIso = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000).toISOString()
+  const recent = history.filter(
+    (b) =>
+      !upcomingIds.has(b.id) &&
+      ((earliestDate(b) ?? '') >= cutoffDate || b.created_at >= cutoffIso),
+  )
 
   // Verdict: pile sighted now — legitimate booking or ID candidate?
   const nextDate = upcoming[0] ? earliestDate(upcoming[0]) : null
@@ -114,7 +140,7 @@ export default async function LookupPropertyPage({ params }: PropertyBookingPage
     <div className="flex flex-col gap-3 px-5 pt-4">
       <Link
         href="/field/lookup"
-        className="flex items-center gap-1.5 text-body-sm font-medium text-[#8FA5B8]"
+        className="-m-3 flex items-center gap-1.5 p-3 text-body-sm font-medium text-[#8FA5B8]"
       >
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
           <polyline points="15 18 9 12 15 6"/>
@@ -155,8 +181,20 @@ export default async function LookupPropertyPage({ params }: PropertyBookingPage
         )}
       </div>
 
+      {/* Query failure — never let an error read as "no booking" */}
+      {queryFailed && (
+        <div className="rounded-xl border border-red-200 bg-red-50 px-3.5 py-3">
+          <div className="text-sm font-semibold text-red-800">
+            Couldn&apos;t load booking history
+          </div>
+          <div className="mt-0.5 text-xs text-red-700">
+            Check your signal and reload before judging this pile.
+          </div>
+        </div>
+      )}
+
       {/* Verdict banner */}
-      {verdict === 'open' && nextDate && (
+      {!queryFailed && verdict === 'open' && nextDate && (
         <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3.5 py-3">
           <div className="text-sm font-semibold text-emerald-800">
             Likely a legitimate booking
@@ -164,22 +202,22 @@ export default async function LookupPropertyPage({ params }: PropertyBookingPage
           <div className="mt-0.5 text-xs text-emerald-700">
             Collection booked for {format(new Date(`${nextDate}T00:00:00`), 'EEE d MMM')} and
             the place-out window is open
-            {windowOpens && <> (from {format(windowOpens, 'EEE d MMM, h:mmaaa')})</>}.
+            {windowOpens && <> (from {formatPlaceOutStart(windowOpens)})</>}.
           </div>
         </div>
       )}
-      {verdict === 'not-yet' && nextDate && windowOpens && (
+      {!queryFailed && verdict === 'not-yet' && nextDate && windowOpens && (
         <div className="rounded-xl border border-[#FF8C42] bg-[#FFF3EA] px-3.5 py-3">
           <div className="text-sm font-semibold text-[#8B4000]">
             Booking exists — but placed out too early
           </div>
           <div className="mt-0.5 text-xs text-[#8B4000]">
             Collection is {format(new Date(`${nextDate}T00:00:00`), 'EEE d MMM')}; residents may
-            place out from {format(windowOpens, 'EEE d MMM, h:mmaaa')}.
+            place out from {formatPlaceOutStart(windowOpens)}.
           </div>
         </div>
       )}
-      {verdict === 'none' && (
+      {!queryFailed && verdict === 'none' && (
         <div className="rounded-xl border border-red-200 bg-red-50 px-3.5 py-3">
           <div className="text-sm font-semibold text-red-800">No upcoming booking</div>
           <div className="mt-0.5 text-xs text-red-700">

@@ -42,23 +42,38 @@ export default async function NewIdBookingPage({ searchParams }: NewIdBookingPag
     .order('date', { ascending: true })
     .limit(9)
 
-  // Prefill from the lookup tool ("Raise ID at this address") — lat/lng must
-  // both parse or the pair is discarded; address may stand alone (manual
-  // entry remains mandatory fallback per plan §Risks 7).
+  // Prefill from the lookup tool ("Raise ID at this address"). lat/lng must
+  // both parse to be used (Number('') is 0 — empty strings are rejected, or
+  // an ID would pin to Null Island); an address may stand alone for
+  // un-geocoded properties, seeding the field while GPS still acquires.
+  // Array-valued params (duplicated keys) are treated as absent.
   const params = await searchParams
-  const lat = Number(params.lat)
-  const lng = Number(params.lng)
+  const str = (v: unknown): string | null =>
+    typeof v === 'string' && v.trim().length > 0 ? v : null
+  const latRaw = str(params.lat)
+  const lngRaw = str(params.lng)
+  const lat = latRaw !== null ? Number(latRaw) : NaN
+  const lng = lngRaw !== null ? Number(lngRaw) : NaN
   const hasCoords =
-    params.lat !== undefined &&
-    params.lng !== undefined &&
-    Number.isFinite(lat) &&
-    Number.isFinite(lng) &&
-    Math.abs(lat) <= 90 &&
-    Math.abs(lng) <= 180
-  const prefill =
-    hasCoords && params.address
-      ? { latitude: lat, longitude: lng, address: params.address }
-      : null
+    Number.isFinite(lat) && Number.isFinite(lng) && Math.abs(lat) <= 90 && Math.abs(lng) <= 180
+  const address = str(params.address)
+  const prefill = address
+    ? {
+        latitude: hasCoords ? lat : null,
+        longitude: hasCoords ? lng : null,
+        address,
+      }
+    : null
 
-  return <IdBookingForm collectionDates={dates ?? []} prefill={prefill} />
+  return (
+    <IdBookingForm
+      // Remount on prefill change: the form seeds state in useState
+      // initialisers, and a same-path soft navigation (New ID nav tab after
+      // a lookup deep link) would otherwise keep the previous property's
+      // pinned coordinates (CLAUDE.md §21 searchParams gotcha).
+      key={prefill ? `${prefill.latitude},${prefill.longitude},${prefill.address}` : 'gps'}
+      collectionDates={dates ?? []}
+      prefill={prefill}
+    />
+  )
 }

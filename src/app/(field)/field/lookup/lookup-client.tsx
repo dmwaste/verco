@@ -33,7 +33,7 @@ export function LookupClient({ areaIds, clientName }: LookupClientProps) {
 
   const enabled = debouncedTerm.length >= 3 && areaIds.length > 0
 
-  const { data: results, isFetching } = useQuery({
+  const { data: results, isFetching, isError, refetch } = useQuery({
     queryKey: ['ranger-lookup', debouncedTerm],
     enabled,
     queryFn: async (): Promise<PropertyResult[]> => {
@@ -72,7 +72,6 @@ export function LookupClient({ areaIds, clientName }: LookupClientProps) {
         <input
           type="search"
           inputMode="search"
-          autoFocus
           value={term}
           onChange={(e) => setTerm(e.target.value)}
           placeholder="Start typing a street address..."
@@ -94,7 +93,25 @@ export function LookupClient({ areaIds, clientName }: LookupClientProps) {
               Searching…
             </div>
           )}
-          {!isFetching && results && results.length === 0 && (
+          {/* A failed search must never read as "address not eligible" */}
+          {!isFetching && isError && (
+            <div className="flex items-center justify-between gap-2 rounded-xl border border-red-200 bg-red-50 p-4 shadow-sm">
+              <div>
+                <div className="text-sm font-semibold text-red-800">Search failed</div>
+                <div className="mt-0.5 text-xs text-red-700">
+                  Check your signal and try again.
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => refetch()}
+                className="shrink-0 rounded-md bg-white px-3 py-2.5 text-[11px] font-semibold text-red-700 shadow-sm"
+              >
+                Retry
+              </button>
+            </div>
+          )}
+          {!isFetching && !isError && results && results.length === 0 && (
             <div className="rounded-xl bg-white p-4 text-center shadow-sm">
               <div className="text-sm font-semibold text-[var(--brand)]">No matches</div>
               <div className="mt-0.5 text-xs text-gray-500">

@@ -122,7 +122,7 @@ export default async function MyIdsPage() {
           </span>
           <Link
             href="/field/illegal-dumping/new"
-            className="mt-1 rounded-lg bg-[var(--brand)] px-4 py-2 text-xs font-semibold"
+            className="mt-1 flex min-h-[44px] items-center rounded-lg bg-[var(--brand)] px-5 text-xs font-semibold"
             style={{ color: 'var(--brand-foreground, #FFFFFF)' }}
           >
             Raise an ID

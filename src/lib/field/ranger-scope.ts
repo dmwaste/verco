@@ -30,10 +30,15 @@ export async function getRangerScope(
   } = await supabase.auth.getUser()
   if (!user) return null
 
+  // Mirror current_user_role()'s semantics: an inactive or non-ranger row
+  // must never mint a scope, even though every current caller also gates on
+  // the role RPC — this helper must fail closed on its own.
   const { data: roleRow } = await supabase
     .from('user_roles')
     .select('client_id, sub_client_id')
     .eq('user_id', user.id)
+    .eq('role', 'ranger')
+    .eq('is_active', true)
     .maybeSingle()
   if (!roleRow?.client_id) return null
 
@@ -45,19 +50,24 @@ export async function getRangerScope(
   if (roleRow.sub_client_id) {
     areaQuery = areaQuery.eq('sub_client_id', roleRow.sub_client_id)
   }
-  const { data: areas } = await areaQuery
+  const { data: areas, error: areasError } = await areaQuery
 
-  const { data: client } = await supabase
+  const { data: client, error: clientError } = await supabase
     .from('client')
     .select('name, place_out_hours_before')
     .eq('id', roleRow.client_id)
     .single()
 
+  // Fail CLOSED on query errors: a transient failure must surface as
+  // "no scope" (callers redirect), never as areaIds: [] ("no areas
+  // assigned") or placeOutHoursBefore: 0 (skews the place-out verdict).
+  if (areasError || clientError || !client) return null
+
   return {
     clientId: roleRow.client_id,
     subClientId: roleRow.sub_client_id,
     areaIds: (areas ?? []).map((a) => a.id),
-    clientName: client?.name ?? '',
-    placeOutHoursBefore: client?.place_out_hours_before ?? 0,
+    clientName: client.name,
+    placeOutHoursBefore: client.place_out_hours_before,
   }
 }

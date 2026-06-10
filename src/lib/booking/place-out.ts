@@ -13,6 +13,23 @@ export function placeOutStart(collectionDate: string, hoursBefore: number): Date
 export type PlaceOutVerdict = 'open' | 'not-yet' | 'none'
 
 /**
+ * Renders a place-out instant in AWST regardless of where the code runs.
+ * date-fns `format()` uses the runtime's local timezone — on the prod server
+ * (UTC container) that would display the window 8 hours early.
+ */
+export function formatPlaceOutStart(d: Date): string {
+  return new Intl.DateTimeFormat('en-AU', {
+    timeZone: 'Australia/Perth',
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  }).format(d)
+}
+
+/**
  * Verdict for "is this pile plausibly a booking?" given the property's next
  * upcoming collection date (or null), the tenant's place-out hours, and now.
  */

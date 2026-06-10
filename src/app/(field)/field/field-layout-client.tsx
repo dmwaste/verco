@@ -137,7 +137,8 @@ export function FieldLayoutClient({
       <div className="fixed bottom-0 left-0 right-0 flex border-t border-gray-100 bg-white pb-[env(safe-area-inset-bottom)]">
         {tabs.map((tab) => {
           // /field (Runs) owns the picker plus the stop-model surfaces;
-          // Run Sheet owns the legacy per-booking pages.
+          // Run Sheet owns the legacy per-booking pages for crews; rangers
+          // reach booking detail from My IDs, so that tab claims it instead.
           const isActive =
             tab.href === '/field'
               ? pathname === '/field' ||
@@ -145,7 +146,9 @@ export function FieldLayoutClient({
                 pathname.startsWith('/field/stops')
               : tab.href === '/field/run-sheet'
                 ? pathname === '/field/run-sheet' || pathname.startsWith('/field/booking')
-                : pathname.startsWith(tab.href)
+                : tab.href === '/field/my-ids'
+                  ? pathname.startsWith('/field/my-ids') || pathname.startsWith('/field/booking')
+                  : pathname.startsWith(tab.href)
 
           return (
             <Link

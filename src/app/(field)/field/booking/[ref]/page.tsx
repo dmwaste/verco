@@ -31,7 +31,8 @@ export default async function BookingCloseoutPage({
     .single()
 
   if (!booking) {
-    redirect('/field/run-sheet')
+    // /field routes both roles home (crews → picker, rangers → lookup).
+    redirect('/field')
   }
 
   return <BookingCloseoutClient booking={booking} />
