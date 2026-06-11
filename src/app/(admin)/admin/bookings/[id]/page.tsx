@@ -1,7 +1,7 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { resolveAuditLogs } from '@/lib/audit/resolve'
-import { BookingDetailPanel } from './booking-detail-panel'
+import { BookingDetailClient } from './booking-detail-client'
 import { buildMudContext } from './mud-context'
 
 interface BookingDetailPageProps {
@@ -59,27 +59,10 @@ export default async function AdminBookingDetailPage({
   })
 
   return (
-    <div className="flex h-full">
-      {/* Dimmed bookings list placeholder */}
-      <div className="flex flex-1 flex-col opacity-45">
-        <div className="border-b border-gray-100 bg-white px-7 pb-5 pt-6">
-          <h1 className="font-[family-name:var(--font-heading)] text-xl font-bold text-[#293F52]">
-            Bookings
-          </h1>
-        </div>
-        <div className="flex-1 px-7 py-4">
-          <div className="rounded-xl bg-white p-8 text-center text-sm text-gray-400 shadow-sm">
-            Select a booking to view details
-          </div>
-        </div>
-      </div>
-
-      {/* Detail panel */}
-      <BookingDetailPanel
-        booking={booking}
-        auditLogs={auditLogs}
-        mudContext={mudContext}
-      />
-    </div>
+    <BookingDetailClient
+      booking={booking}
+      auditLogs={auditLogs}
+      mudContext={mudContext}
+    />
   )
 }

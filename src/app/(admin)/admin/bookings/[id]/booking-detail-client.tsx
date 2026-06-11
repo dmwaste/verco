@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { Dialog } from '@base-ui/react/dialog'
 import { useQuery } from '@tanstack/react-query'
 import { format } from 'date-fns'
@@ -56,7 +56,7 @@ interface Booking {
   booking_item: BookingItem[]
 }
 
-interface BookingDetailPanelProps {
+interface BookingDetailClientProps {
   booking: Booking
   auditLogs: ResolvedAuditEntry[]
   mudContext?: MudContext | null
@@ -72,12 +72,18 @@ function PencilIcon() {
   )
 }
 
-export function BookingDetailPanel({
+export function BookingDetailClient({
   booking,
   auditLogs,
   mudContext,
-}: BookingDetailPanelProps) {
+}: BookingDetailClientProps) {
   const router = useRouter()
+  const listSearchParams = useSearchParams()
+  // ?from= carries the list's serialised filter state (set by the Ref link in
+  // bookings-list-client) so going back restores the user's search/filter view.
+  // Appended after `?` on a fixed path, so it can't change route or origin.
+  const fromQuery = listSearchParams.get('from')
+  const backHref = fromQuery ? `/admin/bookings?${fromQuery}` : '/admin/bookings'
   const supabase = createClient()
   const [isPending, setIsPending] = useState(false)
   const [isPaying, setIsPaying] = useState(false)
@@ -334,32 +340,86 @@ export function BookingDetailPanel({
   }
 
   return (
-    <aside className="flex w-[400px] shrink-0 flex-col overflow-y-auto border-l border-gray-100 bg-white">
+    <div className="flex flex-1 flex-col">
       {/* Header */}
-      <div className="flex items-start justify-between border-b border-gray-100 px-5 pb-4 pt-5">
-        <div>
-          <div className="mb-1.5 flex items-center gap-2.5">
-            <span className="font-[family-name:var(--font-heading)] text-base font-bold text-[#293F52]">
-              {booking.ref}
-            </span>
-            <BookingStatusBadge status={booking.status} />
-          </div>
-          <div className="text-xs text-gray-500">
-            {booking.type} &middot; {area.name}
-          </div>
-        </div>
+      <div className="border-b border-gray-100 bg-white px-7 pb-5 pt-6">
         <Link
-          href="/admin/bookings"
-          className="text-lg text-gray-300 hover:text-gray-500"
-          aria-label="Close booking detail"
+          href={backHref}
+          className="mb-2.5 flex items-center gap-1.5 text-body-sm font-medium text-[#8FA5B8] hover:text-[#293F52]"
         >
-          <span aria-hidden="true">&#10005;</span>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="15 18 9 12 15 6" />
+          </svg>
+          Bookings
         </Link>
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <div className="flex items-center gap-2.5">
+              <h1 className="font-[family-name:var(--font-heading)] text-xl font-bold text-[#293F52]">
+                {booking.ref}
+              </h1>
+              <BookingStatusBadge status={booking.status} />
+            </div>
+            <p className="mt-0.5 text-body-sm text-gray-500">
+              {booking.type} &middot; {area.name}
+            </p>
+          </div>
+          {(canConfirm || canCancel || booking.status === 'Pending Payment') && (
+            <div className="flex flex-wrap items-center gap-2">
+              {booking.status === 'Pending Payment' && (
+                <button
+                  type="button"
+                  onClick={handlePayNow}
+                  disabled={isPaying}
+                  className="flex items-center gap-1.5 rounded-lg border-[1.5px] border-[#00B864] bg-[#E8FDF0] px-4 py-2 text-body-sm font-semibold text-[#006A38] disabled:opacity-50"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="1" y="4" width="22" height="16" rx="2" ry="2" />
+                    <line x1="1" y1="10" x2="23" y2="10" />
+                  </svg>
+                  {isPaying ? 'Redirecting to payment...' : 'Pay Now'}
+                </button>
+              )}
+              {canConfirm && (
+                <button
+                  type="button"
+                  onClick={handleConfirm}
+                  disabled={isPending}
+                  className="flex items-center gap-1.5 rounded-lg bg-[#00E47C] px-4 py-2 text-body-sm font-semibold text-[#293F52] disabled:opacity-50"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                  {isPending ? 'Confirming...' : 'Confirm Booking'}
+                </button>
+              )}
+              {canCancel && (
+                <button
+                  type="button"
+                  onClick={() => setShowCancelDialog(true)}
+                  disabled={isPending}
+                  className="flex items-center gap-1.5 rounded-lg border-[1.5px] border-[#E53E3E] bg-[#FFF0F0] px-4 py-2 text-body-sm font-semibold text-[#E53E3E] disabled:opacity-50"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
+                  {isPending ? 'Cancelling...' : 'Cancel Booking'}
+                </button>
+              )}
+            </div>
+          )}
+        </div>
       </div>
+
+      {/* Content */}
+      <div className="flex-1 px-7 py-5">
+      {error && (
+        <div role="alert" className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-body-sm text-red-700">
+          {error}
+        </div>
+      )}
+      <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-3">
+      <div className="flex min-w-0 flex-col gap-4 lg:col-span-2">
 
       {/* MUD Context — only for MUD bookings */}
       {mudContext && (
-        <div className="border-b border-gray-100 bg-[#FAF8FF] px-5 py-4">
+        <div className="rounded-xl bg-[#FAF8FF] p-5 shadow-sm">
           <div className="mb-3 flex items-center justify-between">
             <span className="text-2xs font-semibold uppercase tracking-wide text-[#805AD5]">
               MUD Context
@@ -373,19 +433,19 @@ export function BookingDetailPanel({
           </div>
 
           <div className="flex flex-col gap-2.5">
-            <div className="flex justify-between">
+            <div className="flex gap-3">
               <span className="w-[120px] shrink-0 text-xs font-medium text-gray-500">MUD code</span>
-              <span className="text-right text-body-sm text-gray-900">
+              <span className="min-w-0 flex-1 break-words text-body-sm text-gray-900">
                 {mudContext.mudCode ?? '—'}
               </span>
             </div>
-            <div className="flex justify-between">
+            <div className="flex gap-3">
               <span className="w-[120px] shrink-0 text-xs font-medium text-gray-500">Unit count</span>
-              <span className="text-right text-body-sm text-gray-900">{mudContext.unitCount}</span>
+              <span className="min-w-0 flex-1 break-words text-body-sm text-gray-900">{mudContext.unitCount}</span>
             </div>
-            <div className="flex justify-between">
+            <div className="flex gap-3">
               <span className="w-[120px] shrink-0 text-xs font-medium text-gray-500">Onboarding</span>
-              <span className="text-right text-body-sm text-gray-900">
+              <span className="min-w-0 flex-1 break-words text-body-sm text-gray-900">
                 {mudContext.onboardingStatus ?? '—'}
               </span>
             </div>
@@ -441,7 +501,7 @@ export function BookingDetailPanel({
       )}
 
       {/* Property + Collection Details */}
-      <div className="border-b border-gray-100 px-5 py-4">
+      <div className="rounded-xl bg-white p-5 shadow-sm">
         <div className="mb-3 flex items-center justify-between">
           <span className="text-2xs font-semibold uppercase tracking-wide text-gray-500">
             Collection Details
@@ -455,43 +515,43 @@ export function BookingDetailPanel({
 
         {!editingDetails ? (
           <div className="flex flex-col gap-2.5">
-            <div className="flex justify-between">
+            <div className="flex gap-3">
               <span className="w-[120px] shrink-0 text-xs font-medium text-gray-500">Address</span>
-              <span className="text-right text-body-sm text-gray-900">{address}</span>
+              <span className="min-w-0 flex-1 break-words text-body-sm text-gray-900">{address}</span>
             </div>
-            <div className="flex justify-between">
+            <div className="flex gap-3">
               <span className="w-[120px] shrink-0 text-xs font-medium text-gray-500">Location</span>
-              <span className="text-right text-body-sm text-gray-900">{booking.location ?? '—'}</span>
+              <span className="min-w-0 flex-1 break-words text-body-sm text-gray-900">{booking.location ?? '—'}</span>
             </div>
-            <div className="flex justify-between">
+            <div className="flex gap-3">
               <span className="w-[120px] shrink-0 text-xs font-medium text-gray-500">Collection Date</span>
-              <span className="text-right text-body-sm text-gray-900">
+              <span className="min-w-0 flex-1 break-words text-body-sm text-gray-900">
                 {collectionDateStr
                   ? format(new Date(collectionDateStr + 'T00:00:00'), 'EEEE, d MMMM yyyy')
                   : '—'}
               </span>
             </div>
-            <div className="flex justify-between">
+            <div className="flex gap-3">
               <span className="w-[120px] shrink-0 text-xs font-medium text-gray-500">Notes</span>
-              <span className="text-right text-body-sm italic text-gray-500">{booking.notes || '—'}</span>
+              <span className="min-w-0 flex-1 break-words text-body-sm italic text-gray-500">{booking.notes || '—'}</span>
             </div>
             {isId && idMapsUrl && (
-              <div className="flex justify-between">
+              <div className="flex gap-3">
                 <span className="w-[120px] shrink-0 text-xs font-medium text-gray-500">Map</span>
                 <a
                   href={idMapsUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-right text-body-sm font-medium text-[#293F52] underline"
+                  className="text-body-sm font-medium text-[#293F52] underline"
                 >
                   Open in Google Maps
                 </a>
               </div>
             )}
             {isId && (booking.id_waste_types.length > 0 || booking.id_volume) && (
-              <div className="flex justify-between gap-3">
+              <div className="flex gap-3">
                 <span className="w-[120px] shrink-0 text-xs font-medium text-gray-500">Waste</span>
-                <div className="flex flex-wrap justify-end gap-1.5">
+                <div className="flex min-w-0 flex-1 flex-wrap gap-1.5">
                   {booking.id_waste_types.map((w) => (
                     <span
                       key={w}
@@ -605,7 +665,7 @@ export function BookingDetailPanel({
 
       {/* Contact — visible to admin/staff only, enforced by RLS */}
       {(contact || canEdit) && (
-        <div className="border-b border-gray-100 px-5 py-4">
+        <div className="rounded-xl bg-white p-5 shadow-sm">
           <div className="mb-3 flex items-center justify-between">
             <span className="text-2xs font-semibold uppercase tracking-wide text-gray-500">
               Contact
@@ -620,17 +680,17 @@ export function BookingDetailPanel({
           {!editingContact ? (
             contact ? (
               <div className="flex flex-col gap-2.5">
-                <div className="flex justify-between">
+                <div className="flex gap-3">
                   <span className="w-[120px] shrink-0 text-xs font-medium text-gray-500">Name</span>
-                  <span className="text-right text-body-sm font-medium text-[#293F52]">{contact.full_name}</span>
+                  <span className="min-w-0 flex-1 break-words text-body-sm font-medium text-[#293F52]">{contact.full_name}</span>
                 </div>
-                <div className="flex justify-between">
+                <div className="flex gap-3">
                   <span className="w-[120px] shrink-0 text-xs font-medium text-gray-500">Mobile</span>
-                  <span className="text-right text-body-sm font-medium text-[#293F52]">{contact.mobile_e164 ?? '—'}</span>
+                  <span className="min-w-0 flex-1 break-words text-body-sm font-medium text-[#293F52]">{contact.mobile_e164 ?? '—'}</span>
                 </div>
-                <div className="flex justify-between">
+                <div className="flex gap-3">
                   <span className="w-[120px] shrink-0 text-xs font-medium text-gray-500">Email</span>
-                  <span className="text-right text-body-sm font-medium text-[#293F52]">{contact.email}</span>
+                  <span className="min-w-0 flex-1 break-words text-body-sm font-medium text-[#293F52]">{contact.email}</span>
                 </div>
               </div>
             ) : (
@@ -708,7 +768,7 @@ export function BookingDetailPanel({
       )}
 
       {/* Services — edit via wizard (pricing/capacity) */}
-      <div className="border-b border-gray-100 px-5 py-4">
+      <div className="rounded-xl bg-white p-5 shadow-sm">
         <div className="mb-3 flex items-center justify-between">
           <span className="text-2xs font-semibold uppercase tracking-wide text-gray-500">
             Services
@@ -769,57 +829,18 @@ export function BookingDetailPanel({
         </div>
       </div>
 
-      {/* Audit trail */}
-      <AuditTimeline entries={auditLogs} />
+      </div>
 
-      {/* Error */}
-      {error && (
-        <div role="alert" className="mx-5 mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-body-sm text-red-700">
-          {error}
-        </div>
-      )}
-
-      {/* Actions */}
-      {(canConfirm || canCancel || booking.status === 'Pending Payment') && (
-        <div className="flex flex-col gap-2 px-5 py-4">
-          {booking.status === 'Pending Payment' && (
-            <button
-              type="button"
-              onClick={handlePayNow}
-              disabled={isPaying}
-              className="flex w-full items-center justify-center gap-2 rounded-xl border-[1.5px] border-[#00B864] bg-[#E8FDF0] px-3.5 py-3.5 font-[family-name:var(--font-heading)] text-body font-semibold text-[#006A38] disabled:opacity-50"
-            >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="1" y="4" width="22" height="16" rx="2" ry="2" />
-                <line x1="1" y1="10" x2="23" y2="10" />
-              </svg>
-              {isPaying ? 'Redirecting to payment...' : 'Pay Now'}
-            </button>
-          )}
-          {canConfirm && (
-            <button
-              type="button"
-              onClick={handleConfirm}
-              disabled={isPending}
-              className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#00E47C] px-3.5 py-3.5 font-[family-name:var(--font-heading)] text-body font-semibold text-[#293F52] disabled:opacity-50"
-            >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-              {isPending ? 'Confirming...' : 'Confirm Booking'}
-            </button>
-          )}
-          {canCancel && (
-            <button
-              type="button"
-              onClick={() => setShowCancelDialog(true)}
-              disabled={isPending}
-              className="flex w-full items-center justify-center gap-2 rounded-xl border-[1.5px] border-[#E53E3E] bg-[#FFF0F0] px-3.5 py-3.5 font-[family-name:var(--font-heading)] text-body font-semibold text-[#E53E3E] disabled:opacity-50"
-            >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
-              {isPending ? 'Cancelling...' : 'Cancel Booking'}
-            </button>
-          )}
-        </div>
-      )}
+      {/* Activity — right column */}
+      <div className="flex min-w-0 flex-col gap-4">
+        {auditLogs.length > 0 && (
+          <div className="rounded-xl bg-white shadow-sm">
+            <AuditTimeline entries={auditLogs} />
+          </div>
+        )}
+      </div>
+      </div>
+      </div>
 
       {/* Cancel confirmation dialog */}
       <Dialog.Root open={showCancelDialog} onOpenChange={setShowCancelDialog}>
@@ -856,6 +877,6 @@ export function BookingDetailPanel({
           </Dialog.Popup>
         </Dialog.Portal>
       </Dialog.Root>
-    </aside>
+    </div>
   )
 }

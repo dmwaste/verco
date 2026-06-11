@@ -334,10 +334,10 @@ export function MudBookingForm({
             </div>
           )}
 
-          <div className="flex gap-2">
+          <div className="flex justify-end gap-2">
             <Link
               href={`/admin/properties/${property.id}`}
-              className="flex-1 rounded-xl border-[1.5px] border-gray-100 bg-white px-3.5 py-3 text-center text-[13px] font-semibold text-[#293F52]"
+              className="rounded-lg border-[1.5px] border-gray-100 bg-white px-4 py-2 text-body-sm font-semibold text-[#293F52] transition-colors hover:bg-gray-50"
             >
               Cancel
             </Link>
@@ -345,7 +345,7 @@ export function MudBookingForm({
               type="button"
               onClick={handleSubmit}
               disabled={!canSubmit}
-              className="flex-1 rounded-xl bg-[#293F52] px-3.5 py-3 text-[13px] font-semibold text-white disabled:opacity-50"
+              className="rounded-lg bg-[#293F52] px-4 py-2 text-body-sm font-semibold text-white transition-colors hover:bg-[#1e3040] disabled:opacity-50"
             >
               {isSubmitting ? 'Creating booking...' : 'Create MUD booking'}
             </button>

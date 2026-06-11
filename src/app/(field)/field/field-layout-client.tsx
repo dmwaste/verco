@@ -128,13 +128,15 @@ export function FieldLayoutClient({
       </div>
 
       {/* Content — bottom padding clears the fixed nav plus the iOS home
-          indicator */}
-      <div className="flex flex-1 flex-col overflow-y-auto pb-[calc(5rem+env(safe-area-inset-bottom))]">
+          indicator. max-w-xl keeps cards/forms phone-shaped when crews open
+          the PWA on a tablet or desktop browser. */}
+      <div className="mx-auto flex w-full max-w-xl flex-1 flex-col overflow-y-auto pb-[calc(5rem+env(safe-area-inset-bottom))]">
         {children}
       </div>
 
-      {/* Bottom nav */}
-      <div className="fixed bottom-0 left-0 right-0 flex border-t border-gray-100 bg-white pb-[env(safe-area-inset-bottom)]">
+      {/* Bottom nav — bar is full-bleed, tab row matches the content column */}
+      <div className="fixed bottom-0 left-0 right-0 border-t border-gray-100 bg-white pb-[env(safe-area-inset-bottom)]">
+        <div className="mx-auto flex w-full max-w-xl">
         {tabs.map((tab) => {
           // /field (Runs) owns the picker plus the stop-model surfaces;
           // Run Sheet owns the legacy per-booking pages for crews; rangers
@@ -166,6 +168,7 @@ export function FieldLayoutClient({
             </Link>
           )
         })}
+        </div>
       </div>
     </div>
   )

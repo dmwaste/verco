@@ -267,7 +267,8 @@ export function RunSheetClient({ bookings }: RunSheetClientProps) {
                   {isMud ? (
                     <Link
                       href={`/field/booking/${booking.ref}?mud=true`}
-                      className="rounded-lg bg-[var(--brand)] px-3 py-1.5 text-xs font-semibold text-white"
+                      className="flex min-h-[44px] items-center rounded-lg bg-[var(--brand)] px-3 py-1.5 text-xs font-semibold"
+                      style={{ color: 'var(--brand-foreground, #FFFFFF)' }}
                     >
                       Enter Count
                     </Link>
@@ -275,20 +276,21 @@ export function RunSheetClient({ bookings }: RunSheetClientProps) {
                     <div className="flex gap-1.5">
                       <Link
                         href={`/field/booking/${booking.ref}?action=ncn`}
-                        className="rounded-lg border-[1.5px] border-gray-100 bg-gray-50 px-3 py-1.5 text-xs font-semibold text-gray-700"
+                        className="flex min-h-[44px] items-center rounded-lg border-[1.5px] border-gray-100 bg-gray-50 px-3 py-1.5 text-xs font-semibold text-gray-700"
                       >
                         NCN
                       </Link>
                       <Link
                         href={`/field/booking/${booking.ref}?action=np`}
-                        className="rounded-lg border-[1.5px] border-gray-100 bg-gray-50 px-3 py-1.5 text-xs font-semibold text-gray-700"
+                        className="flex min-h-[44px] items-center rounded-lg border-[1.5px] border-gray-100 bg-gray-50 px-3 py-1.5 text-xs font-semibold text-gray-700"
                       >
                         NP
                       </Link>
                       <button
                         type="button"
                         onClick={() => handleQuickComplete(booking.id)}
-                        className="rounded-lg bg-[var(--brand)] px-3 py-1.5 text-xs font-semibold text-white"
+                        className="flex min-h-[44px] items-center rounded-lg bg-[var(--brand)] px-3 py-1.5 text-xs font-semibold"
+                        style={{ color: 'var(--brand-foreground, #FFFFFF)' }}
                       >
                         Done &#10003;
                       </button>

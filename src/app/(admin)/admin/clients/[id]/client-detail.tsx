@@ -2,8 +2,8 @@
 
 import { Suspense } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
-import Link from 'next/link'
 import { cn } from '@/lib/utils'
+import { BackLink } from '@/components/admin/back-link'
 import type { Database } from '@/lib/supabase/types'
 import { GeneralTab } from './tabs/general-tab'
 import { BrandingTab } from './tabs/branding-tab'
@@ -71,9 +71,7 @@ export function ClientDetail({ client, subClients, categories, services }: Clien
       <div className="flex h-full flex-col">
         {/* Header */}
         <div className="bg-white px-7 pb-0 pt-6">
-          <Link href="/admin/clients" className="mb-3 inline-flex items-center gap-1 text-body-sm text-gray-400 hover:text-gray-600">
-            &larr; Back to Clients
-          </Link>
+          <BackLink href="/admin/clients" label="Back to Clients" />
           <div className="mb-4 flex items-center gap-3">
             <div
               className="flex size-9 shrink-0 items-center justify-center rounded-lg font-[family-name:var(--font-heading)] text-sm font-bold text-white"

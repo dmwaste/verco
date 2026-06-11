@@ -62,3 +62,6 @@ next-env.d.ts
 # user-guide build intermediate — regeneratable from the .md + .css via pandoc
 # (only the .md, .css, and built .pdf are tracked; see memory wmrc-user-guide-build-pipeline)
 docs/*-user-guide.html
+
+# prod faq_items snapshots written by scripts/load-faqs.mjs before --apply
+scripts/.faq-snapshots/

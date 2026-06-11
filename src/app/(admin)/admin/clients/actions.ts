@@ -4,6 +4,7 @@ import { headers } from 'next/headers'
 import { createClient } from '@/lib/supabase/server'
 import { z } from 'zod'
 import type { Result } from '@/lib/result'
+import type { FaqItem } from '@/lib/client/branding-defaults'
 
 // ── Schemas ────────────────────────────────────────────────────
 
@@ -41,10 +42,11 @@ const updateClientSchema = z.object({
   email_footer_html: z.string().nullable().optional(),
 })
 
+// satisfies binds the schema to the shared FaqItem type — drift fails tsc
 const faqItemSchema = z.object({
   question: z.string().min(1),
   answer: z.string().min(1),
-})
+}) satisfies z.ZodType<FaqItem>
 
 const createSubClientSchema = z.object({
   name: z.string().min(1, 'Name is required'),
