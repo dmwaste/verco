@@ -18,30 +18,33 @@ describe('formatServingLine', () => {
     expect(formatServingLine([])).toBeNull()
   })
 
-  it('formats a single member', () => {
-    expect(formatServingLine(['City of Vincent'])).toBe('Serving Vincent.')
-  })
-
-  it('joins two with an ampersand, no comma', () => {
-    expect(formatServingLine(['Town of Cambridge', 'City of Fremantle'])).toBe(
-      'Serving Cambridge & Fremantle.',
+  it('keeps the full LGA name for a single member', () => {
+    expect(formatServingLine(['City of Vincent'])).toBe(
+      'Serving City of Vincent.',
     )
   })
 
-  it('comma-separates 3+ with an ampersand before the last, sorted', () => {
+  it('joins two with an ampersand, full names, sorted by place', () => {
+    expect(formatServingLine(['Town of Cambridge', 'City of Fremantle'])).toBe(
+      'Serving Town of Cambridge & City of Fremantle.',
+    )
+  })
+
+  it('comma-separates 3+ with an ampersand before the last, full names', () => {
     expect(
       formatServingLine([
         'City of Vincent',
         'City of Fremantle',
         'Town of Cottesloe',
       ]),
-    ).toBe('Serving Cottesloe, Fremantle & Vincent.')
+    ).toBe('Serving Town of Cottesloe, City of Fremantle & City of Vincent.')
   })
 
-  it('sorts by the stripped place name, not the LGA prefix', () => {
-    // "Town of Albany" must sort before "City of Bunbury" by place name.
+  it('sorts by the place name, not the LGA prefix', () => {
+    // "Town of Albany" sorts before "City of Bunbury" by place name, even
+    // though the displayed prefixes differ.
     expect(formatServingLine(['City of Bunbury', 'Town of Albany'])).toBe(
-      'Serving Albany & Bunbury.',
+      'Serving Town of Albany & City of Bunbury.',
     )
   })
 
@@ -59,7 +62,7 @@ describe('formatServingLine', () => {
         'Town of Victoria Park',
       ]),
     ).toBe(
-      'Serving Cambridge, Cottesloe, Fremantle, Mosman Park, Peppermint Grove, South Perth, Subiaco, Victoria Park & Vincent.',
+      'Serving Town of Cambridge, Town of Cottesloe, City of Fremantle, Town of Mosman Park, Shire of Peppermint Grove, City of South Perth, City of Subiaco, Town of Victoria Park & City of Vincent.',
     )
   })
 })

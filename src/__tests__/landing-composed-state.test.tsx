@@ -72,8 +72,10 @@ describe('recovery banner + picker composed state', () => {
 
   it('renders the member-council serving line for a multi-LGA client', () => {
     render(<CouncilPicker state={{ kind: 'cards', clients: [OTHER_COUNCIL] }} />)
-    // LGA prefixes stripped, alphabetical, ampersand before the last.
-    expect(screen.getByText('Serving Cambridge & Fremantle.')).toBeInTheDocument()
+    // Full LGA names (suburb/council disambiguation), sorted by place name.
+    expect(
+      screen.getByText('Serving Town of Cambridge & City of Fremantle.'),
+    ).toBeInTheDocument()
   })
 
   it('renders no serving line for a single-LGA client', () => {
