@@ -248,17 +248,20 @@ export function BookingDetailClient({ booking, tickets, receiptUrl, ncn, np, pay
 
   return (
     <div className="flex flex-col">
-      {/* Header */}
-      <div className="shrink-0 border-b border-gray-100 bg-white px-5 py-4">
-        <Link
-          href="/dashboard"
-          className="mb-2.5 flex items-center gap-1.5 text-body-sm font-medium text-[#8FA5B8]"
-        >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-            <polyline points="15 18 9 12 15 6" />
-          </svg>
-          My Dashboard
-        </Link>
+      {/* Back link — on the page background, header in a card below
+          (matches the tickets/[id] pattern so edges align with content) */}
+      <Link
+        href="/dashboard"
+        className="mb-2.5 flex items-center gap-1.5 text-body-sm font-medium text-[#8FA5B8]"
+      >
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+          <polyline points="15 18 9 12 15 6" />
+        </svg>
+        My Dashboard
+      </Link>
+
+      {/* Header card */}
+      <div className="rounded-xl bg-white p-5 shadow-sm">
         <div className="flex items-start justify-between">
           <div>
             <h1 className="font-[family-name:var(--font-heading)] text-subtitle font-bold text-[var(--brand)] md:text-lg">
@@ -273,7 +276,7 @@ export function BookingDetailClient({ booking, tickets, receiptUrl, ncn, np, pay
       </div>
 
       {/* Content */}
-      <div className="flex flex-1 flex-col gap-3 px-5 pb-24 pt-4 md:pb-8">
+      <div className="flex flex-1 flex-col gap-3 pb-24 pt-4 md:pb-8">
         {/* Payment pending banner */}
         {booking.status === 'Pending Payment' && !isPolling && (
           <div className="rounded-[10px] border border-[#8B4000]/30 bg-[#FFF3EA] px-3.5 py-3">

@@ -8,6 +8,7 @@ import { buildSearchOrFilter } from '@/lib/search/or-filter'
 import { getStatusStyle } from '@/lib/ui/status-styles'
 import Link from 'next/link'
 import { SkeletonRow } from '@/components/ui/skeleton'
+import { RowActionMenu } from '@/components/admin/row-action-menu'
 import { invokeEfWithUserToken } from '@/lib/supabase/invoke-ef-client'
 
 const STATUS_OPTIONS = ['Pending', 'Approved', 'Rejected'] as const
@@ -21,7 +22,6 @@ export function RefundsClient() {
   const [page, setPage] = useState(0)
   const [statusFilter, setStatusFilter] = useState('')
   const [search, setSearch] = useState('')
-  const [actionMenuId, setActionMenuId] = useState<string | null>(null)
   const [processingId, setProcessingId] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
 
@@ -55,7 +55,6 @@ export function RefundsClient() {
   const totalPages = Math.ceil(total / PAGE_SIZE)
 
   async function handleAction(refundId: string, action: 'approve' | 'reject') {
-    setActionMenuId(null)
     setActionError(null)
     setProcessingId(refundId)
 
@@ -216,30 +215,18 @@ export function RefundsClient() {
                     <td className="px-4 py-3 text-xs text-gray-500">
                       {reviewer?.display_name ?? '—'}
                     </td>
-                    <td className="relative px-4 py-3">
+                    <td className="px-4 py-3">
                       {refund.status === 'Pending' && (
                         <>
                           {processingId === refund.id ? (
                             <span className="text-xs text-gray-400">Processing...</span>
                           ) : (
-                            <>
-                              <button
-                                type="button"
-                                onClick={() => setActionMenuId(actionMenuId === refund.id ? null : refund.id)}
-                                className="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
-                                aria-label="Open actions menu"
-                              >
-                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                  <circle cx="12" cy="12" r="1"/><circle cx="12" cy="5" r="1"/><circle cx="12" cy="19" r="1"/>
-                                </svg>
-                              </button>
-                              {actionMenuId === refund.id && (
-                                <div className="absolute right-4 bottom-full z-10 w-36 rounded-lg border border-gray-200 bg-white py-1 shadow-lg">
-                                  <button type="button" onClick={() => handleAction(refund.id, 'approve')} className="block w-full px-4 py-2 text-left text-body-sm text-gray-700 hover:bg-gray-50">Approve &amp; Refund</button>
-                                  <button type="button" onClick={() => handleAction(refund.id, 'reject')} className="block w-full px-4 py-2 text-left text-body-sm text-red-600 hover:bg-gray-50">Reject</button>
-                                </div>
-                              )}
-                            </>
+                            <RowActionMenu
+                              actions={[
+                                { label: 'Approve & Refund', onSelect: () => handleAction(refund.id, 'approve') },
+                                { label: 'Reject', onSelect: () => handleAction(refund.id, 'reject'), tone: 'danger' },
+                              ]}
+                            />
                           )}
                         </>
                       )}

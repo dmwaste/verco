@@ -8,6 +8,7 @@ import { createClient } from '@/lib/supabase/client'
 import { BookingStepper } from '@/components/booking/booking-stepper'
 import { AddressAutocomplete } from '@/components/booking/address-autocomplete'
 import { Spinner } from '@/components/ui/spinner'
+import { VercoButton } from '@/components/ui/verco-button'
 import { stripAddressPrefix } from '@/lib/mud/address-strip'
 import {
   addressMatchKey as buildAddressMatchKey,
@@ -398,13 +399,9 @@ export function AddressForm({ clientId }: { clientId: string }) {
                 ))}
               </div>
 
-              <button
-                type="button"
-                onClick={handleContinue}
-                className="mt-4 flex h-12 w-full items-center justify-center rounded-xl bg-[var(--brand)] font-[family-name:var(--font-heading)] text-sm font-semibold text-white transition-opacity hover:opacity-90"
-              >
+              <VercoButton type="button" onClick={handleContinue} className="mt-4 w-full">
                 Book New Collection &rarr;
-              </button>
+              </VercoButton>
             </div>
           </div>
         )}

@@ -7,6 +7,7 @@ import { invokeEdgeFunction } from '@/lib/supabase/invoke-ef'
 import { createIdBooking } from './actions'
 import { Confirmation } from './confirmation'
 import { cn } from '@/lib/utils'
+import { VercoButton } from '@/components/ui/verco-button'
 import {
   ID_WASTE_TYPES as WASTE_TYPES,
   ID_VOLUMES as VOLUMES,
@@ -584,11 +585,11 @@ export function IdBookingForm({ collectionDates, prefill }: IdBookingFormProps) 
 
       {/* Submit */}
       {isLocked && (
-        <button
+        <VercoButton
           type="button"
           onClick={handleSubmit}
           disabled={isSubmitting}
-          className="flex w-full items-center justify-center gap-2 rounded-xl bg-[var(--brand)] px-3.5 py-3.5 font-[family-name:var(--font-heading)] text-body font-semibold text-white disabled:opacity-50"
+          className="w-full"
         >
           {isSubmitting ? (
             'Submitting...'
@@ -600,7 +601,7 @@ export function IdBookingForm({ collectionDates, prefill }: IdBookingFormProps) 
               Submit ID Collection
             </>
           )}
-        </button>
+        </VercoButton>
       )}
     </div>
   )

@@ -1,6 +1,6 @@
 'use client'
 
-import Link from 'next/link'
+import { VercoButton } from '@/components/ui/verco-button'
 
 export function AlreadySubmitted() {
   return (
@@ -44,12 +44,9 @@ export function AlreadySubmitted() {
           your response.
         </p>
 
-        <Link
-          href="/dashboard"
-          className="mt-8 flex w-full max-w-[280px] items-center justify-center rounded-xl bg-[var(--brand)] px-3.5 py-3.5 font-[family-name:var(--font-heading)] text-body font-semibold text-white"
-        >
+        <VercoButton href="/dashboard" className="mt-8 w-full max-w-[280px]">
           Back to Dashboard
-        </Link>
+        </VercoButton>
 
         <div className="mt-6 flex items-center justify-center gap-1.5 text-[11px] text-gray-300">
           Powered by

@@ -143,7 +143,7 @@ export function TicketDetailClient({
       {/* Two-column layout — sidebar only shown when linked booking exists */}
       <div className={`flex flex-col gap-4 ${linkedBooking ? 'md:flex-row' : ''}`}>
         {/* LEFT COLUMN */}
-        <div className={`flex flex-1 flex-col gap-4 ${linkedBooking ? 'md:w-2/3' : ''}`}>
+        <div className={`flex flex-1 flex-col gap-4 ${linkedBooking ? 'md:w-2/3' : 'md:max-w-3xl'}`}>
           {/* Ticket header card */}
           <div className="rounded-xl bg-white p-5 shadow-sm">
             <div className="mb-2 flex items-center justify-between">
@@ -261,7 +261,7 @@ export function TicketDetailClient({
                 type="button"
                 onClick={handleSendReply}
                 disabled={isSending || !replyText.trim()}
-                className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl bg-[var(--brand-accent)] px-3.5 py-3 font-[family-name:var(--font-heading)] text-body font-semibold text-[var(--brand)] transition-opacity hover:opacity-90 disabled:opacity-50"
+                className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl bg-[var(--brand-accent)] px-3.5 py-3 font-[family-name:var(--font-heading)] text-body font-semibold text-[var(--brand)] transition-opacity hover:opacity-90 disabled:opacity-50 md:ml-auto md:w-auto md:px-5"
               >
                 <svg
                   width="16"

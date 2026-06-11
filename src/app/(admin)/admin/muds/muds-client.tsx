@@ -1,11 +1,12 @@
 'use client'
 
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useState, useRef } from 'react'
 import Link from 'next/link'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
 import { buildSearchOrFilter } from '@/lib/search/or-filter'
 import { SkeletonRow } from '@/components/ui/skeleton'
+import { RowActionMenu } from '@/components/admin/row-action-menu'
 
 const PAGE_SIZE = 50
 
@@ -28,17 +29,6 @@ export function MudsClient({ clientId, isContractorAdmin }: MudsClientProps) {
   const [debouncedSearch, setDebouncedSearch] = useState('')
   const [areaFilter, setAreaFilter] = useState('')
   const [statusFilter, setStatusFilter] = useState<'' | OnboardingStatus | 'unset'>('')
-  const [openMenuId, setOpenMenuId] = useState<string | null>(null)
-
-  // Close menu on click outside
-  const closeMenu = useCallback(() => setOpenMenuId(null), [])
-  useEffect(() => {
-    if (!openMenuId) return
-    const handler = () => closeMenu()
-    document.addEventListener('click', handler)
-    return () => document.removeEventListener('click', handler)
-  }, [openMenuId, closeMenu])
-
   // Debounce search
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   function handleSearchChange(value: string) {
@@ -211,22 +201,23 @@ export function MudsClient({ clientId, isContractorAdmin }: MudsClientProps) {
       </div>
 
       {/* Filters */}
-      <div className="mb-4 flex flex-wrap items-center gap-3 px-7 pt-6">
-        <div className="flex-1">
+      <div className="flex flex-wrap items-center gap-2.5 px-7 py-4">
+        <div className="flex w-60 items-center gap-2 rounded-lg border-[1.5px] border-gray-100 bg-white px-3 py-[7px]">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#B0B0B0" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
           <input
             type="text"
             value={search}
             onChange={(e) => handleSearchChange(e.target.value)}
             placeholder="Search by address or MUD code..."
             aria-label="Search MUDs"
-            className="w-full max-w-sm rounded-lg border border-gray-200 px-3.5 py-2 text-sm outline-none placeholder:text-gray-400 focus:border-[#293F52]"
+            className="w-full border-none bg-transparent text-body-sm text-gray-900 outline-none placeholder:text-gray-300"
           />
         </div>
         <select
           value={areaFilter}
           onChange={(e) => { setAreaFilter(e.target.value); setPage(0) }}
           aria-label="Filter by area"
-          className="rounded-lg border border-gray-200 px-3 py-2 text-sm"
+          className="rounded-lg border-[1.5px] border-gray-100 bg-white px-3 py-[7px] text-body-sm text-gray-700"
         >
           <option value="">All areas</option>
           {(areas ?? []).map((a) => (
@@ -237,7 +228,7 @@ export function MudsClient({ clientId, isContractorAdmin }: MudsClientProps) {
           value={statusFilter}
           onChange={(e) => { setStatusFilter(e.target.value as typeof statusFilter); setPage(0) }}
           aria-label="Filter by onboarding status"
-          className="rounded-lg border border-gray-200 px-3 py-2 text-sm"
+          className="rounded-lg border-[1.5px] border-gray-100 bg-white px-3 py-[7px] text-body-sm text-gray-700"
         >
           <option value="">All statuses</option>
           {ONBOARDING_STATUSES.map((s) => (
@@ -248,10 +239,10 @@ export function MudsClient({ clientId, isContractorAdmin }: MudsClientProps) {
       </div>
 
       {/* Table */}
-      <div className="mx-7 overflow-x-auto rounded-xl border border-gray-200 bg-white">
+      <div className="mx-7 overflow-x-auto rounded-xl bg-white shadow-sm">
         <table className="w-full text-left text-sm">
           <thead>
-            <tr className="border-b border-gray-100 bg-gray-50 text-xs font-semibold uppercase tracking-wide text-gray-500">
+            <tr className="border-b border-gray-100 bg-gray-50 text-[11px] font-semibold uppercase tracking-wide text-gray-500">
               <th className="px-4 py-3">Address</th>
               <th className="px-4 py-3">Area</th>
               <th className="px-4 py-3">MUD Code</th>
@@ -270,10 +261,9 @@ export function MudsClient({ clientId, isContractorAdmin }: MudsClientProps) {
             ) : muds.length === 0 ? (
               <tr><td colSpan={8} className="px-4 py-8 text-center text-gray-400">No MUDs found</td></tr>
             ) : (
-              muds.map((m, rowIndex) => {
+              muds.map((m) => {
                 const area = m.collection_area as { name: string; code: string }
                 const contact = m.strata_contact as { full_name: string | null } | null
-                const menuAbove = rowIndex >= 3
                 return (
                   <tr key={m.id} className={`border-b border-gray-50 ${!m.is_eligible ? 'opacity-60' : ''}`}>
                     <td className="px-4 py-2.5">
@@ -314,34 +304,13 @@ export function MudsClient({ clientId, isContractorAdmin }: MudsClientProps) {
                     </td>
                     <td className="px-4 py-2.5 text-gray-600">{m.collection_cadence ?? <span className="text-gray-400">—</span>}</td>
                     <td className="px-4 py-2.5 text-right">
-                      <div className="relative inline-block">
-                        <button
-                          type="button"
-                          onClick={(e) => { e.stopPropagation(); setOpenMenuId(openMenuId === m.id ? null : m.id) }}
-                          className="inline-flex items-center justify-center rounded-md border-[1.5px] border-gray-100 bg-white px-2 py-1 text-gray-500 hover:bg-gray-50"
-                          aria-label="MUD actions"
-                        >
-                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/></svg>
-                        </button>
-                        {openMenuId === m.id && (
-                          <div className={`absolute right-0 z-10 w-44 rounded-lg border border-gray-100 bg-white py-1 shadow-lg ${menuAbove ? 'bottom-full mb-1' : 'top-full mt-1'}`}>
-                            <Link
-                              href={`/admin/properties/${m.id}`}
-                              className="flex w-full items-center gap-2 px-3 py-2 text-left text-body-sm text-gray-700 hover:bg-gray-50"
-                              onClick={() => setOpenMenuId(null)}
-                            >
-                              Edit MUD details
-                            </Link>
-                            <button
-                              type="button"
-                              onClick={() => { void handleSetResidential(m.id); setOpenMenuId(null) }}
-                              className="flex w-full items-center gap-2 px-3 py-2 text-left text-body-sm text-[#E53E3E] hover:bg-gray-50"
-                            >
-                              Set Residential
-                            </button>
-                          </div>
-                        )}
-                      </div>
+                      <RowActionMenu
+                        ariaLabel="MUD actions"
+                        actions={[
+                          { label: 'Edit MUD details', href: `/admin/properties/${m.id}` },
+                          { label: 'Set Residential', onSelect: () => { void handleSetResidential(m.id) }, tone: 'danger' },
+                        ]}
+                      />
                     </td>
                   </tr>
                 )

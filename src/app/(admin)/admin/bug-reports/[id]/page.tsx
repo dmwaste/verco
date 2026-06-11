@@ -1,6 +1,6 @@
 import { notFound } from 'next/navigation'
-import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
+import { BackLink } from '@/components/admin/back-link'
 import { BugReportDetailClient } from './bug-report-detail-client'
 
 interface PageProps {
@@ -61,12 +61,7 @@ export default async function BugReportDetailPage({ params }: PageProps) {
   return (
     <div className="flex flex-1 flex-col">
       <div className="border-b border-gray-100 bg-white px-7 pb-5 pt-6">
-        <Link
-          href="/admin/bug-reports"
-          className="text-body-sm text-gray-500 hover:text-gray-700"
-        >
-          ← Bug reports
-        </Link>
+        <BackLink href="/admin/bug-reports" label="Bug reports" />
         <h1 className="mt-2 font-[family-name:var(--font-heading)] text-xl font-bold text-[#293F52]">
           {bug.display_id} — {bug.title}
         </h1>

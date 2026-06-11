@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { format } from 'date-fns'
+import { VercoButton } from '@/components/ui/verco-button'
 
 interface ConfirmationProps {
   bookingRef: string
@@ -49,7 +50,7 @@ export function Confirmation({
       </p>
 
       {/* Summary card */}
-      <div className="mt-6 flex w-full flex-col gap-2 rounded-xl bg-gray-50 px-4 py-3.5">
+      <div className="mt-6 flex w-full flex-col gap-2 rounded-xl bg-white shadow-sm px-4 py-3.5">
         <div className="flex items-center justify-between border-b border-gray-100 py-1.5 text-body-sm">
           <span className="text-xs text-gray-500">Booking ref</span>
           <span className="font-[family-name:var(--font-heading)] font-semibold text-[var(--brand)]">
@@ -80,10 +81,7 @@ export function Confirmation({
 
       {/* Action buttons */}
       <div className="mt-6 flex w-full flex-col gap-2">
-        <Link
-          href="/field/run-sheet"
-          className="flex w-full items-center justify-center gap-2 rounded-xl bg-[var(--brand)] px-3.5 py-3.5 font-[family-name:var(--font-heading)] text-sm font-semibold text-white"
-        >
+        <VercoButton href="/field/run-sheet" className="w-full">
           <svg
             width="16"
             height="16"
@@ -98,7 +96,7 @@ export function Confirmation({
             <rect x="8" y="2" width="8" height="4" rx="1" />
           </svg>
           Back to Run Sheet
-        </Link>
+        </VercoButton>
         <Link
           href="/field/illegal-dumping/new"
           className="flex w-full items-center justify-center rounded-xl border-[1.5px] border-gray-100 bg-white px-3.5 py-3.5 font-[family-name:var(--font-heading)] text-sm font-semibold text-[var(--brand)]"

@@ -10,6 +10,7 @@ import { AllocationFormModal } from '@/app/(admin)/admin/allocations/allocation-
 import { MudDetailSection } from './mud-detail-section'
 import type { ResolvedAuditEntry } from '@/lib/audit/resolve'
 import { AuditTimeline } from '@/components/audit-timeline'
+import { BackLink } from '@/components/admin/back-link'
 
 /* ------------------------------------------------------------------ */
 /*  Props — shaped by what page.tsx actually passes                    */
@@ -232,12 +233,7 @@ export function PropertyDetailClient({
     <>
       {/* ── 1. Header bar ─────────────────────────────────────────── */}
       <div className="border-b border-gray-100 bg-white px-7 pb-5 pt-6">
-        <Link
-          href="/admin/properties"
-          className="inline-flex items-center gap-1 text-body-sm text-gray-500 hover:text-gray-700"
-        >
-          &larr; Properties
-        </Link>
+        <BackLink href="/admin/properties" label="Properties" />
 
         <h1 className="mt-2 font-[family-name:var(--font-heading)] text-xl font-bold text-[#293F52]">
           {property.formatted_address ?? property.address}

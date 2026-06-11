@@ -544,7 +544,7 @@ export function ConfirmForm() {
 
   function getOtpCellClassName(index: number): string {
     const base =
-      'flex size-[52px] h-[60px] items-center justify-center rounded-[10px] border-[1.5px] text-center font-[family-name:var(--font-heading)] text-2xl font-bold outline-none transition-colors'
+      'flex h-[60px] min-w-0 flex-1 basis-[52px] max-w-[52px] items-center justify-center rounded-[10px] border-[1.5px] text-center font-[family-name:var(--font-heading)] text-2xl font-bold outline-none transition-colors'
 
     if (otpState === 'error') {
       return `${base} border-red-500 bg-red-50 text-red-500`
@@ -948,7 +948,7 @@ export function ConfirmForm() {
 
       {/* Bottom nav */}
       {!otpStep && (
-        <div className="sticky bottom-16 tablet:bottom-0 flex gap-2.5 pb-5 pt-3">
+        <div className="sticky bottom-16 tablet:bottom-0 flex gap-2.5 bg-gray-50 pb-5 pt-3">
           <VercoButton
             variant="secondary"
             className="flex-1"

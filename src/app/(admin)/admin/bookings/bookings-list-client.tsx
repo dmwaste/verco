@@ -378,7 +378,7 @@ export function BookingsListClient({ clientId, isContractorAdmin, isContractorUs
                         {booking.ref}
                       </Link>
                     </td>
-                    <td className="max-w-[180px] truncate px-4 py-3 text-body-sm">
+                    <td className="max-w-[280px] truncate px-4 py-3 text-body-sm" title={getAddress(booking)}>
                       {booking.property_id ? (
                         <Link
                           href={`/admin/properties/${booking.property_id}`}
@@ -396,7 +396,7 @@ export function BookingsListClient({ clientId, isContractorAdmin, isContractorUs
                         {booking.type}
                       </span>
                     </td>
-                    <td className="max-w-[160px] truncate px-4 py-3 text-xs">
+                    <td className="max-w-[240px] truncate px-4 py-3 text-xs" title={getServicesSummary(booking)}>
                       {getServicesSummary(booking)}
                     </td>
                     <td className="px-4 py-3 text-body-sm">
