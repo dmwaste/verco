@@ -1,11 +1,12 @@
 'use client'
 
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useState, useRef } from 'react'
 import Link from 'next/link'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
 import { buildSearchOrFilter } from '@/lib/search/or-filter'
 import { SkeletonRow } from '@/components/ui/skeleton'
+import { RowActionMenu } from '@/components/admin/row-action-menu'
 
 const PAGE_SIZE = 50
 
@@ -28,17 +29,6 @@ export function MudsClient({ clientId, isContractorAdmin }: MudsClientProps) {
   const [debouncedSearch, setDebouncedSearch] = useState('')
   const [areaFilter, setAreaFilter] = useState('')
   const [statusFilter, setStatusFilter] = useState<'' | OnboardingStatus | 'unset'>('')
-  const [openMenuId, setOpenMenuId] = useState<string | null>(null)
-
-  // Close menu on click outside
-  const closeMenu = useCallback(() => setOpenMenuId(null), [])
-  useEffect(() => {
-    if (!openMenuId) return
-    const handler = () => closeMenu()
-    document.addEventListener('click', handler)
-    return () => document.removeEventListener('click', handler)
-  }, [openMenuId, closeMenu])
-
   // Debounce search
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   function handleSearchChange(value: string) {
@@ -270,10 +260,9 @@ export function MudsClient({ clientId, isContractorAdmin }: MudsClientProps) {
             ) : muds.length === 0 ? (
               <tr><td colSpan={8} className="px-4 py-8 text-center text-gray-400">No MUDs found</td></tr>
             ) : (
-              muds.map((m, rowIndex) => {
+              muds.map((m) => {
                 const area = m.collection_area as { name: string; code: string }
                 const contact = m.strata_contact as { full_name: string | null } | null
-                const menuAbove = rowIndex >= 3
                 return (
                   <tr key={m.id} className={`border-b border-gray-50 ${!m.is_eligible ? 'opacity-60' : ''}`}>
                     <td className="px-4 py-2.5">
@@ -314,34 +303,13 @@ export function MudsClient({ clientId, isContractorAdmin }: MudsClientProps) {
                     </td>
                     <td className="px-4 py-2.5 text-gray-600">{m.collection_cadence ?? <span className="text-gray-400">—</span>}</td>
                     <td className="px-4 py-2.5 text-right">
-                      <div className="relative inline-block">
-                        <button
-                          type="button"
-                          onClick={(e) => { e.stopPropagation(); setOpenMenuId(openMenuId === m.id ? null : m.id) }}
-                          className="inline-flex items-center justify-center rounded-md border-[1.5px] border-gray-100 bg-white px-2 py-1 text-gray-500 hover:bg-gray-50"
-                          aria-label="MUD actions"
-                        >
-                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/></svg>
-                        </button>
-                        {openMenuId === m.id && (
-                          <div className={`absolute right-0 z-10 w-44 rounded-lg border border-gray-100 bg-white py-1 shadow-lg ${menuAbove ? 'bottom-full mb-1' : 'top-full mt-1'}`}>
-                            <Link
-                              href={`/admin/properties/${m.id}`}
-                              className="flex w-full items-center gap-2 px-3 py-2 text-left text-body-sm text-gray-700 hover:bg-gray-50"
-                              onClick={() => setOpenMenuId(null)}
-                            >
-                              Edit MUD details
-                            </Link>
-                            <button
-                              type="button"
-                              onClick={() => { void handleSetResidential(m.id); setOpenMenuId(null) }}
-                              className="flex w-full items-center gap-2 px-3 py-2 text-left text-body-sm text-[#E53E3E] hover:bg-gray-50"
-                            >
-                              Set Residential
-                            </button>
-                          </div>
-                        )}
-                      </div>
+                      <RowActionMenu
+                        ariaLabel="MUD actions"
+                        actions={[
+                          { label: 'Edit MUD details', href: `/admin/properties/${m.id}` },
+                          { label: 'Set Residential', onSelect: () => { void handleSetResidential(m.id) }, tone: 'danger' },
+                        ]}
+                      />
                     </td>
                   </tr>
                 )

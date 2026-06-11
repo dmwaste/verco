@@ -1,12 +1,13 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { formatDistanceToNow } from 'date-fns'
 import { createClient } from '@/lib/supabase/client'
 import { getStatusStyle } from '@/lib/ui/status-styles'
 import Link from 'next/link'
 import { SkeletonRow } from '@/components/ui/skeleton'
+import { RowActionMenu } from '@/components/admin/row-action-menu'
 import type { Database } from '@/lib/supabase/types'
 
 type TicketStatus = Database['public']['Enums']['ticket_status']
@@ -73,21 +74,6 @@ export function ServiceTicketsClient({ clientId }: ServiceTicketsClientProps) {
   const [categoryFilter, setCategoryFilter] = useState('')
   const [search, setSearch] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
-  const [actionMenuId, setActionMenuId] = useState<string | null>(null)
-  const menuRef = useRef<HTMLTableCellElement>(null)
-
-  // Close action menu on outside click
-  useEffect(() => {
-    if (!actionMenuId) return
-    function handleClick(e: MouseEvent) {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        setActionMenuId(null)
-      }
-    }
-    document.addEventListener('mousedown', handleClick)
-    return () => document.removeEventListener('mousedown', handleClick)
-  }, [actionMenuId])
-
   // Debounce search
   const searchTimerRef = useState<ReturnType<typeof setTimeout> | null>(null)
   function handleSearchChange(value: string) {
@@ -129,8 +115,6 @@ export function ServiceTicketsClient({ clientId }: ServiceTicketsClientProps) {
   const total = ticketsData?.total ?? 0
 
   async function handleQuickAction(ticketId: string, action: 'assign' | 'resolve' | 'close') {
-    setActionMenuId(null)
-
     if (action === 'assign') {
       const { data: { user } } = await supabase.auth.getUser()
       if (user) {
@@ -253,24 +237,14 @@ export function ServiceTicketsClient({ clientId }: ServiceTicketsClientProps) {
                     <td className="px-4 py-2.5 text-body-sm text-gray-500">
                       {formatDistanceToNow(new Date(t.created_at), { addSuffix: true })}
                     </td>
-                    <td className="relative px-4 py-2.5 text-right" ref={actionMenuId === t.id ? menuRef : undefined}>
-                      <button
-                        type="button"
-                        onClick={() => setActionMenuId(actionMenuId === t.id ? null : t.id)}
-                        className="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
-                        aria-label="Open actions menu"
-                      >
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                          <circle cx="12" cy="12" r="1"/><circle cx="12" cy="5" r="1"/><circle cx="12" cy="19" r="1"/>
-                        </svg>
-                      </button>
-                      {actionMenuId === t.id && (
-                        <div className="absolute right-4 top-10 z-10 w-44 rounded-lg border border-gray-200 bg-white py-1 shadow-lg">
-                          <button type="button" onClick={() => handleQuickAction(t.id, 'assign')} className="block w-full px-4 py-2 text-left text-body-sm text-gray-700 hover:bg-gray-50">Assign to me</button>
-                          <button type="button" onClick={() => handleQuickAction(t.id, 'resolve')} className="block w-full px-4 py-2 text-left text-body-sm text-gray-700 hover:bg-gray-50">Mark resolved</button>
-                          <button type="button" onClick={() => handleQuickAction(t.id, 'close')} className="block w-full px-4 py-2 text-left text-body-sm text-gray-700 hover:bg-gray-50">Mark closed</button>
-                        </div>
-                      )}
+                    <td className="px-4 py-2.5 text-right">
+                      <RowActionMenu
+                        actions={[
+                          { label: 'Assign to me', onSelect: () => { void handleQuickAction(t.id, 'assign') } },
+                          { label: 'Mark resolved', onSelect: () => { void handleQuickAction(t.id, 'resolve') } },
+                          { label: 'Mark closed', onSelect: () => { void handleQuickAction(t.id, 'close') } },
+                        ]}
+                      />
                     </td>
                   </tr>
                 )

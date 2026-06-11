@@ -6,6 +6,7 @@ import { formatDistanceToNow } from 'date-fns'
 import { createClient } from '@/lib/supabase/client'
 import { buildSearchOrFilter } from '@/lib/search/or-filter'
 import { SkeletonRow } from '@/components/ui/skeleton'
+import { RowActionMenu } from '@/components/admin/row-action-menu'
 import { UserFormDialog } from './user-form-dialog'
 import type { EditUserData } from './user-form-dialog'
 import type { Database } from '@/lib/supabase/types'
@@ -65,7 +66,6 @@ export function UsersClient({ clientId }: UsersClientProps) {
   // Dialog state
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editData, setEditData] = useState<EditUserData | null>(null)
-  const [actionMenuId, setActionMenuId] = useState<string | null>(null)
 
   const searchTimerRef = useState<ReturnType<typeof setTimeout> | null>(null)
   function handleSearchChange(value: string) {
@@ -160,7 +160,6 @@ export function UsersClient({ clientId }: UsersClientProps) {
   }
 
   async function handleRevokeAccess(userRoleId: string, isCurrentlyActive: boolean) {
-    setActionMenuId(null)
     await supabase
       .from('user_roles')
       .update({ is_active: !isCurrentlyActive })
@@ -290,34 +289,17 @@ export function UsersClient({ clientId }: UsersClientProps) {
                       {formatDistanceToNow(new Date(ur.created_at), { addSuffix: true })}
                     </td>
                     {canManageUsers && (
-                      <td className="relative px-4 py-3 text-right">
-                        <button
-                          type="button"
-                          onClick={() => setActionMenuId(actionMenuId === ur.id ? null : ur.id)}
-                          className="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
-                        >
-                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <circle cx="12" cy="12" r="1"/><circle cx="12" cy="5" r="1"/><circle cx="12" cy="19" r="1"/>
-                          </svg>
-                        </button>
-                        {actionMenuId === ur.id && (
-                          <div className="absolute bottom-full right-4 z-10 mb-1 w-44 rounded-lg border border-gray-200 bg-white py-1 shadow-lg">
-                            <button
-                              type="button"
-                              onClick={() => { setActionMenuId(null); openEditDialog(ur) }}
-                              className="block w-full px-4 py-2 text-left text-body-sm text-gray-700 hover:bg-gray-50"
-                            >
-                              Edit user
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleRevokeAccess(ur.id, ur.is_active)}
-                              className="block w-full px-4 py-2 text-left text-body-sm text-red-600 hover:bg-gray-50"
-                            >
-                              {ur.is_active ? 'Revoke access' : 'Restore access'}
-                            </button>
-                          </div>
-                        )}
+                      <td className="px-4 py-3 text-right">
+                        <RowActionMenu
+                          actions={[
+                            { label: 'Edit user', onSelect: () => openEditDialog(ur) },
+                            {
+                              label: ur.is_active ? 'Revoke access' : 'Restore access',
+                              onSelect: () => handleRevokeAccess(ur.id, ur.is_active),
+                              tone: 'danger',
+                            },
+                          ]}
+                        />
                       </td>
                     )}
                   </tr>

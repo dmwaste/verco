@@ -6,6 +6,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { formatDistanceToNow } from 'date-fns'
 import { createClient } from '@/lib/supabase/client'
 import { getStatusStyle } from '@/lib/ui/status-styles'
+import { RowActionMenu } from '@/components/admin/row-action-menu'
 import type { Database } from '@/lib/supabase/types'
 
 type BugCategory = Database['public']['Enums']['bug_report_category']
@@ -73,7 +74,6 @@ export function BugReportsClient() {
   const [categoryFilter, setCategoryFilter] = useState('')
   const [search, setSearch] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
-  const [actionMenuId, setActionMenuId] = useState<string | null>(null)
 
   const searchTimerRef = useState<ReturnType<typeof setTimeout> | null>(null)
   function handleSearchChange(value: string) {
@@ -114,8 +114,6 @@ export function BugReportsClient() {
   const total = bugsData?.total ?? 0
 
   async function handleQuickAction(bugId: string, action: 'assign' | 'triage' | 'resolve' | 'close') {
-    setActionMenuId(null)
-
     if (action === 'assign') {
       const { data: { user } } = await supabase.auth.getUser()
       if (user) {
@@ -239,24 +237,15 @@ export function BugReportsClient() {
                       <td className="px-4 py-2.5 text-body-sm text-gray-500">
                         {formatDistanceToNow(new Date(bug.created_at), { addSuffix: true })}
                       </td>
-                      <td className="relative px-4 py-2.5 text-right">
-                        <button
-                          type="button"
-                          onClick={() => setActionMenuId(actionMenuId === bug.id ? null : bug.id)}
-                          className="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
-                        >
-                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <circle cx="12" cy="12" r="1"/><circle cx="12" cy="5" r="1"/><circle cx="12" cy="19" r="1"/>
-                          </svg>
-                        </button>
-                        {actionMenuId === bug.id && (
-                          <div className="absolute right-4 top-10 z-10 w-44 rounded-lg border border-gray-200 bg-white py-1 shadow-lg">
-                            <button type="button" onClick={() => handleQuickAction(bug.id, 'assign')} className="block w-full px-4 py-2 text-left text-body-sm text-gray-700 hover:bg-gray-50">Assign to me</button>
-                            <button type="button" onClick={() => handleQuickAction(bug.id, 'triage')} className="block w-full px-4 py-2 text-left text-body-sm text-gray-700 hover:bg-gray-50">Mark triaged</button>
-                            <button type="button" onClick={() => handleQuickAction(bug.id, 'resolve')} className="block w-full px-4 py-2 text-left text-body-sm text-gray-700 hover:bg-gray-50">Mark resolved</button>
-                            <button type="button" onClick={() => handleQuickAction(bug.id, 'close')} className="block w-full px-4 py-2 text-left text-body-sm text-gray-700 hover:bg-gray-50">Mark closed</button>
-                          </div>
-                        )}
+                      <td className="px-4 py-2.5 text-right">
+                        <RowActionMenu
+                          actions={[
+                            { label: 'Assign to me', onSelect: () => { void handleQuickAction(bug.id, 'assign') } },
+                            { label: 'Mark triaged', onSelect: () => { void handleQuickAction(bug.id, 'triage') } },
+                            { label: 'Mark resolved', onSelect: () => { void handleQuickAction(bug.id, 'resolve') } },
+                            { label: 'Mark closed', onSelect: () => { void handleQuickAction(bug.id, 'close') } },
+                          ]}
+                        />
                       </td>
                     </tr>
                   )
