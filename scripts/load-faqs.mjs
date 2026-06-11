@@ -362,6 +362,7 @@ for (const tenant of TENANTS) {
   const row = current?.find((c) => c.slug === tenant.slug)
   if (!row) {
     console.error(`⚠️  Tenant not found: ${tenant.label} (slug ${tenant.slug}) — skipped`)
+    process.exitCode = 1
     continue
   }
   console.log(`${tenant.label}: ${row.faq_items?.length ?? 0} current → ${tenant.faqs.length} new items`)

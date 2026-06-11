@@ -31,6 +31,7 @@ export function FaqAnswer({ markdown }: { markdown: string }) {
     <ReactMarkdown
       remarkPlugins={[remarkGfm]}
       urlTransform={urlTransform}
+      disallowedElements={['img']}
       components={{
         p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
         ul: ({ children }) => <ul className="mb-2 list-disc pl-5 last:mb-0">{children}</ul>,
@@ -38,7 +39,8 @@ export function FaqAnswer({ markdown }: { markdown: string }) {
         li: ({ children }) => <li className="mb-1">{children}</li>,
         strong: ({ children }) => <strong className="font-semibold text-gray-700">{children}</strong>,
         a: ({ href, children }) => {
-          const isExternal = /^https?:\/\//.test(href ?? '')
+          // case-insensitive; also catches protocol-relative //host links
+          const isExternal = /^(https?:)?\/\//i.test(href ?? '')
           return (
             <a
               href={href}

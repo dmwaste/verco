@@ -80,13 +80,28 @@ describe('FaqAnswer', () => {
     expect(container.querySelector('img')).toBeNull()
   })
 
+  it('never renders markdown images (tracking-pixel guard)', () => {
+    const { container } = render(<FaqAnswer markdown="![pixel](https://tracker.example/p.png)" />)
+    expect(container.querySelector('img')).toBeNull()
+  })
+
+  it('treats uppercase and protocol-relative URLs as external links', () => {
+    const { container } = render(
+      <FaqAnswer markdown={'[a](HTTPS://example.com/x) and [b](//example.com/y)'} />
+    )
+    const links = container.querySelectorAll('a')
+    expect(links[0]).toHaveAttribute('target', '_blank')
+    expect(links[1]).toHaveAttribute('target', '_blank')
+    expect(links[1]).toHaveAttribute('rel', 'noopener noreferrer')
+  })
+
   it('degrades malformed tables to readable text without crashing', () => {
     const { container } = render(<FaqAnswer markdown={'| broken | table\n| no separator row'} />)
     expect(container.textContent).toContain('broken')
   })
 
-  it('renders empty input without crashing', () => {
+  it('renders empty input as empty output without crashing', () => {
     const { container } = render(<FaqAnswer markdown="" />)
-    expect(container).toBeDefined()
+    expect(container.textContent).toBe('')
   })
 })
