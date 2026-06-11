@@ -3,6 +3,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.100.0'
 import { z } from 'https://esm.sh/zod@3.23.8'
 import Stripe from 'https://esm.sh/stripe@17.7.0?target=deno'
 import { jsonResponse, optionsResponse, errorResponse } from '../_shared/cors.ts'
+import { reconcileCheckoutSession } from '../_shared/checkout-reconcile.ts'
 
 const CreateCheckoutRequest = z.object({
   booking_id: z.string().uuid(),
@@ -116,6 +117,14 @@ serve(async (req) => {
         const session = await stripe.checkout.sessions.retrieve(existingPayment.stripe_session_id)
         if (session.status === 'open' && session.url) {
           return jsonResponse({ checkout_url: session.url })
+        }
+        // Paid during a webhook gap: the session completed but the booking is
+        // still Pending Payment. Reconcile (same sequence as the webhook) and
+        // STOP — minting a fresh session here would invite a double charge
+        // and shelve the paid row as 'expired' (VER-252).
+        if (session.payment_status === 'paid') {
+          await reconcileCheckoutSession(supabaseService, stripe, session)
+          return jsonResponse({ already_paid: true, booking_ref: booking.ref })
         }
       } catch {
         // Session expired or invalid — fall through to create new one
