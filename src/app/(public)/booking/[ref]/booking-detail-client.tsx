@@ -741,7 +741,7 @@ export function BookingDetailClient({ booking, tickets, receiptUrl, ncn, np, pay
                       // Signals the wizard + create-booking EF to take the
                       // in-place edit branch (update_booking_items_in_place
                       // RPC) instead of creating a new booking. Mirrors the
-                      // admin edit flow in booking-detail-panel.tsx. Without
+                      // admin edit flow in admin/bookings/[id]/booking-detail-client.tsx. Without
                       // this, the resident gets a duplicate booking and the
                       // original remains untouched.
                       replaces: booking.id,
