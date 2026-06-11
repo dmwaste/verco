@@ -231,6 +231,8 @@ Each group has its own `layout.tsx` with appropriate auth + role guards.
 
 The resolved `client_id`, `client_slug`, and `contractor_id` are set as **request** headers (`x-client-id`, `x-client-slug`, `x-contractor-id`) via `NextResponse.next({ request: { headers } })` — NOT response headers. Read via `headers()` in server components and actions. Never re-query for these in downstream code.
 
+**Admin/field surfaces live on their own hosts** (`admin.verco.au` / `field.verco.au`), never per-tenant. The "Admin" links on resident pages point at the canonical admin host via `adminOrigin(host)` in `lib/proxy/hostnames.ts` (prod → fixed `https://admin.verco.au` regardless of tenant, even a custom domain; dev → `http://admin.localhost:PORT`) — NOT a per-tenant segment rewrite. When `ADMIN_SUBDOMAIN_ENFORCED=true` (server-runtime Coolify env), the proxy 308-redirects `{tenant}/admin/*` and `{tenant}/field/*` to those hosts. Auth cookies are host-only, so moving a tenant-subdomain session to the admin host forces a one-time OTP re-login.
+
 ---
 
 ## 11. Edge Functions
