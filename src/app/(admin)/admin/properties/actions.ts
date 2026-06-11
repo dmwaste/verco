@@ -52,15 +52,7 @@ export async function upsertStrataContact(
 
   const supabase = await createClient()
 
-  // The RPC ships in the same PR as this consumer — it isn't in the
-  // generated types until the next routine regen, hence the cast
-  // (eng review D7: single-PR over the PR-A/PR-B types split).
-  const rpc = supabase.rpc.bind(supabase) as unknown as (
-    fn: string,
-    args: Record<string, unknown>
-  ) => PromiseLike<{ data: unknown; error: { message: string } | null }>
-
-  const { data, error } = await rpc('upsert_strata_contact_and_link', {
+  const { data, error } = await supabase.rpc('upsert_strata_contact_and_link', {
     p_property_id: parsed.data.property_id,
     p_first_name: parsed.data.first_name,
     p_last_name: parsed.data.last_name,

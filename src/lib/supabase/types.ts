@@ -2720,6 +2720,16 @@ export type Database = {
         }
         Returns: Json
       }
+      upsert_strata_contact_and_link: {
+        Args: {
+          p_email: string
+          p_first_name: string
+          p_last_name: string
+          p_mobile_e164: string
+          p_property_id: string
+        }
+        Returns: Json
+      }
       user_sub_client_allows_area: {
         Args: { area_id: string }
         Returns: boolean
