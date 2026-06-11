@@ -3,7 +3,8 @@ import { headers } from 'next/headers'
 import { createClient } from '@/lib/supabase/server'
 import { ContactPageClient } from './contact-page-client'
 import { FaqAccordion } from '@/components/contact/faq-accordion'
-import { DEFAULT_FAQS } from '@/lib/client/branding-defaults'
+import { FaqAnswer } from '@/components/faq-answer'
+import { DEFAULT_FAQS, type FaqItem } from '@/lib/client/branding-defaults'
 
 export default async function ContactPage() {
   const headersList = await headers()
@@ -24,19 +25,26 @@ export default async function ContactPage() {
 
   // Resolve FAQs — use client's faq_items if valid, otherwise fall back to defaults
   const rawFaqs = client?.faq_items
-  let faqs = DEFAULT_FAQS
+  let faqItems = DEFAULT_FAQS
   if (Array.isArray(rawFaqs) && rawFaqs.length > 0) {
     const valid = rawFaqs.every(
-      (item): item is { question: string; answer: string } =>
+      (item): item is FaqItem =>
         typeof item === 'object' &&
         item !== null &&
         typeof (item as Record<string, unknown>).question === 'string' &&
         typeof (item as Record<string, unknown>).answer === 'string'
     )
     if (valid) {
-      faqs = rawFaqs as { question: string; answer: string }[]
+      faqItems = rawFaqs as FaqItem[]
     }
   }
+
+  // Render markdown answers here (server side) so react-markdown stays out of
+  // the public client bundle — the accordion only receives finished nodes.
+  const faqs = faqItems.map((faq) => ({
+    question: faq.question,
+    answer: <FaqAnswer markdown={faq.answer} />,
+  }))
 
   return (
     <main className="mx-auto w-full max-w-2xl px-6 py-8">

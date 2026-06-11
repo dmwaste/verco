@@ -3,14 +3,11 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import type { Database } from '@/lib/supabase/types'
+import { FaqAnswer } from '@/components/faq-answer'
+import type { FaqItem } from '@/lib/client/branding-defaults'
 import { updateClientFaqs } from '../../actions'
 
 type Client = Database['public']['Tables']['client']['Row']
-
-interface FaqItem {
-  question: string
-  answer: string
-}
 
 export function FaqsTab({ client }: { client: Client }) {
   const router = useRouter()
@@ -90,7 +87,7 @@ export function FaqsTab({ client }: { client: Client }) {
 
   return (
     <div className="max-w-2xl">
-      <div className="mb-2 text-2xs text-gray-400">Displayed on the public booking page. Reorder with arrows.</div>
+      <div className="mb-2 text-2xs text-gray-400">Displayed on the public contact page. Markdown supported &mdash; lists, tables, links, bold. Reorder with arrows.</div>
 
       <div className="flex flex-col gap-2">
         {items.map((item, index) => (
@@ -107,10 +104,18 @@ export function FaqsTab({ client }: { client: Client }) {
                 <textarea
                   value={editAnswer}
                   onChange={(e) => setEditAnswer(e.target.value)}
-                  placeholder="Answer"
-                  rows={3}
-                  className={`${inputClass} mb-3 resize-none`}
+                  placeholder="Answer (markdown supported)"
+                  rows={8}
+                  className={`${inputClass} mb-3 resize-y font-mono`}
                 />
+                {editAnswer.trim() && (
+                  <div className="mb-3 rounded-lg border-[1.5px] border-gray-100 bg-gray-50 px-3 py-2.5">
+                    <div className="mb-1 text-2xs font-semibold uppercase tracking-wide text-gray-400">Preview</div>
+                    <div className="text-body-sm leading-relaxed text-gray-600">
+                      <FaqAnswer markdown={editAnswer} />
+                    </div>
+                  </div>
+                )}
                 <div className="flex gap-2">
                   <button type="button" onClick={saveEdit} className="rounded-lg bg-[#293F52] px-3 py-1.5 text-2xs font-semibold text-white">Done</button>
                   <button type="button" onClick={cancelEdit} className="rounded-lg border border-gray-200 px-3 py-1.5 text-2xs font-semibold text-gray-600">Cancel</button>

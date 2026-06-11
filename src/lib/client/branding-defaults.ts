@@ -1,4 +1,12 @@
-export const DEFAULT_FAQS: { question: string; answer: string }[] = [
+/** Canonical FAQ item shape — matches `client.faq_items` JSONB and `faqItemSchema`.
+ * Lives here (not in actions.ts) because 'use server' files reject type exports.
+ * A `type` (not `interface`) so it casts cleanly from Supabase's `Json[]`. */
+export type FaqItem = {
+  question: string
+  answer: string
+}
+
+export const DEFAULT_FAQS: FaqItem[] = [
   {
     question: 'What items can I put out for collection?',
     answer:
