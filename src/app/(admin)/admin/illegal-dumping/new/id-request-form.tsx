@@ -13,6 +13,7 @@ import {
   ID_PHOTOS_BUCKET,
   ID_PHOTOS_PREFIX,
 } from '@/lib/booking/id-options'
+import { matchAddressToArea, resolveAreaSuggestion } from '@/lib/booking/id-area-suggestion'
 import { createAdminIdBooking } from './actions'
 
 export interface AreaOption {
@@ -61,6 +62,9 @@ export function IdRequestForm({ areas, dates }: IdRequestFormProps) {
   const [areaId, setAreaId] = useState('')
   const [selectedDateId, setSelectedDateId] = useState('')
   const [notes, setNotes] = useState('')
+  // Area the pinned address resolved to via eligible_properties — null when
+  // the address didn't match a property (parks/verges are legitimate).
+  const [matchedAreaId, setMatchedAreaId] = useState<string | null>(null)
 
   // Submit state
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -83,11 +87,19 @@ export function IdRequestForm({ areas, dates }: IdRequestFormProps) {
 
   const isPinned = latitude !== null && longitude !== null
 
+  const areaSuggestion = resolveAreaSuggestion(
+    matchedAreaId,
+    areaId,
+    areas.map((a) => a.id)
+  )
+  const areaCode = (id: string) => areas.find((a) => a.id === id)?.code ?? 'another area'
+
   async function handleAddressSelect(placeId: string, suggestion: string) {
     const seq = ++geocodeSeqRef.current
     setGeoAddress(suggestion)
     setLatitude(null)
     setLongitude(null)
+    setMatchedAreaId(null)
     setIsGeocoding(true)
     setLocationError(null)
     try {
@@ -107,6 +119,24 @@ export function IdRequestForm({ areas, dates }: IdRequestFormProps) {
       } else {
         setLatitude(data.latitude)
         setLongitude(data.longitude)
+        // Soft address↔area consistency (best-effort, never blocks): resolve
+        // the address to a collection area via eligible_properties.
+        // Auto-selects the area if none is picked yet; a disagreement renders
+        // a warning next to the area select.
+        try {
+          const matched = await matchAddressToArea(supabase, {
+            placeId,
+            address: suggestion,
+            areaIds: areas.map((a) => a.id),
+          })
+          if (seq !== geocodeSeqRef.current) return
+          setMatchedAreaId(matched)
+          if (matched) {
+            setAreaId((prev) => prev || matched)
+          }
+        } catch {
+          // Match is advisory only — swallow lookup failures.
+        }
       }
     } catch {
       if (seq !== geocodeSeqRef.current) return
@@ -272,6 +302,7 @@ export function IdRequestForm({ areas, dates }: IdRequestFormProps) {
               setLatitude(null)
               setLongitude(null)
               setLocationError(null)
+              setMatchedAreaId(null)
               setWasteTypes([])
               setVolume('')
               setDescription('')
@@ -503,6 +534,51 @@ export function IdRequestForm({ areas, dates }: IdRequestFormProps) {
             ))}
           </select>
         </div>
+        {areaSuggestion.kind === 'agree' && (
+          <p className="mt-2 flex items-center gap-1.5 text-xs text-emerald-600" role="status">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="20 6 9 17 4 12" />
+            </svg>
+            Matches the pinned address ({areaCode(areaSuggestion.areaId)})
+          </p>
+        )}
+        {areaSuggestion.kind === 'suggest' && (
+          <div className="mt-2 flex items-center gap-2 rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-600" role="status">
+            This address looks like it&rsquo;s in {areaCode(areaSuggestion.areaId)}.
+            <button
+              type="button"
+              onClick={() => {
+                setAreaId(areaSuggestion.areaId)
+                setSelectedDateId('')
+              }}
+              className="font-semibold text-[#293F52] underline"
+            >
+              Use {areaCode(areaSuggestion.areaId)}
+            </button>
+          </div>
+        )}
+        {areaSuggestion.kind === 'mismatch' && (
+          <div
+            className="mt-2 flex flex-wrap items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800"
+            role="status"
+          >
+            <span>
+              The pinned address matches {areaCode(areaSuggestion.matchedAreaId)}, but{' '}
+              {areaCode(areaSuggestion.selectedAreaId)} is selected. The crew is routed to the
+              pinned location — double-check before submitting.
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                setAreaId(areaSuggestion.matchedAreaId)
+                setSelectedDateId('')
+              }}
+              className="font-semibold text-amber-900 underline"
+            >
+              Switch to {areaCode(areaSuggestion.matchedAreaId)}
+            </button>
+          </div>
+        )}
         {areaId && areaDates.length === 0 && (
           <p className="mt-3 text-body-sm text-gray-500">
             No upcoming ID-eligible collection dates for this area. Check the
