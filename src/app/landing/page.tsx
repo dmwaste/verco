@@ -1,6 +1,7 @@
 import { headers } from 'next/headers'
 import { notFound } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
+import { adminOrigin } from '@/lib/proxy/hostnames'
 
 /**
  * Marketing-stub landing served on `verco.au/`. Lets a council partner pick
@@ -15,6 +16,10 @@ import { createClient } from '@/lib/supabase/server'
 export default async function LandingPage() {
   const h = await headers()
   if (h.get('x-verco-root') !== '1') notFound()
+
+  // Staff sign-in always targets the single operator host (admin.verco.au),
+  // not a per-tenant subdomain. See adminOrigin().
+  const adminUrl = `${adminOrigin(h.get('host') ?? '')}/admin`
 
   const supabase = await createClient()
   const { data: clients } = await supabase
@@ -59,7 +64,6 @@ export default async function LandingPage() {
           <div className="grid gap-4 sm:grid-cols-2">
             {(clients ?? []).map((c) => {
               const tenantUrl = `https://${c.custom_domain}`
-              const adminUrl = `${tenantUrl}/admin`
               const accent = c.accent_colour ?? '#00E47C'
               const primary = c.primary_colour ?? '#293F52'
 

@@ -3,7 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { PublicNav } from '@/components/public/public-nav'
 import { MobileFab } from '@/components/public/mobile-fab'
 import { MobileBottomNav } from '@/components/public/mobile-bottom-nav'
-import { isAdminHostname, isFieldHostname } from '@/lib/proxy/hostnames'
+import { adminOrigin, isAdminHostname, isFieldHostname } from '@/lib/proxy/hostnames'
 import { STAFF_ROLES } from '@/lib/auth/roles'
 
 interface ClientBranding {
@@ -89,6 +89,9 @@ export default async function PublicLayout({
   const rawAccent = branding?.accent_colour ?? '#00E47C'
   const primaryColour = rawPrimary.startsWith('#') ? rawPrimary : `#${rawPrimary}`
   const accentColour = rawAccent.startsWith('#') ? rawAccent : `#${rawAccent}`
+  // Admin always lives on its own host (admin.verco.au), regardless of which
+  // tenant subdomain rendered this page. See adminOrigin().
+  const adminUrl = `${adminOrigin(host)}/admin`
 
   return (
     <div
@@ -109,12 +112,13 @@ export default async function PublicLayout({
         showPoweredBy={branding?.show_powered_by ?? true}
         showAdminLink={isStaff}
         showSignOut={isAuthenticated}
+        adminUrl={adminUrl}
       />
       <div className="pb-16 tablet:pb-0">
         {children}
       </div>
       <MobileFab />
-      <MobileBottomNav showAdminLink={isStaff} showSignOut={isAuthenticated} />
+      <MobileBottomNav showAdminLink={isStaff} showSignOut={isAuthenticated} adminUrl={adminUrl} />
     </div>
   )
 }

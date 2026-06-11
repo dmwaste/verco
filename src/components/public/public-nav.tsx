@@ -7,6 +7,7 @@ interface PublicNavProps {
   showPoweredBy: boolean
   showAdminLink?: boolean
   showSignOut?: boolean
+  adminUrl: string
 }
 
 export function PublicNav({
@@ -15,6 +16,7 @@ export function PublicNav({
   showPoweredBy,
   showAdminLink,
   showSignOut,
+  adminUrl,
 }: PublicNavProps) {
   return (
     <nav className="sticky top-0 z-50 bg-[var(--brand)]">
@@ -53,12 +55,12 @@ export function PublicNav({
             Book a Collection
           </Link>
           {showAdminLink && (
-            <Link
-              href="/admin"
+            <a
+              href={adminUrl}
               className="text-sm font-medium text-[#8FA5B8] hover:text-white"
             >
               Admin
-            </Link>
+            </a>
           )}
           {showSignOut && (
             <SignOutButton
