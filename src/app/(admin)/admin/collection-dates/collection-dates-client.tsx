@@ -10,7 +10,12 @@ import type { ResolvedAuditEntry } from '@/lib/audit/resolve'
 import { AuditTimeline } from '@/components/audit-timeline'
 import { fetchCollectionDateAudit } from './actions'
 import { effectiveCapacity, indexPoolDates } from '@/lib/capacity/effective-capacity'
-import { closureStatus } from '@/lib/collection-dates/closure-status'
+import {
+  CLOSURE_REASON,
+  closureReason,
+  closureStatus,
+} from '@/lib/collection-dates/closure-status'
+import { awstDateFromUtc } from '@/lib/booking/schedule-transition'
 
 const PAGE_SIZE = 50
 
@@ -110,14 +115,17 @@ export function CollectionDatesClient({ clientId, isContractorAdmin }: Collectio
 
   // Fetch collection dates — same tenant-scoping rule. The embedded
   // collection_area is `!inner` so we can filter on its client_id.
-  const today = format(new Date(), 'yyyy-MM-dd')
+  // AWST clock, not the viewer's browser — "past" must agree with the T-3
+  // hard-close cron (VER-259). `today` is part of the queryKey so a tab left
+  // open across AWST midnight doesn't keep serving the stale row set.
+  const today = awstDateFromUtc(new Date())
   const { data: datesData, isLoading } = useQuery({
-    queryKey: ['admin-collection-dates', showPast, page, clientId],
+    queryKey: ['admin-collection-dates', showPast, page, clientId, today],
     queryFn: async () => {
       let query = supabase
         .from('collection_date')
         .select(
-          'id, date, is_open, for_mud, bulk_capacity_limit, bulk_units_booked, bulk_is_closed, anc_capacity_limit, anc_units_booked, anc_is_closed, id_capacity_limit, id_units_booked, id_is_closed, collection_area_id, collection_area!inner(name, code, client_id, capacity_pool_id)',
+          'id, date, is_open, locked_closed, for_mud, bulk_capacity_limit, bulk_units_booked, bulk_is_closed, anc_capacity_limit, anc_units_booked, anc_is_closed, id_capacity_limit, id_units_booked, id_is_closed, collection_area_id, collection_area!inner(name, code, client_id, capacity_pool_id)',
           { count: 'exact' }
         )
         .order('date', { ascending: true })
@@ -167,7 +175,7 @@ export function CollectionDatesClient({ clientId, isContractorAdmin }: Collectio
     ),
   )
   const pageDateIsos = dates.map((d) => d.date)
-  const { data: pagePoolDates } = useQuery({
+  const { data: pagePoolDates, isLoading: isPoolLoading } = useQuery({
     queryKey: ['admin-pool-dates', pagePoolIds.sort().join(','), pageDateIsos.join(',')],
     enabled: pagePoolIds.length > 0,
     queryFn: async () => {
@@ -533,7 +541,26 @@ export function CollectionDatesClient({ clientId, isContractorAdmin }: Collectio
                         </label>
                       </td>
                       <td className="px-4 py-2.5 text-center">
-                        <input type="checkbox" checked={editIsOpen} onChange={(e) => setEditIsOpen(e.target.checked)} className="rounded" />
+                        {(() => {
+                          // Locked/past dates can't be reopened (locked_closed is
+                          // sticky; the dot derives Closed from all four signals) —
+                          // a live checkbox here would be a silent no-op, and a
+                          // CHECKED disabled box is BR-0018's mixed signal again.
+                          // Save payload is untouched. Title lives on a wrapper:
+                          // disabled inputs don't reliably fire tooltips.
+                          const editLocked = d.locked_closed || isPast
+                          return (
+                            <span title={editLocked ? (isPast ? 'Date has passed' : 'Locked at T-3 cutoff — cannot reopen') : undefined}>
+                              <input
+                                type="checkbox"
+                                checked={editLocked ? false : editIsOpen}
+                                disabled={editLocked}
+                                onChange={(e) => setEditIsOpen(e.target.checked)}
+                                className="rounded disabled:cursor-not-allowed disabled:opacity-40"
+                              />
+                            </span>
+                          )
+                        })()}
                       </td>
                       <td className="px-4 py-2.5"><input type="number" value={editBulkLimit} onChange={(e) => setEditBulkLimit(Number(e.target.value))} className="w-16 rounded border border-gray-200 px-2 py-1 text-xs" /></td>
                       <td className="px-4 py-2.5"><input type="number" value={editAncLimit} onChange={(e) => setEditAncLimit(Number(e.target.value))} className="w-16 rounded border border-gray-200 px-2 py-1 text-xs" /></td>
@@ -567,19 +594,45 @@ export function CollectionDatesClient({ clientId, isContractorAdmin }: Collectio
                     </td>
                     <td className="px-4 py-2.5 text-center">
                       {(() => {
-                        const status = closureStatus(d.is_open, d.date, holidayNames)
+                        // Pool counters are authoritative for pooled areas — don't
+                        // assert Open/Closed until they've arrived (VER-259 D-F8).
+                        if (isPooled && isPoolLoading) {
+                          return <span className="inline-block size-2 animate-pulse rounded-full bg-gray-200" title="Loading capacity…" />
+                        }
+                        const input = {
+                          isOpen: d.is_open,
+                          lockedClosed: d.locked_closed,
+                          isPast,
+                          // Same pool-merged signal the bucket badges render —
+                          // that identity is the BR-0018 fix.
+                          allBucketsClosed: cap.bulk_is_closed && cap.anc_is_closed && cap.id_is_closed,
+                          date: d.date,
+                        }
+                        const status = closureStatus(input, holidayNames)
                         if (status === 'open') {
                           return <span className="inline-block size-2 rounded-full bg-emerald-500" title="Open" />
                         }
+                        const reason = closureReason(input) ?? 'manual'
                         if (status === 'holiday') {
                           const name = holidayNames.get(d.date) ?? 'Public holiday'
+                          const title =
+                            reason === 'manual'
+                              ? `Closed — ${name}`
+                              : `Closed — ${name} · ${CLOSURE_REASON[reason].why}`
                           return (
-                            <span className="whitespace-nowrap rounded-full bg-amber-100 px-2 py-0.5 text-2xs font-semibold text-amber-700" title={`Closed — ${name}`}>
+                            <span className="whitespace-nowrap rounded-full bg-amber-100 px-2 py-0.5 text-2xs font-semibold text-amber-700" title={title}>
                               {name}
                             </span>
                           )
                         }
-                        return <span className="inline-block size-2 rounded-full bg-gray-300" title="Closed" />
+                        return (
+                          <span className="inline-flex items-center gap-1.5" title={CLOSURE_REASON[reason].title}>
+                            <span className="inline-block size-2 rounded-full bg-gray-300" />
+                            <span className="whitespace-nowrap rounded-full bg-gray-100 px-2 py-0.5 text-2xs font-semibold text-gray-500">
+                              {CLOSURE_REASON[reason].pill}
+                            </span>
+                          </span>
+                        )
                       })()}
                     </td>
                     {/* Bulk capacity */}

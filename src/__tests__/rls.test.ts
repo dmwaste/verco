@@ -45,6 +45,11 @@ import { createClient } from '@supabase/supabase-js'
 import { Client as PgClient } from 'pg'
 import { readFileSync } from 'fs'
 import { resolve } from 'path'
+import { ID_VOLUMES } from '@/lib/booking/id-options'
+
+// Canonical ID volume wire string for fixtures — derived from ID_VOLUMES, never
+// re-typed (a re-typed copy once drifted to an ASCII hyphen vs the en-dash).
+const ID_VOLUME_WIRE = `${ID_VOLUMES[1].label} (${ID_VOLUMES[1].sub})`
 
 // -----------------------------------------------------------------------------
 // Env loading
@@ -1032,9 +1037,9 @@ if (!haveDb) {
         const res = await pg.query<{ r: { booking_id: string } }>(
           `SELECT create_id_booking_with_capacity_check(
              $1::uuid, $2::uuid, -32.27, 115.75, 'x', '', '{}'::text[],
-             ARRAY['General / Mixed']::text[], 'Small'
+             ARRAY['General / Mixed']::text[], $3::text
            ) AS r`,
-          [row.rows[0].id, row.rows[0].collection_area_id],
+          [row.rows[0].id, row.rows[0].collection_area_id, ID_VOLUME_WIRE],
         )
         await pg.query('RESET ROLE')
         const b = await pg.query<{ created_by: string | null }>(
@@ -1132,7 +1137,7 @@ if (!haveDb) {
           'Access via rear lane',
           ['https://example.com/p1.jpg', 'https://example.com/p2.jpg'],
           ['General / Mixed', 'Mattress'],
-          'Medium (1-3 utes)',
+          ID_VOLUME_WIRE,
         ])
         const { booking_id, ref } = res.rows[0]!.r
         expect(ref).toMatch(/-/)
@@ -1160,7 +1165,7 @@ if (!haveDb) {
         expect(row.type).toBe('Illegal Dumping')
         expect(row.status).toBe('Confirmed')
         expect(row.geo_address).toBe('12 Test St, Safety Bay')
-        expect(row.id_volume).toBe('Medium (1-3 utes)')
+        expect(row.id_volume).toBe(ID_VOLUME_WIRE)
         expect(row.id_waste_types).toEqual(['General / Mixed', 'Mattress'])
         expect(row.photo_count).toBe(2)
         expect(row.items).toBe(1)
@@ -1184,7 +1189,7 @@ if (!haveDb) {
         let err: Error | null = null
         try {
           await pg.query(CALL, [
-            ctx.dateId, ctx.areaId, -32.27, 115.75, 'x', '', [], ['General / Mixed'], 'Small',
+            ctx.dateId, ctx.areaId, -32.27, 115.75, 'x', '', [], ['General / Mixed'], ID_VOLUME_WIRE,
           ])
         } catch (e) {
           err = e as Error
@@ -1215,7 +1220,7 @@ if (!haveDb) {
             'Phoned in by a resident',
             [],
             ['General / Mixed'],
-            'Small (< 1 ute)',
+            ID_VOLUME_WIRE,
           ])
           expect(res.rows[0]!.r.ref).toMatch(/-/)
         } finally {
@@ -1234,7 +1239,7 @@ if (!haveDb) {
         let err: Error | null = null
         try {
           await pg.query(CALL, [
-            ctx.dateId, ctx.areaId, -32.27, 115.75, 'x', '', [], ['General / Mixed'], 'Small',
+            ctx.dateId, ctx.areaId, -32.27, 115.75, 'x', '', [], ['General / Mixed'], ID_VOLUME_WIRE,
           ])
         } catch (e) {
           err = e as Error
@@ -1261,7 +1266,7 @@ if (!haveDb) {
         let err: Error | null = null
         try {
           await pg.query(CALL, [
-            ctx.dateId, ctx.areaId, -32.0, 115.7, 'x', '', [], ['General / Mixed'], 'Small (< 1 ute)',
+            ctx.dateId, ctx.areaId, -32.0, 115.7, 'x', '', [], ['General / Mixed'], ID_VOLUME_WIRE,
           ])
         } catch (e) {
           err = e as Error
@@ -1288,7 +1293,7 @@ if (!haveDb) {
         let err: Error | null = null
         try {
           await pg.query(CALL, [
-            ctx.dateId, ctx.areaId, -32.0, 115.7, 'x', '', [], ['General / Mixed'], 'Small (< 1 ute)',
+            ctx.dateId, ctx.areaId, -32.0, 115.7, 'x', '', [], ['General / Mixed'], ID_VOLUME_WIRE,
           ])
         } catch (e) {
           err = e as Error
@@ -1345,7 +1350,7 @@ if (!haveDb) {
 
         await impersonate(VV_ALL_USER)
         const res = await pg.query<{ r: { ref: string } }>(CALL, [
-          dateId, areaId, -31.99, 115.75, 'Pooled pile', '', [], ['General / Mixed'], 'Small (< 1 ute)',
+          dateId, areaId, -31.99, 115.75, 'Pooled pile', '', [], ['General / Mixed'], ID_VOLUME_WIRE,
         ])
         expect(res.rows[0]!.r.ref).toMatch(/-/)
 
@@ -1368,7 +1373,7 @@ if (!haveDb) {
         let err: Error | null = null
         try {
           await pg.query(CALL, [
-            dateId, areaId, -31.99, 115.75, 'x', '', [], ['General / Mixed'], 'Small (< 1 ute)',
+            dateId, areaId, -31.99, 115.75, 'x', '', [], ['General / Mixed'], ID_VOLUME_WIRE,
           ])
         } catch (e) {
           err = e as Error
@@ -1394,7 +1399,7 @@ if (!haveDb) {
         let err: Error | null = null
         try {
           await pg.query(CALL, [
-            ctx.dateId, ctx.areaId, -32.27, 115.75, 'x', '', [], ['General / Mixed'], 'Small',
+            ctx.dateId, ctx.areaId, -32.27, 115.75, 'x', '', [], ['General / Mixed'], ID_VOLUME_WIRE,
           ])
         } catch (e) {
           err = e as Error

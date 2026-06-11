@@ -12,10 +12,13 @@ export const ID_WASTE_TYPES = [
   'Construction / Demolition',
 ] as const
 
+// Volumes are 3m³ allocation units (VER-258). The intake value is a crew-facing
+// ESTIMATE only — actual allocations consumed are confirmed at collection
+// closeout for billing (booking_item.actual_services, same as the MUD pattern).
 export const ID_VOLUMES = [
-  { label: 'Small', sub: '< 1 ute' },
-  { label: 'Medium', sub: '1–3 utes' },
-  { label: 'Large', sub: '> 3 utes' },
+  { label: '1 allocation', sub: '3m³' },
+  { label: '2 allocations', sub: '6m³' },
+  { label: '3+ allocations', sub: '9m³+' },
 ] as const
 
 // Storage location for ID photos — both forms upload here, and the intake
