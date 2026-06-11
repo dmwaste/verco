@@ -186,6 +186,7 @@ export default async function LandingPage() {
 
       {/* Features */}
       <section className="bg-white px-8 py-[72px] lg:px-20">
+        <div className="mx-auto w-full max-w-5xl">
         <div className="mb-3 text-xs md:text-sm font-semibold uppercase tracking-[1px] text-[var(--brand-accent-dark)]">
           Why book online
         </div>
@@ -213,10 +214,12 @@ export default async function LandingPage() {
             </div>
           ))}
         </div>
+        </div>
       </section>
 
       {/* How it works */}
       <section id="how-it-works" className="bg-gray-50 px-8 py-[72px] lg:px-20">
+        <div className="mx-auto w-full max-w-5xl">
         <h2 className="mb-12 font-[family-name:var(--font-heading)] text-3xl md:text-4xl font-bold text-[var(--brand)] lg:text-4xl">
           How it works
         </h2>
@@ -240,6 +243,7 @@ export default async function LandingPage() {
             </div>
           ))}
         </div>
+        </div>
       </section>
 
       {/* What We Collect — dynamic per client. Hide section entirely if
@@ -247,6 +251,7 @@ export default async function LandingPage() {
           grid with just the info tile). */}
       {services.length > 0 && (
       <section id="services" className="bg-white px-8 py-[72px] lg:px-20">
+        <div className="mx-auto w-full max-w-5xl">
         <h2 className="mb-3 font-[family-name:var(--font-heading)] text-3xl md:text-4xl font-bold text-[var(--brand)] lg:text-4xl">
           What We Collect
         </h2>
@@ -298,13 +303,14 @@ export default async function LandingPage() {
             </div>
           </div>
         </div>
+        </div>
       </section>
       )}
 
       {/* CTA band */}
       <section className="relative overflow-hidden bg-[var(--brand)] px-8 py-[72px] lg:px-20">
         <div className="absolute -right-24 -top-24 size-[400px] rounded-full" style={{ background: 'radial-gradient(circle, color-mix(in srgb, var(--brand-accent) 10%, transparent) 0%, transparent 70%)' }} />
-        <div className="relative z-10 flex flex-col items-start justify-between gap-8 lg:flex-row lg:items-center">
+        <div className="relative z-10 mx-auto flex w-full max-w-5xl flex-col items-start justify-between gap-8 lg:flex-row lg:items-center">
           <div>
             <h2 className="mb-3 font-[family-name:var(--font-heading)] text-3xl md:text-4xl font-bold leading-tight text-white lg:text-4xl">
               Ready to book your

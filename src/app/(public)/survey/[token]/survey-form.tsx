@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { format } from 'date-fns'
 import { submitSurvey, type SurveyResponses } from './actions'
 import { ThankYou } from './thank-you'
+import { VercoButton } from '@/components/ui/verco-button'
 import { cn } from '@/lib/utils'
 
 interface ServiceChip {
@@ -171,7 +172,7 @@ export function SurveyForm({
   return (
     <div className="flex flex-col">
       {/* Header */}
-      <div className="shrink-0 bg-[var(--brand)] px-5 pb-5 pt-4">
+      <div className="shrink-0 bg-[var(--brand)] px-5 pb-5 pt-4 sm:mt-6 sm:rounded-xl">
         <div className="mb-2.5 flex items-center gap-2">
           <div className="flex size-[26px] items-center justify-center rounded-[6px] bg-[var(--brand-accent)] font-[family-name:var(--font-heading)] text-sm font-bold text-[var(--brand)]">
             V
@@ -497,14 +498,9 @@ export function SurveyForm({
           </div>
         )}
 
-        <button
-          type="button"
-          onClick={handleSubmit}
-          disabled={isSubmitting}
-          className="flex w-full items-center justify-center rounded-xl bg-[var(--brand)] px-3.5 py-3.5 font-[family-name:var(--font-heading)] text-body font-semibold text-white disabled:opacity-50"
-        >
+        <VercoButton type="button" onClick={handleSubmit} disabled={isSubmitting} className="w-full">
           {isSubmitting ? 'Submitting...' : 'Submit Survey'}
-        </button>
+        </VercoButton>
 
         <div className="flex items-center justify-center gap-1.5 pt-4 text-[11px] text-gray-300">
           Powered by

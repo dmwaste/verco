@@ -1,6 +1,6 @@
 'use client'
 
-import Link from 'next/link'
+import { VercoButton } from '@/components/ui/verco-button'
 import type { SurveyResponses } from './actions'
 
 interface ThankYouProps {
@@ -72,7 +72,7 @@ export function ThankYou({ bookingRef, responses }: ThankYouProps) {
 
         {/* Rating summary */}
         {responses && (
-          <div className="mt-7 flex w-full flex-col gap-2.5 rounded-xl bg-gray-50 px-5 py-4">
+          <div className="mt-7 flex w-full max-w-sm flex-col gap-2.5 rounded-xl bg-gray-50 px-5 py-4">
             <div className="mb-0.5 text-[11px] font-semibold uppercase tracking-wide text-gray-500">
               Your ratings
             </div>
@@ -97,9 +97,10 @@ export function ThankYou({ bookingRef, responses }: ThankYouProps) {
           </div>
         )}
 
-        <Link
+        <VercoButton
           href="/dashboard"
-          className="mt-7 flex w-full items-center justify-center gap-2 rounded-xl bg-[var(--brand-accent)] px-3.5 py-3.5 font-[family-name:var(--font-heading)] text-body font-semibold text-[var(--brand)]"
+          variant="accent"
+          className="mt-7 w-full max-w-[280px]"
         >
           <svg
             width="16"
@@ -115,7 +116,7 @@ export function ThankYou({ bookingRef, responses }: ThankYouProps) {
             <polyline points="9 22 9 12 15 12 15 22" />
           </svg>
           Back to Dashboard
-        </Link>
+        </VercoButton>
 
         <div className="mt-4 text-center text-xs text-gray-400">
           Booking {bookingRef}

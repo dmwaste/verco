@@ -25,7 +25,7 @@ export default async function SurveyPage({ params }: SurveyPageProps) {
   // Already submitted — Screen 4
   if (survey.submitted_at) {
     return (
-      <main className="mx-auto w-full max-w-5xl">
+      <main className="mx-auto w-full max-w-2xl">
         <AlreadySubmitted />
       </main>
     )
@@ -62,7 +62,7 @@ export default async function SurveyPage({ params }: SurveyPageProps) {
   }))
 
   return (
-    <main className="mx-auto w-full max-w-5xl">
+    <main className="mx-auto w-full max-w-2xl">
       <SurveyForm
         token={token}
         bookingRef={bookingRef}

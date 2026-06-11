@@ -6,6 +6,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { createClient } from '@/lib/supabase/client'
 import { invokeEfWithUserToken } from '@/lib/supabase/invoke-ef-client'
+import { VercoButton } from '@/components/ui/verco-button'
 
 const OTP_LENGTH = 6
 const RESEND_COOLDOWN_SECONDS = 30
@@ -470,7 +471,7 @@ export function ServiceTicketForm({
           )}
         </div>
 
-        <button
+        <VercoButton
           type="button"
           disabled={
             otpState === 'verifying' ||
@@ -480,14 +481,14 @@ export function ServiceTicketForm({
             const code = otpDigits.join('')
             if (code.length === OTP_LENGTH) void verifyOtp(code)
           }}
-          className="flex w-full items-center justify-center gap-2 rounded-xl bg-[var(--brand)] px-3.5 py-3.5 font-[family-name:var(--font-heading)] text-body font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+          className="w-full"
         >
           {otpState === 'verifying'
             ? 'Verifying...'
             : otpState === 'error'
               ? 'Try Again'
               : 'Verify Code'}
-        </button>
+        </VercoButton>
 
         <div className="text-center text-body-sm text-gray-500">
           {resendCooldown > 0 ? (
@@ -644,13 +645,9 @@ export function ServiceTicketForm({
           </div>
         )}
 
-        <button
-          type="submit"
-          disabled={isSubmitting}
-          className="flex w-full items-center justify-center gap-2 rounded-xl bg-[var(--brand)] px-3.5 py-3.5 font-[family-name:var(--font-heading)] text-body font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
-        >
+        <VercoButton type="submit" disabled={isSubmitting} className="w-full">
           {isSubmitting ? 'Submitting...' : 'Submit Enquiry'}
-        </button>
+        </VercoButton>
       </form>
     </div>
   )

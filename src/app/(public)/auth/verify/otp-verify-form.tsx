@@ -4,6 +4,7 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { sendOtp } from '../actions'
+import { VercoButton } from '@/components/ui/verco-button'
 
 type VerifyState = 'idle' | 'verifying' | 'success' | 'error'
 
@@ -291,10 +292,10 @@ export function OtpVerifyForm({ postLoginPath }: OtpVerifyFormProps) {
 
       {/* Submit / retry button */}
       {state !== 'success' && (
-        <button
+        <VercoButton
           type="submit"
           disabled={state === 'verifying' || digits.join('').length < OTP_LENGTH}
-          className="flex w-full items-center justify-center gap-2 rounded-xl bg-[var(--brand)] px-3.5 py-3.5 font-[family-name:var(--font-heading)] text-body font-semibold text-white transition-opacity hover:opacity-90 active:opacity-85 disabled:opacity-50"
+          className="w-full"
         >
           {state === 'verifying' ? (
             'Verifying...'
@@ -317,7 +318,7 @@ export function OtpVerifyForm({ postLoginPath }: OtpVerifyFormProps) {
               </svg>
             </>
           )}
-        </button>
+        </VercoButton>
       )}
 
       {/* Countdown / resend */}
