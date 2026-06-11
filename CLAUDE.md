@@ -381,6 +381,8 @@ These are absolute. If a task requires crossing one, stop and flag it.
 
 ### Notification idempotency keys on `(booking_id, type, channel)`, not `(booking_id, type)` — email + SMS must succeed independently. Dispatcher's `isAlreadySent` takes a channel arg; new channels (push, voice) follow the same rule.
 
+### Markdown rendering (FAQ answers) — `components/faq-answer.tsx` is deliberately directive-free: imported by an RSC it renders server-side (react-markdown stays OUT of the public bundle; nodes pass to client components as props), imported under `'use client'` it renders client-side (admin live preview). No `rehype-raw` EVER — answers are admin-authored multi-tenant content on public pages; raw HTML must stay inert. react-markdown's default URL transform strips `tel:` (allows http/https/mailto) — `urlTransform` extends it for tel: links. Tenant FAQ content seed: `scripts/load-faqs.mjs` (dry-run by default; `--apply` is gated on the renderer release being live — see script header).
+
 ### `useState(searchParams.get(...))` doesn't sync on same-path soft navigation — `router.push` to the same path doesn't remount, so init runs only once. Fix: `useEffect(() => setX(searchParams.get('x') ?? ''), [searchParams])`. Pattern in `admin/bookings/bookings-list-client.tsx`.
 
 ### Auth email templates live in `supabase/templates/*.html` + `[auth.email.template.*]` in `config.toml` — apply via `pnpm supabase config push`. Studio edits get overwritten. GoTrue uses Go `html/template` (NOT sprig — no `{{ now }}` / pipe filters); parse errors silently fall back to Supabase defaults. Always test with a fresh OTP after deploy.

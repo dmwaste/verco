@@ -1,9 +1,11 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 
 interface FaqAccordionProps {
-  faqs: { question: string; answer: string }[]
+  /** answer is a ReactNode so the (server) page can pass pre-rendered
+   * markdown — see FaqAnswer. Plain strings still work. */
+  faqs: { question: string; answer: ReactNode }[]
 }
 
 export function FaqAccordion({ faqs }: FaqAccordionProps) {
@@ -29,6 +31,8 @@ export function FaqAccordion({ faqs }: FaqAccordionProps) {
             <button
               type="button"
               onClick={() => toggle(i)}
+              aria-expanded={isOpen}
+              aria-controls={`faq-panel-${i}`}
               className="flex w-full items-center justify-between gap-3 px-5 py-4 text-left"
             >
               <span className="text-sm font-semibold text-[var(--brand)] md:text-base">
@@ -48,12 +52,19 @@ export function FaqAccordion({ faqs }: FaqAccordionProps) {
                 <polyline points="6 9 12 15 18 9" />
               </svg>
             </button>
+            {/* grid-rows 0fr→1fr animates to natural content height (no clip cap).
+                inert keeps collapsed content out of the tab order — answers
+                contain real links now. */}
             <div
-              className="overflow-hidden transition-[max-height] duration-200 ease-in-out"
-              style={{ maxHeight: isOpen ? '500px' : '0px' }}
+              id={`faq-panel-${i}`}
+              inert={!isOpen}
+              className="grid transition-[grid-template-rows] duration-200 ease-in-out"
+              style={{ gridTemplateRows: isOpen ? '1fr' : '0fr' }}
             >
-              <div className="px-5 pb-4 text-sm leading-relaxed text-gray-600">
-                {faq.answer}
+              <div className="overflow-hidden">
+                <div className="px-5 pb-4 text-sm leading-relaxed text-gray-600">
+                  {faq.answer}
+                </div>
               </div>
             </div>
           </div>
