@@ -200,7 +200,7 @@ export function BookingsListClient({ clientId, isContractorAdmin, isContractorUs
     setPayingBookingId(bookingId)
     try {
       const origin = window.location.origin
-      const efResult = await invokeEfWithUserToken<{ checkout_url?: string }>(
+      const efResult = await invokeEfWithUserToken<{ checkout_url?: string; already_paid?: boolean }>(
         supabase,
         'create-checkout',
         {
@@ -213,6 +213,11 @@ export function BookingsListClient({ clientId, isContractorAdmin, isContractorUs
       if (!efResult.ok) {
         setPayError(`Failed to create payment session: ${efResult.error}`)
         setPayingBookingId(null)
+        return
+      }
+      // Already paid (webhook gap) — booking was just reconciled to Confirmed.
+      if (efResult.data.already_paid) {
+        window.location.href = `${origin}/admin/bookings`
         return
       }
       if (!efResult.data.checkout_url) {

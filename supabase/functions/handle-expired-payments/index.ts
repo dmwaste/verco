@@ -1,29 +1,94 @@
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.100.0'
+import Stripe from 'https://esm.sh/stripe@17.7.0?target=deno'
+import { reconcileCheckoutSession } from '../_shared/checkout-reconcile.ts'
+import {
+  decideExpiryAction,
+  type ExpiryAction,
+  type SessionPaidStatus,
+} from '../_shared/expiry-decision.ts'
 
 /**
  * handle-expired-payments cron Edge Function
  *
  * Runs hourly via pg_cron. Service role only — no user context.
  *
- * Two queries:
+ * Both loops are paid-guarded (VER-252): before dunning or cancelling a
+ * Pending Payment booking, EVERY booking_payment session is checked against
+ * Stripe. A paid session anywhere → reconcile (the missed-webhook path: the
+ * same confirm sequence the webhook runs). An unverifiable session → skip
+ * this cycle, never act on a booking we couldn't verify.
+ *
  *   1. 6h reminder — fresh send for Pending Payment bookings > 6h old
- *      without a prior sent/queued reminder
- *   2. 24h expiry — safe-ordered cancel: insert queued log row, cancel
- *      booking, then dispatch by log_id (crash-safe)
+ *      without a prior sent/queued reminder; paid → reconcile instead of dun
+ *   2. 24h expiry — paid → reconcile; verified-unpaid → safe-ordered cancel:
+ *      insert queued log row, cancel booking, then dispatch by log_id
+ *      (crash-safe). The paid-check runs BEFORE the log insert so a
+ *      reconciled booking never carries a resumable "payment expired" email.
  */
+
+interface Assessment {
+  decision: ExpiryAction
+  /** Sessions retrieved during assessment, so reconcile needn't re-fetch. */
+  sessions: Map<string, Stripe.Checkout.Session>
+}
+
+async function assessBooking(
+  supabase: ReturnType<typeof createClient>,
+  stripe: Stripe,
+  bookingId: string,
+): Promise<Assessment> {
+  const sessions = new Map<string, Stripe.Checkout.Session>()
+
+  const { data: payments, error } = await supabase
+    .from('booking_payment')
+    .select('stripe_session_id, status')
+    .eq('booking_id', bookingId)
+
+  if (error) {
+    // Can't see the payment rows — treat as unverifiable.
+    console.error(`Payment lookup failed for ${bookingId}: ${error.message}`)
+    return { decision: { action: 'skip' }, sessions }
+  }
+
+  const rows = (payments ?? []) as Array<{ stripe_session_id: string | null; status: string }>
+  const statuses = new Map<string, SessionPaidStatus>()
+
+  for (const row of rows) {
+    const sid = row.stripe_session_id
+    if (!sid || statuses.has(sid)) continue
+    try {
+      const session = await stripe.checkout.sessions.retrieve(sid)
+      sessions.set(sid, session)
+      statuses.set(sid, session.payment_status === 'paid' ? 'paid' : 'unpaid')
+    } catch (err) {
+      console.error(
+        `Stripe session retrieve failed for ${sid} (booking ${bookingId}):`,
+        err instanceof Error ? err.message : String(err),
+      )
+      statuses.set(sid, 'error')
+    }
+  }
+
+  return { decision: decideExpiryAction(rows, statuses), sessions }
+}
 
 serve(async (_req) => {
   const supabaseUrl = Deno.env.get('SUPABASE_URL')!
   const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
 
   const supabase = createClient(supabaseUrl, serviceRoleKey)
+  const stripe = new Stripe(Deno.env.get('STRIPE_SECRET_KEY')!, {
+    apiVersion: '2024-12-18.acacia',
+  })
 
   const results = {
     reminders_sent: 0,
     reminders_failed: 0,
+    reminders_reconciled: 0,
     expired_cancelled: 0,
     expired_failed: 0,
+    expired_reconciled: 0,
   }
 
   try {
@@ -58,6 +123,22 @@ serve(async (_req) => {
 
     for (const booking of reminderCandidates) {
       try {
+        // Paid-guard: never dun a customer whose payment already succeeded.
+        const { decision, sessions } = await assessBooking(supabase, stripe, booking.id)
+
+        if (decision.action === 'reconcile') {
+          const session = sessions.get(decision.sessionId) ??
+            await stripe.checkout.sessions.retrieve(decision.sessionId)
+          await reconcileCheckoutSession(supabase, stripe, session)
+          results.reminders_reconciled++
+          continue
+        }
+        if (decision.action === 'skip') {
+          // Unverifiable — don't dun this cycle; visible in the run log.
+          results.reminders_failed++
+          continue
+        }
+
         const res = await fetch(`${supabaseUrl}/functions/v1/send-notification`, {
           method: 'POST',
           headers: {
@@ -97,6 +178,25 @@ serve(async (_req) => {
 
     for (const booking of (expiryBookings ?? []) as Array<{ id: string; client_id: string; contact_id: string | null }>) {
       try {
+        // Paid-guard BEFORE the queued log row: a reconciled booking must
+        // never carry a live, resumable "payment expired" notification.
+        const { decision, sessions } = await assessBooking(supabase, stripe, booking.id)
+
+        if (decision.action === 'reconcile') {
+          const session = sessions.get(decision.sessionId) ??
+            await stripe.checkout.sessions.retrieve(decision.sessionId)
+          await reconcileCheckoutSession(supabase, stripe, session)
+          results.expired_reconciled++
+          continue
+        }
+        if (decision.action === 'skip') {
+          // Unverifiable — never cancel on doubt. Counts as a failure so the
+          // run returns 500 and the gap is visible to monitoring.
+          results.expired_failed++
+          console.error(`Expiry skipped for ${booking.id}: unverifiable Stripe session`)
+          continue
+        }
+
         // Step 1: Insert queued notification_log row
         const { data: logRow, error: logError } = await supabase
           .from('notification_log')

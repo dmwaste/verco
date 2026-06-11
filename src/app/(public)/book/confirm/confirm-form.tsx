@@ -405,7 +405,7 @@ export function ConfirmForm() {
 
       if (result.requires_payment) {
         const origin = window.location.origin
-        const checkoutResult = await invokeEfWithUserToken<{ checkout_url?: string }>(
+        const checkoutResult = await invokeEfWithUserToken<{ checkout_url?: string; already_paid?: boolean }>(
           supabase,
           'create-checkout',
           {
@@ -420,6 +420,12 @@ export function ConfirmForm() {
           console.error('create-checkout error:', checkoutResult.error)
           setSubmitError('Failed to create payment session')
           setIsSubmitting(false)
+          return
+        }
+        // Paid during a webhook gap — create-checkout reconciled the booking
+        // to Confirmed instead of minting a new session (VER-252).
+        if (checkoutResult.data.already_paid) {
+          router.push(`${bookingPath}?success=true`)
           return
         }
         if (!checkoutResult.data.checkout_url) {
