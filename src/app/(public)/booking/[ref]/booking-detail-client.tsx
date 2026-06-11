@@ -178,7 +178,7 @@ export function BookingDetailClient({ booking, tickets, receiptUrl, ncn, np, pay
       const origin = window.location.origin
       const bookingPath = `/booking/${booking.ref}`
 
-      const efResult = await invokeEfWithUserToken<{ checkout_url?: string }>(
+      const efResult = await invokeEfWithUserToken<{ checkout_url?: string; already_paid?: boolean }>(
         supabase,
         'create-checkout',
         {
@@ -191,6 +191,11 @@ export function BookingDetailClient({ booking, tickets, receiptUrl, ncn, np, pay
       if (!efResult.ok) {
         setPayError(`Failed to create payment session: ${efResult.error}`)
         setIsPaying(false)
+        return
+      }
+      // Already paid (webhook gap) — booking was just reconciled to Confirmed.
+      if (efResult.data.already_paid) {
+        window.location.href = `${origin}${bookingPath}?success=true`
         return
       }
       if (!efResult.data.checkout_url) {

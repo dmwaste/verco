@@ -152,6 +152,7 @@ export function SetMudModal({ open, onOpenChange, property, onSuccess }: SetMudM
       // Upsert strata contact if any
       if (anyContactField) {
         const contactResult = await upsertStrataContact({
+          property_id: property.id,
           first_name: contactFirstName.trim(),
           last_name: contactLastName.trim(),
           mobile_e164: contactMobile.trim(),
