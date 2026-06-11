@@ -51,6 +51,54 @@ serve(async (req) => {
       )
     }
 
+    // Place geocode mode — resolve an autocomplete place_id to coordinates.
+    // Used by the admin ID request form, where office staff pick an address
+    // but the booking RPC needs latitude/longitude. Emits address/latitude/
+    // longitude on every path; error is set on failures so callers can
+    // distinguish "no result" from "lookup service failed".
+    if (body.type === 'geocode') {
+      const placeId = typeof body.place_id === 'string' ? body.place_id : ''
+      // Google place_ids are short base64-ish tokens — reject junk early.
+      if (!/^[A-Za-z0-9_-]{10,300}$/.test(placeId)) {
+        return new Response(
+          JSON.stringify({ address: null, latitude: null, longitude: null, error: 'Invalid place_id' }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        )
+      }
+
+      const url = new URL('https://maps.googleapis.com/maps/api/geocode/json')
+      url.searchParams.set('place_id', placeId)
+      url.searchParams.set('key', apiKey)
+
+      const res = await fetch(url.toString())
+      const data = await res.json()
+
+      if (data.status !== 'OK' && data.status !== 'ZERO_RESULTS') {
+        console.error('Google Geocoding API error:', data.status, data.error_message)
+        return new Response(
+          JSON.stringify({
+            address: null,
+            latitude: null,
+            longitude: null,
+            error: data.error_message ?? data.status,
+          }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        )
+      }
+
+      const result = data.results?.[0] ?? null
+      const location = result?.geometry?.location ?? null
+
+      return new Response(
+        JSON.stringify({
+          address: result?.formatted_address ?? null,
+          latitude: location?.lat ?? null,
+          longitude: location?.lng ?? null,
+        }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      )
+    }
+
     // Autocomplete mode
     const { input, session_token, types, components } = body as {
       input: string

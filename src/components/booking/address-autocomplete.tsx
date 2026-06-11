@@ -14,6 +14,8 @@ interface AddressAutocompleteProps {
   placeholder?: string
   initialValue?: string
   variant?: 'default' | 'hero'
+  /** Forwarded to the underlying <input> so an external <label htmlFor> can bind to it. */
+  inputId?: string
 }
 
 export function AddressAutocomplete({
@@ -21,6 +23,7 @@ export function AddressAutocomplete({
   placeholder = 'Start typing your address...',
   initialValue = '',
   variant = 'default',
+  inputId,
 }: AddressAutocompleteProps) {
   const [query, setQuery] = useState(initialValue)
   const [suggestions, setSuggestions] = useState<PlaceSuggestion[]>([])
@@ -144,6 +147,7 @@ export function AddressAutocomplete({
             <line x1="21" y1="21" x2="16.65" y2="16.65" />
           </svg>
           <input
+            id={inputId}
             type="text"
             value={query}
             onChange={(e) => handleInputChange(e.target.value)}
@@ -199,6 +203,7 @@ export function AddressAutocomplete({
   return (
     <div ref={containerRef} className="relative">
       <input
+        id={inputId}
         type="text"
         value={query}
         onChange={(e) => handleInputChange(e.target.value)}

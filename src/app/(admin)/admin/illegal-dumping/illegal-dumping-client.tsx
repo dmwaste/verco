@@ -6,6 +6,7 @@ import { useQuery } from '@tanstack/react-query'
 import { format } from 'date-fns'
 import { createClient } from '@/lib/supabase/client'
 import { buildSearchOrFilter } from '@/lib/search/or-filter'
+import { photoCount } from '@/lib/booking/id-photos'
 import { SkeletonRow } from '@/components/ui/skeleton'
 import { getStatusStyle } from '@/lib/ui/status-styles'
 
@@ -30,16 +31,6 @@ interface IllegalDumpingClientProps {
   isContractorAdmin: boolean
 }
 
-// Photos are stored in booking.notes as "Photos: N" by the ranger intake
-// (field/illegal-dumping/new/actions.ts). MVP shows the count only — raw
-// URLs are not yet persisted to a dedicated column. See plan gotcha #1.
-const PHOTO_COUNT_RE = /Photos:\s*(\d+)/
-
-function extractPhotoCount(notes: string | null | undefined): number {
-  if (!notes) return 0
-  const m = notes.match(PHOTO_COUNT_RE)
-  return m && m[1] ? parseInt(m[1], 10) : 0
-}
 
 export function IllegalDumpingClient({ clientId }: IllegalDumpingClientProps) {
   const supabase = createClient()
@@ -86,7 +77,7 @@ export function IllegalDumpingClient({ clientId }: IllegalDumpingClientProps) {
       let query = supabase
         .from('booking')
         .select(
-          `id, ref, status, latitude, longitude, geo_address, notes, created_at,
+          `id, ref, status, latitude, longitude, geo_address, notes, photos, created_at,
            collection_area_id,
            collection_area!inner(code, name, client_id),
            booking_item(collection_date(id, date, id_capacity_limit, id_units_booked))`,
@@ -157,9 +148,19 @@ export function IllegalDumpingClient({ clientId }: IllegalDumpingClientProps) {
             Illegal Dumping
           </h1>
           <p className="mt-0.5 text-body-sm text-gray-500">
-            {total} ID report{total !== 1 ? 's' : ''} — raised by ranger role from the field.
+            {total} ID report{total !== 1 ? 's' : ''} — raised by rangers in the field and office staff.
           </p>
         </div>
+        <Link
+          href="/admin/illegal-dumping/new"
+          className="flex items-center gap-1.5 rounded-lg bg-[#293F52] px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-[#1e3040]"
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <line x1="12" y1="5" x2="12" y2="19" />
+            <line x1="5" y1="12" x2="19" y2="12" />
+          </svg>
+          New ID Report
+        </Link>
       </div>
 
       {/* Status summary strip */}
@@ -251,7 +252,7 @@ export function IllegalDumpingClient({ clientId }: IllegalDumpingClientProps) {
                   collection_date: { date: string; id_capacity_limit: number; id_units_booked: number } | null
                 }> | null) ?? []
                 const collDate = items[0]?.collection_date ?? null
-                const photoCount = extractPhotoCount(b.notes)
+                const nPhotos = photoCount(b.photos, b.notes)
                 const ss = getStatusStyle('booking', b.status)
                 return (
                   <tr key={b.id} className="border-b border-gray-100 last:border-b-0 hover:bg-gray-50">
@@ -280,8 +281,8 @@ export function IllegalDumpingClient({ clientId }: IllegalDumpingClientProps) {
                         : '—'}
                     </td>
                     <td className="px-4 py-3 text-xs text-gray-500">
-                      {photoCount > 0
-                        ? <span className="rounded-full bg-gray-100 px-2 py-0.5 font-semibold text-gray-700">{photoCount}</span>
+                      {nPhotos > 0
+                        ? <span className="rounded-full bg-gray-100 px-2 py-0.5 font-semibold text-gray-700">{nPhotos}</span>
                         : '—'}
                     </td>
                     <td className="px-4 py-3">

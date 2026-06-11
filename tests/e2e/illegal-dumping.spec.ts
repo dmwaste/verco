@@ -34,4 +34,15 @@ test.describe('Illegal Dumping', () => {
     await page.goto('/field/illegal-dumping/new')
     await expect(page).toHaveURL(/\/auth/)
   })
+
+  // The admin (office staff) intake at /admin/illegal-dumping/new is likewise
+  // server-rendered with a staff-gated server action; the create path is
+  // covered by the DB integration tests. Here we guard the route boundary.
+  test('unauthenticated access to /admin/illegal-dumping/new redirects to /auth', async ({
+    page,
+  }) => {
+    await mockNoSession(page)
+    await page.goto('/admin/illegal-dumping/new')
+    await expect(page).toHaveURL(/\/auth/)
+  })
 })
