@@ -14,7 +14,7 @@ import { CouncilPicker } from './council-picker'
 import { HowItWorks } from './how-it-works'
 import { ForCouncils } from './for-councils'
 import { OperatedBy } from './operated-by'
-import { pickerState, type PickerClient } from './picker-state'
+import { pickerState, attachSubClients } from './picker-state'
 
 /**
  * Root landing for `verco.au` — marketing + routing surface for three
@@ -88,10 +88,10 @@ export default async function LandingPage() {
   const adminUrl = `${adminOrigin(h.get('host') ?? '')}/admin`
 
   const supabase = await createClient()
-  const { data, error } = await supabase
+  const { data: clients, error } = await supabase
     .from('client')
     .select(
-      'slug, name, custom_domain, service_name, primary_colour, accent_colour, logo_light_url',
+      'id, slug, name, custom_domain, service_name, primary_colour, accent_colour, logo_light_url',
     )
     .eq('is_active', true)
     .not('custom_domain', 'is', null)
@@ -101,7 +101,22 @@ export default async function LandingPage() {
     console.error(`[landing] client query failed: ${error.message}`)
   }
 
-  const picker = pickerState((data as PickerClient[] | null) ?? null, error)
+  // Active member councils, for the multi-LGA recognition line. A failure
+  // here is non-fatal — cards still render, just without their serving line.
+  const { data: subClients, error: subError } = await supabase
+    .from('sub_client')
+    .select('client_id, name')
+    .eq('is_active', true)
+    .order('name')
+
+  if (subError) {
+    console.error(`[landing] sub_client query failed: ${subError.message}`)
+  }
+
+  const picker = pickerState(
+    clients ? attachSubClients(clients, subClients) : null,
+    error,
+  )
 
   return (
     <main className="flex min-h-full flex-col">

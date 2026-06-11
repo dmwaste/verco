@@ -1,0 +1,65 @@
+import { describe, it, expect } from 'vitest'
+import { formatServingLine, stripLgaPrefix } from '@/app/landing/serving-line'
+
+describe('stripLgaPrefix', () => {
+  it('strips City of / Town of / Shire of', () => {
+    expect(stripLgaPrefix('City of Fremantle')).toBe('Fremantle')
+    expect(stripLgaPrefix('Town of Cambridge')).toBe('Cambridge')
+    expect(stripLgaPrefix('Shire of Peppermint Grove')).toBe('Peppermint Grove')
+  })
+
+  it('leaves a name without an LGA prefix untouched', () => {
+    expect(stripLgaPrefix('Kwinana')).toBe('Kwinana')
+  })
+})
+
+describe('formatServingLine', () => {
+  it('returns null for no members (single-LGA client)', () => {
+    expect(formatServingLine([])).toBeNull()
+  })
+
+  it('formats a single member', () => {
+    expect(formatServingLine(['City of Vincent'])).toBe('Serving Vincent.')
+  })
+
+  it('joins two with an ampersand, no comma', () => {
+    expect(formatServingLine(['Town of Cambridge', 'City of Fremantle'])).toBe(
+      'Serving Cambridge & Fremantle.',
+    )
+  })
+
+  it('comma-separates 3+ with an ampersand before the last, sorted', () => {
+    expect(
+      formatServingLine([
+        'City of Vincent',
+        'City of Fremantle',
+        'Town of Cottesloe',
+      ]),
+    ).toBe('Serving Cottesloe, Fremantle & Vincent.')
+  })
+
+  it('sorts by the stripped place name, not the LGA prefix', () => {
+    // "Town of Albany" must sort before "City of Bunbury" by place name.
+    expect(formatServingLine(['City of Bunbury', 'Town of Albany'])).toBe(
+      'Serving Albany & Bunbury.',
+    )
+  })
+
+  it('matches the real Verge Valet roster', () => {
+    expect(
+      formatServingLine([
+        'City of Fremantle',
+        'City of South Perth',
+        'City of Subiaco',
+        'City of Vincent',
+        'Shire of Peppermint Grove',
+        'Town of Cambridge',
+        'Town of Cottesloe',
+        'Town of Mosman Park',
+        'Town of Victoria Park',
+      ]),
+    ).toBe(
+      'Serving Cambridge, Cottesloe, Fremantle, Mosman Park, Peppermint Grove, South Perth, Subiaco, Victoria Park & Vincent.',
+    )
+  })
+})

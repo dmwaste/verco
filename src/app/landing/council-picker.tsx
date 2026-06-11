@@ -1,4 +1,5 @@
 import type { PickerState } from './picker-state'
+import { formatServingLine } from './serving-line'
 
 /**
  * DB-driven tenant cards. One action per card — "Book a collection" in the
@@ -49,6 +50,7 @@ export function CouncilPicker({ state }: { state: PickerState }) {
               {state.clients.map((c) => {
                 const accent = c.accent_colour ?? '#00E47C'
                 const primary = c.primary_colour ?? '#293F52'
+                const serving = formatServingLine(c.subClients)
 
                 return (
                   <div
@@ -90,6 +92,12 @@ export function CouncilPicker({ state }: { state: PickerState }) {
                         )}
                       </div>
                     </div>
+
+                    {serving && (
+                      <p className="mb-5 text-[13px] leading-snug text-gray-500">
+                        {serving}
+                      </p>
+                    )}
 
                     <a
                       href={`https://${c.custom_domain}`}
