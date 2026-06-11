@@ -1,32 +1,34 @@
 /**
  * Formats a client's member-council names into the card's recognition line.
  *
- * Residents identify by their place name ("Fremantle"), not the LGA-type
- * prefix, so the leading "City of " / "Town of " / "Shire of " is stripped
- * and the names are sorted alphabetically for scanning. Returns null when
- * there are no members (single-LGA clients like Kwinana get no line).
+ * The FULL LGA name is shown ("City of Fremantle", not "Fremantle") so a
+ * resident can't mistake the council scope for a same-named suburb. Names are
+ * sorted by their place name (prefix ignored) so a resident can still scan for
+ * their locality. Returns null when there are no members (single-LGA clients
+ * like Kwinana get no line).
  *
- *   []                          → null
- *   ['City of Vincent']         → 'Serving Vincent.'
- *   ['Town of X', 'City of Y']  → 'Serving X & Y.'  (sorted)
- *   3+                          → 'Serving A, B & C.'
+ *   []                                   → null
+ *   ['City of Vincent']                  → 'Serving City of Vincent.'
+ *   ['Town of Cambridge','City of …']    → 'Serving Town of Cambridge & City of ….'
+ *   3+                                   → 'Serving A, B & C.'
  */
 const LGA_PREFIX = /^(?:City|Town|Shire) of\s+/i
 
+/** Place name without the LGA-type prefix — used only as the sort key. */
 export function stripLgaPrefix(name: string): string {
   return name.replace(LGA_PREFIX, '').trim()
 }
 
 export function formatServingLine(names: string[]): string | null {
-  const places = names
-    .map(stripLgaPrefix)
+  const councils = names
+    .map((n) => n.trim())
     .filter((n) => n.length > 0)
-    .sort((a, b) => a.localeCompare(b))
+    .sort((a, b) => stripLgaPrefix(a).localeCompare(stripLgaPrefix(b)))
 
-  if (places.length === 0) return null
-  if (places.length === 1) return `Serving ${places[0]}.`
+  if (councils.length === 0) return null
+  if (councils.length === 1) return `Serving ${councils[0]}.`
 
-  const last = places[places.length - 1]
-  const rest = places.slice(0, -1)
+  const last = councils[councils.length - 1]
+  const rest = councils.slice(0, -1)
   return `Serving ${rest.join(', ')} & ${last}.`
 }
