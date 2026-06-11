@@ -5,6 +5,7 @@ import { CouncilPicker } from '@/app/landing/council-picker'
 import type { PickerClient } from '@/app/landing/picker-state'
 
 const OTHER_COUNCIL: PickerClient = {
+  id: 'vv-id',
   slug: 'vergevalet',
   name: 'Verge Valet',
   custom_domain: 'vvtest.verco.au',
@@ -12,6 +13,7 @@ const OTHER_COUNCIL: PickerClient = {
   primary_colour: '#414042',
   accent_colour: '#72b75c',
   logo_light_url: null,
+  subClients: ['City of Fremantle', 'Town of Cambridge'],
 }
 
 /**
@@ -66,5 +68,17 @@ describe('recovery banner + picker composed state', () => {
       screen.getByRole('link', { name: /book a collection/i }),
     ).toHaveAttribute('href', 'https://vvtest.verco.au')
     expect(screen.queryByText(/staff sign in/i)).not.toBeInTheDocument()
+  })
+
+  it('renders the member-council serving line for a multi-LGA client', () => {
+    render(<CouncilPicker state={{ kind: 'cards', clients: [OTHER_COUNCIL] }} />)
+    // LGA prefixes stripped, alphabetical, ampersand before the last.
+    expect(screen.getByText('Serving Cambridge & Fremantle.')).toBeInTheDocument()
+  })
+
+  it('renders no serving line for a single-LGA client', () => {
+    const kwn: PickerClient = { ...OTHER_COUNCIL, subClients: [] }
+    render(<CouncilPicker state={{ kind: 'cards', clients: [kwn] }} />)
+    expect(screen.queryByText(/^Serving /)).not.toBeInTheDocument()
   })
 })
