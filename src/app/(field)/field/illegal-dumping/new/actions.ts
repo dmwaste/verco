@@ -1,23 +1,11 @@
 'use server'
 
 import { createClient } from '@/lib/supabase/server'
+import { idIntakeSchema, buildIdNotes, type IdIntakeSubmission } from '@/lib/booking/id-intake'
 import type { Result } from '@/lib/result'
 
-interface CreateIdBookingInput {
-  latitude: number
-  longitude: number
-  geo_address: string
-  collection_date_id: string
-  collection_area_id: string
-  waste_types: string[]
-  volume: string
-  description: string
-  photo_urls: string[]
-  notes: string
-}
-
 export async function createIdBooking(
-  input: CreateIdBookingInput
+  input: IdIntakeSubmission
 ): Promise<Result<{ ref: string }>> {
   const supabase = await createClient()
 
@@ -27,12 +15,10 @@ export async function createIdBooking(
     return { ok: false, error: 'Only the ranger role can create ID bookings.' }
   }
 
-  // Waste types, volume and photos now persist in dedicated columns. The notes
-  // column carries only the two free-text fields.
-  const notes = [input.description, input.notes]
-    .map((part) => part.trim())
-    .filter(Boolean)
-    .join('\n\n')
+  const parsed = idIntakeSchema.safeParse(input)
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0]?.message ?? 'Invalid input' }
+  }
 
   // Atomic, advisory-locked creation. The RPC validates ranger scope, derives
   // tenant from the area, checks ID capacity, and lands the booking in
@@ -40,15 +26,15 @@ export async function createIdBooking(
   const { data, error } = await supabase.rpc(
     'create_id_booking_with_capacity_check',
     {
-      p_collection_date_id: input.collection_date_id,
-      p_collection_area_id: input.collection_area_id,
-      p_latitude: input.latitude,
-      p_longitude: input.longitude,
-      p_geo_address: input.geo_address,
-      p_notes: notes,
-      p_photos: input.photo_urls,
-      p_waste_types: input.waste_types,
-      p_volume: input.volume,
+      p_collection_date_id: parsed.data.collection_date_id,
+      p_collection_area_id: parsed.data.collection_area_id,
+      p_latitude: parsed.data.latitude,
+      p_longitude: parsed.data.longitude,
+      p_geo_address: parsed.data.geo_address,
+      p_notes: buildIdNotes(parsed.data.description, parsed.data.notes),
+      p_photos: parsed.data.photo_urls,
+      p_waste_types: parsed.data.waste_types,
+      p_volume: parsed.data.volume,
     }
   )
 
