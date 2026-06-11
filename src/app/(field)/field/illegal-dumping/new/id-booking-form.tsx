@@ -7,22 +7,12 @@ import { invokeEdgeFunction } from '@/lib/supabase/invoke-ef'
 import { createIdBooking } from './actions'
 import { Confirmation } from './confirmation'
 import { cn } from '@/lib/utils'
-
-const WASTE_TYPES = [
-  'General / Mixed',
-  'Green Waste',
-  'Whitegoods',
-  'Mattress',
-  'E-Waste',
-  'Hazardous',
-  'Construction / Demolition',
-] as const
-
-const VOLUMES = [
-  { label: 'Small', sub: '< 1 ute' },
-  { label: 'Medium', sub: '1\u20133 utes' },
-  { label: 'Large', sub: '> 3 utes' },
-] as const
+import {
+  ID_WASTE_TYPES as WASTE_TYPES,
+  ID_VOLUMES as VOLUMES,
+  ID_PHOTOS_BUCKET,
+  ID_PHOTOS_PREFIX,
+} from '@/lib/booking/id-options'
 
 interface CollectionDate {
   id: string
@@ -150,10 +140,10 @@ export function IdBookingForm({ collectionDates, prefill }: IdBookingFormProps) 
 
     for (const file of Array.from(files)) {
       const ext = file.name.split('.').pop() ?? 'jpg'
-      const path = `id-bookings/${crypto.randomUUID()}.${ext}`
+      const path = `${ID_PHOTOS_PREFIX}/${crypto.randomUUID()}.${ext}`
 
       const { data, error: uploadError } = await supabase.storage
-        .from('ncn-photos')
+        .from(ID_PHOTOS_BUCKET)
         .upload(path, file)
 
       if (uploadError || !data) {
@@ -162,7 +152,7 @@ export function IdBookingForm({ collectionDates, prefill }: IdBookingFormProps) 
       }
 
       const { data: urlData } = supabase.storage
-        .from('ncn-photos')
+        .from(ID_PHOTOS_BUCKET)
         .getPublicUrl(data.path)
       newUrls.push(urlData.publicUrl)
     }

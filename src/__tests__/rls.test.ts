@@ -1060,7 +1060,14 @@ if (!haveDb) {
     // Seed the ID service (idempotent) and force a clean, non-pooled date in
     // the ranger's client to have capacity. Runs as the connection role
     // (RLS-bypassing) before any impersonation.
-    async function setupIdDate(): Promise<{ dateId: string; areaId: string } | null> {
+    async function setupIdDate(
+      clientId: string = CLIENT_ID,
+      subClientId: string | null = null,
+      // Denial-path tests (role/tenant/sub-client gates fire before the
+      // capacity branch) can use pooled areas — VV's sub-client areas are
+      // pool-backed, so requiring unpooled there would silently skip them.
+      requireUnpooled = true,
+    ): Promise<{ dateId: string; areaId: string } | null> {
       await pg.query(
         `INSERT INTO service (name, category_id)
          SELECT 'Illegal Dumping', c.id FROM category c
@@ -1070,16 +1077,28 @@ if (!haveDb) {
         `SELECT cd.id, cd.collection_area_id
          FROM collection_date cd
          JOIN collection_area ca ON ca.id = cd.collection_area_id
-         WHERE ca.client_id = $1 AND ca.capacity_pool_id IS NULL
+         WHERE ca.client_id = $1
+           AND (NOT $3::boolean OR ca.capacity_pool_id IS NULL)
+           AND ($2::uuid IS NULL OR ca.sub_client_id = $2)
+         ORDER BY (cd.date >= (now() AT TIME ZONE 'Australia/Perth')::date AND cd.is_open) DESC
          LIMIT 1`,
-        [CLIENT_ID],
+        [clientId, subClientId, requireUnpooled],
       )
       if (row.rows.length === 0) return null
       const dateId = row.rows[0]!.id
       const areaId = row.rows[0]!.collection_area_id
+      // The RPC requires is_open, not id_is_closed, and a non-past date — force
+      // all three. Past dates bump to max(date)+7 within the area so the
+      // (collection_area_id, date) unique constraint can't collide.
       await pg.query(
         `UPDATE collection_date
-         SET id_capacity_limit = 10, id_units_booked = 0, id_is_closed = false
+         SET id_capacity_limit = 10, id_units_booked = 0, id_is_closed = false,
+             is_open = true,
+             date = CASE
+               WHEN date >= (now() AT TIME ZONE 'Australia/Perth')::date THEN date
+               ELSE (SELECT max(d2.date) FROM collection_date d2
+                     WHERE d2.collection_area_id = collection_date.collection_area_id) + 7
+             END
          WHERE id = $1`,
         [dateId],
       )
@@ -1176,12 +1195,41 @@ if (!haveDb) {
       }
     })
 
-    it('rejects a non-ranger caller', async () => {
+    // Staff roles create ID bookings from the admin portal (phoned-in
+    // reports) — widened from ranger-only in 20260611031624.
+    it.each(['client-admin', 'client-staff', 'contractor-admin', 'contractor-staff'] as const)(
+      'allows a %s caller to create an ID booking',
+      async (role) => {
+        await pg.query('BEGIN')
+        try {
+          const ctx = await setupIdDate()
+          if (!ctx) return
+          await impersonate(USERS[role])
+
+          const res = await pg.query<{ r: { booking_id: string; ref: string } }>(CALL, [
+            ctx.dateId,
+            ctx.areaId,
+            -32.27,
+            115.75,
+            '14 Office St, Kwinana',
+            'Phoned in by a resident',
+            [],
+            ['General / Mixed'],
+            'Small (< 1 ute)',
+          ])
+          expect(res.rows[0]!.r.ref).toMatch(/-/)
+        } finally {
+          await pg.query('ROLLBACK')
+        }
+      },
+    )
+
+    it.each(['resident', 'field'] as const)('rejects a %s caller', async (role) => {
       await pg.query('BEGIN')
       try {
         const ctx = await setupIdDate()
         if (!ctx) return
-        await impersonate(USERS.resident)
+        await impersonate(USERS[role])
 
         let err: Error | null = null
         try {
@@ -1191,7 +1239,167 @@ if (!haveDb) {
         } catch (e) {
           err = e as Error
         }
-        expect(err?.message ?? '').toMatch(/ranger/i)
+        expect(err?.message ?? '').toMatch(/ranger and staff roles/i)
+      } finally {
+        await pg.query('ROLLBACK')
+      }
+    })
+
+    // Tenant boundary: a Kwinana-scoped client-admin must not be able to book
+    // an ID into another client's area now that staff roles pass the role gate.
+    // These boundary tests fail LOUDLY on missing fixtures (a silent return
+    // would green-light the exact regression they exist to catch).
+    it('rejects a client-admin booking into another tenant area', async () => {
+      const VV_CLIENT_ID = '5215645f-ca8f-4cff-8b7d-d5a8f7991ec7' // vergevalet (fixtures above)
+      await pg.query('BEGIN')
+      try {
+        const ctx = await setupIdDate(VV_CLIENT_ID, null, false)
+        expect(ctx, 'fixture missing: no vergevalet collection_date found').not.toBeNull()
+        if (!ctx) return
+        await impersonate(USERS['client-admin']) // Kwinana-scoped fixture
+
+        let err: Error | null = null
+        try {
+          await pg.query(CALL, [
+            ctx.dateId, ctx.areaId, -32.0, 115.7, 'x', '', [], ['General / Mixed'], 'Small (< 1 ute)',
+          ])
+        } catch (e) {
+          err = e as Error
+        }
+        expect(err?.message ?? '').toMatch(/accessible clients/i)
+      } finally {
+        await pg.query('ROLLBACK')
+      }
+    })
+
+    // Sub-client boundary (VER-216): a COT-narrowed client-admin must not be
+    // able to book an ID into a MOS-sub-client area of the same client.
+    it('rejects a sub-client-scoped client-admin booking into another sub-client area', async () => {
+      const VV_CLIENT_ID = '5215645f-ca8f-4cff-8b7d-d5a8f7991ec7'
+      const MOS_SUB_CLIENT_ID = 'd870be20-f507-4d65-b2af-5644990dbf82'
+      const VV_COT_USER = 'aaaaaaaa-0008-4000-8000-000000000008' // VER-216 fixture
+      await pg.query('BEGIN')
+      try {
+        const ctx = await setupIdDate(VV_CLIENT_ID, MOS_SUB_CLIENT_ID, false)
+        expect(ctx, 'fixture missing: no MOS sub-client collection_date found').not.toBeNull()
+        if (!ctx) return
+        await impersonate(VV_COT_USER)
+
+        let err: Error | null = null
+        try {
+          await pg.query(CALL, [
+            ctx.dateId, ctx.areaId, -32.0, 115.7, 'x', '', [], ['General / Mixed'], 'Small (< 1 ute)',
+          ])
+        } catch (e) {
+          err = e as Error
+        }
+        expect(err?.message ?? '').toMatch(/sub-client scope/i)
+      } finally {
+        await pg.query('ROLLBACK')
+      }
+    })
+
+    // Pool-aware capacity (20260611031624): pooled areas count + serialise on
+    // collection_date_pool. Books once (pool counter moves, per-date counter
+    // doesn't), then exhausts the pool and expects rejection.
+    it('enforces pooled ID capacity via collection_date_pool', async () => {
+      const VV_CLIENT_ID = '5215645f-ca8f-4cff-8b7d-d5a8f7991ec7'
+      const VV_ALL_USER = 'aaaaaaaa-0010-4000-8000-000000000010' // VER-216 fixture, full VV scope
+      await pg.query('BEGIN')
+      try {
+        // A pooled, future, open date with a matching pool row.
+        const row = await pg.query<{
+          id: string
+          collection_area_id: string
+          pool_date_id: string
+        }>(
+          `SELECT cd.id, cd.collection_area_id, cdp.id AS pool_date_id
+           FROM collection_date cd
+           JOIN collection_area ca ON ca.id = cd.collection_area_id
+           JOIN collection_date_pool cdp
+             ON cdp.capacity_pool_id = ca.capacity_pool_id AND cdp.date = cd.date
+           WHERE ca.client_id = $1 AND ca.capacity_pool_id IS NOT NULL
+             AND cd.date >= (now() AT TIME ZONE 'Australia/Perth')::date
+           ORDER BY cd.date ASC
+           LIMIT 1`,
+          [VV_CLIENT_ID],
+        )
+        if (row.rows.length === 0) return // no future pooled dates seeded — skip
+        const { id: dateId, collection_area_id: areaId, pool_date_id: poolDateId } = row.rows[0]!
+
+        await pg.query(
+          `UPDATE collection_date SET is_open = true, id_is_closed = false WHERE id = $1`,
+          [dateId],
+        )
+        await pg.query(
+          `UPDATE collection_date_pool
+           SET id_capacity_limit = 5, id_units_booked = 0, id_is_closed = false
+           WHERE id = $1`,
+          [poolDateId],
+        )
+        const before = await pg.query<{ cd_units: number; pool_units: number }>(
+          `SELECT (SELECT id_units_booked FROM collection_date WHERE id = $1) AS cd_units,
+                  (SELECT id_units_booked FROM collection_date_pool WHERE id = $2) AS pool_units`,
+          [dateId, poolDateId],
+        )
+
+        await impersonate(VV_ALL_USER)
+        const res = await pg.query<{ r: { ref: string } }>(CALL, [
+          dateId, areaId, -31.99, 115.75, 'Pooled pile', '', [], ['General / Mixed'], 'Small (< 1 ute)',
+        ])
+        expect(res.rows[0]!.r.ref).toMatch(/-/)
+
+        await pg.query('RESET ROLE')
+        const after = await pg.query<{ cd_units: number; pool_units: number }>(
+          `SELECT (SELECT id_units_booked FROM collection_date WHERE id = $1) AS cd_units,
+                  (SELECT id_units_booked FROM collection_date_pool WHERE id = $2) AS pool_units`,
+          [dateId, poolDateId],
+        )
+        // The recalc trigger's pooled branch moves the POOL counter only.
+        expect(Number(after.rows[0]!.pool_units)).toBe(Number(before.rows[0]!.pool_units) + 1)
+        expect(Number(after.rows[0]!.cd_units)).toBe(Number(before.rows[0]!.cd_units))
+
+        // Exhaust the pool — next booking must be rejected.
+        await pg.query(
+          `UPDATE collection_date_pool SET id_units_booked = id_capacity_limit WHERE id = $1`,
+          [poolDateId],
+        )
+        await impersonate(VV_ALL_USER)
+        let err: Error | null = null
+        try {
+          await pg.query(CALL, [
+            dateId, areaId, -31.99, 115.75, 'x', '', [], ['General / Mixed'], 'Small (< 1 ute)',
+          ])
+        } catch (e) {
+          err = e as Error
+        }
+        expect(err?.message ?? '').toMatch(/capacity/i)
+      } finally {
+        await pg.query('ROLLBACK')
+      }
+    })
+
+    // Date validity (20260611031624): the RPC itself must reject closed dates —
+    // the form filters are app-level only and the RPC is directly callable.
+    it('rejects a booking onto an ID-closed collection date', async () => {
+      await pg.query('BEGIN')
+      try {
+        const ctx = await setupIdDate()
+        if (!ctx) return
+        await pg.query(`UPDATE collection_date SET id_is_closed = true WHERE id = $1`, [
+          ctx.dateId,
+        ])
+        await impersonate(USERS.ranger)
+
+        let err: Error | null = null
+        try {
+          await pg.query(CALL, [
+            ctx.dateId, ctx.areaId, -32.27, 115.75, 'x', '', [], ['General / Mixed'], 'Small',
+          ])
+        } catch (e) {
+          err = e as Error
+        }
+        expect(err?.message ?? '').toMatch(/closed for illegal dumping/i)
       } finally {
         await pg.query('ROLLBACK')
       }
