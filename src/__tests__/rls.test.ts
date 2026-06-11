@@ -1384,6 +1384,134 @@ if (!haveDb) {
       }
     })
 
+    // -------------------------------------------------------------------------
+    // Strata contact RPC — upsert_strata_contact_and_link (VER-255)
+    //
+    // SECURITY DEFINER upsert+link: role gate, tenant scope via the property's
+    // area, atomic link (contact becomes visible via contacts_admin_strata_select
+    // in the same transaction). All inside rolled-back transactions.
+    // -------------------------------------------------------------------------
+    describe('Strata contact RPC (upsert_strata_contact_and_link)', () => {
+      const STRATA_CALL = `SELECT upsert_strata_contact_and_link(
+        $1::uuid, $2::text, $3::text, $4::text, $5::text
+      ) AS r`
+
+      async function findProperty(clientId: string): Promise<string | null> {
+        const row = await pg.query<{ id: string }>(
+          `SELECT ep.id FROM eligible_properties ep
+           JOIN collection_area ca ON ca.id = ep.collection_area_id
+           WHERE ca.client_id = $1 LIMIT 1`,
+          [clientId],
+        )
+        return row.rows[0]?.id ?? null
+      }
+
+      it('staff caller creates, links, and can re-read the contact', async () => {
+        await pg.query('BEGIN')
+        try {
+          const propertyId = await findProperty(CLIENT_ID)
+          expect(propertyId, 'fixture missing: no Kwinana eligible_properties row').not.toBeNull()
+          if (!propertyId) return
+          await impersonate(USERS['client-admin'])
+
+          const res = await pg.query<{ r: { contact_id: string } }>(STRATA_CALL, [
+            propertyId, 'Strata', 'Manager', '+61400000001', 'rls-strata-new@example.test',
+          ])
+          const contactId = res.rows[0]!.r.contact_id
+          expect(contactId).toBeTruthy()
+
+          // Link landed atomically…
+          const linked = await pg.query<{ strata_contact_id: string }>(
+            `SELECT strata_contact_id FROM eligible_properties WHERE id = $1`,
+            [propertyId],
+          )
+          expect(linked.rows[0]!.strata_contact_id).toBe(contactId)
+
+          // …and the contact is now visible to the same caller via
+          // contacts_admin_strata_select (no chicken-and-egg).
+          const visible = await pg.query(
+            `SELECT id FROM contacts WHERE id = $1`,
+            [contactId],
+          )
+          expect(visible.rows.length).toBe(1)
+        } finally {
+          await pg.query('ROLLBACK')
+        }
+      })
+
+      it('updates the oldest contact when duplicate emails exist', async () => {
+        await pg.query('BEGIN')
+        try {
+          const propertyId = await findProperty(CLIENT_ID)
+          if (!propertyId) return
+          // Two contacts sharing an email (no unique index — VER-256).
+          await pg.query(
+            `INSERT INTO contacts (id, first_name, last_name, mobile_e164, email, created_at) VALUES
+             ('cccccccc-0001-4000-8000-000000000001', 'Old', 'Row', '+61400000002', 'rls-strata-dup@example.test', now() - interval '2 days'),
+             ('cccccccc-0002-4000-8000-000000000002', 'New', 'Row', '+61400000003', 'rls-strata-dup@example.test', now())`,
+          )
+          await impersonate(USERS['client-admin'])
+
+          const res = await pg.query<{ r: { contact_id: string } }>(STRATA_CALL, [
+            propertyId, 'Updated', 'Name', '+61400000004', 'rls-strata-dup@example.test',
+          ])
+          expect(res.rows[0]!.r.contact_id).toBe('cccccccc-0001-4000-8000-000000000001')
+
+          await pg.query('RESET ROLE')
+          const updated = await pg.query<{ first_name: string }>(
+            `SELECT first_name FROM contacts WHERE id = 'cccccccc-0001-4000-8000-000000000001'`,
+          )
+          expect(updated.rows[0]!.first_name).toBe('Updated')
+        } finally {
+          await pg.query('ROLLBACK')
+        }
+      })
+
+      it.each(['resident', 'field', 'ranger'] as const)('rejects a %s caller', async (role) => {
+        await pg.query('BEGIN')
+        try {
+          const propertyId = await findProperty(CLIENT_ID)
+          if (!propertyId) return
+          await impersonate(USERS[role])
+
+          let err: Error | null = null
+          try {
+            await pg.query(STRATA_CALL, [
+              propertyId, 'A', 'B', '+61400000005', 'rls-strata-deny@example.test',
+            ])
+          } catch (e) {
+            err = e as Error
+          }
+          expect(err?.message ?? '').toMatch(/staff roles/i)
+        } finally {
+          await pg.query('ROLLBACK')
+        }
+      })
+
+      it('rejects a client-admin linking a contact on another tenant property', async () => {
+        const VV_CLIENT_ID = '5215645f-ca8f-4cff-8b7d-d5a8f7991ec7'
+        await pg.query('BEGIN')
+        try {
+          const propertyId = await findProperty(VV_CLIENT_ID)
+          expect(propertyId, 'fixture missing: no vergevalet eligible_properties row').not.toBeNull()
+          if (!propertyId) return
+          await impersonate(USERS['client-admin']) // Kwinana-scoped
+
+          let err: Error | null = null
+          try {
+            await pg.query(STRATA_CALL, [
+              propertyId, 'A', 'B', '+61400000006', 'rls-strata-xt@example.test',
+            ])
+          } catch (e) {
+            err = e as Error
+          }
+          expect(err?.message ?? '').toMatch(/accessible clients/i)
+        } finally {
+          await pg.query('ROLLBACK')
+        }
+      })
+    })
+
     // Date validity (20260611031624): the RPC itself must reject closed dates —
     // the form filters are app-level only and the RPC is directly callable.
     it('rejects a booking onto an ID-closed collection date', async () => {

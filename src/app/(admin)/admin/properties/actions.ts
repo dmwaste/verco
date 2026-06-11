@@ -1,5 +1,6 @@
 'use server'
 
+import { z } from 'zod'
 import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { canMarkRegistered } from '@/lib/mud/state-machine'
@@ -15,17 +16,28 @@ type MudOnboardingStatus = Database['public']['Enums']['mud_onboarding_status']
 // ----------------------------------------------------------------------------
 
 export interface StrataContactInput {
+  property_id: string
   first_name: string
   last_name: string
   mobile_e164: string
   email: string
 }
 
+const strataContactSchema = z.object({
+  property_id: z.string().uuid(),
+  first_name: z.string().trim().min(1, 'First name is required').max(100),
+  last_name: z.string().trim().min(1, 'Last name is required').max(100),
+  mobile_e164: z.string().trim().min(6, 'Mobile number is required').max(20),
+  email: z.string().trim().email('Invalid email').max(255),
+})
+
 /**
- * Looks up an existing contact by email; creates one if not found.
- * Returns the contact_id.
- *
- * full_name is a generated column on contacts — write first/last_name only.
+ * Looks up an existing contact by email; creates one if not found; links it
+ * to the property — all atomically inside the upsert_strata_contact_and_link
+ * SECURITY DEFINER RPC (VER-255). contacts has no write policies, and an
+ * INSERT…RETURNING would be RLS-blocked until the link exists (chicken-and-
+ * egg) — the RPC owns the whole sequence so no orphan/no-op states exist.
+ * Tenant + sub-client scope are enforced in the RPC via the property's area.
  */
 export async function upsertStrataContact(
   input: StrataContactInput
@@ -33,45 +45,38 @@ export async function upsertStrataContact(
   const roleCheck = await validateStaffRole()
   if (!roleCheck.ok) return roleCheck
 
+  const parsed = strataContactSchema.safeParse(input)
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0]?.message ?? 'Invalid input' }
+  }
+
   const supabase = await createClient()
 
-  const { data: existing, error: lookupError } = await supabase
-    .from('contacts')
-    .select('id')
-    .eq('email', input.email)
-    .maybeSingle()
+  // The RPC ships in the same PR as this consumer — it isn't in the
+  // generated types until the next routine regen, hence the cast
+  // (eng review D7: single-PR over the PR-A/PR-B types split).
+  const rpc = supabase.rpc.bind(supabase) as unknown as (
+    fn: string,
+    args: Record<string, unknown>
+  ) => PromiseLike<{ data: unknown; error: { message: string } | null }>
 
-  if (lookupError) return { ok: false, error: lookupError.message }
+  const { data, error } = await rpc('upsert_strata_contact_and_link', {
+    p_property_id: parsed.data.property_id,
+    p_first_name: parsed.data.first_name,
+    p_last_name: parsed.data.last_name,
+    p_mobile_e164: parsed.data.mobile_e164,
+    p_email: parsed.data.email,
+  })
 
-  if (existing) {
-    // Update name + mobile in case they've changed
-    const { error: updateError } = await supabase
-      .from('contacts')
-      .update({
-        first_name: input.first_name,
-        last_name: input.last_name,
-        mobile_e164: input.mobile_e164,
-      })
-      .eq('id', existing.id)
-    if (updateError) return { ok: false, error: updateError.message }
-    return { ok: true, data: { contact_id: existing.id } }
+  if (error) return { ok: false, error: error.message }
+
+  const contactId = (data as { contact_id?: string } | null)?.contact_id
+  if (!contactId) {
+    return { ok: false, error: 'Contact saved but no id was returned.' }
   }
 
-  const { data: created, error: createError } = await supabase
-    .from('contacts')
-    .insert({
-      first_name: input.first_name,
-      last_name: input.last_name,
-      mobile_e164: input.mobile_e164,
-      email: input.email,
-    })
-    .select('id')
-    .single()
-
-  if (createError || !created) {
-    return { ok: false, error: createError?.message ?? 'Failed to create contact' }
-  }
-  return { ok: true, data: { contact_id: created.id } }
+  revalidatePath(`/admin/properties/${parsed.data.property_id}`)
+  return { ok: true, data: { contact_id: contactId } }
 }
 
 // ----------------------------------------------------------------------------
