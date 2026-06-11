@@ -28,6 +28,7 @@ import {
   formatAuMobileDisplay,
   normaliseAuMobile,
 } from '@/lib/booking/schemas'
+import { STAFF_ROLES, type StaffRole } from '@/lib/auth/roles'
 
 const OTP_LENGTH = 6
 const RESEND_COOLDOWN_SECONDS = 30
@@ -99,6 +100,14 @@ export function ConfirmForm() {
         data: { user },
       } = await supabase.auth.getUser()
       if (!user) return
+
+      // Defence-in-depth (BR-0015 / VER-251): never prefill a staff member's
+      // own contact. Staff always book on-behalf (handled above, which returns
+      // early); reaching here as a staff user means a non-on-behalf staff
+      // booking — don't leak their contact into resident ownership. Uses the
+      // current_user_role() RPC to avoid the .single() multi-role trap (VER-185).
+      const { data: role } = await supabase.rpc('current_user_role')
+      if (role && STAFF_ROLES.includes(role as StaffRole)) return
 
       const { data: profile } = await supabase
         .from('profiles')
@@ -626,11 +635,21 @@ export function ConfirmForm() {
           id="confirm-form"
           // eslint-disable-next-line react-hooks/refs -- react-hook-form's handleSubmit reads refs at invocation time, not during render
           onSubmit={handleSubmit(onSubmit)}
+          // On-behalf bookings start with blank contact fields; suppress browser
+          // autofill so a staff member's saved credentials don't silently
+          // populate the resident's details (BR-0015 / VER-251).
+          autoComplete={onBehalf ? 'off' : 'on'}
           className="rounded-xl bg-white p-6 shadow-sm"
         >
           <h2 className="mb-3.5 font-[family-name:var(--font-heading)] text-body font-semibold text-[var(--brand)]">
             Contact Information
           </h2>
+          {onBehalf && (
+            <div className="mb-3.5 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-body-sm text-amber-800">
+              <strong>Booking on behalf of a resident.</strong> Enter the
+              resident&rsquo;s contact details below — not your own.
+            </div>
+          )}
           <div className="flex flex-col gap-2.5">
             <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
               <div>
@@ -639,7 +658,7 @@ export function ConfirmForm() {
                 </label>
                 <input
                   type="text"
-                  autoComplete="given-name"
+                  autoComplete={onBehalf ? 'off' : 'given-name'}
                   placeholder="First name"
                   {...register('first_name')}
                   className="w-full rounded-[10px] border-[1.5px] border-gray-100 bg-gray-50 px-3.5 py-3 text-sm text-gray-900 outline-none placeholder:text-gray-300 focus:border-[var(--brand)] focus:bg-white"
@@ -656,7 +675,7 @@ export function ConfirmForm() {
                 </label>
                 <input
                   type="text"
-                  autoComplete="family-name"
+                  autoComplete={onBehalf ? 'off' : 'family-name'}
                   placeholder="Last name"
                   {...register('last_name')}
                   className="w-full rounded-[10px] border-[1.5px] border-gray-100 bg-gray-50 px-3.5 py-3 text-sm text-gray-900 outline-none placeholder:text-gray-300 focus:border-[var(--brand)] focus:bg-white"
@@ -674,6 +693,7 @@ export function ConfirmForm() {
               </label>
               <input
                 type="email"
+                autoComplete={onBehalf ? 'off' : 'email'}
                 placeholder="Email address"
                 {...register('email')}
                 className="w-full rounded-[10px] border-[1.5px] border-gray-100 bg-gray-50 px-3.5 py-3 text-sm text-gray-900 outline-none placeholder:text-gray-300 focus:border-[var(--brand)] focus:bg-white"
@@ -690,6 +710,7 @@ export function ConfirmForm() {
               </label>
               <input
                 type="tel"
+                autoComplete={onBehalf ? 'off' : 'tel'}
                 placeholder="Mobile number (e.g. 0412 345 678)"
                 value={mobileDisplay}
                 onChange={handleMobileChange}
