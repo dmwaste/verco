@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { Dialog } from '@base-ui/react/dialog'
 import { useQuery } from '@tanstack/react-query'
 import { format } from 'date-fns'
@@ -78,6 +78,12 @@ export function BookingDetailClient({
   mudContext,
 }: BookingDetailClientProps) {
   const router = useRouter()
+  const listSearchParams = useSearchParams()
+  // ?from= carries the list's serialised filter state (set by the Ref link in
+  // bookings-list-client) so going back restores the user's search/filter view.
+  // Appended after `?` on a fixed path, so it can't change route or origin.
+  const fromQuery = listSearchParams.get('from')
+  const backHref = fromQuery ? `/admin/bookings?${fromQuery}` : '/admin/bookings'
   const supabase = createClient()
   const [isPending, setIsPending] = useState(false)
   const [isPaying, setIsPaying] = useState(false)
@@ -338,7 +344,7 @@ export function BookingDetailClient({
       {/* Header */}
       <div className="border-b border-gray-100 bg-white px-7 pb-5 pt-6">
         <Link
-          href="/admin/bookings"
+          href={backHref}
           className="mb-2.5 flex items-center gap-1.5 text-body-sm font-medium text-[#8FA5B8] hover:text-[#293F52]"
         >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">

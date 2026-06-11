@@ -80,6 +80,19 @@ export function BookingsListClient({ clientId, isContractorAdmin, isContractorUs
     setPage(0)
   }, [searchParams])
 
+  // Serialised filter state, carried to the detail route as ?from= so its
+  // back link can restore this list view. Filters live in client state (only
+  // the top-bar search writes the URL), so this is built from state, not
+  // from searchParams.
+  const listStateQuery = new URLSearchParams({
+    ...(search ? { search } : {}),
+    ...(statusFilter ? { status: statusFilter } : {}),
+    ...(areaFilter ? { area: areaFilter } : {}),
+    ...(typeFilter ? { type: typeFilter } : {}),
+  }).toString()
+  const detailHref = (bookingId: string) =>
+    `/admin/bookings/${bookingId}${listStateQuery ? `?from=${encodeURIComponent(listStateQuery)}` : ''}`
+
   // Fetch collection areas for filter dropdown — scoped to the selected client
   // (collection_area is public-SELECT, so without this a client-admin sees
   // every tenant's area codes).
@@ -372,7 +385,7 @@ export function BookingsListClient({ clientId, isContractorAdmin, isContractorUs
                   >
                     <td className="px-4 py-3">
                       <Link
-                        href={`/admin/bookings/${booking.id}`}
+                        href={detailHref(booking.id)}
                         className="font-[family-name:var(--font-heading)] text-body-sm font-semibold text-[#293F52] hover:underline"
                       >
                         {booking.ref}
