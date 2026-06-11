@@ -400,6 +400,7 @@ export function IdBookingForm({ collectionDates, prefill }: IdBookingFormProps) 
                   <button
                     key={v.label}
                     type="button"
+                    aria-pressed={volume.startsWith(v.label)}
                     onClick={() => setVolume(`${v.label} (${v.sub})`)}
                     className={cn(
                       'flex flex-1 flex-col items-center rounded-lg border-[1.5px] px-2 py-2.5 text-center text-xs font-medium transition-colors',
