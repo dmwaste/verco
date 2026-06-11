@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import Link from 'next/link'
+import { BackLink } from '@/components/admin/back-link'
 import type { TemplateCatalogEntry } from '../registry'
 import type { PreviewTenant } from '../preview-fixtures'
 import type { RenderedForTenant } from './page'
@@ -33,12 +33,7 @@ export function TemplateDetail({
     <div>
       {/* Header */}
       <div className="border-b border-gray-100 bg-white px-7 pb-5 pt-6">
-        <Link
-          href="/admin/notifications/templates"
-          className="mb-2 inline-flex items-center text-2xs font-medium uppercase tracking-wide text-gray-400 hover:text-[#293F52]"
-        >
-          ← Templates
-        </Link>
+        <BackLink href="/admin/notifications/templates" label="Templates" />
         <div className="flex items-start justify-between gap-3">
           <div>
             <h1 className="font-[family-name:var(--font-heading)] text-title font-semibold text-gray-900">

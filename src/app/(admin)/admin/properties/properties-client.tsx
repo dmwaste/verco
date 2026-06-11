@@ -420,22 +420,23 @@ export function PropertiesClient({ clientId, isContractorAdmin }: PropertiesClie
       )}
 
       {/* Filters */}
-      <div className="mb-4 flex flex-wrap items-center gap-3 px-7 pt-6">
-        <div className="flex-1">
+      <div className="flex flex-wrap items-center gap-2.5 px-7 py-4">
+        <div className="flex w-60 items-center gap-2 rounded-lg border-[1.5px] border-gray-100 bg-white px-3 py-[7px]">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#B0B0B0" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
           <input
             type="text"
             value={search}
             onChange={(e) => handleSearchChange(e.target.value)}
             placeholder="Search by address..."
             aria-label="Search properties"
-            className="w-full max-w-sm rounded-lg border border-gray-200 px-3.5 py-2 text-sm outline-none placeholder:text-gray-400 focus:border-[#293F52]"
+            className="w-full border-none bg-transparent text-body-sm text-gray-900 outline-none placeholder:text-gray-300"
           />
         </div>
         <select
           value={areaFilter}
           onChange={(e) => { setAreaFilter(e.target.value); setPage(0) }}
           aria-label="Filter by area"
-          className="rounded-lg border border-gray-200 px-3 py-2 text-sm"
+          className="rounded-lg border-[1.5px] border-gray-100 bg-white px-3 py-[7px] text-body-sm text-gray-700"
         >
           <option value="">All areas</option>
           {(areas ?? []).map((a) => (
@@ -446,7 +447,7 @@ export function PropertiesClient({ clientId, isContractorAdmin }: PropertiesClie
           value={mudFilter}
           onChange={(e) => { setMudFilter(e.target.value as typeof mudFilter); setPage(0) }}
           aria-label="Filter by type"
-          className="rounded-lg border border-gray-200 px-3 py-2 text-sm"
+          className="rounded-lg border-[1.5px] border-gray-100 bg-white px-3 py-[7px] text-body-sm text-gray-700"
         >
           <option value="all">All types</option>
           <option value="mud">MUD only</option>
@@ -455,10 +456,10 @@ export function PropertiesClient({ clientId, isContractorAdmin }: PropertiesClie
       </div>
 
       {/* Table */}
-      <div className="mx-7 overflow-x-auto rounded-xl border border-gray-200 bg-white">
+      <div className="mx-7 overflow-x-auto rounded-xl bg-white shadow-sm">
         <table className="w-full text-left text-sm">
           <thead>
-            <tr className="border-b border-gray-100 bg-gray-50 text-xs font-semibold uppercase tracking-wide text-gray-500">
+            <tr className="border-b border-gray-100 bg-gray-50 text-[11px] font-semibold uppercase tracking-wide text-gray-500">
               <th className="px-4 py-3">Address</th>
               <th className="px-4 py-3">Area</th>
               <th className="px-4 py-3 text-center">Type</th>

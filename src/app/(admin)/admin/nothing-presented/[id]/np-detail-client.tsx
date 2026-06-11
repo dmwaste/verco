@@ -10,6 +10,7 @@ import { getStatusStyle } from '@/lib/ui/status-styles'
 import type { Database } from '@/lib/supabase/types'
 import type { ResolvedAuditEntry } from '@/lib/audit/resolve'
 import { AuditTimeline } from '@/components/audit-timeline'
+import { BackLink } from '@/components/admin/back-link'
 
 type NpStatus = Database['public']['Enums']['np_status']
 
@@ -123,15 +124,7 @@ export function NpDetailClient({ np, availableDates, auditLogs }: NpDetailClient
     <div className="flex flex-1 flex-col">
       {/* Header */}
       <div className="border-b border-gray-100 bg-white px-7 pb-5 pt-6">
-        <Link
-          href="/admin/nothing-presented"
-          className="mb-2.5 flex items-center gap-1.5 text-body-sm font-medium text-[#8FA5B8]"
-        >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-            <polyline points="15 18 9 12 15 6" />
-          </svg>
-          Nothing Presented
-        </Link>
+        <BackLink href="/admin/nothing-presented" label="Nothing Presented" />
         <div className="flex items-start justify-between">
           <div>
             <h1 className="font-[family-name:var(--font-heading)] text-xl font-bold text-[#293F52]">

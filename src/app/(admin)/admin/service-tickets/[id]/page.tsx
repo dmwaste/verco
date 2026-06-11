@@ -132,8 +132,7 @@ export default async function AdminTicketDetailPage({
   }))
 
   return (
-    <div className="p-6">
-      <AdminTicketDetailClient
+    <AdminTicketDetailClient
         ticket={{
           id: ticket.id,
           displayId: ticket.display_id,
@@ -155,6 +154,5 @@ export default async function AdminTicketDetailPage({
         linkedBooking={linkedBooking}
         auditLogs={auditLogs}
       />
-    </div>
   )
 }

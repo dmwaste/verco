@@ -51,7 +51,7 @@ export function NewClientForm() {
   }
 
   return (
-    <form onSubmit={handleSubmit(onSubmit)} className="max-w-lg rounded-xl bg-white p-6 shadow-sm">
+    <form onSubmit={handleSubmit(onSubmit)} className="mx-auto w-full max-w-lg rounded-xl bg-white p-6 shadow-sm">
       <div className="mb-5">
         <label className="mb-1.5 block text-body-sm font-medium text-gray-700">
           Client Name <span className="text-red-500">*</span>
@@ -129,20 +129,20 @@ export function NewClientForm() {
         </div>
       )}
 
-      <div className="flex gap-3">
-        <button
-          type="submit"
-          disabled={isSubmitting}
-          className="rounded-lg bg-[#293F52] px-5 py-2.5 text-body-sm font-semibold text-white disabled:opacity-50"
-        >
-          {isSubmitting ? 'Creating...' : 'Create Client'}
-        </button>
+      <div className="flex justify-end gap-2">
         <Link
           href="/admin/clients"
-          className="rounded-lg border-[1.5px] border-gray-100 bg-white px-5 py-2.5 text-body-sm font-semibold text-gray-700"
+          className="rounded-lg border-[1.5px] border-gray-100 bg-white px-4 py-2 text-body-sm font-semibold text-[#293F52] transition-colors hover:bg-gray-50"
         >
           Cancel
         </Link>
+        <button
+          type="submit"
+          disabled={isSubmitting}
+          className="rounded-lg bg-[#293F52] px-4 py-2 text-body-sm font-semibold text-white transition-colors hover:bg-[#1e3040] disabled:opacity-50"
+        >
+          {isSubmitting ? 'Creating...' : 'Create Client'}
+        </button>
       </div>
     </form>
   )

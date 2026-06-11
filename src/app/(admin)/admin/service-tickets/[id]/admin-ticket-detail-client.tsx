@@ -9,6 +9,7 @@ import { getStatusStyle } from '@/lib/ui/status-styles'
 import type { Database } from '@/lib/supabase/types'
 import type { ResolvedAuditEntry } from '@/lib/audit/resolve'
 import { AuditTimeline } from '@/components/audit-timeline'
+import { BackLink } from '@/components/admin/back-link'
 
 type TicketStatus = Database['public']['Enums']['ticket_status']
 type TicketPriority = Database['public']['Enums']['ticket_priority']
@@ -196,33 +197,31 @@ export function AdminTicketDetailClient({
   const internalNotes = responses.filter((r) => r.isInternal)
 
   return (
-    <div className="flex flex-col">
-      {/* Back link */}
-      <Link
-        href="/admin/service-tickets"
-        className="mb-4 flex items-center gap-1.5 text-body-sm font-medium text-[#8FA5B8]"
-      >
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-          <polyline points="15 18 9 12 15 6" />
-        </svg>
-        Service Tickets
-      </Link>
+    <div className="flex flex-1 flex-col">
+      {/* Header */}
+      <div className="border-b border-gray-100 bg-white px-7 pb-5 pt-6">
+        <BackLink href="/admin/service-tickets" label="Service Tickets" />
+        <div className="flex items-start justify-between">
+          <div>
+            <h1 className="font-[family-name:var(--font-heading)] text-xl font-bold text-[#293F52]">
+              {ticket.subject}
+            </h1>
+            <p className="mt-0.5 font-mono text-body-sm text-gray-400">{ticket.displayId}</p>
+          </div>
+          <span className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${statusStyle.bg} ${statusStyle.text}`}>
+            {statusStyle.label}
+          </span>
+        </div>
+      </div>
 
+      {/* Content */}
+      <div className="flex-1 px-7 py-5">
       <div className="flex flex-col gap-4 lg:flex-row">
         {/* LEFT COLUMN — 2/3 */}
         <div className="flex flex-1 flex-col gap-4 lg:w-2/3">
-          {/* Ticket header */}
+          {/* Ticket meta */}
           <div className="rounded-xl bg-white p-5 shadow-sm">
-            <div className="mb-2 flex items-center justify-between">
-              <span className="font-mono text-body-sm text-gray-400">{ticket.displayId}</span>
-              <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${statusStyle.bg} ${statusStyle.text}`}>
-                {statusStyle.label}
-              </span>
-            </div>
-            <h1 className="font-[family-name:var(--font-heading)] text-lg font-bold text-[#293F52]">
-              {ticket.subject}
-            </h1>
-            <div className="mt-2 flex flex-wrap items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <span className="rounded-full border border-gray-200 px-2.5 py-0.5 text-[11px] text-gray-500">
                 {CATEGORY_LABELS[ticket.category]}
               </span>
@@ -351,18 +350,20 @@ export function AdminTicketDetailClient({
             {sendError && (
               <div className="mt-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-body-sm text-red-700">{sendError}</div>
             )}
-            <button
-              type="button"
-              onClick={handleSendReply}
-              disabled={isSending || !replyText.trim()}
-              className={`mt-3 flex w-full items-center justify-center gap-2 rounded-xl px-3.5 py-3 font-[family-name:var(--font-heading)] text-body font-semibold transition-opacity hover:opacity-90 disabled:opacity-50 ${
-                replyMode === 'internal'
-                  ? 'bg-amber-500 text-white'
-                  : 'bg-[#00E47C] text-[#293F52]'
-              }`}
-            >
-              {isSending ? 'Sending...' : replyMode === 'reply' ? 'Send Reply' : 'Add Internal Note'}
-            </button>
+            <div className="mt-3 flex justify-end">
+              <button
+                type="button"
+                onClick={handleSendReply}
+                disabled={isSending || !replyText.trim()}
+                className={`flex items-center justify-center gap-2 rounded-xl px-5 py-2.5 font-[family-name:var(--font-heading)] text-body-sm font-semibold transition-opacity hover:opacity-90 disabled:opacity-50 ${
+                  replyMode === 'internal'
+                    ? 'bg-amber-500 text-white'
+                    : 'bg-[#00E47C] text-[#293F52]'
+                }`}
+              >
+                {isSending ? 'Sending...' : replyMode === 'reply' ? 'Send Reply' : 'Add Internal Note'}
+              </button>
+            </div>
           </div>
         </div>
 
@@ -535,6 +536,7 @@ export function AdminTicketDetailClient({
             </div>
           )}
         </div>
+      </div>
       </div>
     </div>
   )
