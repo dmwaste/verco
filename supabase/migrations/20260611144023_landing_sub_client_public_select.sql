@@ -19,9 +19,24 @@
 --
 -- Permissive policies are OR'd, so staff keep their existing scoped access
 -- and additionally gain active-row read (harmless — public names).
+--
+-- Idempotent via a NOT EXISTS guard (Postgres has no CREATE POLICY IF NOT
+-- EXISTS, and DROP-then-CREATE is avoided per the repo's destructive-SQL
+-- guardrail): the policy was applied to prod ahead of release so the landing
+-- could be previewed in dev, so the release db-push must tolerate it already
+-- existing rather than erroring out (which would ghost the release).
 
-CREATE POLICY "sub_client_public_select_active"
-  ON public.sub_client
-  FOR SELECT
-  TO anon, authenticated
-  USING (is_active = true);
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policy
+    WHERE polname = 'sub_client_public_select_active'
+      AND polrelid = 'public.sub_client'::regclass
+  ) THEN
+    CREATE POLICY "sub_client_public_select_active"
+      ON public.sub_client
+      FOR SELECT
+      TO anon, authenticated
+      USING (is_active = true);
+  END IF;
+END $$;
