@@ -164,6 +164,33 @@ export function normaliseStreetTypes(s: string): string {
 }
 
 /**
+ * True when every matched `eligible_properties` row refers to the SAME physical
+ * property, so the booking flow can safely auto-resolve to the first row instead
+ * of bailing to "not eligible".
+ *
+ * Duplicate imports are common: ~1,000 VV addresses exist as 2+ rows sharing a
+ * `google_place_id` (same place imported twice into one area, or a mis-sourced
+ * row geocoded into a second area). The eligibility lookup previously used
+ * `.maybeSingle()` / a `length === 1` guard, both of which treat 2 rows as an
+ * error and report an eligible address as "not eligible".
+ *
+ * Distinct houses share NEITHER `google_place_id` NOR `formatted_address`, so
+ * returning false for them preserves the VER-214 wrong-prefix protection (never
+ * silently resolve an ambiguous street match to the wrong house).
+ */
+export function rowsAreSameProperty(
+  rows: Array<{ google_place_id: string | null; formatted_address: string | null }>
+): boolean {
+  if (rows.length <= 1) return true
+  const first = rows[0]!
+  return rows.every((r) =>
+    first.google_place_id
+      ? r.google_place_id === first.google_place_id
+      : r.formatted_address != null && r.formatted_address === first.formatted_address
+  )
+}
+
+/**
  * Builds an ordered list of distinct lookup candidates for a resident's input.
  * The caller tries each in turn (place_id match on the first, ILIKE-only on
  * the rest) until one resolves.
