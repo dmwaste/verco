@@ -292,33 +292,33 @@ test.describe('Booking Flow', () => {
     await expect(page.getByText('Property found!')).toBeVisible()
 
     // Click continue
-    await page.getByRole('button', { name: /Book New Collection/ }).click()
+    await page.getByRole('button', { name: /Book new collection/i }).click()
 
     // Step 2: Services
     await expect(page).toHaveURL(/\/book\/services/)
-    await expect(page.getByText('Select Services')).toBeVisible()
+    await expect(page.getByText('Select services')).toBeVisible()
 
     // Increment General Waste to 1
     const incrementButtons = page.locator('button:has-text("+")').first()
     await incrementButtons.click()
 
     // Click Next Step
-    await page.getByRole('button', { name: /Next Step/ }).click()
+    await page.getByRole('button', { name: /Next step/i }).click()
 
     // Step 3: Date
     await expect(page).toHaveURL(/\/book\/date/)
 
-    // Select the first available date
-    const dateButton = page.getByText(/spots/).first()
+    // Select the first available date in the calendar (cells are labelled by status)
+    const dateButton = page.getByRole('button', { name: /available/i }).first()
     await dateButton.click()
 
-    await page.getByRole('button', { name: /Next Step/ }).click()
+    await page.getByRole('button', { name: /Next step/i }).click()
 
     // Step 4: Details
     await expect(page).toHaveURL(/\/book\/details/)
 
     // Front Verge should be default, just click Next
-    await page.getByRole('button', { name: /Next Step/ }).click()
+    await page.getByRole('button', { name: /Next step/i }).click()
 
     // Step 5: Confirm
     await expect(page).toHaveURL(/\/book\/confirm/)
@@ -472,14 +472,15 @@ test.describe('Booking Flow', () => {
     await page.getByPlaceholder('Email address').fill('jane@example.com')
     await page.getByPlaceholder(/Mobile number/).fill('0412345678')
 
-    // Verify "Included in Allocation" section shows the free item
-    await expect(page.getByText('Included in Allocation')).toBeVisible()
+    // Verify "Included in allocation" section shows the free item under the
+    // Service/Qty/Amount table (per-row "Included" badge retired for a Qty column).
+    await expect(page.getByText('Included in allocation')).toBeVisible()
     await expect(page.getByText(/General Waste/)).toBeVisible()
-    await expect(page.getByText('Included', { exact: true })).toBeVisible()
+    await expect(page.getByText('Qty', { exact: true })).toBeVisible()
 
-    // Verify "Extra Services" section shows the paid item
-    await expect(page.getByText('Extra Services')).toBeVisible()
-    await expect(page.getByText(/Mattress × 1/)).toBeVisible()
+    // Verify "Extra services" section shows the paid item
+    await expect(page.getByText('Extra services')).toBeVisible()
+    await expect(page.getByText(/Mattress/).first()).toBeVisible()
 
     // Verify total block shows $60.00
     await expect(page.getByTestId('booking-total')).toContainText('$60.00')
