@@ -81,8 +81,8 @@ test.describe('Allocation swap — services step', () => {
     )
 
     // Both category sections render (exact, to avoid matching the checkbox copy).
-    await expect(page.getByText('Bulk Collection', { exact: true })).toBeVisible()
-    await expect(page.getByText('Ancillary Collection', { exact: true })).toBeVisible()
+    await expect(page.getByText('Bulk collection', { exact: true })).toBeVisible()
+    await expect(page.getByText('Ancillary collection', { exact: true })).toBeVisible()
 
     // The swap checkbox is offered (eligible: rule + 0 ancillary used + no swap).
     await expect(page.getByText(/Swap your 3 ancillary collections/i)).toBeVisible()
