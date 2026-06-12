@@ -5,6 +5,7 @@ import {
   BookingItemSchema,
   ContactSchema,
   LOCATION_OPTIONS,
+  STAFF_LOCATION_OPTION,
 } from '@/lib/booking/schemas'
 
 describe('normaliseAuMobile', () => {
@@ -144,7 +145,11 @@ describe('ContactSchema', () => {
 })
 
 describe('LOCATION_OPTIONS', () => {
-  it('contains exactly the expected options', () => {
-    expect(LOCATION_OPTIONS).toEqual(['Front Verge', 'Side Verge', 'Driveway', 'Laneway'])
+  it('contains exactly the expected resident options', () => {
+    expect(LOCATION_OPTIONS).toEqual(['Front Verge', 'Side Verge', 'Driveway', 'Rear Verge'])
+  })
+  it('keeps Other as a staff-only option, out of the resident list', () => {
+    expect(LOCATION_OPTIONS).not.toContain('Other')
+    expect(STAFF_LOCATION_OPTION).toBe('Other')
   })
 })

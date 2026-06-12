@@ -184,7 +184,7 @@ export function DateForm() {
       <div className="flex flex-1 flex-col gap-4 overflow-y-auto pb-24 pt-6">
         <div>
           <h1 className="font-[family-name:var(--font-heading)] text-title font-bold leading-tight text-[var(--brand)]">
-            Select Collection Date
+            Select collection date
           </h1>
           <p className="mt-1 text-body-sm leading-relaxed text-gray-500">
             Choose a date for your collection at{' '}
@@ -196,7 +196,7 @@ export function DateForm() {
         {!isLoadingData && neededBuckets && neededBuckets.serviceChips.length > 0 && (
           <div className="rounded-xl bg-white px-4 py-3.5 shadow-sm">
             <div className="mb-2 text-xs font-medium text-gray-500">
-              Selected Services
+              Selected services
             </div>
             <div className="flex flex-wrap gap-2">
               {neededBuckets.serviceChips.map((chip) => (
@@ -223,7 +223,7 @@ export function DateForm() {
         {!isLoadingData && (
           <div>
             <h2 className="mb-3 font-[family-name:var(--font-heading)] text-base font-semibold text-[var(--brand)]">
-              Available Dates
+              Available dates
             </h2>
             <div className="grid grid-cols-3 gap-2">
               {availableDates.map((d) => {
@@ -233,8 +233,16 @@ export function DateForm() {
                   0,
                   cap.bulk_capacity_limit - cap.bulk_units_booked
                 )
-                const isAlmostFull = spotsRemaining <= 10 && spotsRemaining > 0
                 const dateObj = new Date(d.date + 'T00:00:00')
+                // Availability pill replaces the raw spot count. Closed is a
+                // defensive edge — full/closed dates are already filtered out
+                // upstream, so in practice only Available / Low Availability show.
+                const availability =
+                  spotsRemaining === 0
+                    ? { label: 'Closed', cls: 'border-[#E53E3E] bg-[#FFF0F0] text-[#E53E3E]' }
+                    : spotsRemaining <= 10
+                      ? { label: 'Low Availability', cls: 'border-[#E2A23B] bg-[#FFF7E6] text-[#B7791F]' }
+                      : { label: 'Available', cls: 'border-[var(--brand-accent-dark)] bg-[var(--brand-accent-light)] text-[#006A38]' }
 
                 return (
                   <button
@@ -258,22 +266,15 @@ export function DateForm() {
                     </span>
                     <span
                       className={cn(
-                        'text-[11px]',
-                        isSelected
-                          ? 'text-green-200/85'
-                          : 'text-gray-500'
+                        'inline-flex w-fit items-center rounded-full border px-2 py-0.5 text-[10px] font-medium leading-tight',
+                        availability.cls
                       )}
                     >
-                      {spotsRemaining} spots
+                      {availability.label}
                     </span>
                     {isSelected && (
                       <span className="text-2xs font-medium text-[var(--brand-accent)]">
                         Selected &#10003;
-                      </span>
-                    )}
-                    {!isSelected && isAlmostFull && (
-                      <span className="text-2xs font-medium text-[#FF8C42]">
-                        Almost full
                       </span>
                     )}
                   </button>
@@ -305,7 +306,7 @@ export function DateForm() {
           onClick={handleContinue}
           disabled={!selectedDateId || isLoadingData}
         >
-          Next Step &rarr;
+          Next step &rarr;
         </VercoButton>
       </div>
     </div>

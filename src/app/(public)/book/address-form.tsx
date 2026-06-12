@@ -10,6 +10,7 @@ import { AddressAutocomplete } from '@/components/booking/address-autocomplete'
 import { Spinner } from '@/components/ui/spinner'
 import { VercoButton } from '@/components/ui/verco-button'
 import { stripAddressPrefix } from '@/lib/mud/address-strip'
+import { formatFinancialYearLabel } from '@/lib/booking/financial-year'
 import {
   addressMatchKey as buildAddressMatchKey,
   buildAddressIlikePattern,
@@ -35,7 +36,13 @@ const PropertyMap = dynamic(
 // Re-export under the local name so the rest of this file reads the same.
 const addressMatchKey = buildAddressMatchKey
 
-export function AddressForm({ clientId }: { clientId: string }) {
+export function AddressForm({
+  clientId,
+  serviceName,
+}: {
+  clientId: string
+  serviceName: string
+}) {
   const router = useRouter()
   const searchParams = useSearchParams()
   const supabase = createClient()
@@ -252,7 +259,7 @@ export function AddressForm({ clientId }: { clientId: string }) {
       <div className="flex flex-1 flex-col gap-4 overflow-y-auto pb-24 pt-6">
         <div>
           <h1 className="font-[family-name:var(--font-heading)] text-title font-bold leading-tight text-[var(--brand)]">
-            Book a Collection
+            Book a collection
           </h1>
           <p className="mt-1 text-body-sm leading-relaxed text-gray-500">
             Enter your property address to check eligibility and view
@@ -280,7 +287,7 @@ export function AddressForm({ clientId }: { clientId: string }) {
               <div>
                 <div className="font-semibold">Property found!</div>
                 <div className="mt-px text-xs font-normal">
-                  This property qualifies for verge collection services.
+                  This property qualifies for {serviceName} collection services.
                 </div>
               </div>
             </div>
@@ -293,7 +300,9 @@ export function AddressForm({ clientId }: { clientId: string }) {
               <div>
                 <div className="font-semibold">Address not eligible</div>
                 <div className="mt-px text-xs font-normal">
-                  This address is not registered for verge collection services.
+                  This address is not eligible for {serviceName} collection
+                  services. Please contact your local council for further
+                  details.
                 </div>
               </div>
             </div>
@@ -336,7 +345,7 @@ export function AddressForm({ clientId }: { clientId: string }) {
                 <span className="text-base text-[var(--brand-accent-dark)]" aria-hidden="true">&#x1F4CD;</span>
                 <div>
                   <div className="text-body-sm font-semibold text-[var(--brand)]">
-                    Property Location
+                    Property location
                   </div>
                   <div className="mt-px text-xs text-[var(--brand-accent-dark)]">
                     {selectedProperty.formatted_address ??
@@ -382,7 +391,8 @@ export function AddressForm({ clientId }: { clientId: string }) {
               <div className="mb-3.5 flex items-center gap-2">
                 <span className="text-base" aria-hidden="true">&#x1F4E6;</span>
                 <span className="font-[family-name:var(--font-heading)] text-sm font-semibold text-[var(--brand)]">
-                  Service Allocations &mdash; {allocationData.fy.label}
+                  Service allocations &mdash;{' '}
+                  {formatFinancialYearLabel(allocationData.fy.label)}
                 </span>
               </div>
 
@@ -414,7 +424,7 @@ export function AddressForm({ clientId }: { clientId: string }) {
               </div>
 
               <VercoButton type="button" onClick={handleContinue} className="mt-4 w-full">
-                Book New Collection &rarr;
+                Book new collection &rarr;
               </VercoButton>
             </div>
           </div>
@@ -426,7 +436,8 @@ export function AddressForm({ clientId }: { clientId: string }) {
             <div className="mb-3 flex items-center gap-2">
               <span className="text-base" aria-hidden="true">&#x1F550;</span>
               <span className="font-[family-name:var(--font-heading)] text-sm font-semibold text-[var(--brand)]">
-                Booking History &mdash; {allocationData.fy.label}
+                Booking history &mdash;{' '}
+                {formatFinancialYearLabel(allocationData.fy.label)}
               </span>
             </div>
 
