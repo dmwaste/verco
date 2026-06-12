@@ -5,6 +5,7 @@ import {
   buildEligibleOrFilter,
   normaliseStreetTypes,
   buildLookupCandidates,
+  rowsAreSameProperty,
 } from '@/lib/booking/address-match-key'
 import { stripAddressPrefix } from '@/lib/mud/address-strip'
 
@@ -266,5 +267,54 @@ describe('buildLookupCandidates', () => {
     // No prefix to strip and no abbreviable street type — single candidate.
     const out = buildLookupCandidates('10 Eagle Heights, Perth', stripAddressPrefix)
     expect(out).toEqual(['10 Eagle Heights, Perth'])
+  })
+})
+
+describe('rowsAreSameProperty', () => {
+  it('returns true for a single row', () => {
+    expect(
+      rowsAreSameProperty([{ google_place_id: 'abc', formatted_address: 'X' }])
+    ).toBe(true)
+  })
+
+  it('returns true for an empty array', () => {
+    expect(rowsAreSameProperty([])).toBe(true)
+  })
+
+  it('returns true for duplicate imports sharing a google_place_id (the 6 Grant St case)', () => {
+    // Same place_id mapped into two collection areas — same physical property.
+    expect(
+      rowsAreSameProperty([
+        { google_place_id: 'ChIJUz_DpYOmMioR4Ra1b_zsDxk', formatted_address: '6 Grant St, Cottesloe WA 6011, Australia' },
+        { google_place_id: 'ChIJUz_DpYOmMioR4Ra1b_zsDxk', formatted_address: '6 Grant St, Cottesloe WA 6011, Australia' },
+      ])
+    ).toBe(true)
+  })
+
+  it('returns false when rows are genuinely different houses (preserves VER-214)', () => {
+    expect(
+      rowsAreSameProperty([
+        { google_place_id: 'place-a', formatted_address: '32 Lake St, Perth WA 6000, Australia' },
+        { google_place_id: 'place-b', formatted_address: '232 Lake St, Perth WA 6000, Australia' },
+      ])
+    ).toBe(false)
+  })
+
+  it('falls back to formatted_address when google_place_id is null', () => {
+    expect(
+      rowsAreSameProperty([
+        { google_place_id: null, formatted_address: '18 Sulphur Rd, Kwinana WA 6167, Australia' },
+        { google_place_id: null, formatted_address: '18 Sulphur Rd, Kwinana WA 6167, Australia' },
+      ])
+    ).toBe(true)
+  })
+
+  it('returns false when google_place_id is null and formatted_address differs', () => {
+    expect(
+      rowsAreSameProperty([
+        { google_place_id: null, formatted_address: '18 Sulphur Rd, Kwinana WA 6167, Australia' },
+        { google_place_id: null, formatted_address: '20 Sulphur Rd, Kwinana WA 6167, Australia' },
+      ])
+    ).toBe(false)
   })
 })

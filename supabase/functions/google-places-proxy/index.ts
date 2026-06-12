@@ -100,11 +100,12 @@ serve(async (req) => {
     }
 
     // Autocomplete mode
-    const { input, session_token, types, components } = body as {
+    const { input, session_token, types, components, state } = body as {
       input: string
       session_token?: string
       types?: string
       components?: string
+      state?: string
     }
 
     if (!input || input.length < 2) {
@@ -114,6 +115,18 @@ serve(async (req) => {
       )
     }
 
+    // State biasing + restriction. D&M operates WA-only, so callers pass
+    // `state: 'WA'` to (a) bias Google's ranking toward the state's population
+    // centre — a server-side proxy carries no caller location, so without this
+    // a common street name (e.g. "Grant St") surfaces interstate matches ahead
+    // of the WA one — and (b) hard-filter the returned descriptions to that
+    // state so nothing interstate is ever shown. Allowlisted: the regex below
+    // is built only from a known state key, never raw input.
+    const STATE_BIAS: Record<string, { location: string; radius: number }> = {
+      WA: { location: '-31.9523,115.8613', radius: 200000 }, // Perth metro — covers all current tenants
+    }
+    const stateKey = state && state in STATE_BIAS ? state : undefined
+
     const url = new URL('https://maps.googleapis.com/maps/api/place/autocomplete/json')
     url.searchParams.set('input', input)
     url.searchParams.set('key', apiKey)
@@ -121,6 +134,10 @@ serve(async (req) => {
     if (types) url.searchParams.set('types', types)
     if (components) url.searchParams.set('components', components)
     if (session_token) url.searchParams.set('sessiontoken', session_token)
+    if (stateKey) {
+      url.searchParams.set('location', STATE_BIAS[stateKey].location)
+      url.searchParams.set('radius', String(STATE_BIAS[stateKey].radius))
+    }
 
     const res = await fetch(url.toString())
     const data = await res.json()
@@ -133,13 +150,22 @@ serve(async (req) => {
       )
     }
 
-    // Filter to only return place_id and description
-    const predictions = (data.predictions ?? []).map(
+    // Filter to only return place_id and description, then enforce the state
+    // restriction. AU autocomplete descriptions carry the state abbreviation
+    // (e.g. "6 Grant Street, Cottesloe WA 6011, Australia"); no other AU state
+    // token contains "WA", so a word-boundary match is unambiguous.
+    let predictions = (data.predictions ?? []).map(
       (p: { place_id: string; description: string }) => ({
         place_id: p.place_id,
         description: p.description,
       })
     )
+    if (stateKey) {
+      const stateRe = new RegExp(`\\b${stateKey}\\b`)
+      predictions = predictions.filter((p: { description: string }) =>
+        stateRe.test(p.description)
+      )
+    }
 
     return new Response(
       JSON.stringify({ predictions }),

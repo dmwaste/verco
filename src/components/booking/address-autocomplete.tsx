@@ -65,6 +65,8 @@ export function AddressAutocomplete({
           session_token: sessionTokenRef.current,
           types: 'address',
           components: 'country:au',
+          // D&M operates WA-only — bias ranking to WA and drop interstate matches.
+          state: 'WA',
         })
 
         if (data?.predictions && Array.isArray(data.predictions)) {
