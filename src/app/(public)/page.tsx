@@ -146,57 +146,51 @@ export default async function LandingPage() {
 
   return (
     <div className="flex min-h-screen flex-col">
-      {/* Hero */}
-      <section
-        className={`relative px-8 py-20 lg:px-20 lg:py-24${branding.hero_banner_url ? '' : ' bg-gradient-to-br from-[var(--brand-hover)] via-[var(--brand)] to-[color-mix(in_srgb,var(--brand)_60%,white)]'}`}
-        style={branding.hero_banner_url ? { backgroundImage: `url("${branding.hero_banner_url}")`, backgroundSize: 'cover', backgroundPosition: 'center' } : undefined}
-      >
-        {/* Tenant hero banner present → lay a left-weighted brand scrim over the
-            image so the white headline + accent tag stay legible (heavy left
-            where the text sits, fading right where the banner shows). No banner
-            → the brand gradient on the section itself is the backdrop. */}
-        {branding.hero_banner_url && (
-          <div
-            className="pointer-events-none absolute inset-0"
-            style={{ background: 'linear-gradient(to right, color-mix(in srgb, var(--brand) 92%, transparent), color-mix(in srgb, var(--brand) 72%, transparent) 50%, color-mix(in srgb, var(--brand) 30%, transparent))' }}
+      {/* Hero — a custom tenant banner replaces the default hero outright (the
+          council's banner is self-contained, so no gradient or overlaid text).
+          Without one, the brand gradient hero with headline + subheading shows.
+          The address search lives in the section below, so it survives either
+          way (a custom banner would otherwise swallow it). */}
+      {branding.hero_banner_url ? (
+        <section className="relative">
+          {/* eslint-disable-next-line @next/next/no-img-element -- tenant-supplied banner from Supabase storage; next/image remote patterns aren't configured for client assets */}
+          <img
+            src={branding.hero_banner_url}
+            alt={`${branding.name} — Bulk Verge Collection`}
+            className="block w-full"
           />
-        )}
-        {/* Decorative radials — use accent colour. Clipped to the hero so they
-            don't leak; kept in a sibling layer so the autocomplete dropdown can
-            extend below the hero without being cut off. */}
-        <div className="pointer-events-none absolute inset-0 overflow-hidden">
-          <div className="absolute -right-32 -top-32 size-[500px] rounded-full" style={{ background: 'radial-gradient(circle, color-mix(in srgb, var(--brand-accent) 12%, transparent) 0%, transparent 70%)' }} />
-          <div className="absolute -bottom-20 -left-20 size-[400px] rounded-full" style={{ background: 'radial-gradient(circle, color-mix(in srgb, var(--brand-accent) 6%, transparent) 0%, transparent 70%)' }} />
-        </div>
-
-        <div className="relative z-10 max-w-[640px]">
-          {/* Tenant tag */}
-          <div className="mb-5 inline-flex items-center gap-1.5 rounded-full border border-[var(--brand-accent)]/30 bg-[var(--brand-accent)]/15 px-3.5 py-1.5 text-xs md:text-sm font-semibold text-[var(--brand-accent)]">
-            <div className="size-1.5 rounded-full bg-[var(--brand-accent)]" />
-            {branding.name} &middot; Bulk Verge Collection
+        </section>
+      ) : (
+        <section className="relative bg-gradient-to-br from-[var(--brand-hover)] via-[var(--brand)] to-[color-mix(in_srgb,var(--brand)_60%,white)] px-8 py-20 lg:px-20 lg:py-24">
+          {/* Decorative radials — use accent colour. Clipped to the hero so they
+              don't leak. */}
+          <div className="pointer-events-none absolute inset-0 overflow-hidden">
+            <div className="absolute -right-32 -top-32 size-[500px] rounded-full" style={{ background: 'radial-gradient(circle, color-mix(in srgb, var(--brand-accent) 12%, transparent) 0%, transparent 70%)' }} />
+            <div className="absolute -bottom-20 -left-20 size-[400px] rounded-full" style={{ background: 'radial-gradient(circle, color-mix(in srgb, var(--brand-accent) 6%, transparent) 0%, transparent 70%)' }} />
           </div>
 
-          <h1 className="mb-5 font-[family-name:var(--font-heading)] text-4xl md:text-5xl font-bold leading-[1.1] text-white lg:text-[52px]">
-            {headline.split('\n').map((line, i) => (
-              <span key={i}>
-                {i > 0 && <br />}
-                {i === 1 ? <span className="text-[var(--brand-accent)]">{line}</span> : line}
-              </span>
-            ))}
-          </h1>
+          <div className="relative z-10 max-w-[640px]">
+            {/* Tenant tag */}
+            <div className="mb-5 inline-flex items-center gap-1.5 rounded-full border border-[var(--brand-accent)]/30 bg-[var(--brand-accent)]/15 px-3.5 py-1.5 text-xs md:text-sm font-semibold text-[var(--brand-accent)]">
+              <div className="size-1.5 rounded-full bg-[var(--brand-accent)]" />
+              {branding.name} &middot; Bulk Verge Collection
+            </div>
 
-          <p className="mb-10 max-w-[520px] text-base md:text-lg leading-relaxed text-[#C7D3DD] lg:text-lg">
-            {subheading}
-          </p>
+            <h1 className="mb-5 font-[family-name:var(--font-heading)] text-4xl md:text-5xl font-bold leading-[1.1] text-white lg:text-[52px]">
+              {headline.split('\n').map((line, i) => (
+                <span key={i}>
+                  {i > 0 && <br />}
+                  {i === 1 ? <span className="text-[var(--brand-accent)]">{line}</span> : line}
+                </span>
+              ))}
+            </h1>
 
-          {/* Search box */}
-          <HeroSearch />
-
-          <p className="mt-2.5 text-xs md:text-sm text-[#8FA5B8]">
-            e.g. 12 Main Street, Perth WA 6000
-          </p>
-        </div>
-      </section>
+            <p className="max-w-[520px] text-base md:text-lg leading-relaxed text-[#C7D3DD] lg:text-lg">
+              {subheading}
+            </p>
+          </div>
+        </section>
+      )}
 
       {/* Features */}
       <section className="bg-white px-8 py-[72px] lg:px-20">
@@ -207,10 +201,20 @@ export default async function LandingPage() {
         <h2 className="mb-3 font-[family-name:var(--font-heading)] text-3xl md:text-4xl font-bold text-[var(--brand)] lg:text-4xl">
           Fast, Simple, Paperless
         </h2>
-        <p className="mb-14 max-w-[520px] text-base md:text-lg text-gray-500">
+        <p className="mb-8 max-w-[520px] text-base md:text-lg text-gray-500">
           Book your collection from any device in under 3 minutes. No phone
           calls, no paperwork.
         </p>
+
+        {/* Primary address search — relocated here from the hero so a custom
+            tenant banner can own the hero without dropping the main CTA. */}
+        <div className="mb-14 max-w-[560px]">
+          <HeroSearch />
+          <p className="mt-2.5 text-xs md:text-sm text-gray-400">
+            e.g. 12 Main Street, Perth WA 6000
+          </p>
+        </div>
+
         <div className="grid gap-8 md:grid-cols-3">
           {FEATURES.map((feature) => (
             <div key={feature.title} className="flex flex-col gap-3">
