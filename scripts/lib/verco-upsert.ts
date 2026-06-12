@@ -38,6 +38,38 @@ export async function upsertEligibleProperties(
 }
 
 /**
+ * Fetch all existing google_place_ids for the given collection areas, used by
+ * the physical-property dedup so a re-run doesn't re-create a duplicate after
+ * the dedupe migration deleted one copy (its Airtable record_id would otherwise
+ * look "new" to fetchExistingExternalIds). Pass the client's area UUIDs.
+ */
+export async function fetchExistingPlaceIds(
+  verco: SupabaseClient,
+  areaIds: string[],
+): Promise<Set<string>> {
+  const out = new Set<string>()
+  if (areaIds.length === 0) return out
+  const PAGE = 1000
+  let from = 0
+  while (true) {
+    const { data, error } = await verco
+      .from('eligible_properties')
+      .select('google_place_id')
+      .in('collection_area_id', areaIds)
+      .not('google_place_id', 'is', null)
+      .range(from, from + PAGE - 1)
+    if (error) throw new Error(`fetchExistingPlaceIds: ${error.message}`)
+    if (!data || data.length === 0) break
+    for (const r of data) {
+      if (r.google_place_id) out.add(r.google_place_id)
+    }
+    if (data.length < PAGE) break
+    from += PAGE
+  }
+  return out
+}
+
+/**
  * Fetch all existing external_ids for a given source, used by the import
  * pre-filter so re-runs skip already-imported rows.
  */
