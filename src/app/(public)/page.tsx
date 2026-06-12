@@ -10,6 +10,7 @@ interface ClientBranding {
   landing_headline: string | null
   landing_subheading: string | null
   logo_light_url: string | null
+  hero_banner_url: string | null
   privacy_policy_url: string | null
 }
 
@@ -18,17 +19,17 @@ async function getBranding(): Promise<ClientBranding> {
   const clientId = headerStore.get('x-client-id')
 
   if (!clientId) {
-    return { name: 'Verge Collection', service_name: 'Verge Collection Bookings', show_powered_by: true, landing_headline: null, landing_subheading: null, logo_light_url: null, privacy_policy_url: null }
+    return { name: 'Verge Collection', service_name: 'Verge Collection Bookings', show_powered_by: true, landing_headline: null, landing_subheading: null, logo_light_url: null, hero_banner_url: null, privacy_policy_url: null }
   }
 
   const supabase = await createClient()
   const { data } = await supabase
     .from('client')
-    .select('name, service_name, show_powered_by, landing_headline, landing_subheading, logo_light_url, privacy_policy_url')
+    .select('name, service_name, show_powered_by, landing_headline, landing_subheading, logo_light_url, hero_banner_url, privacy_policy_url')
     .eq('id', clientId)
     .single()
 
-  return data ?? { name: 'Verge Collection', service_name: 'Verge Collection Bookings', show_powered_by: true, landing_headline: null, landing_subheading: null, logo_light_url: null, privacy_policy_url: null }
+  return data ?? { name: 'Verge Collection', service_name: 'Verge Collection Bookings', show_powered_by: true, landing_headline: null, landing_subheading: null, logo_light_url: null, hero_banner_url: null, privacy_policy_url: null }
 }
 
 const FEATURES = [
@@ -146,7 +147,20 @@ export default async function LandingPage() {
   return (
     <div className="flex min-h-screen flex-col">
       {/* Hero */}
-      <section className="relative bg-gradient-to-br from-[var(--brand-hover)] via-[var(--brand)] to-[color-mix(in_srgb,var(--brand)_60%,white)] px-8 py-20 lg:px-20 lg:py-24">
+      <section
+        className={`relative px-8 py-20 lg:px-20 lg:py-24${branding.hero_banner_url ? '' : ' bg-gradient-to-br from-[var(--brand-hover)] via-[var(--brand)] to-[color-mix(in_srgb,var(--brand)_60%,white)]'}`}
+        style={branding.hero_banner_url ? { backgroundImage: `url("${branding.hero_banner_url}")`, backgroundSize: 'cover', backgroundPosition: 'center' } : undefined}
+      >
+        {/* Tenant hero banner present → lay a left-weighted brand scrim over the
+            image so the white headline + accent tag stay legible (heavy left
+            where the text sits, fading right where the banner shows). No banner
+            → the brand gradient on the section itself is the backdrop. */}
+        {branding.hero_banner_url && (
+          <div
+            className="pointer-events-none absolute inset-0"
+            style={{ background: 'linear-gradient(to right, color-mix(in srgb, var(--brand) 92%, transparent), color-mix(in srgb, var(--brand) 72%, transparent) 50%, color-mix(in srgb, var(--brand) 30%, transparent))' }}
+          />
+        )}
         {/* Decorative radials — use accent colour. Clipped to the hero so they
             don't leak; kept in a sibling layer so the autocomplete dropdown can
             extend below the hero without being cut off. */}
