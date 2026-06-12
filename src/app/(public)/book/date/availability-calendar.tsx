@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { format, isSameMonth } from 'date-fns'
+import { format, isSameMonth, isToday } from 'date-fns'
 import { cn } from '@/lib/utils'
 import {
   monthGrid,
@@ -56,7 +56,7 @@ export function AvailabilityCalendar({
   return (
     <div className="mx-auto max-w-sm rounded-xl bg-white p-4 shadow-sm">
       {/* Legend */}
-      <div className="mb-3 flex items-center gap-4 text-[11px] text-gray-500">
+      <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[11px] text-gray-500">
         <span className="flex items-center gap-1.5">
           <span className="size-2.5 rounded-full bg-[var(--brand-accent)]" />
           Available
@@ -64,6 +64,10 @@ export function AvailabilityCalendar({
         <span className="flex items-center gap-1.5">
           <span className="size-2.5 rounded-full bg-[#E2A23B]" />
           Low availability
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="size-1.5 rounded-full bg-[var(--brand)]" />
+          Today
         </span>
       </div>
 
@@ -113,17 +117,27 @@ export function AvailabilityCalendar({
           const entry = inMonth
             ? byDay.get(format(day, 'yyyy-MM-dd'))
             : undefined
+          const today = inMonth && isToday(day)
+          const todayMarker = today ? (
+            <span className="absolute bottom-1 left-1/2 size-1 -translate-x-1/2 rounded-full bg-[var(--brand)]" />
+          ) : null
 
           if (!entry) {
             return (
               <div
                 key={day.toISOString()}
+                aria-current={today ? 'date' : undefined}
                 className={cn(
-                  'flex aspect-square items-center justify-center rounded-lg text-xs',
-                  inMonth ? 'text-gray-300' : 'text-transparent'
+                  'relative flex aspect-square items-center justify-center rounded-lg text-xs',
+                  today
+                    ? 'font-semibold text-[var(--brand)]'
+                    : inMonth
+                      ? 'text-gray-300'
+                      : 'text-transparent'
                 )}
               >
                 {format(day, 'd')}
+                {todayMarker}
               </div>
             )
           }
@@ -135,7 +149,8 @@ export function AvailabilityCalendar({
               type="button"
               onClick={() => onSelect(entry.id)}
               aria-pressed={isSelected}
-              aria-label={`${format(day, 'EEEE d MMMM')} — ${
+              aria-current={today ? 'date' : undefined}
+              aria-label={`${format(day, 'EEEE d MMMM')}${today ? ' (today)' : ''} — ${
                 entry.status === 'low'
                   ? 'low availability'
                   : entry.status === 'closed'
@@ -143,12 +158,13 @@ export function AvailabilityCalendar({
                     : 'available'
               }`}
               className={cn(
-                'flex aspect-square items-center justify-center rounded-lg border text-xs font-semibold transition-shadow',
+                'relative flex aspect-square items-center justify-center rounded-lg border text-xs font-semibold transition-shadow',
                 STATUS_CHIP[entry.status],
                 isSelected && 'ring-2 ring-[var(--brand)] ring-offset-1'
               )}
             >
               {format(day, 'd')}
+              {todayMarker}
             </button>
           )
         })}
