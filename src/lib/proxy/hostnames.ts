@@ -24,6 +24,54 @@
 export const ADMIN_HOSTNAME_PROD = 'admin.verco.au'
 export const FIELD_HOSTNAME_PROD = 'field.verco.au'
 
+/**
+ * Root-host (marketing landing) contract.
+ *
+ * `verco.au` and `www.verco.au` are the unscoped root surface — no tenant.
+ * `root.localhost` is the dev/test alias (RFC 6761 resolves *.localhost to
+ * loopback; precedent: admin.localhost). It is intentionally NOT gated by
+ * NODE_ENV: a production request forging `Host: root.localhost` only earns
+ * the public marketing page, and the e2e suite depends on the alias against
+ * a dev server.
+ */
+export const ROOT_HOSTNAME_PROD = 'verco.au'
+export const WWW_HOSTNAME_PROD = 'www.verco.au'
+const ROOT_HOSTNAME_DEV = 'root.localhost'
+
+/**
+ * Request headers owned by the proxy. Set by the proxy on forward/rewrite,
+ * read by server components — and therefore stripped from INBOUND requests
+ * on non-root branches so a client can never smuggle them in.
+ * (`x-verco-root` gates the landing page render; `x-verco-bref-miss` shows
+ * the stale-SMS-link recovery banner; the tenant trio scopes everything.)
+ */
+export const X_VERCO_ROOT = 'x-verco-root'
+export const X_VERCO_BREF_MISS = 'x-verco-bref-miss'
+export const PROXY_OWNED_REQUEST_HEADERS = [
+  X_VERCO_ROOT,
+  X_VERCO_BREF_MISS,
+  'x-client-id',
+  'x-client-slug',
+  'x-contractor-id',
+] as const
+
+function hostnameOnly(host: string): string {
+  return (host.toLowerCase().split(':')[0] ?? '').trim()
+}
+
+/** verco.au, www.verco.au, or the dev alias — port-tolerant, case-insensitive. */
+export function isRootHostname(host: string): boolean {
+  const h = hostnameOnly(host)
+  return (
+    h === ROOT_HOSTNAME_PROD || h === WWW_HOSTNAME_PROD || h === ROOT_HOSTNAME_DEV
+  )
+}
+
+/** The www variant specifically — it 308s to the apex. */
+export function isWwwHostname(host: string): boolean {
+  return hostnameOnly(host) === WWW_HOSTNAME_PROD
+}
+
 const ADMIN_PREFIX = 'admin.'
 const FIELD_PREFIX = 'field.'
 

@@ -231,6 +231,8 @@ Each group has its own `layout.tsx` with appropriate auth + role guards.
 
 The resolved `client_id`, `client_slug`, and `contractor_id` are set as **request** headers (`x-client-id`, `x-client-slug`, `x-contractor-id`) via `NextResponse.next({ request: { headers } })` — NOT response headers. Read via `headers()` in server components and actions. Never re-query for these in downstream code.
 
+**Root host (`verco.au` / `www.verco.au` / dev alias `root.localhost`)** is Branch Z: www 308s to the apex (literal Location, never derived from inbound headers); `/robots.txt` passes through to `public/`; a `/b/<ref>` miss rewrites to `/landing` with `x-verco-bref-miss: 1` (recovery banner). Inbound proxy-owned headers (`x-verco-*`, `x-client-*`, `x-contractor-id`) are stripped on NON-root branches only — never globally, because the `/landing` rewrite re-enters the proxy carrying headers the first pass legitimately set. Helper + header constants live in `lib/proxy/hostnames.ts`. The landing page is dev/test-reachable only via `http://root.localhost:3000` (header forging is stripped; the page 404s without `x-verco-root`).
+
 **Admin/field surfaces live on their own hosts** (`admin.verco.au` / `field.verco.au`), never per-tenant. The "Admin" links on resident pages point at the canonical admin host via `adminOrigin(host)` in `lib/proxy/hostnames.ts` (prod → fixed `https://admin.verco.au` regardless of tenant, even a custom domain; dev → `http://admin.localhost:PORT`) — NOT a per-tenant segment rewrite. When `ADMIN_SUBDOMAIN_ENFORCED=true` (server-runtime Coolify env), the proxy 308-redirects `{tenant}/admin/*` and `{tenant}/field/*` to those hosts. Auth cookies are host-only, so moving a tenant-subdomain session to the admin host forces a one-time OTP re-login.
 
 ---
@@ -406,3 +408,22 @@ These are absolute. If a task requires crossing one, stop and flag it.
 ## gstack
 
 Per-machine install: `git clone --single-branch --depth 1 https://github.com/garrytan/gstack.git ~/.claude/skills/gstack && export PATH="$HOME/.bun/bin:$PATH" && bash ~/.claude/skills/gstack/setup`. **Always use `/browse` for web — never `mcp__claude-in-chrome__*`.** Full skill list is in the global `~/.claude/CLAUDE.md`.
+
+## Skill routing
+
+When the user's request matches an available skill, invoke it via the Skill tool. When in doubt, invoke the skill.
+
+Key routing rules:
+- Product ideas/brainstorming → invoke /office-hours
+- Strategy/scope → invoke /plan-ceo-review
+- Architecture → invoke /plan-eng-review
+- Design system/plan review → invoke /design-consultation or /plan-design-review
+- Full review pipeline → invoke /autoplan
+- Bugs/errors → invoke /investigate
+- QA/testing site behavior → invoke /qa or /qa-only
+- Code review/diff check → invoke /review
+- Visual polish → invoke /design-review
+- Ship/deploy/PR → invoke /ship or /land-and-deploy
+- Save progress → invoke /context-save
+- Resume context → invoke /context-restore
+- Author a backlog-ready spec/issue → invoke /spec

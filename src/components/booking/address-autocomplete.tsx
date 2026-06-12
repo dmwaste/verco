@@ -65,6 +65,8 @@ export function AddressAutocomplete({
           session_token: sessionTokenRef.current,
           types: 'address',
           components: 'country:au',
+          // D&M operates WA-only — bias ranking to WA and drop interstate matches.
+          state: 'WA',
         })
 
         if (data?.predictions && Array.isArray(data.predictions)) {
@@ -131,7 +133,7 @@ export function AddressAutocomplete({
   if (variant === 'hero') {
     return (
       <div ref={containerRef} className="relative max-w-[560px]">
-        <div className="flex items-center gap-3 rounded-[14px] bg-white p-2 pl-5 shadow-[0_8px_32px_rgba(0,0,0,0.2)]">
+        <div className="flex items-center gap-3 rounded-[14px] border border-[var(--brand-accent)]/40 bg-white p-2 pl-5 shadow-[0_8px_32px_rgba(0,0,0,0.2)]">
           <svg
             width="18"
             height="18"

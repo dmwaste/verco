@@ -250,9 +250,99 @@ Bookings can be changed or cancelled [online](/dashboard) only if you have made 
   },
 ]
 
-// ── City of Kwinana (slug: kwn) — 8 items ───────────────────────────────
+// ── City of Kwinana (slug: kwn) — 13 items ──────────────────────────────
+// Per-collection-type "what can I put out" items (5) scraped 12/06/2026 from
+// https://www.kwinana.wa.gov.au/verge ("Items you can place out for
+// collection"); wording kept verbatim, structured as accepted/not-accepted
+// tables to match the Verge Valet pattern above.
 
 const KWN_FAQS = [
+  {
+    question: 'What can I put out for a Bulk Waste (General) collection?',
+    answer: `Each Bulk Waste (General) collection allows a pile of up to 3 cubic metres (3m³). Items that aren't accepted will be left behind.
+
+| Accepted items | Items NOT accepted |
+|---|---|
+| Piles up to 3 cubic metres (3m³) | More than 3 cubic metres (3m³) |
+| General bulky waste items | Asbestos / fence sheeting |
+| Timber products up to 1.5m and 300mm diameter | Household hazardous waste (chemicals, oils, gas bottles) |
+| Furniture (glass removed) | Construction / demolition materials |
+| Carpet, rugs | Vehicle parts and tyres |
+| Bed frames / headboards | Food or domestic waste |
+| Ensemble bases | Green waste, leaves or grass bags |
+| Foam mattresses | Timber or metal over 1.5m or 300mm in diameter |
+| Old bicycles | Glass, mirrors, shower screens |
+| Broken BBQs (no gas canisters) | Fire extinguishers, flares, paint, oil |
+| Garden equipment | Beanbags |
+| Broken toys (batteries removed) | Mattresses (latex and innerspring) and white goods |
+| Gas heaters (no gas canisters) | Electronic waste (e-waste) |
+| | Bags of clothes |`,
+  },
+  {
+    question: 'What can I put out for a Green Waste collection?',
+    answer: `Each Green Waste collection allows a pile of up to 3 cubic metres (3m³). Items that aren't accepted will be left behind.
+
+| Accepted items | Items NOT accepted |
+|---|---|
+| Piles up to 3 cubic metres (3m³) per collection | More than three cubic metres (3m³) |
+| Trees, shrubs, prunings not exceeding 1.5m and 300mm diameter | Dug out lawn |
+| Untreated timber products up to 1.5m and 300mm diameter | Bagged or boxed green waste (plastic, chaff, hessian, cardboard) |
+| | Contaminated green waste (rubbish, plastic, wire) |
+| | Lawn clippings, weeds, roots |
+| | Sand and soil |
+| | Treated or sawn timber |
+| | Tree trunks, stumps or limbs over 1.5m or 300mm in diameter |
+| | General rubbish, bulk waste, white goods, e-waste |`,
+  },
+  {
+    question: 'What can I put out for a Mattress collection?',
+    answer: `The Mattress collection is an ancillary service for latex and innerspring mattresses only.
+
+| Accepted items | Items NOT accepted |
+|---|---|
+| Latex and innerspring mattresses | Foam mattresses |
+| | Ensemble bases |
+| | Futons |
+| | Mattress toppers or pillows |
+| | Other bases (timber, metal) |
+| | Headboards |
+| | Bunk beds |`,
+  },
+  {
+    question: 'What can I put out for a White Goods collection?',
+    answer: `Whitegoods are large household electrical appliances including clothes dryers, dishwashers, freezers, refrigerators, washing machines and air conditioners. **Doors must be removed from all white goods** placed out for a pre-booked verge collection.
+
+| Accepted items | Items NOT accepted |
+|---|---|
+| Fridges and freezers | Microwaves (must be pre-booked as e-waste) |
+| Dishwashers | Commercial fridges and freezers |
+| Ovens and cooktops | Commercial air-conditioning units |
+| Washing machines and dryers | |
+| Air-conditioning units | |`,
+  },
+  {
+    question: 'What can I put out for an E-waste collection?',
+    answer: `E-waste refers to electrical or electronic items that have a cord, plug or battery compartment. **Remove any embedded batteries** before placing items out. Each collection allows up to 6 items not exceeding 1 cubic metre (1m³).
+
+| Accepted items | Items NOT accepted |
+|---|---|
+| Computers and computer monitors | Commercial printers |
+| Small IT products — keyboards, mice, joysticks, hard drives | Commercial scanners |
+| Laptops | Air conditioning units |
+| Printers and scanners | |
+| Televisions | |
+| Vacuum cleaners | |
+| Projectors | |
+| Cameras and video cameras | |
+| DVD, VCR and CD players | |
+| Speakers, HiFi and radios | |
+| Power tools | |
+| Telecom (phones, answering machines etc.) | |
+| Game consoles | |
+| Microwaves and small appliances (toaster, grill, kettle) | |
+| Electric heaters / oil radiators | |
+| Lamps (no lightbulbs or glass) | |`,
+  },
   {
     question: 'Can I book more than one collection at a time?',
     answer:

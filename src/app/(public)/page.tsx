@@ -10,6 +10,7 @@ interface ClientBranding {
   landing_headline: string | null
   landing_subheading: string | null
   logo_light_url: string | null
+  hero_banner_url: string | null
   privacy_policy_url: string | null
 }
 
@@ -18,22 +19,22 @@ async function getBranding(): Promise<ClientBranding> {
   const clientId = headerStore.get('x-client-id')
 
   if (!clientId) {
-    return { name: 'Verge Collection', service_name: 'Verge Collection Bookings', show_powered_by: true, landing_headline: null, landing_subheading: null, logo_light_url: null, privacy_policy_url: null }
+    return { name: 'Verge Collection', service_name: 'Verge Collection Bookings', show_powered_by: true, landing_headline: null, landing_subheading: null, logo_light_url: null, hero_banner_url: null, privacy_policy_url: null }
   }
 
   const supabase = await createClient()
   const { data } = await supabase
     .from('client')
-    .select('name, service_name, show_powered_by, landing_headline, landing_subheading, logo_light_url, privacy_policy_url')
+    .select('name, service_name, show_powered_by, landing_headline, landing_subheading, logo_light_url, hero_banner_url, privacy_policy_url')
     .eq('id', clientId)
     .single()
 
-  return data ?? { name: 'Verge Collection', service_name: 'Verge Collection Bookings', show_powered_by: true, landing_headline: null, landing_subheading: null, logo_light_url: null, privacy_policy_url: null }
+  return data ?? { name: 'Verge Collection', service_name: 'Verge Collection Bookings', show_powered_by: true, landing_headline: null, landing_subheading: null, logo_light_url: null, hero_banner_url: null, privacy_policy_url: null }
 }
 
 const FEATURES = [
   {
-    title: 'Included in Your Rates',
+    title: 'Included in your rates',
     body: 'Your annual allocation is already included in council rates. Book your included services first — extra services are available if you need more.',
     colorClass: 'bg-[var(--brand-accent-light)]',
     icon: (
@@ -41,7 +42,7 @@ const FEATURES = [
     ),
   },
   {
-    title: 'Choose Your Date',
+    title: 'Choose your date',
     body: 'See all available collection dates for your area and pick the one that suits you. Dates are shown in real-time so you always know what\u2019s available.',
     colorClass: 'bg-[#E8EEF2]',
     icon: (
@@ -49,7 +50,7 @@ const FEATURES = [
     ),
   },
   {
-    title: 'Reminders Sent to You',
+    title: 'Reminders sent to you',
     body: 'We\u2019ll send a reminder SMS and email before your collection date so you don\u2019t forget to place your items on the verge by 7am.',
     colorClass: 'bg-[#FFF3EA]',
     icon: (
@@ -143,79 +144,134 @@ export default async function LandingPage() {
   const clientId = headerStore.get('x-client-id')
   const services = await getClientServices(clientId)
 
+  // Placeholder for future per-tenant page-footer content. Null today, so the
+  // footer-content section below the CTA collapses entirely. Wire to a client
+  // field when per-tenant footers are introduced.
+  const footerContent: string | null = null
+
   return (
     <div className="flex min-h-screen flex-col">
-      {/* Hero */}
-      <section className="relative bg-gradient-to-br from-[var(--brand-hover)] via-[var(--brand)] to-[color-mix(in_srgb,var(--brand)_60%,white)] px-8 py-20 lg:px-20 lg:py-24">
-        {/* Decorative radials — use accent colour. Clipped to the hero so they
-            don't leak; kept in a sibling layer so the autocomplete dropdown can
-            extend below the hero without being cut off. */}
-        <div className="pointer-events-none absolute inset-0 overflow-hidden">
-          <div className="absolute -right-32 -top-32 size-[500px] rounded-full" style={{ background: 'radial-gradient(circle, color-mix(in srgb, var(--brand-accent) 12%, transparent) 0%, transparent 70%)' }} />
-          <div className="absolute -bottom-20 -left-20 size-[400px] rounded-full" style={{ background: 'radial-gradient(circle, color-mix(in srgb, var(--brand-accent) 6%, transparent) 0%, transparent 70%)' }} />
-        </div>
-
-        <div className="relative z-10 max-w-[640px]">
-          {/* Tenant tag */}
-          <div className="mb-5 inline-flex items-center gap-1.5 rounded-full border border-[var(--brand-accent)]/30 bg-[var(--brand-accent)]/15 px-3.5 py-1.5 text-xs md:text-sm font-semibold text-[var(--brand-accent)]">
-            <div className="size-1.5 rounded-full bg-[var(--brand-accent)]" />
-            {branding.name} &middot; Bulk Verge Collection
+      {/* Hero — a custom tenant banner replaces the default hero outright (the
+          council's banner is self-contained, so no gradient or overlaid text).
+          Without one, the brand gradient hero with headline + subheading shows.
+          The address search lives in the section below, so it survives either
+          way (a custom banner would otherwise swallow it). */}
+      {branding.hero_banner_url ? (
+        <section className="relative">
+          {/* eslint-disable-next-line @next/next/no-img-element -- tenant-supplied banner from Supabase storage; next/image remote patterns aren't configured for client assets */}
+          <img
+            src={branding.hero_banner_url}
+            alt={`${branding.name} — Bulk verge collection`}
+            className="block w-full"
+          />
+        </section>
+      ) : (
+        <section className="relative bg-gradient-to-br from-[var(--brand-hover)] via-[var(--brand)] to-[color-mix(in_srgb,var(--brand)_60%,white)] px-8 py-20 lg:px-20 lg:py-24">
+          {/* Decorative radials — use accent colour. Clipped to the hero so they
+              don't leak. */}
+          <div className="pointer-events-none absolute inset-0 overflow-hidden">
+            <div className="absolute -right-32 -top-32 size-[500px] rounded-full" style={{ background: 'radial-gradient(circle, color-mix(in srgb, var(--brand-accent) 12%, transparent) 0%, transparent 70%)' }} />
+            <div className="absolute -bottom-20 -left-20 size-[400px] rounded-full" style={{ background: 'radial-gradient(circle, color-mix(in srgb, var(--brand-accent) 6%, transparent) 0%, transparent 70%)' }} />
           </div>
 
-          <h1 className="mb-5 font-[family-name:var(--font-heading)] text-4xl md:text-5xl font-bold leading-[1.1] text-white lg:text-[52px]">
-            {headline.split('\n').map((line, i) => (
-              <span key={i}>
-                {i > 0 && <br />}
-                {i === 1 ? <span className="text-[var(--brand-accent)]">{line}</span> : line}
-              </span>
-            ))}
-          </h1>
+          <div className="relative z-10 max-w-[640px]">
+            {/* Tenant tag */}
+            <div className="mb-5 inline-flex items-center gap-1.5 rounded-full border border-[var(--brand-accent)]/30 bg-[var(--brand-accent)]/15 px-3.5 py-1.5 text-xs md:text-sm font-semibold text-[var(--brand-accent)]">
+              <div className="size-1.5 rounded-full bg-[var(--brand-accent)]" />
+              {branding.name} &middot; Bulk verge collection
+            </div>
 
-          <p className="mb-10 max-w-[520px] text-base md:text-lg leading-relaxed text-[#C7D3DD] lg:text-lg">
-            {subheading}
-          </p>
+            <h1 className="mb-5 font-[family-name:var(--font-heading)] text-4xl md:text-5xl font-bold leading-[1.1] text-white lg:text-[52px]">
+              {headline.split('\n').map((line, i) => (
+                <span key={i}>
+                  {i > 0 && <br />}
+                  {i === 1 ? <span className="text-[var(--brand-accent)]">{line}</span> : line}
+                </span>
+              ))}
+            </h1>
 
-          {/* Search box */}
-          <HeroSearch />
+            <p className="max-w-[520px] text-base md:text-lg leading-relaxed text-[#C7D3DD] lg:text-lg">
+              {subheading}
+            </p>
+          </div>
+        </section>
+      )}
 
-          <p className="mt-2.5 text-xs md:text-sm text-[#8FA5B8]">
-            e.g. 12 Main Street, Perth WA 6000
-          </p>
-        </div>
-      </section>
-
-      {/* Features */}
-      <section className="bg-white px-8 py-[72px] lg:px-20">
+      {/* What we collect — dynamic per client. Hide section entirely if
+          this client has no enabled services (would otherwise be an empty
+          grid with just the info tile). */}
+      {services.length > 0 && (
+      <section id="services" className="bg-white px-8 py-[72px] lg:px-20">
         <div className="mx-auto w-full max-w-5xl">
-        <div className="mb-3 text-xs md:text-sm font-semibold uppercase tracking-[1px] text-[var(--brand-accent-dark)]">
-          Why book online
-        </div>
         <h2 className="mb-3 font-[family-name:var(--font-heading)] text-3xl md:text-4xl font-bold text-[var(--brand)] lg:text-4xl">
-          Fast, Simple, Paperless
+          What we collect
         </h2>
-        <p className="mb-14 max-w-[520px] text-base md:text-lg text-gray-500">
-          Book your collection from any device in under 3 minutes. No phone
-          calls, no paperwork.
+        <p className="mb-12 text-base md:text-lg text-gray-500">
+          Allocation limits apply per financial year.
         </p>
-        <div className="grid gap-8 md:grid-cols-3">
-          {FEATURES.map((feature) => (
-            <div key={feature.title} className="flex flex-col gap-3">
-              <div
-                className={`flex size-11 items-center justify-center rounded-xl ${feature.colorClass}`}
-              >
-                {feature.icon}
-              </div>
-              <h3 className="font-[family-name:var(--font-heading)] text-base md:text-lg font-semibold text-[var(--brand)]">
-                {feature.title}
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {services.map((svc) => (
+            <div
+              key={svc.name}
+              className="flex flex-col gap-2 rounded-xl border-[1.5px] border-gray-100 bg-gray-50 px-5 py-5"
+            >
+              <h3 className="font-[family-name:var(--font-heading)] text-body md:text-subtitle font-semibold text-[var(--brand)]">
+                {svc.name}
               </h3>
-              <p className="text-sm md:text-base leading-relaxed text-gray-500">
-                {feature.body}
-              </p>
+              <p className="text-body-sm md:text-body text-gray-500">{svc.desc}</p>
+              <span
+                className={`inline-flex w-fit rounded-full px-2.5 py-0.5 text-[11px] md:text-body-sm font-medium ${svc.tagClass}`}
+              >
+                {svc.tag}
+              </span>
             </div>
           ))}
+          {/* Info tile — links through to the FAQ section on the contact page */}
+          <Link
+            href="/contact#faqs"
+            className="group flex items-center gap-3.5 rounded-xl border-[1.5px] border-[#C7D3DD] bg-[#E8EEF2] px-5 py-5 transition-colors hover:border-[var(--brand)] hover:bg-[#DEE8EF]"
+          >
+            <svg
+              width="24"
+              height="24"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="var(--brand)"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="shrink-0"
+            >
+              <circle cx="12" cy="12" r="10" />
+              <line x1="12" y1="8" x2="12" y2="12" />
+              <line x1="12" y1="16" x2="12.01" y2="16" />
+            </svg>
+            <div className="flex-1">
+              <h3 className="font-[family-name:var(--font-heading)] text-body md:text-subtitle font-semibold text-[var(--brand)]">
+                Not sure what&apos;s eligible?
+              </h3>
+              <p className="text-xs md:text-sm text-gray-500">
+                Read our FAQs
+              </p>
+            </div>
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="var(--brand)"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="shrink-0 transition-transform group-hover:translate-x-0.5"
+            >
+              <polyline points="9 18 15 12 9 6" />
+            </svg>
+          </Link>
         </div>
         </div>
       </section>
+      )}
 
       {/* How it works */}
       <section id="how-it-works" className="bg-gray-50 px-8 py-[72px] lg:px-20">
@@ -246,66 +302,38 @@ export default async function LandingPage() {
         </div>
       </section>
 
-      {/* What We Collect — dynamic per client. Hide section entirely if
-          this client has no enabled services (would otherwise be an empty
-          grid with just the info tile). */}
-      {services.length > 0 && (
-      <section id="services" className="bg-white px-8 py-[72px] lg:px-20">
+      {/* Why book online */}
+      <section className="bg-white px-8 py-[72px] lg:px-20">
         <div className="mx-auto w-full max-w-5xl">
+        <div className="mb-3 text-xs md:text-sm font-semibold uppercase tracking-[1px] text-[var(--brand-accent-dark)]">
+          Why book online
+        </div>
         <h2 className="mb-3 font-[family-name:var(--font-heading)] text-3xl md:text-4xl font-bold text-[var(--brand)] lg:text-4xl">
-          What We Collect
+          Fast, simple, paperless
         </h2>
-        <p className="mb-12 text-base md:text-lg text-gray-500">
-          Available in {branding.name}. Allocation limits apply per financial
-          year.
+        <p className="mb-14 max-w-[520px] text-base md:text-lg text-gray-500">
+          Book your collection from any device in under 3 minutes. No phone
+          calls, no paperwork.
         </p>
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {services.map((svc) => (
-            <div
-              key={svc.name}
-              className="flex flex-col gap-2 rounded-xl border-[1.5px] border-gray-100 bg-gray-50 px-5 py-5"
-            >
-              <h3 className="font-[family-name:var(--font-heading)] text-body md:text-subtitle font-semibold text-[var(--brand)]">
-                {svc.name}
-              </h3>
-              <p className="text-body-sm md:text-body text-gray-500">{svc.desc}</p>
-              <span
-                className={`inline-flex w-fit rounded-full px-2.5 py-0.5 text-[11px] md:text-body-sm font-medium ${svc.tagClass}`}
+        <div className="grid gap-8 md:grid-cols-3">
+          {FEATURES.map((feature) => (
+            <div key={feature.title} className="flex flex-col gap-3">
+              <div
+                className={`flex size-11 items-center justify-center rounded-xl ${feature.colorClass}`}
               >
-                {svc.tag}
-              </span>
-            </div>
-          ))}
-          {/* Info tile */}
-          <div className="flex items-center gap-3.5 rounded-xl border-[1.5px] border-[#C7D3DD] bg-[#E8EEF2] px-5 py-5">
-            <svg
-              width="24"
-              height="24"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="var(--brand)"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              className="shrink-0"
-            >
-              <circle cx="12" cy="12" r="10" />
-              <line x1="12" y1="8" x2="12" y2="12" />
-              <line x1="12" y1="16" x2="12.01" y2="16" />
-            </svg>
-            <div>
-              <h3 className="font-[family-name:var(--font-heading)] text-body md:text-subtitle font-semibold text-[var(--brand)]">
-                Not sure what&apos;s eligible?
+                {feature.icon}
+              </div>
+              <h3 className="font-[family-name:var(--font-heading)] text-base md:text-lg font-semibold text-[var(--brand)]">
+                {feature.title}
               </h3>
-              <p className="text-xs md:text-sm text-gray-500">
-                Check our full guidelines or contact us
+              <p className="text-sm md:text-base leading-relaxed text-gray-500">
+                {feature.body}
               </p>
             </div>
-          </div>
+          ))}
         </div>
         </div>
       </section>
-      )}
 
       {/* CTA band */}
       <section className="relative overflow-hidden bg-[var(--brand)] px-8 py-[72px] lg:px-20">
@@ -322,27 +350,28 @@ export default async function LandingPage() {
               minutes. Your annual allocation is waiting.
             </p>
           </div>
-          <Link
-            href="/book"
-            className="inline-flex shrink-0 items-center gap-2 rounded-xl bg-[var(--brand-accent)] px-9 py-4 font-[family-name:var(--font-heading)] text-base md:text-lg font-bold text-[var(--brand)]"
-          >
-            Book a Collection
-            <svg
-              width="18"
-              height="18"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <line x1="5" y1="12" x2="19" y2="12" />
-              <polyline points="12 5 19 12 12 19" />
-            </svg>
-          </Link>
+          {/* Primary booking entry point — the address search lives here
+              (in lieu of a "Book a Collection" button) so the booking action
+              survives a custom tenant hero banner taking over the top. */}
+          <div className="w-full lg:w-auto lg:min-w-[440px]">
+            <HeroSearch />
+            <p className="mt-2.5 text-xs md:text-sm text-[#8FA5B8]">
+              e.g. 12 Main Street, Perth WA 6000
+            </p>
+          </div>
         </div>
       </section>
+
+      {/* Tenant footer content — placeholder for future per-tenant footer
+          (council links, contact, acknowledgements). Collapses entirely when
+          there's nothing to show. */}
+      {footerContent && (
+        <section className="bg-[var(--brand-hover)] px-8 pt-10 lg:px-20">
+          <div className="mx-auto w-full max-w-5xl text-body-sm leading-relaxed text-[#8FA5B8]">
+            {footerContent}
+          </div>
+        </section>
+      )}
 
       {/* Footer */}
       <footer className="flex flex-col items-center justify-between gap-4 bg-[var(--brand-hover)] px-8 py-8 sm:flex-row lg:px-20">

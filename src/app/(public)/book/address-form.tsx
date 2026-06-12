@@ -15,6 +15,7 @@ import {
   buildAddressIlikePattern,
   buildEligibleOrFilter,
   buildLookupCandidates,
+  rowsAreSameProperty,
 } from '@/lib/booking/address-match-key'
 import { decideMudRedirect, type MudLookupCandidate } from '@/lib/mud/mud-lookup'
 import type { Database } from '@/lib/supabase/types'
@@ -66,13 +67,19 @@ export function AddressForm({ clientId }: { clientId: string }) {
         pid?: string
       ): Promise<EligibleProperty | null> => {
         if (pid) {
+          // Duplicate imports mean a place_id can resolve to 2+ rows under one
+          // client (same physical property). `.maybeSingle()` would error on >1
+          // row and report an eligible address as "not eligible", so take the
+          // earliest deterministically instead — they are the same property.
           const { data } = await supabase
             .from('eligible_properties')
             .select('*, collection_area!inner(client_id)')
             .eq('google_place_id', pid)
             .eq('collection_area.client_id', clientId)
-            .maybeSingle()
-          if (data) return data as unknown as EligibleProperty
+            .order('created_at', { ascending: true })
+            .limit(1)
+          const row = data?.[0]
+          if (row) return row as unknown as EligibleProperty
         }
 
         const key = addressMatchKey(s)
@@ -86,13 +93,20 @@ export function AddressForm({ clientId }: { clientId: string }) {
         const fmtPattern = buildAddressIlikePattern(key)
         const streetSegment = s.split(',')[0]?.trim() ?? s
         const addrPattern = buildAddressIlikePattern(addressMatchKey(streetSegment))
+        // Fetch a small window and auto-resolve only when every match is the
+        // SAME physical property (duplicate import). rowsAreSameProperty keeps
+        // the VER-214 protection: genuinely different houses still bail to "not
+        // found" rather than silently resolving to the wrong one.
         const { data } = await supabase
           .from('eligible_properties')
           .select('*, collection_area!inner(client_id)')
           .or(buildEligibleOrFilter(fmtPattern, addrPattern))
           .eq('collection_area.client_id', clientId)
-          .limit(2)
-        if (data && data.length === 1) return data[0] as unknown as EligibleProperty
+          .order('created_at', { ascending: true })
+          .limit(5)
+        if (data && data.length > 0 && rowsAreSameProperty(data as unknown as EligibleProperty[])) {
+          return data[0] as unknown as EligibleProperty
+        }
         return null
       }
 

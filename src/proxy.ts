@@ -4,8 +4,14 @@ import type { Database } from '@/lib/supabase/types'
 import {
   isAdminHostname,
   isFieldHostname,
+  isRootHostname,
+  isWwwHostname,
   toAdminHostname,
   toFieldHostname,
+  ROOT_HOSTNAME_PROD,
+  X_VERCO_ROOT,
+  X_VERCO_BREF_MISS,
+  PROXY_OWNED_REQUEST_HEADERS,
 } from '@/lib/proxy/hostnames'
 import { resolveOnBehalfClient } from '@/lib/proxy/resolve-on-behalf-client'
 
@@ -79,16 +85,18 @@ function makeSupabaseClient(request: NextRequest) {
   }
 }
 
-// The unscoped marketing-stub host. Verco's root domain doesn't map to a
-// tenant — it serves a landing page that lets a council partner pick their
-// tenant, and a /b/<ref> redirect endpoint used as the canonical URL in
-// transactional SMS messages.
-const ROOT_HOST = 'verco.au'
-
 // Internal rewrite target for the root landing page. Single source of truth so
 // the proxy can short-circuit when it sees the rewritten path (otherwise the
 // matcher re-enters the proxy and infinite-loops).
 const ROOT_LANDING_PATH = '/landing'
+
+// Inbound requests must never smuggle proxy-owned headers (the landing gate,
+// the recovery-banner marker, or the tenant trio). Stripped on NON-root
+// branches only: the /landing rewrite re-enters the proxy carrying headers the
+// first pass legitimately set, so a global strip would 404 the landing itself.
+function stripInboundProxyHeaders(headers: Headers) {
+  for (const h of PROXY_OWNED_REQUEST_HEADERS) headers.delete(h)
+}
 
 export async function proxy(request: NextRequest) {
   // Healthcheck bypass: Docker HEALTHCHECK hits /api/health from the container's
@@ -108,10 +116,11 @@ export async function proxy(request: NextRequest) {
   }
 
   // -----------------------------------------------------------------------
-  // Branch Z — root host (verco.au): /b/<ref> redirect + landing stub
+  // Branch Z — root host (verco.au / www / root.localhost dev alias):
+  // www 308, /b/<ref> redirect, robots passthrough, landing rewrite
   // -----------------------------------------------------------------------
-  if (hostname === ROOT_HOST) {
-    return handleRootHost(request, path)
+  if (isRootHostname(hostname)) {
+    return handleRootHost(request, path, hostname)
   }
 
   const isAdminHost = isAdminHostname(hostname)
@@ -151,10 +160,33 @@ export async function proxy(request: NextRequest) {
   return handleClientHost(request)
 }
 
-async function handleRootHost(request: NextRequest, path: string) {
+async function handleRootHost(
+  request: NextRequest,
+  path: string,
+  hostname: string,
+) {
+  // www → apex, before anything else (including the /landing short-circuit —
+  // www.verco.au/landing must redirect, not 404). 308 matches Branch B's
+  // existing redirects. The Location is built literally: deriving scheme/host
+  // from the inbound request reflects Traefik's internal http scheme (extra
+  // hop, and a cacheable redirect must never echo attacker-influenced hosts).
+  if (isWwwHostname(hostname)) {
+    return NextResponse.redirect(
+      `https://${ROOT_HOSTNAME_PROD}${request.nextUrl.pathname}${request.nextUrl.search}`,
+      308,
+    )
+  }
+
   // Short-circuit when the rewrite has already happened (otherwise the
   // matcher re-runs the proxy on the rewritten path and we loop forever).
   if (path === ROOT_LANDING_PATH) {
+    return NextResponse.next()
+  }
+
+  // robots.txt must reach the static file in public/ — the matcher only
+  // excludes _next/*, favicon.ico and image extensions, so without this
+  // pass-through the catch-all rewrite below serves landing HTML as robots.
+  if (path === '/robots.txt') {
     return NextResponse.next()
   }
 
@@ -180,14 +212,20 @@ async function handleRootHost(request: NextRequest, path: string) {
       )
     }
     // Booking not found OR tenant inactive OR custom_domain unset — fall
-    // through to the landing.
+    // through to the landing (with the banner marker set below).
   }
 
   // All other paths: rewrite to the landing page. Header tells the page
   // route to render (otherwise it 404s, so direct hits to /landing on a
-  // tenant subdomain don't leak the root surface).
+  // tenant subdomain don't leak the root surface). A failed /b/<ref>
+  // resolution additionally sets the recovery-banner marker — the banner
+  // copy stays neutral because the miss has three causes (unknown ref,
+  // inactive tenant, unset custom_domain).
   const requestHeaders = new Headers(request.headers)
-  requestHeaders.set('x-verco-root', '1')
+  requestHeaders.set(X_VERCO_ROOT, '1')
+  if (bMatch) {
+    requestHeaders.set(X_VERCO_BREF_MISS, '1')
+  }
   const url = request.nextUrl.clone()
   url.pathname = ROOT_LANDING_PATH
   return NextResponse.rewrite(url, { request: { headers: requestHeaders } })
@@ -221,8 +259,15 @@ async function handleContractorHost(
   } = await supabase.auth.getUser()
 
   // /auth and /api: no role required, just refresh session and pass through.
+  // Inbound proxy-owned headers are stripped — this passthrough previously
+  // forwarded whatever the client sent straight to real consumers
+  // (api/tenant, auth actions).
   if (path.startsWith('/auth') || path.startsWith('/api')) {
-    return forwardCookies(NextResponse.next({ request }))
+    const passthroughHeaders = new Headers(request.headers)
+    stripInboundProxyHeaders(passthroughHeaders)
+    return forwardCookies(
+      NextResponse.next({ request: { headers: passthroughHeaders } })
+    )
   }
 
   // Everything else under admin/field requires login + matching role.
@@ -245,6 +290,7 @@ async function handleContractorHost(
   }
 
   const requestHeaders = new Headers(request.headers)
+  stripInboundProxyHeaders(requestHeaders)
   if (matchingRole.contractor_id) {
     requestHeaders.set('x-contractor-id', matchingRole.contractor_id)
   }
@@ -358,7 +404,11 @@ async function handleClientHost(request: NextRequest) {
   // /book/* and /survey/* are public — no guard
 
   // --- 4. Forward tenant info as request headers for server components/actions ---
+  // Strip first: the tenant trio is overwritten below anyway, but x-verco-root
+  // / x-verco-bref-miss would otherwise pass through and let a forged header
+  // render the root landing surface on a tenant host.
   const requestHeaders = new Headers(request.headers)
+  stripInboundProxyHeaders(requestHeaders)
   requestHeaders.set('x-client-id', client.id)
   requestHeaders.set('x-client-slug', client.slug)
   requestHeaders.set('x-contractor-id', client.contractor_id)

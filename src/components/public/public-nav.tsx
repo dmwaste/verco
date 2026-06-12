@@ -43,6 +43,12 @@ export function PublicNav({
             My Dashboard
           </Link>
           <Link
+            href="/contact#faqs"
+            className="text-sm md:text-base font-medium text-[#C7D3DD] hover:text-white"
+          >
+            FAQs
+          </Link>
+          <Link
             href="/contact"
             className="text-sm md:text-base font-medium text-[#C7D3DD] hover:text-white"
           >
