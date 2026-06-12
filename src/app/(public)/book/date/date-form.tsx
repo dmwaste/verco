@@ -11,6 +11,8 @@ import { VercoButton } from '@/components/ui/verco-button'
 import { Spinner } from '@/components/ui/spinner'
 import { decodeItems } from '@/lib/booking/search-params'
 import { effectiveCapacity, indexPoolDates } from '@/lib/capacity/effective-capacity'
+import { STATUS_CHIP, STATUS_LABEL, type DateStatus } from '@/lib/booking/calendar'
+import { AvailabilityCalendar, type CalendarDate } from './availability-calendar'
 import { cn } from '@/lib/utils'
 
 export function DateForm() {
@@ -132,6 +134,21 @@ export function DateForm() {
     return true
   })
 
+  // Map the filtered dates into calendar cells with an availability status.
+  // Closed is defensive — full/closed dates are filtered out upstream — so in
+  // practice cells are Available (green) or Low Availability (amber).
+  const calendarDates: CalendarDate[] = availableDates.map((d) => {
+    const cap = effectiveCapacity(d, poolId, poolByDate)
+    const spotsRemaining = Math.max(
+      0,
+      cap.bulk_capacity_limit - cap.bulk_units_booked
+    )
+    const status: DateStatus =
+      spotsRemaining === 0 ? 'closed' : spotsRemaining <= 10 ? 'low' : 'available'
+    return { id: d.id, date: new Date(d.date + 'T00:00:00'), status }
+  })
+  const selectedOption = calendarDates.find((c) => c.id === selectedDateId)
+
   // Carry params through for edit flow
   const contactFirstName = searchParams.get('contact_first_name')
   const contactLastName = searchParams.get('contact_last_name')
@@ -219,73 +236,42 @@ export function DateForm() {
           </div>
         )}
 
-        {/* Date grid */}
+        {/* Calendar */}
         {!isLoadingData && (
           <div>
             <h2 className="mb-3 font-[family-name:var(--font-heading)] text-base font-semibold text-[var(--brand)]">
               Available dates
             </h2>
-            <div className="grid grid-cols-3 gap-2">
-              {availableDates.map((d) => {
-                const isSelected = d.id === selectedDateId
-                const cap = effectiveCapacity(d, poolId, poolByDate)
-                const spotsRemaining = Math.max(
-                  0,
-                  cap.bulk_capacity_limit - cap.bulk_units_booked
-                )
-                const dateObj = new Date(d.date + 'T00:00:00')
-                // Availability pill replaces the raw spot count. Closed is a
-                // defensive edge — full/closed dates are already filtered out
-                // upstream, so in practice only Available / Low Availability show.
-                const availability =
-                  spotsRemaining === 0
-                    ? { label: 'Closed', cls: 'border-[#E53E3E] bg-[#FFF0F0] text-[#E53E3E]' }
-                    : spotsRemaining <= 10
-                      ? { label: 'Low Availability', cls: 'border-[#E2A23B] bg-[#FFF7E6] text-[#B7791F]' }
-                      : { label: 'Available', cls: 'border-[var(--brand-accent-dark)] bg-[var(--brand-accent-light)] text-[#006A38]' }
 
-                return (
-                  <button
-                    key={d.id}
-                    type="button"
-                    onClick={() => setSelectedDateId(d.id)}
-                    className={cn(
-                      'flex flex-col gap-1 rounded-xl border-[1.5px] px-2.5 py-3 shadow-sm transition-colors',
-                      isSelected
-                        ? 'border-[var(--brand-accent)] border-2 bg-[var(--brand)]'
-                        : 'border-gray-100 bg-white hover:border-gray-200'
-                    )}
-                  >
-                    <span
-                      className={cn(
-                        'text-xs font-semibold',
-                        isSelected ? 'text-white' : 'text-[var(--brand)]'
-                      )}
-                    >
-                      {format(dateObj, 'EEE d MMM')}
-                    </span>
-                    <span
-                      className={cn(
-                        'inline-flex w-fit items-center rounded-full border px-2 py-0.5 text-[10px] font-medium leading-tight',
-                        availability.cls
-                      )}
-                    >
-                      {availability.label}
-                    </span>
-                    {isSelected && (
-                      <span className="text-2xs font-medium text-[var(--brand-accent)]">
-                        Selected &#10003;
-                      </span>
-                    )}
-                  </button>
-                )
-              })}
-            </div>
-
-            {availableDates.length === 0 && (
+            {calendarDates.length === 0 ? (
               <p className="py-8 text-center text-sm text-gray-500">
                 No available dates for this collection area.
               </p>
+            ) : (
+              <>
+                <AvailabilityCalendar
+                  dates={calendarDates}
+                  selectedId={selectedDateId}
+                  onSelect={setSelectedDateId}
+                />
+
+                {/* Selected-date summary — the full status pill lives here */}
+                {selectedOption && (
+                  <div className="mx-auto mt-3 flex max-w-sm items-center justify-between rounded-xl bg-white px-4 py-3 shadow-sm">
+                    <span className="text-body-sm font-medium text-[var(--brand)]">
+                      {format(selectedOption.date, 'EEEE, d MMMM yyyy')}
+                    </span>
+                    <span
+                      className={cn(
+                        'rounded-full border px-3 py-1 text-[11px] font-medium',
+                        STATUS_CHIP[selectedOption.status]
+                      )}
+                    >
+                      {STATUS_LABEL[selectedOption.status]}
+                    </span>
+                  </div>
+                )}
+              </>
             )}
           </div>
         )}
