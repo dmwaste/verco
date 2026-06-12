@@ -1,4 +1,3 @@
-import Link from 'next/link'
 import { headers } from 'next/headers'
 import { createClient } from '@/lib/supabase/server'
 import { HeroSearch } from './hero-search'
@@ -34,7 +33,7 @@ async function getBranding(): Promise<ClientBranding> {
 
 const FEATURES = [
   {
-    title: 'Included in Your Rates',
+    title: 'Included in your rates',
     body: 'Your annual allocation is already included in council rates. Book your included services first — extra services are available if you need more.',
     colorClass: 'bg-[var(--brand-accent-light)]',
     icon: (
@@ -42,7 +41,7 @@ const FEATURES = [
     ),
   },
   {
-    title: 'Choose Your Date',
+    title: 'Choose your date',
     body: 'See all available collection dates for your area and pick the one that suits you. Dates are shown in real-time so you always know what\u2019s available.',
     colorClass: 'bg-[#E8EEF2]',
     icon: (
@@ -50,7 +49,7 @@ const FEATURES = [
     ),
   },
   {
-    title: 'Reminders Sent to You',
+    title: 'Reminders sent to you',
     body: 'We\u2019ll send a reminder SMS and email before your collection date so you don\u2019t forget to place your items on the verge by 7am.',
     colorClass: 'bg-[#FFF3EA]',
     icon: (
@@ -144,6 +143,11 @@ export default async function LandingPage() {
   const clientId = headerStore.get('x-client-id')
   const services = await getClientServices(clientId)
 
+  // Placeholder for future per-tenant page-footer content. Null today, so the
+  // footer-content section below the CTA collapses entirely. Wire to a client
+  // field when per-tenant footers are introduced.
+  const footerContent: string | null = null
+
   return (
     <div className="flex min-h-screen flex-col">
       {/* Hero — a custom tenant banner replaces the default hero outright (the
@@ -156,7 +160,7 @@ export default async function LandingPage() {
           {/* eslint-disable-next-line @next/next/no-img-element -- tenant-supplied banner from Supabase storage; next/image remote patterns aren't configured for client assets */}
           <img
             src={branding.hero_banner_url}
-            alt={`${branding.name} — Bulk Verge Collection`}
+            alt={`${branding.name} — Bulk verge collection`}
             className="block w-full"
           />
         </section>
@@ -173,7 +177,7 @@ export default async function LandingPage() {
             {/* Tenant tag */}
             <div className="mb-5 inline-flex items-center gap-1.5 rounded-full border border-[var(--brand-accent)]/30 bg-[var(--brand-accent)]/15 px-3.5 py-1.5 text-xs md:text-sm font-semibold text-[var(--brand-accent)]">
               <div className="size-1.5 rounded-full bg-[var(--brand-accent)]" />
-              {branding.name} &middot; Bulk Verge Collection
+              {branding.name} &middot; Bulk verge collection
             </div>
 
             <h1 className="mb-5 font-[family-name:var(--font-heading)] text-4xl md:text-5xl font-bold leading-[1.1] text-white lg:text-[52px]">
@@ -192,90 +196,17 @@ export default async function LandingPage() {
         </section>
       )}
 
-      {/* Features */}
-      <section className="bg-white px-8 py-[72px] lg:px-20">
-        <div className="mx-auto w-full max-w-5xl">
-        <div className="mb-3 text-xs md:text-sm font-semibold uppercase tracking-[1px] text-[var(--brand-accent-dark)]">
-          Why book online
-        </div>
-        <h2 className="mb-3 font-[family-name:var(--font-heading)] text-3xl md:text-4xl font-bold text-[var(--brand)] lg:text-4xl">
-          Fast, Simple, Paperless
-        </h2>
-        <p className="mb-8 max-w-[520px] text-base md:text-lg text-gray-500">
-          Book your collection from any device in under 3 minutes. No phone
-          calls, no paperwork.
-        </p>
-
-        {/* Primary address search — relocated here from the hero so a custom
-            tenant banner can own the hero without dropping the main CTA. */}
-        <div className="mb-14 max-w-[560px]">
-          <HeroSearch />
-          <p className="mt-2.5 text-xs md:text-sm text-gray-400">
-            e.g. 12 Main Street, Perth WA 6000
-          </p>
-        </div>
-
-        <div className="grid gap-8 md:grid-cols-3">
-          {FEATURES.map((feature) => (
-            <div key={feature.title} className="flex flex-col gap-3">
-              <div
-                className={`flex size-11 items-center justify-center rounded-xl ${feature.colorClass}`}
-              >
-                {feature.icon}
-              </div>
-              <h3 className="font-[family-name:var(--font-heading)] text-base md:text-lg font-semibold text-[var(--brand)]">
-                {feature.title}
-              </h3>
-              <p className="text-sm md:text-base leading-relaxed text-gray-500">
-                {feature.body}
-              </p>
-            </div>
-          ))}
-        </div>
-        </div>
-      </section>
-
-      {/* How it works */}
-      <section id="how-it-works" className="bg-gray-50 px-8 py-[72px] lg:px-20">
-        <div className="mx-auto w-full max-w-5xl">
-        <h2 className="mb-12 font-[family-name:var(--font-heading)] text-3xl md:text-4xl font-bold text-[var(--brand)] lg:text-4xl">
-          How it works
-        </h2>
-        <div className="relative grid grid-cols-2 gap-y-10 md:grid-cols-5 md:gap-0">
-          {/* Connector line (desktop only) */}
-          <div className="absolute left-[calc(10%+20px)] right-[calc(10%+20px)] top-5 hidden h-0.5 bg-gray-100 md:block" />
-          {STEPS.map((step, i) => (
-            <div
-              key={step.title}
-              className="flex flex-col items-center gap-3.5 px-4"
-            >
-              <div className="relative z-10 flex size-10 items-center justify-center rounded-full bg-[var(--brand-accent)] font-[family-name:var(--font-heading)] text-base md:text-lg font-bold text-[var(--brand)] shadow-[0_0_0_6px_#F5F5F5]">
-                {i + 1}
-              </div>
-              <h3 className="text-center text-body-sm md:text-body font-semibold text-[var(--brand)]">
-                {step.title}
-              </h3>
-              <p className="text-center text-xs md:text-sm leading-relaxed text-gray-500">
-                {step.body}
-              </p>
-            </div>
-          ))}
-        </div>
-        </div>
-      </section>
-
-      {/* What We Collect — dynamic per client. Hide section entirely if
+      {/* What we collect — dynamic per client. Hide section entirely if
           this client has no enabled services (would otherwise be an empty
           grid with just the info tile). */}
       {services.length > 0 && (
       <section id="services" className="bg-white px-8 py-[72px] lg:px-20">
         <div className="mx-auto w-full max-w-5xl">
         <h2 className="mb-3 font-[family-name:var(--font-heading)] text-3xl md:text-4xl font-bold text-[var(--brand)] lg:text-4xl">
-          What We Collect
+          What we collect
         </h2>
         <p className="mb-12 text-base md:text-lg text-gray-500">
-          Available in {branding.name}. Allocation limits apply per financial
-          year.
+          Allocation limits apply per financial year.
         </p>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {services.map((svc) => (
@@ -325,6 +256,68 @@ export default async function LandingPage() {
       </section>
       )}
 
+      {/* How it works */}
+      <section id="how-it-works" className="bg-gray-50 px-8 py-[72px] lg:px-20">
+        <div className="mx-auto w-full max-w-5xl">
+        <h2 className="mb-12 font-[family-name:var(--font-heading)] text-3xl md:text-4xl font-bold text-[var(--brand)] lg:text-4xl">
+          How it works
+        </h2>
+        <div className="relative grid grid-cols-2 gap-y-10 md:grid-cols-5 md:gap-0">
+          {/* Connector line (desktop only) */}
+          <div className="absolute left-[calc(10%+20px)] right-[calc(10%+20px)] top-5 hidden h-0.5 bg-gray-100 md:block" />
+          {STEPS.map((step, i) => (
+            <div
+              key={step.title}
+              className="flex flex-col items-center gap-3.5 px-4"
+            >
+              <div className="relative z-10 flex size-10 items-center justify-center rounded-full bg-[var(--brand-accent)] font-[family-name:var(--font-heading)] text-base md:text-lg font-bold text-[var(--brand)] shadow-[0_0_0_6px_#F5F5F5]">
+                {i + 1}
+              </div>
+              <h3 className="text-center text-body-sm md:text-body font-semibold text-[var(--brand)]">
+                {step.title}
+              </h3>
+              <p className="text-center text-xs md:text-sm leading-relaxed text-gray-500">
+                {step.body}
+              </p>
+            </div>
+          ))}
+        </div>
+        </div>
+      </section>
+
+      {/* Why book online */}
+      <section className="bg-white px-8 py-[72px] lg:px-20">
+        <div className="mx-auto w-full max-w-5xl">
+        <div className="mb-3 text-xs md:text-sm font-semibold uppercase tracking-[1px] text-[var(--brand-accent-dark)]">
+          Why book online
+        </div>
+        <h2 className="mb-3 font-[family-name:var(--font-heading)] text-3xl md:text-4xl font-bold text-[var(--brand)] lg:text-4xl">
+          Fast, simple, paperless
+        </h2>
+        <p className="mb-14 max-w-[520px] text-base md:text-lg text-gray-500">
+          Book your collection from any device in under 3 minutes. No phone
+          calls, no paperwork.
+        </p>
+        <div className="grid gap-8 md:grid-cols-3">
+          {FEATURES.map((feature) => (
+            <div key={feature.title} className="flex flex-col gap-3">
+              <div
+                className={`flex size-11 items-center justify-center rounded-xl ${feature.colorClass}`}
+              >
+                {feature.icon}
+              </div>
+              <h3 className="font-[family-name:var(--font-heading)] text-base md:text-lg font-semibold text-[var(--brand)]">
+                {feature.title}
+              </h3>
+              <p className="text-sm md:text-base leading-relaxed text-gray-500">
+                {feature.body}
+              </p>
+            </div>
+          ))}
+        </div>
+        </div>
+      </section>
+
       {/* CTA band */}
       <section className="relative overflow-hidden bg-[var(--brand)] px-8 py-[72px] lg:px-20">
         <div className="absolute -right-24 -top-24 size-[400px] rounded-full" style={{ background: 'radial-gradient(circle, color-mix(in srgb, var(--brand-accent) 10%, transparent) 0%, transparent 70%)' }} />
@@ -340,27 +333,28 @@ export default async function LandingPage() {
               minutes. Your annual allocation is waiting.
             </p>
           </div>
-          <Link
-            href="/book"
-            className="inline-flex shrink-0 items-center gap-2 rounded-xl bg-[var(--brand-accent)] px-9 py-4 font-[family-name:var(--font-heading)] text-base md:text-lg font-bold text-[var(--brand)]"
-          >
-            Book a Collection
-            <svg
-              width="18"
-              height="18"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <line x1="5" y1="12" x2="19" y2="12" />
-              <polyline points="12 5 19 12 12 19" />
-            </svg>
-          </Link>
+          {/* Primary booking entry point — the address search lives here
+              (in lieu of a "Book a Collection" button) so the booking action
+              survives a custom tenant hero banner taking over the top. */}
+          <div className="w-full lg:w-auto lg:min-w-[440px]">
+            <HeroSearch />
+            <p className="mt-2.5 text-xs md:text-sm text-[#8FA5B8]">
+              e.g. 12 Main Street, Perth WA 6000
+            </p>
+          </div>
         </div>
       </section>
+
+      {/* Tenant footer content — placeholder for future per-tenant footer
+          (council links, contact, acknowledgements). Collapses entirely when
+          there's nothing to show. */}
+      {footerContent && (
+        <section className="bg-[var(--brand-hover)] px-8 pt-10 lg:px-20">
+          <div className="mx-auto w-full max-w-5xl text-body-sm leading-relaxed text-[#8FA5B8]">
+            {footerContent}
+          </div>
+        </section>
+      )}
 
       {/* Footer */}
       <footer className="flex flex-col items-center justify-between gap-4 bg-[var(--brand-hover)] px-8 py-8 sm:flex-row lg:px-20">
