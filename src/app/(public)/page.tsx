@@ -1,3 +1,4 @@
+import Link from 'next/link'
 import { headers } from 'next/headers'
 import { createClient } from '@/lib/supabase/server'
 import { HeroSearch } from './hero-search'
@@ -225,8 +226,11 @@ export default async function LandingPage() {
               </span>
             </div>
           ))}
-          {/* Info tile */}
-          <div className="flex items-center gap-3.5 rounded-xl border-[1.5px] border-[#C7D3DD] bg-[#E8EEF2] px-5 py-5">
+          {/* Info tile — links through to the FAQ section on the contact page */}
+          <Link
+            href="/contact#faqs"
+            className="group flex items-center gap-3.5 rounded-xl border-[1.5px] border-[#C7D3DD] bg-[#E8EEF2] px-5 py-5 transition-colors hover:border-[var(--brand)] hover:bg-[#DEE8EF]"
+          >
             <svg
               width="24"
               height="24"
@@ -242,15 +246,28 @@ export default async function LandingPage() {
               <line x1="12" y1="8" x2="12" y2="12" />
               <line x1="12" y1="16" x2="12.01" y2="16" />
             </svg>
-            <div>
+            <div className="flex-1">
               <h3 className="font-[family-name:var(--font-heading)] text-body md:text-subtitle font-semibold text-[var(--brand)]">
                 Not sure what&apos;s eligible?
               </h3>
               <p className="text-xs md:text-sm text-gray-500">
-                Check our full guidelines or contact us
+                Read our FAQs
               </p>
             </div>
-          </div>
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="var(--brand)"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="shrink-0 transition-transform group-hover:translate-x-0.5"
+            >
+              <polyline points="9 18 15 12 9 6" />
+            </svg>
+          </Link>
         </div>
         </div>
       </section>
