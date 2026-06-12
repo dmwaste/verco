@@ -59,11 +59,20 @@ export const ContactSchema = z.object({
 
 export type ContactFormData = z.infer<typeof ContactSchema>
 
+// Resident-selectable collection locations. 'Other' is deliberately NOT here —
+// it is staff-only (admin/on-behalf flow) and lives in STAFF_LOCATION_OPTION so
+// it never renders on the resident-facing form.
 export const LOCATION_OPTIONS = [
   'Front Verge',
   'Side Verge',
   'Driveway',
-  'Laneway',
+  'Rear Verge',
 ] as const
 
-export type LocationOption = (typeof LOCATION_OPTIONS)[number]
+// Staff-only collection location, surfaced only in the on-behalf booking flow.
+// Selecting it makes the driver-notes field mandatory.
+export const STAFF_LOCATION_OPTION = 'Other' as const
+
+export type LocationOption =
+  | (typeof LOCATION_OPTIONS)[number]
+  | typeof STAFF_LOCATION_OPTION

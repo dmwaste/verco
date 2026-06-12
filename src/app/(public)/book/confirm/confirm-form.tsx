@@ -629,7 +629,7 @@ export function ConfirmForm() {
       <div className="flex flex-1 flex-col gap-4 overflow-y-auto pb-24 pt-6">
         <div>
           <h1 className="font-[family-name:var(--font-heading)] text-title font-bold leading-tight text-[var(--brand)]">
-            Confirm Your Booking
+            Confirm your booking
           </h1>
           <p className="mt-1 text-body-sm leading-relaxed text-gray-500">
             Review your booking details and provide contact information.
@@ -648,7 +648,7 @@ export function ConfirmForm() {
           className="rounded-xl bg-white p-6 shadow-sm"
         >
           <h2 className="mb-3.5 font-[family-name:var(--font-heading)] text-body font-semibold text-[var(--brand)]">
-            Contact Information
+            Contact information
           </h2>
           {onBehalf && (
             <div className="mb-3.5 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-body-sm text-amber-800">
@@ -660,7 +660,7 @@ export function ConfirmForm() {
             <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
               <div>
                 <label className="mb-1 block text-xs font-medium text-gray-700">
-                  First Name<span className="ml-0.5 text-red-500">*</span>
+                  First name<span className="ml-0.5 text-red-500">*</span>
                 </label>
                 <input
                   type="text"
@@ -677,7 +677,7 @@ export function ConfirmForm() {
               </div>
               <div>
                 <label className="mb-1 block text-xs font-medium text-gray-700">
-                  Last Name<span className="ml-0.5 text-red-500">*</span>
+                  Last name<span className="ml-0.5 text-red-500">*</span>
                 </label>
                 <input
                   type="text"
@@ -733,10 +733,10 @@ export function ConfirmForm() {
           </div>
         </form>
 
-        {/* Booking Summary */}
+        {/* Booking summary */}
         <div className="rounded-xl bg-white p-6 shadow-sm">
           <h2 className="mb-3.5 font-[family-name:var(--font-heading)] text-body font-semibold text-[var(--brand)]">
-            Booking Summary
+            Booking summary
           </h2>
           <div className="flex flex-col">
             <div className="flex border-b border-gray-100 py-3">
@@ -776,21 +776,29 @@ export function ConfirmForm() {
               </div>
             )}
 
+            {/* Column header — service split out from quantity, plus amount */}
+            <div className="flex items-center border-b border-gray-100 pb-1.5 text-2xs font-medium uppercase tracking-wide text-gray-500">
+              <span className="flex-1">Service</span>
+              <span className="w-12 text-center">Qty</span>
+              <span className="w-20 text-right">Amount</span>
+            </div>
+
             {summaryData.included.length > 0 && (
               <>
-                <div className="mb-2 text-2xs font-medium uppercase tracking-wide text-gray-500">
-                  Included in Allocation
+                <div className="mb-1 mt-2 text-2xs font-medium uppercase tracking-wide text-gray-400">
+                  Included in allocation
                 </div>
                 {summaryData.included.map((item) => (
                   <div
                     key={item.name}
-                    className="flex items-center justify-between py-1.5 text-body-sm"
+                    className="flex items-center py-1.5 text-body-sm"
                   >
-                    <span className="text-gray-900">
-                      {item.name} &times; {item.qty}
+                    <span className="flex-1 text-gray-900">{item.name}</span>
+                    <span className="w-12 text-center text-gray-900">
+                      {item.qty}
                     </span>
-                    <span className="font-medium text-[#006A38]">
-                      Included
+                    <span className="w-20 text-right text-[#006A38]">
+                      &mdash;
                     </span>
                   </div>
                 ))}
@@ -799,22 +807,25 @@ export function ConfirmForm() {
 
             {summaryData.extras.length > 0 && (
               <>
-                {summaryData.included.length > 0 && (
-                  <div className="my-2.5 h-px bg-gray-100" />
-                )}
-                <div className="mb-2 text-2xs font-medium uppercase tracking-wide text-gray-500">
-                  Extra Services
+                <div className="mb-1 mt-2 text-2xs font-medium uppercase tracking-wide text-gray-400">
+                  Extra services
                 </div>
                 {summaryData.extras.map((item) => (
                   <div
                     key={item.name}
-                    className="flex items-center justify-between py-1.5 text-body-sm"
+                    className="flex items-center py-1.5 text-body-sm"
                   >
-                    <span className="text-gray-900">
-                      {item.name} &times; {item.qty} @ $
-                      {item.unitPrice.toFixed(2)}
+                    <span className="flex-1 text-gray-900">
+                      {item.name}
+                      <span className="text-gray-400">
+                        {' '}
+                        @ ${item.unitPrice.toFixed(2)}
+                      </span>
                     </span>
-                    <span className="font-semibold text-[var(--brand)]">
+                    <span className="w-12 text-center text-gray-900">
+                      {item.qty}
+                    </span>
+                    <span className="w-20 text-right font-semibold text-[var(--brand)]">
                       ${item.lineTotal.toFixed(2)}
                     </span>
                   </div>
@@ -860,7 +871,7 @@ export function ConfirmForm() {
           <div className="flex flex-col gap-4 rounded-xl border border-gray-100 bg-white p-6 shadow-sm">
             <div>
               <h2 className="font-[family-name:var(--font-heading)] text-xl font-bold text-[var(--brand)]">
-                Verify Email
+                Verify email
               </h2>
               <p className="mt-1.5 text-body-sm leading-relaxed text-gray-500">
                 We sent a 6-digit code to
@@ -967,8 +978,8 @@ export function ConfirmForm() {
             {isSubmitting
               ? 'Sending code...'
               : totalCents > 0
-                ? 'Proceed to Payment'
-                : 'Confirm Booking'}
+                ? 'Proceed to payment'
+                : 'Confirm booking'}
           </VercoButton>
         </div>
       )}

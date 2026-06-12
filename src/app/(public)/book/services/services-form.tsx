@@ -529,7 +529,7 @@ export function ServicesForm() {
       <div className="flex flex-1 flex-col gap-4 overflow-y-auto pb-24 pt-6">
         <div>
           <h1 className="font-[family-name:var(--font-heading)] text-title font-bold leading-tight text-[var(--brand)]">
-            Select Services
+            Select services
           </h1>
           <p className="mt-1 text-body-sm leading-relaxed text-gray-500">
             Choose items for collection. Combine multiple service types.
@@ -548,10 +548,10 @@ export function ServicesForm() {
         {!isLoadingData && (
           <>
             {grouped.bulk.length > 0 &&
-              renderServiceSection('Bulk Collection', 'bulk', grouped.bulk)}
+              renderServiceSection('Bulk collection', 'bulk', grouped.bulk)}
 
             {grouped.anc.length > 0 &&
-              renderServiceSection('Ancillary Collection', 'anc', grouped.anc, swapApplied)}
+              renderServiceSection('Ancillary collection', 'anc', grouped.anc, swapApplied)}
 
             {/* Allocation swap — forfeit the ancillary allocation for an extra Green */}
             {(swapEligible || swapApplied) && conversionRule && (
@@ -578,7 +578,7 @@ export function ServicesForm() {
         {!isLoadingData && totalChargeCents > 0 && (
           <div className="flex items-center justify-between rounded-[10px] bg-[#E8EEF2] px-4 py-3.5">
             <span className="text-sm font-semibold text-[var(--brand)]">
-              Total Extra Services Cost
+              Total extra services cost
             </span>
             <span className="font-[family-name:var(--font-heading)] text-lg font-bold text-[var(--brand)]">
               ${(totalChargeCents / 100).toFixed(2)}
@@ -602,7 +602,7 @@ export function ServicesForm() {
           onClick={handleContinue}
           disabled={totalItems === 0 || isLoadingData}
         >
-          Next Step &rarr;
+          Next step &rarr;
         </VercoButton>
       </div>
     </div>

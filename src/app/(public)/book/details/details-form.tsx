@@ -2,13 +2,18 @@
 
 import { useSearchParams, useRouter } from 'next/navigation'
 import { useState } from 'react'
+import Link from 'next/link'
 import { BookingStepper } from '@/components/booking/booking-stepper'
 import { BookingCancelLink } from '@/components/booking/booking-cancel-link'
 import { VercoButton } from '@/components/ui/verco-button'
-import { LOCATION_OPTIONS, type LocationOption } from '@/lib/booking/schemas'
+import {
+  LOCATION_OPTIONS,
+  STAFF_LOCATION_OPTION,
+  type LocationOption,
+} from '@/lib/booking/schemas'
 import { cn } from '@/lib/utils'
 
-export function DetailsForm() {
+export function DetailsForm({ contactPhone }: { contactPhone: string }) {
   const router = useRouter()
   const searchParams = useSearchParams()
   const propertyId = searchParams.get('property_id') ?? ''
@@ -23,6 +28,14 @@ export function DetailsForm() {
     (searchParams.get('location') as LocationOption) ?? 'Front Verge'
   )
   const [notes, setNotes] = useState(searchParams.get('notes') ?? '')
+
+  // 'Other' is staff-only — surfaced only in the on-behalf flow — and forces
+  // the driver notes to be filled in (free-text location needs explanation).
+  const locationOptions = onBehalf
+    ? [...LOCATION_OPTIONS, STAFF_LOCATION_OPTION]
+    : LOCATION_OPTIONS
+  const notesRequired = location === STAFF_LOCATION_OPTION
+  const notesMissing = notesRequired && notes.trim().length === 0
 
   // Carry params through for edit flow
   const contactFirstName = searchParams.get('contact_first_name')
@@ -41,6 +54,7 @@ export function DetailsForm() {
   }
 
   function handleContinue() {
+    if (notesMissing) return
     const params = new URLSearchParams({
       property_id: propertyId,
       collection_area_id: collectionAreaId,
@@ -78,10 +92,10 @@ export function DetailsForm() {
       <div className="flex flex-1 flex-col gap-4 overflow-y-auto pb-24 pt-6">
         <div>
           <h1 className="font-[family-name:var(--font-heading)] text-title font-bold leading-tight text-[var(--brand)]">
-            Collection Details
+            Collection details
           </h1>
           <p className="mt-1 text-body-sm leading-relaxed text-gray-500">
-            Confirm where we should collect from on your property.
+            Where will the items be presented for collection?
           </p>
         </div>
 
@@ -96,10 +110,10 @@ export function DetailsForm() {
 
           {/* Location on property */}
           <div className="mb-3 text-body-sm font-semibold text-[var(--brand)]">
-            Location on Property
+            Location on property
           </div>
-          <div className="mb-4 flex flex-wrap gap-2">
-            {LOCATION_OPTIONS.map((opt) => (
+          <div className="mb-3 flex flex-wrap gap-2">
+            {locationOptions.map((opt) => (
               <button
                 key={opt}
                 type="button"
@@ -116,6 +130,34 @@ export function DetailsForm() {
             ))}
           </div>
 
+          {/* Driveway-specific placement reminder */}
+          {location === 'Driveway' && (
+            <p className="mb-3 rounded-[10px] border border-[var(--brand-accent-dark)] bg-[var(--brand-accent-light)] px-3.5 py-2.5 text-xs text-[#006A38]">
+              Items must be verge side of the letterbox.
+            </p>
+          )}
+
+          {/* Out-of-bounds location help */}
+          <p className="mb-4 text-xs leading-relaxed text-gray-500">
+            If your items are not located on the front verge, side verge or
+            driveway, please contact our team
+            {contactPhone ? (
+              <>
+                {' '}
+                on{' '}
+                <span className="font-medium text-gray-700">{contactPhone}</span>
+              </>
+            ) : null}
+            , or{' '}
+            <Link
+              href="/contact"
+              className="font-medium text-[var(--brand-accent-dark)] underline hover:no-underline"
+            >
+              submit an enquiry
+            </Link>{' '}
+            to confirm whether a collection can be accommodated.
+          </p>
+
           <div className="mb-4 h-px bg-gray-100" />
 
           {/* Notes */}
@@ -124,7 +166,12 @@ export function DetailsForm() {
               htmlFor="notes"
               className="text-xs font-medium text-gray-700"
             >
-              Notes for Driver (Optional)
+              Notes for driver
+              {notesRequired ? (
+                <span className="ml-0.5 text-red-500">*</span>
+              ) : (
+                ' (optional)'
+              )}
             </label>
             <textarea
               id="notes"
@@ -134,6 +181,12 @@ export function DetailsForm() {
               placeholder="e.g. will be on the other street side of the property"
               className="h-20 w-full resize-none rounded-[10px] border-[1.5px] border-gray-100 bg-gray-50 px-3.5 py-3 text-sm text-gray-900 outline-none transition-colors placeholder:text-gray-300 focus:border-[var(--brand)] focus:bg-white"
             />
+            {notesMissing && (
+              <p className="text-[11px] text-red-500">
+                Notes for driver are required when the location is
+                &ldquo;Other&rdquo;.
+              </p>
+            )}
           </div>
         </div>
       </div>
@@ -151,8 +204,9 @@ export function DetailsForm() {
         <VercoButton
           className="flex-1"
           onClick={handleContinue}
+          disabled={notesMissing}
         >
-          Next Step &rarr;
+          Next step &rarr;
         </VercoButton>
       </div>
     </div>
