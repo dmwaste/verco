@@ -20,7 +20,12 @@ import { fetchAllEligibleProperties } from './lib/airtable-vv'
 import { loadAreaMap, resolveAreaId } from './lib/area-map'
 import { geocodeAddress } from './lib/geocode'
 import { toVercoRow } from './lib/transform'
-import { fetchExistingExternalIds, upsertEligibleProperties } from './lib/verco-upsert'
+import { dedupeByPlaceId } from './lib/dedupe-properties'
+import {
+  fetchExistingExternalIds,
+  fetchExistingPlaceIds,
+  upsertEligibleProperties,
+} from './lib/verco-upsert'
 import { parseFlags, requireEnv } from './lib/cli'
 import { VV_BASES, type EligiblePropertyInsert } from './lib/types'
 
@@ -42,6 +47,18 @@ async function main() {
   const verco = createClient(supabaseUrl, serviceKey)
   const areaMap = await loadAreaMap(verco)
   console.log(`Loaded ${areaMap.size} Verco collection_areas under vergevalet.`)
+
+  // Physical-property dedup: place_ids already in Verco for this client. The
+  // pre-filter below skips rows by Airtable record id, but the VV base holds
+  // DIFFERENT records for the same house (one correct, one mis-coded to the
+  // wrong council). Without this guard those re-import as duplicates and the
+  // booking lookup reports the address "not eligible". Mutated per base so a
+  // later base sees survivors from an earlier one. See dedupe-properties.ts.
+  const existingPlaceIds = dryRun
+    ? new Set<string>()
+    : await fetchExistingPlaceIds(verco, [...areaMap.values()])
+  console.log(`Loaded ${existingPlaceIds.size} existing place_ids for dedup.`)
+  const dupeDropped: { existing: number; inBatch: number } = { existing: 0, inBatch: 0 }
 
   const bases = sourceFilter === 'all'
     ? VV_BASES
@@ -115,15 +132,26 @@ async function main() {
       insertable.push(toVercoRow(row, base.baseId, areaId, geocode))
     }
 
-    // 5. Upsert (unless dry-run).
+    // 5. Dedup by physical property (place_id), then upsert.
+    const deduped = dedupeByPlaceId(insertable, existingPlaceIds)
+    dupeDropped.existing += deduped.droppedExisting.length
+    dupeDropped.inBatch += deduped.droppedInBatch.length
+    if (deduped.droppedExisting.length || deduped.droppedInBatch.length) {
+      console.log(
+        `  Dedup: dropped ${deduped.droppedExisting.length} already-in-Verco + ` +
+        `${deduped.droppedInBatch.length} same-place_id-in-batch; ` +
+        `${deduped.kept.length} to upsert.`
+      )
+    }
+
     let upsertResult = { ok: 0, failedBatches: 0 }
-    if (!dryRun && insertable.length > 0) {
-      upsertResult = await upsertEligibleProperties(verco, insertable, (done, total) => {
+    if (!dryRun && deduped.kept.length > 0) {
+      upsertResult = await upsertEligibleProperties(verco, deduped.kept, (done, total) => {
         process.stdout.write(`\r  Upserting... ${done}/${total}`)
       })
       process.stdout.write('\n')
     } else if (dryRun) {
-      console.log(`  DRY RUN — would upsert ${insertable.length} rows.`)
+      console.log(`  DRY RUN — would upsert ${deduped.kept.length} rows.`)
     }
 
     counts[base.key] = {
@@ -139,6 +167,7 @@ async function main() {
     completedAt: new Date().toISOString(),
     dryRun,
     counts,
+    dupeDropped,
     failedGeocodes,
     unmappedCodes,
     orphanAddresses,
@@ -152,6 +181,7 @@ async function main() {
   for (const [k, v] of Object.entries(counts)) {
     console.log(`  ${k.padEnd(5)}  new=${v.newRows}  skipped=${v.skipped}  upserted=${v.upserted}  failedBatches=${v.failedBatches}`)
   }
+  console.log(`Dedup dropped: ${dupeDropped.existing} already-in-Verco + ${dupeDropped.inBatch} same-place_id-in-batch`)
   console.log(`Failed geocodes: ${failedGeocodes.length}`)
   console.log(`Orphan addresses skipped (no Council_Code link): ${orphanAddresses.length}`)
   console.log(`Empty addresses skipped (< 4 chars): ${emptyAddresses.length}`)
