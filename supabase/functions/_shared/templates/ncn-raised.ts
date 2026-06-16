@@ -1,6 +1,6 @@
 import type { BookingForDispatch, RenderedEmail } from './types.ts'
 import { renderEmailLayout } from './_layout.ts'
-import { formatCollectionDate, escapeHtml } from './template-helpers.ts'
+import { formatCollectionDate, escapeHtml, buildBookingPortalUrl } from './template-helpers.ts'
 
 /**
  * `ncn_raised` template — sent when a field user raises a non-conformance
@@ -16,7 +16,7 @@ import { formatCollectionDate, escapeHtml } from './template-helpers.ts'
  *     - Optional photo thumbnails (max 4)
  *     - Dispute window notice (14 days)
  *     - Details table: ref, collection date, address
- *   CTA: "View booking" → {appUrl}/{client_slug}/booking/{ref}
+ *   CTA: "View booking" → tenant-host /booking/{ref} via buildBookingPortalUrl
  *
  * ## Pure function
  *
@@ -78,7 +78,11 @@ export function renderNcnRaised(
     </table>
   `
 
-  const ctaUrl = `${appUrl}/${booking.client.slug}/booking/${encodeURIComponent(ref)}`
+  const ctaUrl = buildBookingPortalUrl(
+    booking.client,
+    `/booking/${encodeURIComponent(ref)}`,
+    appUrl,
+  )
   const preheader = options.contractor_fault
     ? `We were unable to complete your collection for booking ${ref}`
     : `A non-conformance notice has been issued for booking ${ref}`

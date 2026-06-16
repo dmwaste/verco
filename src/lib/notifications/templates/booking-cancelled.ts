@@ -1,6 +1,6 @@
 import type { BookingForDispatch, RenderedEmail } from './types'
 import { renderEmailLayout } from './_layout'
-import { formatCurrency, formatCollectionDate, escapeHtml } from './template-helpers'
+import { formatCurrency, formatCollectionDate, escapeHtml, buildBookingPortalUrl } from './template-helpers'
 
 /**
  * `booking_cancelled` template — sent when a user or staff member cancels.
@@ -21,7 +21,7 @@ import { formatCurrency, formatCollectionDate, escapeHtml } from './template-hel
  *     - Optional reason (from `reason` field in payload — interpolated if present)
  *     - Details: ref, original collection date, address
  *     - (if refund_cents > 0) Refund notice
- *   CTA: "Book again" → {appUrl}/{client_slug}/dashboard
+ *   CTA: "Book again" → tenant-host /dashboard via buildBookingPortalUrl
  *
  * Phase 1 scope is the simplest variant: free booking + optional reason +
  * refund mention. Phase 2 (VER-120) adds the residents' and refund-triggered
@@ -68,7 +68,7 @@ export function renderBookingCancelled(
     <p style="margin:0 0 16px 0">You can book another collection any time.</p>
   `
 
-  const ctaUrl = `${appUrl}/${booking.client.slug}/dashboard`
+  const ctaUrl = buildBookingPortalUrl(booking.client, '/dashboard', appUrl)
 
   return {
     subject: `Booking cancelled — ${ref}`,
