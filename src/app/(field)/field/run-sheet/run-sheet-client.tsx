@@ -188,7 +188,10 @@ export function RunSheetClient({ bookings }: RunSheetClientProps) {
                 key={booking.id}
                 className={`flex flex-col gap-2 rounded-xl border-l-4 bg-white p-3.5 shadow-sm ${getBorderClass(booking.status)}`}
               >
-                <div className="flex items-start justify-between gap-2">
+                <Link
+                  href={`/field/booking/${booking.ref}`}
+                  className="flex items-start justify-between gap-2 active:opacity-80"
+                >
                   <div>
                     <div className="font-[family-name:var(--font-heading)] text-xs font-semibold text-[#8FA5B8]">
                       {booking.ref}
@@ -209,7 +212,7 @@ export function RunSheetClient({ bookings }: RunSheetClientProps) {
                   ) : (
                     <BookingStatusBadge status={booking.status} />
                   )}
-                </div>
+                </Link>
 
                 {/* ID evidence detail, or service chips for other types */}
                 {isId ? (
@@ -323,7 +326,10 @@ export function RunSheetClient({ bookings }: RunSheetClientProps) {
                 key={booking.id}
                 className={`flex flex-col gap-2 rounded-xl border-l-4 bg-white p-3.5 shadow-sm ${getBorderClass(booking.status)}`}
               >
-                <div className="flex items-start justify-between gap-2">
+                <Link
+                  href={`/field/booking/${booking.ref}`}
+                  className="flex items-start justify-between gap-2 active:opacity-80"
+                >
                   <div>
                     <div className="font-[family-name:var(--font-heading)] text-xs font-semibold text-[#8FA5B8]">
                       {booking.ref}
@@ -336,7 +342,7 @@ export function RunSheetClient({ bookings }: RunSheetClientProps) {
                     )}
                   </div>
                   <BookingStatusBadge status={booking.status} />
-                </div>
+                </Link>
                 {isId ? (
                   <IdDetail booking={booking} />
                 ) : (
