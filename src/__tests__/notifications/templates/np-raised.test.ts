@@ -40,4 +40,13 @@ describe('renderNpRaised', () => {
     expect(html).toContain('14 days')
     expect(html).toContain('dispute')
   })
+
+  it('CTA resolves to the tenant host, not a root-host path segment', () => {
+    const booking = makeMockBooking({ ref: 'VV-NP009' })
+    booking.client.slug = 'kwn'
+    const { html } = renderNpRaised(booking, APP_URL, {})
+    // Hostname-based tenant routing — `${appUrl}/${slug}/...` 404s to /landing.
+    expect(html).toContain(`https://kwn.verco.au/booking/${encodeURIComponent('VV-NP009')}`)
+    expect(html).not.toContain('verco.test/kwn/booking')
+  })
 })

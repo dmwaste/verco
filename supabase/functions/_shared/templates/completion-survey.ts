@@ -1,6 +1,6 @@
 import type { BookingForDispatch, RenderedEmail } from './types.ts'
 import { renderEmailLayout } from './_layout.ts'
-import { formatCollectionDate, escapeHtml } from './template-helpers.ts'
+import { formatCollectionDate, escapeHtml, buildBookingPortalUrl } from './template-helpers.ts'
 
 /**
  * `completion_survey` template — sent when a field user marks a booking as Complete.
@@ -15,7 +15,7 @@ import { formatCollectionDate, escapeHtml } from './template-helpers.ts'
  *     - Completion confirmation
  *     - Details table: ref, collection date, address
  *     - Feedback ask
- *   CTA: "Complete survey" → {appUrl}/{client_slug}/survey/{surveyToken}
+ *   CTA: "Complete survey" → tenant-host /survey/{surveyToken} via buildBookingPortalUrl
  *
  * ## Pure function
  *
@@ -44,7 +44,7 @@ export function renderCompletionSurvey(
     <p style="margin:0 0 16px 0">Your feedback helps us improve the service for everyone.</p>
   `
 
-  const ctaUrl = `${appUrl}/${booking.client.slug}/survey/${surveyToken}`
+  const ctaUrl = buildBookingPortalUrl(booking.client, `/survey/${surveyToken}`, appUrl)
 
   return {
     subject: `How was your collection? — ${ref}`,

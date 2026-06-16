@@ -71,4 +71,13 @@ describe('renderNcnRaised', () => {
     const noPhotos = renderNcnRaised(booking, APP_URL, { reason: 'Building Waste' })
     expect(noPhotos.html).not.toContain('<img')
   })
+
+  it('CTA resolves to the tenant host, not a root-host path segment', () => {
+    const booking = makeMockBooking({ ref: 'VV-NCN009' })
+    booking.client.slug = 'kwn'
+    const { html } = renderNcnRaised(booking, APP_URL, { reason: 'Building Waste' })
+    // Hostname-based tenant routing — `${appUrl}/${slug}/...` 404s to /landing.
+    expect(html).toContain(`https://kwn.verco.au/booking/${encodeURIComponent('VV-NCN009')}`)
+    expect(html).not.toContain('verco.test/kwn/booking')
+  })
 })

@@ -1,6 +1,6 @@
 import type { BookingForDispatch, RenderedEmail } from './types.ts'
 import { renderEmailLayout } from './_layout.ts'
-import { formatCollectionDate, escapeHtml } from './template-helpers.ts'
+import { formatCollectionDate, escapeHtml, buildBookingPortalUrl } from './template-helpers.ts'
 
 /**
  * `np_raised` template — sent when a field user records a Nothing Presented notice.
@@ -19,7 +19,7 @@ import { formatCollectionDate, escapeHtml } from './template-helpers.ts'
  *     - Optional photo thumbnails (max 4)
  *     - Dispute window: resident has 14 days to dispute
  *     - Details table: ref, collection date, address
- *   CTA: "View booking" → {appUrl}/{client_slug}/booking/{ref}
+ *   CTA: "View booking" → tenant-host /booking/{ref} via buildBookingPortalUrl
  *
  * ## Pure function
  *
@@ -76,7 +76,11 @@ export function renderNpRaised(
     </table>
   `
 
-  const ctaUrl = `${appUrl}/${booking.client.slug}/booking/${encodeURIComponent(ref)}`
+  const ctaUrl = buildBookingPortalUrl(
+    booking.client,
+    `/booking/${encodeURIComponent(ref)}`,
+    appUrl,
+  )
 
   return {
     subject: `Nothing presented — ${ref}`,

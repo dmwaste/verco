@@ -1,6 +1,6 @@
 import type { BookingForDispatch, RenderedEmail } from './types.ts'
 import { renderEmailLayout } from './_layout.ts'
-import { formatCollectionDate, escapeHtml } from './template-helpers.ts'
+import { formatCollectionDate, escapeHtml, buildBookingPortalUrl } from './template-helpers.ts'
 
 /**
  * `payment_expired` template — sent when a `Pending Payment` booking is
@@ -34,7 +34,7 @@ export function renderPaymentExpired(
     <p style="margin:0 0 16px 0">You can book another collection any time.</p>
   `
 
-  const ctaUrl = `${appUrl}/${booking.client.slug}/dashboard`
+  const ctaUrl = buildBookingPortalUrl(booking.client, '/dashboard', appUrl)
 
   return {
     subject: `Booking expired — ${ref}`,
