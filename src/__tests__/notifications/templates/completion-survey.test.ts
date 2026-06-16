@@ -22,7 +22,10 @@ describe('renderCompletionSurvey', () => {
     const booking = makeMockBooking()
     booking.client.slug = 'kwn'
     const { html } = renderCompletionSurvey(booking, APP_URL, 'my-survey-token')
-    expect(html).toContain('https://verco.test/kwn/survey/my-survey-token')
+    // Hostname-based tenant routing — resolve to the tenant host, not a path
+    // segment on the root host.
+    expect(html).toContain('https://kwn.verco.au/survey/my-survey-token')
+    expect(html).not.toContain('verco.test/kwn/survey')
     expect(html).toContain('Complete survey')
   })
 

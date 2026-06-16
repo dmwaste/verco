@@ -81,7 +81,10 @@ function StopCard({ stop, error, isPending, onComplete }: StopCardProps) {
         stop.status !== 'Pending' ? 'opacity-70' : ''
       }`}
     >
-      <div className="flex items-start gap-3">
+      <Link
+        href={`/field/stops/${stop.id}`}
+        className="flex items-start gap-3 active:opacity-80"
+      >
         {/* Sequence chip — the crew's collection number for this pass */}
         <div className="flex size-9 shrink-0 items-center justify-center rounded-[10px] bg-[var(--brand)] font-[family-name:var(--font-heading)] text-sm font-bold text-[var(--brand-accent)]">
           {stop.stop_sequence ?? '—'}
@@ -104,7 +107,7 @@ function StopCard({ stop, error, isPending, onComplete }: StopCardProps) {
         ) : (
           <StopStatusBadge status={stop.status} />
         )}
-      </div>
+      </Link>
 
       <div className="flex flex-wrap gap-1.5">
         {stop.status !== 'Pending' && <StreamBadge stream={stop.stream} />}

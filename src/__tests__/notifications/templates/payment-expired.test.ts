@@ -23,7 +23,10 @@ describe('renderPaymentExpired', () => {
     const booking = makeMockPaidBooking()
     booking.client.slug = 'kwn'
     const { html } = renderPaymentExpired(booking, APP_URL)
-    expect(html).toContain('https://verco.test/kwn/dashboard')
+    // Hostname-based tenant routing — resolve to the tenant host, not a path
+    // segment on the root host.
+    expect(html).toContain('https://kwn.verco.au/dashboard')
+    expect(html).not.toContain('verco.test/kwn/dashboard')
     expect(html).toContain('Book again')
   })
 })

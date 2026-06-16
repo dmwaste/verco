@@ -23,7 +23,10 @@ describe('renderPaymentReminder', () => {
     const booking = makeMockPaidBooking()
     booking.client.slug = 'kwn'
     const { html } = renderPaymentReminder(booking, APP_URL)
-    expect(html).toContain(`https://verco.test/kwn/booking/${encodeURIComponent(booking.ref)}`)
+    // Tenant routing is hostname-based — the CTA must resolve to the tenant
+    // host, NOT a path segment on the root host (which 404s to /landing).
+    expect(html).toContain(`https://kwn.verco.au/booking/${encodeURIComponent(booking.ref)}`)
+    expect(html).not.toContain('verco.test/kwn/booking')
     expect(html).toContain('Complete payment')
   })
 })

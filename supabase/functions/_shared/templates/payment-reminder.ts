@@ -1,6 +1,6 @@
 import type { BookingForDispatch, RenderedEmail } from './types.ts'
 import { renderEmailLayout } from './_layout.ts'
-import { formatCurrency, formatCollectionDate, escapeHtml } from './template-helpers.ts'
+import { formatCurrency, formatCollectionDate, escapeHtml, buildBookingPortalUrl } from './template-helpers.ts'
 
 export function renderPaymentReminder(booking: BookingForDispatch, appUrl: string): RenderedEmail {
   const ref = booking.ref
@@ -18,7 +18,11 @@ export function renderPaymentReminder(booking: BookingForDispatch, appUrl: strin
     <p style="margin:0 0 16px 0">Complete your payment to confirm the booking.</p>
   `
 
-  const ctaUrl = `${appUrl}/${booking.client.slug}/booking/${encodeURIComponent(ref)}`
+  const ctaUrl = buildBookingPortalUrl(
+    booking.client,
+    `/booking/${encodeURIComponent(ref)}`,
+    appUrl,
+  )
 
   return {
     subject: `Complete your booking — ${ref}`,
