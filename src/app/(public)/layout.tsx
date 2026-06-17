@@ -1,3 +1,4 @@
+import type { Metadata } from 'next'
 import { headers } from 'next/headers'
 import { createClient } from '@/lib/supabase/server'
 import { PublicNav } from '@/components/public/public-nav'
@@ -5,6 +6,7 @@ import { MobileFab } from '@/components/public/mobile-fab'
 import { MobileBottomNav } from '@/components/public/mobile-bottom-nav'
 import { adminOrigin, isAdminHostname, isFieldHostname } from '@/lib/proxy/hostnames'
 import { STAFF_ROLES } from '@/lib/auth/roles'
+import { faviconToIcons } from '@/lib/client/favicon'
 
 interface ClientBranding {
   name: string
@@ -47,6 +49,42 @@ async function getAuthState(): Promise<{ isAuthenticated: boolean; isStaff: bool
     return { isAuthenticated: true, isStaff: STAFF_ROLES.some(r => r === userRole?.role) }
   } catch {
     return { isAuthenticated: false, isStaff: false }
+  }
+}
+
+// Per-tenant favicon for resident pages. Runs as its own pass (separate from
+// the layout body), so it does its own tiny `favicon_url` lookup rather than
+// sharing the body's branding fetch — one extra indexed PK read, no cache().
+//
+// CRITICAL: `(public)` also renders `/auth` on the admin/field hosts, where
+// `x-client-id` may be an on-behalf tenant. Mirror the body's isContractorHost
+// guard so a tenant favicon never leaks onto admin/field surfaces.
+export async function generateMetadata(): Promise<Metadata> {
+  try {
+    const headerStore = await headers()
+    const host = headerStore.get('host') ?? ''
+    if (isAdminHostname(host) || isFieldHostname(host)) return {}
+
+    const clientId = headerStore.get('x-client-id')
+    if (!clientId) return {}
+
+    const supabase = await createClient()
+    // favicon_url is added by migration 20260617130119 but is not in the
+    // prod-generated types until the next release applies it (CI types-check
+    // gens from prod). Select * and read favicon_url via a localized cast;
+    // narrow back to .select('favicon_url') after the post-release type regen
+    // (TODOS.md: "favicon types decast").
+    const { data } = await supabase
+      .from('client')
+      .select('*')
+      .eq('id', clientId)
+      .maybeSingle()
+    const faviconUrl = (data as { favicon_url?: string | null } | null)?.favicon_url ?? null
+
+    return { icons: faviconToIcons(faviconUrl) }
+  } catch {
+    // Degrade to the default app/icon.png rather than throw during metadata resolution.
+    return {}
   }
 }
 

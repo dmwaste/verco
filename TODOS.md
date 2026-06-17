@@ -45,3 +45,23 @@
 - **Why:** Residents book at, and SMS links resolve to, hostnames that literally say "test"; landing page cards now expose these in the URL bar (accepted at premise gate D3 with this TODO as the fix).
 - **Cons:** DNS + Coolify + Supabase data + host-only OTP cookies + council comms on changed URLs — a real migration, not a rename.
 - **Effort:** L (human, multi-day incl. comms) → M with CC. **Priority:** P2. **Depends on:** council comms window.
+
+## Extract a shared brand-colour normalization helper
+
+- **What:** Replace the duplicated `colour.startsWith('#') ? colour : '#'+colour` coercion with a single `normalizeBrandColour()` util (e.g. in `lib/branding/`).
+- **Why:** The same coercion lives in at least `src/app/(field)/field/layout.tsx:78` and `src/app/(public)/layout.tsx:90`; a third copy would be easy to add inconsistently.
+- **Pros:** One place to change brand-colour handling; matches the DRY preference; trivial to test.
+- **Cons:** Pre-existing and tangential — not worth bundling into an unrelated PR.
+- **Context:** Surfaced during the 2026-06-17 per-tenant favicon eng review (deliberately kept out of the favicon PRs to keep that diff surgical). Both call sites build the same `--brand*` CSS-var object.
+- **Effort:** S (human) → XS with CC. **Priority:** P3.
+
+## Favicon types decast (REQUIRED before the next release after favicon ships)
+
+- **What:** After the `favicon_url` migration (`20260617130119`) lands on prod, regenerate Supabase types (`pnpm supabase gen types typescript --project-id tfddjmplcizfirxqhotv > src/lib/supabase/types.ts`) and remove the two localized `favicon_url` casts: narrow `(public)/layout.tsx` `generateMetadata` back to `.select('favicon_url')`, and drop the `(client as { favicon_url?... })` cast in `branding-tab.tsx`.
+- **Why:** To get the whole favicon spec into `develop` without bricking the release (CI `types-check` gens from prod; a `favicon_url` type stub would fail the deploy's `ci` gate and skip the `migrations` job), `favicon_url` is read via cast and is deliberately absent from `types.ts`. Once prod HAS the column, `types.ts` is stale — and the deploy `ci` gate (`deploy.yml` → `migrations needs: ci`) will **fail every subsequent release** until types are regenerated.
+- **Pros:** Restores full type-safety on `favicon_url`; unblocks future releases.
+- **Cons:** None — this is mandatory cleanup, not optional.
+- **Context:** Per-tenant favicon shipped via the cast pattern (PR #196) to satisfy the "whole spec in develop" goal (2026-06-17) without a prod release. See memory `favicon-per-tenant`. The regen diff should be exactly the `favicon_url` lines (Row/Insert/Update) — anything else is unexpected drift.
+- **Depends on / blocked by:** the `develop→main` release that applies `20260617130119` to prod.
+- **Effort:** XS (regen + delete 2 casts). **Priority:** P1 — release-blocking once favicon is on prod.
+

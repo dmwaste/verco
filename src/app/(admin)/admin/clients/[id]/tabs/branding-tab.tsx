@@ -16,13 +16,17 @@ export function BrandingTab({ client }: { client: Client }) {
   const [logoLightUrl, setLogoLightUrl] = useState(client.logo_light_url ?? '')
   const [logoDarkUrl, setLogoDarkUrl] = useState(client.logo_dark_url ?? '')
   const [heroBannerUrl, setHeroBannerUrl] = useState(client.hero_banner_url ?? '')
+  // favicon_url isn't in the prod-generated client Row type until the next
+  // release (migration 20260617130119); read via a localized cast until the
+  // post-release type regen (TODOS.md: "favicon types decast").
+  const [faviconUrl, setFaviconUrl] = useState((client as { favicon_url?: string | null }).favicon_url ?? '')
   const [showPoweredBy, setShowPoweredBy] = useState(client.show_powered_by)
   const [saving, setSaving] = useState(false)
   const [uploading, setUploading] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
 
-  async function handleUpload(file: File, type: 'logo-light' | 'logo-dark' | 'hero-banner') {
+  async function handleUpload(file: File, type: 'logo-light' | 'logo-dark' | 'hero-banner' | 'favicon') {
     setUploading(type)
     const ext = file.name.split('.').pop() ?? 'png'
     // eslint-disable-next-line react-hooks/purity -- Date.now() runs inside an event handler (file-input onChange), not render
@@ -43,7 +47,8 @@ export function BrandingTab({ client }: { client: Client }) {
 
     if (type === 'logo-light') setLogoLightUrl(publicUrl)
     else if (type === 'logo-dark') setLogoDarkUrl(publicUrl)
-    else setHeroBannerUrl(publicUrl)
+    else if (type === 'hero-banner') setHeroBannerUrl(publicUrl)
+    else setFaviconUrl(publicUrl)
 
     setUploading(null)
   }
@@ -58,6 +63,7 @@ export function BrandingTab({ client }: { client: Client }) {
       logo_light_url: logoLightUrl || null,
       logo_dark_url: logoDarkUrl || null,
       hero_banner_url: heroBannerUrl || null,
+      favicon_url: faviconUrl || null,
       show_powered_by: showPoweredBy,
     })
     setSaving(false)
@@ -72,7 +78,7 @@ export function BrandingTab({ client }: { client: Client }) {
   const inputClass = 'w-full rounded-lg border-[1.5px] border-gray-100 bg-gray-50 px-3 py-2.5 font-mono text-body-sm text-gray-900 outline-none focus:border-[#293F52] focus:bg-white'
   const sectionHeader = 'mb-3 text-2xs font-semibold uppercase tracking-wide text-gray-500'
 
-  function UploadZone({ type, currentUrl, onClear, dark }: { type: 'logo-light' | 'logo-dark' | 'hero-banner'; currentUrl: string; onClear: () => void; dark?: boolean }) {
+  function UploadZone({ type, currentUrl, onClear, dark, accept = 'image/png,image/svg+xml,image/jpeg' }: { type: 'logo-light' | 'logo-dark' | 'hero-banner' | 'favicon'; currentUrl: string; onClear: () => void; dark?: boolean; accept?: string }) {
     const isUploading = uploading === type
     return currentUrl ? (
       <div className="flex items-center gap-3">
@@ -85,7 +91,7 @@ export function BrandingTab({ client }: { client: Client }) {
       <label className={`block cursor-pointer rounded-lg border-[1.5px] border-dashed p-6 text-center text-2xs ${dark ? 'border-gray-600 bg-[#293F52] text-gray-400' : 'border-gray-200 bg-white text-gray-400'} ${isUploading ? 'opacity-50' : 'hover:border-gray-300'}`}>
         <input
           type="file"
-          accept="image/png,image/svg+xml,image/jpeg"
+          accept={accept}
           className="hidden"
           disabled={isUploading}
           onChange={(e) => {
@@ -143,6 +149,13 @@ export function BrandingTab({ client }: { client: Client }) {
         <div className={sectionHeader}>Hero Banner</div>
         <UploadZone type="hero-banner" currentUrl={heroBannerUrl} onClear={() => setHeroBannerUrl('')} />
         <p className="mt-2 text-2xs text-gray-400">Recommended: 1920 x 600px</p>
+      </div>
+
+      {/* Favicon */}
+      <div className="mb-6 rounded-xl bg-white p-5 shadow-sm">
+        <div className={sectionHeader}>Favicon</div>
+        <UploadZone type="favicon" currentUrl={faviconUrl} onClear={() => setFaviconUrl('')} accept="image/png,image/svg+xml" />
+        <p className="mt-2 text-2xs text-gray-400">Square, at least 512 x 512px. PNG or SVG. Shown in the browser tab on this client&rsquo;s resident pages.</p>
       </div>
 
       {/* Display */}
