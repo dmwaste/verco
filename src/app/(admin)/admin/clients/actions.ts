@@ -34,6 +34,7 @@ const updateClientSchema = z.object({
   logo_light_url: z.string().nullable().optional(),
   logo_dark_url: z.string().nullable().optional(),
   hero_banner_url: z.string().nullable().optional(),
+  favicon_url: z.string().nullable().optional(),
   show_powered_by: z.boolean().optional(),
   email_from_name: z.string().nullable().optional(),
   reply_to_email: z.string().email().nullable().optional(),
