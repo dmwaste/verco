@@ -7,8 +7,12 @@ type BrowserClient = ReturnType<typeof createClient>
  * Client-side Edge Function invoker. Gets the user session token and POSTs to
  * the named function. Returns Result<T> — callers handle error display.
  *
- * Pass `fallbackToAnon: true` for flows where unauthenticated calls are valid
- * (e.g. admin geocode — contractor-admin role enforced by the EF itself).
+ * Pass `fallbackToAnon: true` ONLY for EFs that genuinely accept the anon key
+ * — i.e. presence-only auth that never calls `auth.getUser()` (e.g.
+ * google-places-proxy on the public /book flow). Do NOT use it for EFs that
+ * validate the caller's role: those reject the anon key with a 401, so the
+ * fallback can only ever turn a clear "no session" into a confusing server
+ * error. Such EFs (geocode-properties, create-user, …) need a real user JWT.
  *
  * Per CLAUDE.md §11: use direct fetch, not supabase.functions.invoke().
  */
