@@ -111,6 +111,7 @@ export const FIELD_LABELS: Record<string, string> = {
   is_active: 'Active',
   logo_light_url: 'Logo (Light)',
   logo_dark_url: 'Logo (Dark)',
+  favicon_url: 'Favicon',
   primary_colour: 'Primary Colour',
   accent_colour: 'Accent Colour',
   service_name: 'Service Name',
