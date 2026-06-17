@@ -102,9 +102,31 @@ jobs:
 
       - name: Generate fresh types
         run: |
-          pnpm supabase gen types typescript \
-            --project-id tfddjmplcizfirxqhotv \
-            > /tmp/fresh-types.ts
+          set -euo pipefail
+          # `gen types` hits the same Supabase management API that intermittently
+          # 502/504s (seen 2026-06-17 — a transient 502 here failed CI with a
+          # false "types are stale"). Retry-with-backoff rides out the blip.
+          # The redirect lives inside gen_types() so each attempt truncates the
+          # output file fresh (no concatenated partial writes across attempts).
+          retry() {
+            local label="$1"; shift
+            local attempts=5 n=1
+            until "$@"; do
+              if [ "$n" -ge "$attempts" ]; then
+                echo "::error::$label failed after $attempts attempts"
+                return 1
+              fi
+              echo "$label: attempt $n/$attempts failed — retrying in $((n * 15))s..."
+              sleep $((n * 15))
+              n=$((n + 1))
+            done
+          }
+          gen_types() {
+            pnpm supabase gen types typescript \
+              --project-id tfddjmplcizfirxqhotv \
+              > /tmp/fresh-types.ts
+          }
+          retry "gen types" gen_types
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
 
