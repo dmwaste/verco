@@ -121,15 +121,32 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      - name: Link Supabase project
+      # Supabase's management API intermittently 502/504s. On 2026-06-17 both
+      # `link` (504) and `db push` failed transiently and ghost-released a
+      # deploy (Coolify never triggered). Mirror the EF-deploy step's
+      # retry-with-backoff so a single CDN/gateway blip can't wedge a release.
+      # A real migration error still fails — it just exhausts retries first.
+      - name: Link + push migrations (retry on transient API errors)
         run: |
-          pnpm supabase link \
+          set -euo pipefail
+          # The `label` arg keeps the DB password out of the logged command line.
+          retry() {
+            local label="$1"; shift
+            local attempts=5 n=1
+            until "$@"; do
+              if [ "$n" -ge "$attempts" ]; then
+                echo "::error::$label failed after $attempts attempts"
+                return 1
+              fi
+              echo "$label: attempt $n/$attempts failed — retrying in $((n * 15))s..."
+              sleep $((n * 15))
+              n=$((n + 1))
+            done
+          }
+          retry "supabase link" pnpm supabase link \
             --project-ref "$SUPABASE_PROJECT_REF" \
             --password "$SUPABASE_DB_PASSWORD"
-
-      - name: Push migrations
-        run: |
-          pnpm supabase db push --linked --include-all
+          retry "supabase db push" pnpm supabase db push --linked --include-all
 
   # ---------------------------------------------------------------
   # Deploy all Edge Functions with --no-verify-jwt
