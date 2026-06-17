@@ -968,7 +968,6 @@ export type Database = {
           email_footer_html: string | null
           email_from_name: string | null
           faq_items: Json | null
-          favicon_url: string | null
           hero_banner_url: string | null
           id: string
           is_active: boolean
@@ -1000,7 +999,6 @@ export type Database = {
           email_footer_html?: string | null
           email_from_name?: string | null
           faq_items?: Json | null
-          favicon_url?: string | null
           hero_banner_url?: string | null
           id?: string
           is_active?: boolean
@@ -1032,7 +1030,6 @@ export type Database = {
           email_footer_html?: string | null
           email_from_name?: string | null
           faq_items?: Json | null
-          favicon_url?: string | null
           hero_banner_url?: string | null
           id?: string
           is_active?: boolean
