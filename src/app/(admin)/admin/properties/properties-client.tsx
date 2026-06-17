@@ -192,23 +192,55 @@ export function PropertiesClient({ clientId, isContractorAdmin }: PropertiesClie
     setIsGeocoding(true)
     setGeocodeResult(null)
 
-    try {
-      const efResult = await invokeEfWithUserToken<{ processed?: number; failed?: number }>(
-        supabase,
-        'geocode-properties',
-        {},
-        { fallbackToAnon: true }
-      )
+    // The EF geocodes every row where google_place_id IS NULL, one Google call
+    // each, and is bounded by Supabase's ~150s wall-clock. A few thousand
+    // pending rows would blow that limit in a single call, so we drive it in
+    // bounded chunks (mirroring scripts/run-geocode-loop.ts). The EF's WHERE
+    // clause shrinks as rows are written, so each call picks up the next batch.
+    const CHUNK = 500
+    const MAX_ITERATIONS = 100 // backstop against an unexpected non-terminating loop
+    let totalProcessed = 0
+    let residualFailed = 0
 
-      if (!efResult.ok) {
-        console.error('[geocode-properties] EF error:', efResult.error)
-        setGeocodeResult(`Geocoding failed: ${efResult.error}`)
-      } else {
-        const result = efResult.data
-        setGeocodeResult(`Geocoded ${result.processed ?? 0} properties${result.failed ? `, ${result.failed} failed` : ''}`)
-        void queryClient.invalidateQueries({ queryKey: ['admin-properties'] })
-        void queryClient.invalidateQueries({ queryKey: ['ungeocoded-count'] })
+    try {
+      for (let i = 0; i < MAX_ITERATIONS; i++) {
+        const efResult = await invokeEfWithUserToken<{
+          processed?: number
+          failed?: number
+          total?: number
+        }>(supabase, 'geocode-properties', { limit: CHUNK })
+
+        if (!efResult.ok) {
+          console.error('[geocode-properties] EF error:', efResult.error)
+          setGeocodeResult(`Geocoding failed: ${efResult.error}`)
+          return
+        }
+
+        const { processed = 0, failed = 0, total = 0 } = efResult.data
+        totalProcessed += processed
+
+        // No rows left to geocode — clean finish.
+        if (total === 0) {
+          residualFailed = 0
+          break
+        }
+        // The chunk advanced nothing: only permanently-unmatchable rows remain
+        // (they keep google_place_id NULL, so looping again refetches the same
+        // set). Stop and surface them rather than spin.
+        if (processed === 0) {
+          residualFailed = failed
+          break
+        }
+
+        setGeocodeResult(`Geocoding… ${totalProcessed} done so far`)
       }
+
+      setGeocodeResult(
+        `Geocoded ${totalProcessed} propert${totalProcessed === 1 ? 'y' : 'ies'}` +
+          (residualFailed ? `, ${residualFailed} could not be matched` : '')
+      )
+      void queryClient.invalidateQueries({ queryKey: ['admin-properties'] })
+      void queryClient.invalidateQueries({ queryKey: ['ungeocoded-count'] })
     } catch (err) {
       console.error('[geocode-properties] unexpected error:', err)
       setGeocodeResult('Geocoding failed')

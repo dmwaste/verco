@@ -1,5 +1,6 @@
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.100.0'
+import { jsonResponse, optionsResponse, errorResponse } from '../_shared/cors.ts'
 
 type RequestBody = {
   // Cap the number of rows processed in one invocation. Default: all matching.
@@ -37,9 +38,16 @@ type GeocodeOutcome =
 const ADMIN_ROLES = ['contractor-admin', 'client-admin'] as const
 
 serve(async (req) => {
+  // Browser callers (the admin "Geocode All" button) send a CORS preflight
+  // first. Without this short-circuit the OPTIONS request falls through to the
+  // no-auth-header branch below and 401s with no Access-Control-Allow-Origin,
+  // so the browser blocks the real POST. Every other browser-facing EF handles
+  // this via _shared/cors.ts — geocode-properties was the lone exception.
+  if (req.method === 'OPTIONS') return optionsResponse()
+
   const authHeader = req.headers.get('Authorization')
   if (!authHeader) {
-    return new Response('Unauthorized', { status: 401 })
+    return errorResponse('Unauthorized', 401)
   }
 
   const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
@@ -49,10 +57,7 @@ serve(async (req) => {
     // Without these, the bearer comparison below would coerce undefined to
     // the literal string "undefined" and any caller posting "Bearer undefined"
     // would skip the user-role check.
-    return new Response(
-      JSON.stringify({ error: 'Server misconfiguration: missing Supabase env vars' }),
-      { status: 500, headers: { 'Content-Type': 'application/json' } }
-    )
+    return errorResponse('Server misconfiguration: missing Supabase env vars', 500)
   }
   const bearer = authHeader.replace(/^Bearer\s+/i, '')
 
@@ -64,20 +69,15 @@ serve(async (req) => {
     })
     const { data: userData, error: userError } = await supabaseUser.auth.getUser()
     if (userError || !userData.user) {
-      return new Response('Unauthorized', { status: 401 })
+      return errorResponse('Unauthorized', 401)
     }
     const { data: roleData, error: roleError } = await supabaseUser.rpc('current_user_role')
     if (roleError) {
       // Server-side problem (RPC failed) — surface as 500, not 401.
-      return new Response(
-        JSON.stringify({ error: `Role lookup failed: ${roleError.message}` }),
-        { status: 500, headers: { 'Content-Type': 'application/json' } }
-      )
+      return errorResponse(`Role lookup failed: ${roleError.message}`, 500)
     }
     if (!roleData || !ADMIN_ROLES.includes(roleData as (typeof ADMIN_ROLES)[number])) {
-      return new Response('Forbidden: contractor-admin or client-admin only', {
-        status: 403,
-      })
+      return errorResponse('Forbidden: contractor-admin or client-admin only', 403)
     }
   }
 
@@ -85,10 +85,7 @@ serve(async (req) => {
 
   const apiKey = Deno.env.get('GOOGLE_PLACES_API_KEY')
   if (!apiKey) {
-    return new Response(
-      JSON.stringify({ error: 'Google Places API key not configured' }),
-      { status: 500, headers: { 'Content-Type': 'application/json' } }
-    )
+    return errorResponse('Google Places API key not configured', 500)
   }
 
   let body: RequestBody = {}
@@ -122,24 +119,18 @@ serve(async (req) => {
 
   const { data: fetched, error: fetchError } = await query
   if (fetchError) {
-    return new Response(
-      JSON.stringify({ error: fetchError.message }),
-      { status: 500, headers: { 'Content-Type': 'application/json' } }
-    )
+    return errorResponse(fetchError.message, 500)
   }
   if (!fetched || fetched.length === 0) {
     // `failed: 0` keeps the response shape stable so the chunked-loop runner's
     // parseEfResponse() recognises this as a clean done-signal, not a malformed
     // envelope (which would trip the consecutive-failures abort path).
-    return new Response(
-      JSON.stringify({
-        message: 'No properties missing google_place_id',
-        processed: 0,
-        total: 0,
-        failed: 0,
-      }),
-      { headers: { 'Content-Type': 'application/json' } }
-    )
+    return jsonResponse({
+      message: 'No properties missing google_place_id',
+      processed: 0,
+      total: 0,
+      failed: 0,
+    })
   }
 
   const properties =
@@ -319,10 +310,7 @@ serve(async (req) => {
   // parses the body regardless of status (scripts/run-geocode-loop.ts:170).
   // Dry runs and clean completions stay on 200.
   const status = !dryRun && failed > 0 ? 500 : 200
-  return new Response(JSON.stringify(response), {
-    status,
-    headers: { 'Content-Type': 'application/json' },
-  })
+  return jsonResponse(response, status)
 })
 
 function stripPremisePrefix(s: string): string {
