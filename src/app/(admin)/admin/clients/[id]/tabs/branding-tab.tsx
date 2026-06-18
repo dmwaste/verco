@@ -16,10 +16,7 @@ export function BrandingTab({ client }: { client: Client }) {
   const [logoLightUrl, setLogoLightUrl] = useState(client.logo_light_url ?? '')
   const [logoDarkUrl, setLogoDarkUrl] = useState(client.logo_dark_url ?? '')
   const [heroBannerUrl, setHeroBannerUrl] = useState(client.hero_banner_url ?? '')
-  // favicon_url isn't in the prod-generated client Row type until the next
-  // release (migration 20260617130119); read via a localized cast until the
-  // post-release type regen (TODOS.md: "favicon types decast").
-  const [faviconUrl, setFaviconUrl] = useState((client as { favicon_url?: string | null }).favicon_url ?? '')
+  const [faviconUrl, setFaviconUrl] = useState(client.favicon_url ?? '')
   const [showPoweredBy, setShowPoweredBy] = useState(client.show_powered_by)
   const [saving, setSaving] = useState(false)
   const [uploading, setUploading] = useState<string | null>(null)
