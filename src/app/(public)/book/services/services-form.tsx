@@ -38,7 +38,7 @@ interface ServiceRuleRow {
   }
 }
 
-export function ServicesForm() {
+export function ServicesForm({ clientSlug }: { clientSlug: string }) {
   const router = useRouter()
   const searchParams = useSearchParams()
   const propertyId = searchParams.get('property_id') ?? ''
@@ -548,7 +548,11 @@ export function ServicesForm() {
         {!isLoadingData && (
           <>
             {grouped.bulk.length > 0 &&
-              renderServiceSection('Bulk collection', 'bulk', grouped.bulk)}
+              renderServiceSection(
+                clientSlug === 'vergevalet' ? 'Collection' : 'Bulk collection',
+                'bulk',
+                grouped.bulk
+              )}
 
             {grouped.anc.length > 0 &&
               renderServiceSection('Ancillary collection', 'anc', grouped.anc, swapApplied)}

@@ -6,6 +6,7 @@ import { CollectionDatesClient } from './collection-dates-client'
 export default async function CollectionDatesPage() {
   const currentClient = await getCurrentAdminClient()
   const clientId = currentClient?.id ?? ''
+  const clientSlug = currentClient?.slug ?? ''
 
   const supabase = await createClient()
   const { data: role } = await supabase.rpc('current_user_role')
@@ -13,7 +14,7 @@ export default async function CollectionDatesPage() {
 
   return (
     <Suspense>
-      <CollectionDatesClient clientId={clientId} isContractorAdmin={isContractorAdmin} />
+      <CollectionDatesClient clientId={clientId} clientSlug={clientSlug} isContractorAdmin={isContractorAdmin} />
     </Suspense>
   )
 }

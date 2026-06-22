@@ -214,15 +214,18 @@ async function main() {
     // Notes
     const notes = buildNotes(rec.notes, rec.offStreetAgreed)
 
-    // Status — conservative in pass 1 (Registered requires form upload to succeed)
+    // Status — defaults to Contact Made; Pass 2 flips eligible rows to Registered
+    // after the form lands in Storage (the Registered CHECK needs auth_form_url).
     const airtableStatus = rec.status?.trim() ?? null
     let status: 'Contact Made' | 'Registered' | 'Inactive' = 'Contact Made'
     if (airtableStatus === 'Inactive') {
       status = 'Inactive'
-    } else if (airtableStatus === 'Registered' && contactId && notes && rec.authFormUrl) {
-      // Mark as candidate — will upgrade to Registered after form upload in pass 2
+    } else if (contactId && notes && rec.authFormUrl) {
+      // Promote on completeness (Dan 22/06): a signed form + strata contact +
+      // waste-location notes = onboarded, regardless of the Airtable "Status"
+      // field (WMRC left most records at "Contact Made"). Without this, a re-run
+      // would revert manually-promoted MUDs back to Contact Made.
       registeredCandidates.add(rec.id)
-      // Leave as Contact Made for now
     }
 
     insertable.push({

@@ -11,6 +11,7 @@ import { Spinner } from '@/components/ui/spinner'
 import { VercoButton } from '@/components/ui/verco-button'
 import { stripAddressPrefix } from '@/lib/mud/address-strip'
 import { formatFinancialYearLabel } from '@/lib/booking/financial-year'
+import { isAreaBookable } from '@/lib/booking/area-gate'
 import {
   addressMatchKey as buildAddressMatchKey,
   buildAddressIlikePattern,
@@ -22,6 +23,11 @@ import { decideMudRedirect, type MudLookupCandidate } from '@/lib/mud/mud-lookup
 import type { Database } from '@/lib/supabase/types'
 
 type EligibleProperty = Database['public']['Tables']['eligible_properties']['Row']
+
+// Lookup rows embed the area's go-live flag so the gate can read it (WS-A / VER-269).
+type EligiblePropertyRow = EligibleProperty & {
+  collection_area: { client_id: string; is_active: boolean } | null
+}
 
 interface MudRedirectState {
   building_address: string
@@ -54,6 +60,7 @@ export function AddressForm({
   const [notFound, setNotFound] = useState(false)
   const [hasAutoResolved, setHasAutoResolved] = useState(false)
   const [mudRedirect, setMudRedirect] = useState<MudRedirectState | null>(null)
+  const [notYetAvailable, setNotYetAvailable] = useState(false)
 
   // Shared lookup function used by both manual selection and auto-resolve.
   //
@@ -68,11 +75,12 @@ export function AddressForm({
       setNotFound(false)
       setSelectedProperty(null)
       setMudRedirect(null)
+      setNotYetAvailable(false)
 
       const tryLookup = async (
         s: string,
         pid?: string
-      ): Promise<EligibleProperty | null> => {
+      ): Promise<EligiblePropertyRow | null> => {
         if (pid) {
           // Duplicate imports mean a place_id can resolve to 2+ rows under one
           // client (same physical property). `.maybeSingle()` would error on >1
@@ -80,13 +88,13 @@ export function AddressForm({
           // earliest deterministically instead — they are the same property.
           const { data } = await supabase
             .from('eligible_properties')
-            .select('*, collection_area!inner(client_id)')
+            .select('*, collection_area!inner(client_id, is_active)')
             .eq('google_place_id', pid)
             .eq('collection_area.client_id', clientId)
             .order('created_at', { ascending: true })
             .limit(1)
           const row = data?.[0]
-          if (row) return row as unknown as EligibleProperty
+          if (row) return row as unknown as EligiblePropertyRow
         }
 
         const key = addressMatchKey(s)
@@ -106,13 +114,13 @@ export function AddressForm({
         // found" rather than silently resolving to the wrong one.
         const { data } = await supabase
           .from('eligible_properties')
-          .select('*, collection_area!inner(client_id)')
+          .select('*, collection_area!inner(client_id, is_active)')
           .or(buildEligibleOrFilter(fmtPattern, addrPattern))
           .eq('collection_area.client_id', clientId)
           .order('created_at', { ascending: true })
           .limit(5)
         if (data && data.length > 0 && rowsAreSameProperty(data as unknown as EligibleProperty[])) {
-          return data[0] as unknown as EligibleProperty
+          return data[0] as unknown as EligiblePropertyRow
         }
         return null
       }
@@ -122,7 +130,7 @@ export function AddressForm({
       // candidate list covers raw, premise-stripped, street-type-abbreviated,
       // and both transforms combined — see buildLookupCandidates.
       const candidates = buildLookupCandidates(searchStr, stripAddressPrefix)
-      let property: EligibleProperty | null = null
+      let property: EligiblePropertyRow | null = null
       for (const candidate of candidates) {
         property = await tryLookup(
           candidate,
@@ -133,6 +141,14 @@ export function AddressForm({
 
       if (!property) {
         setNotFound(true)
+        return
+      }
+
+      // Staged go-live gate (WS-A): the area must be active to book on the new
+      // system. Held-back councils resolve to "not yet available" rather than
+      // "not eligible". create-booking enforces the same check server-side.
+      if (!isAreaBookable(property.collection_area)) {
+        setNotYetAvailable(true)
         return
       }
 
@@ -303,6 +319,20 @@ export function AddressForm({
                   This address is not eligible for {serviceName} collection
                   services. Please contact your local council for further
                   details.
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Not yet available — area exists but its council isn't live online yet (WS-A) */}
+          {notYetAvailable && (
+            <div role="alert" className="mt-3 flex items-center gap-2.5 rounded-[10px] border border-amber-200 bg-amber-50 px-4 py-3 text-body-sm font-medium text-amber-800">
+              <span className="shrink-0 text-base" aria-hidden="true">&#8987;</span>
+              <div>
+                <div className="font-semibold">Not yet available online</div>
+                <div className="mt-px text-xs font-normal">
+                  Online bookings for this area aren&rsquo;t open yet. Please
+                  contact your local council to arrange a collection.
                 </div>
               </div>
             </div>

@@ -1,10 +1,14 @@
 import { Suspense } from 'react'
+import { headers } from 'next/headers'
 import { ServicesForm } from './services-form'
 
-export default function ServicesPage() {
+export default async function ServicesPage() {
+  const h = await headers()
+  const clientSlug = h.get('x-client-slug') ?? ''
+
   return (
     <Suspense>
-      <ServicesForm />
+      <ServicesForm clientSlug={clientSlug} />
     </Suspense>
   )
 }

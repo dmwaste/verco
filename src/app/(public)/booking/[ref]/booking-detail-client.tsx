@@ -4,13 +4,8 @@ import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Dialog } from '@base-ui/react/dialog'
-import {
-  format,
-  differenceInDays,
-  subDays,
-  setHours,
-  setMinutes,
-} from 'date-fns'
+import { format, differenceInDays } from 'date-fns'
+import { cancellationCutoff } from '@/lib/booking/cancellation-cutoff'
 import { BookingStatusBadge } from '@/components/booking/booking-status-badge'
 import { VercoButton } from '@/components/ui/verco-button'
 import { createClient } from '@/lib/supabase/client'
@@ -111,9 +106,7 @@ function getCollectionDate(booking: Booking): string | null {
 }
 
 function getCutoffDate(collectionDateStr: string): Date {
-  const collectionDate = new Date(collectionDateStr + 'T00:00:00')
-  const dayBefore = subDays(collectionDate, 1)
-  return setMinutes(setHours(dayBefore, 15), 30)
+  return cancellationCutoff(collectionDateStr)
 }
 
 function formatMobile(e164: string): string {
