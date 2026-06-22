@@ -1,7 +1,7 @@
 # Verge Valet Staged Go-Live & EAS Rollout — Decision + Gate Design
 
 **Date:** 2026-06-22
-**Status:** Strategy approved (Dan) — implementation plan to follow
+**Status:** Strategy approved (Dan); scope expanded to full Stage 1 after reading WMRC's rollout minutes (22/06). Eng review done — workstreams tracked in Linear epic VER-268.
 **Context owner:** Dan Taylor · **Drafted with:** Claude Code
 
 ---
@@ -82,4 +82,44 @@ An end-to-end test pass over the full booking surface — eligibility lookup →
 - Interim URL stays `vvtest` for now (Dan).
 - Admin book-on-behalf for held-back councils: block or allow? (default: block)
 - "Not yet available" copy — finalise with the UI/UX batch.
-- Confirm against the rollout `.docx` schedule (couldn't read it — binary attachment; pending Dan dropping it somewhere readable).
+- Rollout `.docx` schedule — read 22/06, reconciled into the schedule below and Linear VER-268.
+
+---
+
+## 8. Stage-1 readiness — workstreams (scope expanded 22/06)
+
+WMRC's rollout minutes (22/06) make Stage-1 scope the full acceptance punchlist, not just the gate. Tracked as **Linear epic VER-268** with seven workstreams:
+
+| WS | Issue | Item | Size | Risk |
+|----|-------|------|------|------|
+| A | VER-269 | Staged go-live gate (`is_active`) | M | Med |
+| B | VER-270 | Resident UI (terminology, bulk tile, rear verge, banner) | S | Low |
+| C | VER-271 | Collection Dates page (filter, rename, ANC removal) | M | Low |
+| D | VER-272 | Reports page (filters, waste-type breakdown) | M | Low-Med |
+| E | VER-273 | MUD properties/auth-forms migration (run + verify) | S | Med |
+| F | VER-274 | MUD bookings migration (build script) — long pole | L | Med-High |
+| G | VER-275 | End-to-end hardening pass | M | — |
+
+**Confirmed schedule:** Stage 1 (MOS/COT/PEP) 29 Jun · Stage 2 (EAS, FRE, VIN) 3 Aug · Stage 3 (SUB, VIC, SOP, FRE, CAM) 17 Aug. EAS bridges on old Softr from 1 Jul and migrates to new at Stage 2. Everything stays on old (`vergevalet.verco.au`) until its stage; final DNS cutover once all onboarded.
+
+**Parallelization:** ~5 independent lanes (A booking flow + EF · B public UI · C collection-dates · D reports · E/F scripts) — good for worktree splitting.
+
+---
+
+## GSTACK REVIEW REPORT
+
+| Review | Trigger | Why | Runs | Status | Findings |
+|--------|---------|-----|------|--------|----------|
+| CEO Review | `/plan-ceo-review` | Scope & strategy | 0 | — | — |
+| Eng Review | `/plan-eng-review` | Architecture & tests (required) | 1 | issues_open | 7 workstreams; 1 critical gap (WS-F); 3 content blockers |
+| Design Review | `/plan-design-review` | UI/UX gaps | 0 | — | — |
+
+- **CRITICAL GAP:** WS-F (MUD bookings migration) — no script exists; silent bad/duplicate-booking risk on bad mapping or the `contacts` no-`UNIQUE(email)` gap (VER-256). Dry-run + per-council reconciliation mandatory before go-live.
+- **OUTSIDE VOICE:** not run this pass (Codex skipped — consolidated review under deadline). Offer stands.
+- **VERDICT:** ENG review complete — Stage-1 scope mapped to 7 workstreams (VER-269…275 under VER-268). Ready to implement once D1–D4 are resolved.
+
+**UNRESOLVED DECISIONS:**
+- D1 — MUD migration scoped to Stage-1 councils (MOS/COT/PEP) for 29 Jun: confirm
+- D2 — WMRC's exact "Bulk → ___" wording (blocks WS-B item 1)
+- D3 — accepted-bulk-items link URL (blocks WS-B item 2)
+- D4 — ANC column removal is VV-only (Kwinana keeps it): confirm
