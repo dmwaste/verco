@@ -39,15 +39,24 @@ type Frequency = 'weekly' | 'fortnightly' | 'monthly'
 
 interface CollectionDatesClientProps {
   clientId: string
+  clientSlug: string
   isContractorAdmin: boolean
 }
 
-export function CollectionDatesClient({ clientId, isContractorAdmin }: CollectionDatesClientProps) {
+export function CollectionDatesClient({ clientId, clientSlug, isContractorAdmin }: CollectionDatesClientProps) {
   const supabase = createClient()
   const queryClient = useQueryClient()
 
+  // Verge Valet doesn't use the Ancillary capacity bucket — hide every ANC
+  // header/cell/input for that tenant. Kwinana (and any other tenant) keeps it.
+  // The 'bulk' enum/columns are unaffected; this is display-only.
+  const showAnc = clientSlug !== 'vergevalet'
+
   const [page, setPage] = useState(0)
   const [showPast, setShowPast] = useState(false)
+  const [filterFrom, setFilterFrom] = useState('')
+  const [filterTo, setFilterTo] = useState('')
+  const [filterAreaId, setFilterAreaId] = useState('')
   const [showCreate, setShowCreate] = useState(false)
   const [showBulkCreate, setShowBulkCreate] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -120,7 +129,7 @@ export function CollectionDatesClient({ clientId, isContractorAdmin }: Collectio
   // open across AWST midnight doesn't keep serving the stale row set.
   const today = awstDateFromUtc(new Date())
   const { data: datesData, isLoading } = useQuery({
-    queryKey: ['admin-collection-dates', showPast, page, clientId, today],
+    queryKey: ['admin-collection-dates', showPast, page, clientId, today, filterFrom, filterTo, filterAreaId],
     queryFn: async () => {
       let query = supabase
         .from('collection_date')
@@ -136,6 +145,15 @@ export function CollectionDatesClient({ clientId, isContractorAdmin }: Collectio
       }
       if (clientId) {
         query = query.eq('collection_area.client_id', clientId)
+      }
+      if (filterFrom) {
+        query = query.gte('date', filterFrom)
+      }
+      if (filterTo) {
+        query = query.lte('date', filterTo)
+      }
+      if (filterAreaId) {
+        query = query.eq('collection_area_id', filterAreaId)
       }
 
       const { data, count } = await query
@@ -363,6 +381,54 @@ export function CollectionDatesClient({ clientId, isContractorAdmin }: Collectio
         </div>
       </div>
 
+      {/* Filters */}
+      <div className="flex items-center gap-2.5 px-7 py-4">
+        <div className="flex items-center gap-1.5">
+          <label htmlFor="filter-from" className="text-xs font-medium text-gray-500">From</label>
+          <input
+            id="filter-from"
+            type="date"
+            value={filterFrom}
+            onChange={(e) => { setFilterFrom(e.target.value); setPage(0) }}
+            aria-label="Filter from date"
+            className="rounded-lg border-[1.5px] border-gray-100 bg-white px-3 py-[7px] text-body-sm text-gray-700"
+          />
+        </div>
+        <div className="flex items-center gap-1.5">
+          <label htmlFor="filter-to" className="text-xs font-medium text-gray-500">To</label>
+          <input
+            id="filter-to"
+            type="date"
+            value={filterTo}
+            onChange={(e) => { setFilterTo(e.target.value); setPage(0) }}
+            aria-label="Filter to date"
+            className="rounded-lg border-[1.5px] border-gray-100 bg-white px-3 py-[7px] text-body-sm text-gray-700"
+          />
+        </div>
+
+        <select
+          value={filterAreaId}
+          onChange={(e) => { setFilterAreaId(e.target.value); setPage(0) }}
+          aria-label="Filter by collection area"
+          className="rounded-lg border-[1.5px] border-gray-100 bg-white px-3 py-[7px] text-body-sm text-gray-700"
+        >
+          <option value="">All Areas</option>
+          {(areas ?? []).map((a) => (
+            <option key={a.id} value={a.id}>{a.code} — {a.name}</option>
+          ))}
+        </select>
+
+        {(filterFrom || filterTo || filterAreaId) && (
+          <button
+            type="button"
+            onClick={() => { setFilterFrom(''); setFilterTo(''); setFilterAreaId(''); setPage(0) }}
+            className="rounded-lg border border-gray-200 bg-white px-3 py-[7px] text-body-sm font-medium text-gray-600 hover:bg-gray-50"
+          >
+            Clear
+          </button>
+        )}
+      </div>
+
       {/* Create form */}
       {showCreate && (
         <div className="mx-7 mt-4 rounded-xl border border-gray-200 bg-white p-5">
@@ -390,15 +456,17 @@ export function CollectionDatesClient({ clientId, isContractorAdmin }: Collectio
               </label>
             </div>
           </div>
-          <div className="mt-3 grid grid-cols-3 gap-3">
+          <div className={`mt-3 grid gap-3 ${showAnc ? 'grid-cols-3' : 'grid-cols-2'}`}>
             <div>
               <label className="mb-1 block text-xs font-medium text-gray-600">Bulk Limit</label>
               <input type="number" value={createBulkLimit} onChange={(e) => setCreateBulkLimit(Number(e.target.value))} className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm" />
             </div>
-            <div>
-              <label className="mb-1 block text-xs font-medium text-gray-600">ANC Limit</label>
-              <input type="number" value={createAncLimit} onChange={(e) => setCreateAncLimit(Number(e.target.value))} className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm" />
-            </div>
+            {showAnc && (
+              <div>
+                <label className="mb-1 block text-xs font-medium text-gray-600">ANC Limit</label>
+                <input type="number" value={createAncLimit} onChange={(e) => setCreateAncLimit(Number(e.target.value))} className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm" />
+              </div>
+            )}
             <div>
               <label className="mb-1 block text-xs font-medium text-gray-600">ID Limit</label>
               <input type="number" value={createIdLimit} onChange={(e) => setCreateIdLimit(Number(e.target.value))} className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm" />
@@ -448,15 +516,17 @@ export function CollectionDatesClient({ clientId, isContractorAdmin }: Collectio
               </select>
             </div>
           </div>
-          <div className="mt-3 grid grid-cols-3 gap-3">
+          <div className={`mt-3 grid gap-3 ${showAnc ? 'grid-cols-3' : 'grid-cols-2'}`}>
             <div>
               <label className="mb-1 block text-xs font-medium text-gray-600">Bulk Limit</label>
               <input type="number" value={bulkBulkLimit} onChange={(e) => setBulkBulkLimit(Number(e.target.value))} className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm" />
             </div>
-            <div>
-              <label className="mb-1 block text-xs font-medium text-gray-600">ANC Limit</label>
-              <input type="number" value={bulkAncLimit} onChange={(e) => setBulkAncLimit(Number(e.target.value))} className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm" />
-            </div>
+            {showAnc && (
+              <div>
+                <label className="mb-1 block text-xs font-medium text-gray-600">ANC Limit</label>
+                <input type="number" value={bulkAncLimit} onChange={(e) => setBulkAncLimit(Number(e.target.value))} className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm" />
+              </div>
+            )}
             <div>
               <label className="mb-1 block text-xs font-medium text-gray-600">ID Limit</label>
               <input type="number" value={bulkIdLimit} onChange={(e) => setBulkIdLimit(Number(e.target.value))} className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm" />
@@ -505,8 +575,8 @@ export function CollectionDatesClient({ clientId, isContractorAdmin }: Collectio
               <th className="px-4 py-3">Area</th>
               <th className="px-4 py-3 text-center">Type</th>
               <th className="px-4 py-3 text-center">Open</th>
-              <th className="px-4 py-3">Bulk</th>
-              <th className="px-4 py-3">ANC</th>
+              <th className="px-4 py-3">Collections</th>
+              {showAnc && <th className="px-4 py-3">ANC</th>}
               <th className="px-4 py-3">ID</th>
               <th className="px-4 py-3 text-right">Actions</th>
             </tr>
@@ -514,10 +584,10 @@ export function CollectionDatesClient({ clientId, isContractorAdmin }: Collectio
           <tbody>
             {isLoading ? (
               <>{Array.from({ length: 5 }).map((_, i) => (
-                <SkeletonRow key={i} columns={8} />
+                <SkeletonRow key={i} columns={showAnc ? 8 : 7} />
               ))}</>
             ) : dates.length === 0 ? (
-              <tr><td colSpan={8} className="px-4 py-8 text-center text-gray-400">No collection dates found</td></tr>
+              <tr><td colSpan={showAnc ? 8 : 7} className="px-4 py-8 text-center text-gray-400">No collection dates found</td></tr>
             ) : (
               dates.map((d) => {
                 const area = d.collection_area as { name: string; code: string; capacity_pool_id: string | null }
@@ -563,7 +633,7 @@ export function CollectionDatesClient({ clientId, isContractorAdmin }: Collectio
                         })()}
                       </td>
                       <td className="px-4 py-2.5"><input type="number" value={editBulkLimit} onChange={(e) => setEditBulkLimit(Number(e.target.value))} className="w-16 rounded border border-gray-200 px-2 py-1 text-xs" /></td>
-                      <td className="px-4 py-2.5"><input type="number" value={editAncLimit} onChange={(e) => setEditAncLimit(Number(e.target.value))} className="w-16 rounded border border-gray-200 px-2 py-1 text-xs" /></td>
+                      {showAnc && <td className="px-4 py-2.5"><input type="number" value={editAncLimit} onChange={(e) => setEditAncLimit(Number(e.target.value))} className="w-16 rounded border border-gray-200 px-2 py-1 text-xs" /></td>}
                       <td className="px-4 py-2.5"><input type="number" value={editIdLimit} onChange={(e) => setEditIdLimit(Number(e.target.value))} className="w-16 rounded border border-gray-200 px-2 py-1 text-xs" /></td>
                       <td className="px-4 py-2.5 text-right">
                         <button type="button" onClick={() => handleSaveEdit(d.id)} disabled={isSaving} className="mr-1 text-xs font-semibold text-[#00B864]">{isSaving ? 'Saving...' : 'Save'}</button>
@@ -646,15 +716,17 @@ export function CollectionDatesClient({ clientId, isContractorAdmin }: Collectio
                       </div>
                     </td>
                     {/* ANC capacity */}
-                    <td className="px-4 py-2.5">
-                      <div className="flex items-center gap-1.5">
-                        <div className={`h-1.5 w-16 overflow-hidden rounded-full ${capacityBgColor(cap.anc_units_booked, cap.anc_capacity_limit)}`}>
-                          <div className={`h-full rounded-full ${capacityColor(cap.anc_units_booked, cap.anc_capacity_limit)}`} style={{ width: `${Math.min(100, cap.anc_capacity_limit > 0 ? (cap.anc_units_booked / cap.anc_capacity_limit) * 100 : 0)}%` }} />
+                    {showAnc && (
+                      <td className="px-4 py-2.5">
+                        <div className="flex items-center gap-1.5">
+                          <div className={`h-1.5 w-16 overflow-hidden rounded-full ${capacityBgColor(cap.anc_units_booked, cap.anc_capacity_limit)}`}>
+                            <div className={`h-full rounded-full ${capacityColor(cap.anc_units_booked, cap.anc_capacity_limit)}`} style={{ width: `${Math.min(100, cap.anc_capacity_limit > 0 ? (cap.anc_units_booked / cap.anc_capacity_limit) * 100 : 0)}%` }} />
+                          </div>
+                          <span className="text-[11px] text-gray-500">{cap.anc_units_booked}/{cap.anc_capacity_limit}</span>
+                          {cap.anc_is_closed && <span className="rounded bg-red-100 px-1 py-px text-[9px] font-semibold text-red-600">Closed</span>}
                         </div>
-                        <span className="text-[11px] text-gray-500">{cap.anc_units_booked}/{cap.anc_capacity_limit}</span>
-                        {cap.anc_is_closed && <span className="rounded bg-red-100 px-1 py-px text-[9px] font-semibold text-red-600">Closed</span>}
-                      </div>
-                    </td>
+                      </td>
+                    )}
                     {/* ID capacity */}
                     <td className="px-4 py-2.5">
                       <div className="flex items-center gap-1.5">
