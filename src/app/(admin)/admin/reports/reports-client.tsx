@@ -3,10 +3,17 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
+import {
+  countByWasteStream,
+  WASTE_STREAM_LABELS,
+  WASTE_STREAM_ORDER,
+} from '@/lib/reports/waste-stream'
 
 export function ReportsClient({ clientId }: { clientId: string }) {
   const supabase = createClient()
   const [selectedArea, setSelectedArea] = useState('')
+  const [dateFrom, setDateFrom] = useState('')
+  const [dateTo, setDateTo] = useState('')
 
   const { data: areas } = useQuery({
     queryKey: ['report-areas', clientId],
@@ -23,7 +30,7 @@ export function ReportsClient({ clientId }: { clientId: string }) {
   })
 
   const { data: stats, isLoading } = useQuery({
-    queryKey: ['report-stats', selectedArea, clientId],
+    queryKey: ['report-stats', selectedArea, clientId, dateFrom, dateTo],
     queryFn: async () => {
       // Bookings by status
       let bookingQuery = supabase
@@ -31,12 +38,37 @@ export function ReportsClient({ clientId }: { clientId: string }) {
         .select('status', { count: 'exact', head: false })
       if (clientId) bookingQuery = bookingQuery.eq('client_id', clientId)
       if (selectedArea) bookingQuery = bookingQuery.eq('collection_area_id', selectedArea)
+      if (dateFrom) bookingQuery = bookingQuery.gte('created_at', `${dateFrom}T00:00:00+08:00`)
+      if (dateTo) bookingQuery = bookingQuery.lte('created_at', `${dateTo}T23:59:59+08:00`)
       const { data: bookings } = await bookingQuery
 
       const statusCounts: Record<string, number> = {}
       for (const b of bookings ?? []) {
         statusCounts[b.status] = (statusCounts[b.status] ?? 0) + 1
       }
+
+      // Collections by waste stream (booking_item -> service.waste_stream), same filters.
+      let wasteQuery = supabase
+        .from('booking_item')
+        .select(
+          'no_services, service!inner(waste_stream), booking!inner(client_id, collection_area_id, status, created_at)'
+        )
+        .not('booking.status', 'in', '("Cancelled","Pending Payment")')
+      if (clientId) wasteQuery = wasteQuery.eq('booking.client_id', clientId)
+      if (selectedArea) wasteQuery = wasteQuery.eq('booking.collection_area_id', selectedArea)
+      if (dateFrom) wasteQuery = wasteQuery.gte('booking.created_at', `${dateFrom}T00:00:00+08:00`)
+      if (dateTo) wasteQuery = wasteQuery.lte('booking.created_at', `${dateTo}T23:59:59+08:00`)
+      const { data: wasteItems } = await wasteQuery
+      // Count by units booked (no_services), not rows — matches the rest of the app.
+      const wasteCounts = countByWasteStream(
+        ((wasteItems ?? []) as unknown as Array<{
+          no_services: number
+          service: { waste_stream: string | null } | { waste_stream: string | null }[] | null
+        }>).map((it) => {
+          const svc = Array.isArray(it.service) ? it.service[0] : it.service
+          return { stream: svc?.waste_stream ?? null, quantity: it.no_services ?? 0 }
+        })
+      )
 
       // NCN count
       let ncnQuery = supabase.from('non_conformance_notice').select('id', { count: 'exact', head: true })
@@ -71,6 +103,7 @@ export function ReportsClient({ clientId }: { clientId: string }) {
         refundPending,
         refundProcessed,
         openTickets: openTickets ?? 0,
+        wasteCounts,
       }
     },
   })
@@ -98,16 +131,43 @@ export function ReportsClient({ clientId }: { clientId: string }) {
             Overview of booking and operational metrics
           </p>
         </div>
-        <select
-          value={selectedArea}
-          onChange={(e) => setSelectedArea(e.target.value)}
-          className="rounded-lg border-[1.5px] border-gray-100 bg-white px-3 py-[7px] text-body-sm text-gray-700"
-        >
-          <option value="">All Areas</option>
-          {(areas ?? []).map((a) => (
-            <option key={a.id} value={a.id}>{a.code} — {a.name}</option>
-          ))}
-        </select>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Booked</span>
+          <input
+            type="date"
+            value={dateFrom}
+            onChange={(e) => setDateFrom(e.target.value)}
+            aria-label="From date"
+            className="rounded-lg border-[1.5px] border-gray-100 bg-white px-3 py-[7px] text-body-sm text-gray-700"
+          />
+          <span className="text-body-sm text-gray-400">–</span>
+          <input
+            type="date"
+            value={dateTo}
+            onChange={(e) => setDateTo(e.target.value)}
+            aria-label="To date"
+            className="rounded-lg border-[1.5px] border-gray-100 bg-white px-3 py-[7px] text-body-sm text-gray-700"
+          />
+          <select
+            value={selectedArea}
+            onChange={(e) => setSelectedArea(e.target.value)}
+            className="rounded-lg border-[1.5px] border-gray-100 bg-white px-3 py-[7px] text-body-sm text-gray-700"
+          >
+            <option value="">All Areas</option>
+            {(areas ?? []).map((a) => (
+              <option key={a.id} value={a.id}>{a.code} — {a.name}</option>
+            ))}
+          </select>
+          {(dateFrom || dateTo || selectedArea) && (
+            <button
+              type="button"
+              onClick={() => { setDateFrom(''); setDateTo(''); setSelectedArea('') }}
+              className="rounded-lg border border-gray-200 px-3 py-[7px] text-body-sm text-gray-600 hover:bg-gray-50"
+            >
+              Clear
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="px-7 py-6">
@@ -158,6 +218,24 @@ export function ReportsClient({ clientId }: { clientId: string }) {
                     </div>
                   ))}
               </div>
+            </div>
+
+            {/* Collections by waste type */}
+            <div className="rounded-xl bg-white p-5 shadow-sm">
+              <h2 className="mb-1 font-[family-name:var(--font-heading)] text-sm font-bold text-[#293F52]">Collections by Waste Type</h2>
+              <p className="mb-4 text-[11px] text-gray-400">Units booked per stream — excludes cancelled and unpaid bookings.</p>
+              {WASTE_STREAM_ORDER.filter((ws) => (stats.wasteCounts[ws] ?? 0) > 0).length === 0 ? (
+                <p className="text-body-sm text-gray-400">No collections match these filters.</p>
+              ) : (
+                <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+                  {WASTE_STREAM_ORDER.filter((ws) => (stats.wasteCounts[ws] ?? 0) > 0).map((ws) => (
+                    <div key={ws} className="rounded-lg border border-gray-100 p-4">
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">{WASTE_STREAM_LABELS[ws]}</p>
+                      <p className="mt-1 font-[family-name:var(--font-heading)] text-2xl font-bold text-[#293F52]">{stats.wasteCounts[ws] ?? 0}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
             {/* Refund summary */}
