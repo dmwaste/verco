@@ -2,6 +2,7 @@ import { serve } from 'https://deno.land/std@0.177.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.100.0'
 import { z } from 'https://esm.sh/zod@3.23.8'
 import { calculatePrice, type ActiveConversion } from '../_shared/pricing.ts'
+import { isAreaBookableServer } from '../_shared/area-gate-server.ts'
 
 /**
  * Fire-and-forget POST to the send-notification Edge Function. Returns
@@ -123,12 +124,23 @@ serve(async (req) => {
 
     const { data: area, error: areaError } = await supabaseAnon
       .from('collection_area')
-      .select('id, client_id, contractor_id, code')
+      .select('id, client_id, contractor_id, code, is_active')
       .eq('id', collection_area_id)
       .single()
 
     if (areaError || !area) {
       return jsonResponse({ error: 'Collection area not found' }, 404)
+    }
+
+    // Staged go-live gate (WS-A / VER-269): early, friendly rejection for
+    // held-back councils. The durable enforcement is the capacity RPC + the
+    // booking_resident_insert RLS policy (both fail closed); this keeps the
+    // resident path's 403 fast and specific. Shared seam: isAreaBookableServer.
+    if (!isAreaBookableServer(area)) {
+      return jsonResponse(
+        { error: 'This collection area is not currently open for online bookings' },
+        403
+      )
     }
 
     // ── 3. Verify property belongs to this collection area ───────────────────
