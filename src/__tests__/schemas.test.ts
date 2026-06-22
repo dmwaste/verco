@@ -146,7 +146,7 @@ describe('ContactSchema', () => {
 
 describe('LOCATION_OPTIONS', () => {
   it('contains exactly the expected resident options', () => {
-    expect(LOCATION_OPTIONS).toEqual(['Front Verge', 'Side Verge', 'Driveway', 'Rear Verge'])
+    expect(LOCATION_OPTIONS).toEqual(['Front Verge', 'Side Verge', 'Driveway'])
   })
   it('keeps Other as a staff-only option, out of the resident list', () => {
     expect(LOCATION_OPTIONS).not.toContain('Other')

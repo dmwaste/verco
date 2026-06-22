@@ -96,9 +96,13 @@ interface ClientService {
   desc: string
   tag: string
   tagClass: string
+  categoryCode: string
 }
 
-async function getClientServices(clientId: string | null): Promise<ClientService[]> {
+async function getClientServices(
+  clientId: string | null,
+  clientSlug: string
+): Promise<ClientService[]> {
   if (!clientId) return []
   const supabase = await createClient()
   // Distinct services enabled for ANY area of this client. Excludes the
@@ -119,17 +123,22 @@ async function getClientServices(clientId: string | null): Promise<ClientService
     const cat = Array.isArray(svc.category) ? svc.category[0] : svc.category
     if (!cat || cat.code === 'id') continue
     const tag = CATEGORY_TAG[cat.code] ?? CATEGORY_TAG.bulk
+    // Verge Valet renames the 'Bulk' category badge to 'Collection' (display only —
+    // the DB category.code stays 'bulk'). Other tenants keep 'Bulk'.
+    const label =
+      cat.code === 'bulk' && clientSlug === 'vergevalet' ? 'Collection' : tag.label
     seen.add(svc.name)
     result.push({
       name: svc.name,
       desc: SERVICE_DESCRIPTIONS[svc.name] ?? '',
-      tag: tag.label,
+      tag: label,
       tagClass: tag.tagClass,
+      categoryCode: cat.code,
     })
   }
   // Bulk before Ancillary, then alphabetical within category.
   return result.sort((a, b) => {
-    if (a.tag !== b.tag) return a.tag === 'Bulk' ? -1 : 1
+    if (a.categoryCode !== b.categoryCode) return a.categoryCode === 'bulk' ? -1 : 1
     return a.name.localeCompare(b.name)
   })
 }
@@ -142,7 +151,8 @@ export default async function LandingPage() {
 
   const headerStore = await headers()
   const clientId = headerStore.get('x-client-id')
-  const services = await getClientServices(clientId)
+  const clientSlug = headerStore.get('x-client-slug') ?? ''
+  const services = await getClientServices(clientId, clientSlug)
 
   // Placeholder for future per-tenant page-footer content. Null today, so the
   // footer-content section below the CTA collapses entirely. Wire to a client
@@ -175,12 +185,6 @@ export default async function LandingPage() {
           </div>
 
           <div className="relative z-10 max-w-[640px]">
-            {/* Tenant tag */}
-            <div className="mb-5 inline-flex items-center gap-1.5 rounded-full border border-[var(--brand-accent)]/30 bg-[var(--brand-accent)]/15 px-3.5 py-1.5 text-xs md:text-sm font-semibold text-[var(--brand-accent)]">
-              <div className="size-1.5 rounded-full bg-[var(--brand-accent)]" />
-              {branding.name} &middot; Bulk verge collection
-            </div>
-
             <h1 className="mb-5 font-[family-name:var(--font-heading)] text-4xl md:text-5xl font-bold leading-[1.1] text-white lg:text-[52px]">
               {headline.split('\n').map((line, i) => (
                 <span key={i}>
