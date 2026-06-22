@@ -2,6 +2,7 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { invokeSendNotification } from '@/lib/notifications/invoke'
+import { isPastCancellationCutoff } from '@/lib/booking/cancellation-cutoff'
 import type { Result } from '@/lib/result'
 
 /**
@@ -145,21 +146,10 @@ export async function cancelBooking(bookingId: string): Promise<Result<void>> {
   const items = booking.booking_item as Array<{ unit_price_cents: number; no_services: number; is_extra: boolean; collection_date: { date: string } }>
   if (items.length > 0) {
     const collectionDateStr = items[0]?.collection_date?.date
-    if (collectionDateStr) {
-      const collectionDate = new Date(collectionDateStr + 'T00:00:00+08:00')
-      const cutoff = new Date(collectionDate)
-      cutoff.setDate(cutoff.getDate() - 1)
-      cutoff.setHours(15, 30, 0, 0)
-
-      const nowAWST = new Date(
-        new Date().toLocaleString('en-US', { timeZone: 'Australia/Perth' })
-      )
-
-      if (nowAWST >= cutoff) {
-        return {
-          ok: false,
-          error: 'Cancellation cutoff has passed (3:30pm the day before collection).',
-        }
+    if (collectionDateStr && isPastCancellationCutoff(collectionDateStr, new Date())) {
+      return {
+        ok: false,
+        error: 'Cancellation cutoff has passed (3:30pm the day before collection).',
       }
     }
   }
