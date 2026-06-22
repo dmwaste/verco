@@ -80,8 +80,10 @@ test.describe('Allocation swap — services step', () => {
       `/book/services?property_id=${PROPERTY.id}&collection_area_id=${AREA}&address=${encodeURIComponent(PROPERTY.formatted_address)}`
     )
 
-    // Both category sections render (exact, to avoid matching the checkbox copy).
-    await expect(page.getByText('Bulk collection', { exact: true })).toBeVisible()
+    // Both category sections render. The bulk section label is tenant-dependent
+    // ('Bulk collection' for most tenants, 'Collection' for Verge Valet) — match
+    // either, anchored so it doesn't catch 'Ancillary collection' or checkbox copy.
+    await expect(page.getByText(/^(Bulk collection|Collection)$/)).toBeVisible()
     await expect(page.getByText('Ancillary collection', { exact: true })).toBeVisible()
 
     // The swap checkbox is offered (eligible: rule + 0 ancillary used + no swap).

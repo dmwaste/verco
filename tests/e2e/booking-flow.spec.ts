@@ -12,6 +12,8 @@ const TEST_PROPERTY = {
   longitude: null,
 }
 
+const TEST_CLIENT_ID = 'cccccccc-cccc-cccc-cccc-cccccccccccc'
+
 const TEST_FY = { id: 'fy-2025-26', label: '2025-26', is_current: true }
 
 const TEST_SERVICES = [
@@ -71,6 +73,7 @@ const TEST_COLLECTION_DATE = {
 async function setupMocks(page: Page, options?: {
   priorUsage?: Array<{ service_id: string; no_services: number }>
   createBookingResult?: Record<string, unknown>
+  inactiveArea?: boolean
 }) {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? 'http://localhost:54321'
 
@@ -78,12 +81,16 @@ async function setupMocks(page: Page, options?: {
   await page.route(`${supabaseUrl}/rest/v1/**`, async (route: Route) => {
     const url = route.request().url()
 
-    // eligible_properties
+    // eligible_properties — embed the area's go-live flag so the WS-A gate can read it
     if (url.includes('eligible_properties')) {
+      const property = {
+        ...TEST_PROPERTY,
+        collection_area: { client_id: TEST_CLIENT_ID, is_active: !options?.inactiveArea },
+      }
       return route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify([TEST_PROPERTY]),
+        body: JSON.stringify([property]),
       })
     }
 
@@ -518,5 +525,20 @@ test.describe('Booking Flow', () => {
     expect(items).toHaveLength(2)
     expect(items.find((i) => i.service_id === 'svc-general')).toBeDefined()
     expect(items.find((i) => i.service_id === 'svc-mattress')).toBeDefined()
+  })
+
+  test('held-back council — inactive area shows "not yet available" and blocks booking', async ({ page }) => {
+    await setupMocks(page, { inactiveArea: true })
+
+    await page.goto('/book')
+    const addressInput = page.getByPlaceholder('Start typing your address...')
+    await addressInput.fill('23 Leda')
+    await page.getByText('23 Leda Blvd, Wellard WA 6170').click()
+
+    // WS-A gate (VER-269): the area resolves but is_active=false, so the resident
+    // sees "not yet available" — not "Property found!" and no continue button.
+    await expect(page.getByText('Not yet available online')).toBeVisible()
+    await expect(page.getByText('Property found!')).toHaveCount(0)
+    await expect(page.getByRole('button', { name: /Book new collection/i })).toHaveCount(0)
   })
 })

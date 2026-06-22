@@ -69,19 +69,13 @@ export async function generateMetadata(): Promise<Metadata> {
     if (!clientId) return {}
 
     const supabase = await createClient()
-    // favicon_url is added by migration 20260617130119 but is not in the
-    // prod-generated types until the next release applies it (CI types-check
-    // gens from prod). Select * and read favicon_url via a localized cast;
-    // narrow back to .select('favicon_url') after the post-release type regen
-    // (TODOS.md: "favicon types decast").
     const { data } = await supabase
       .from('client')
-      .select('*')
+      .select('favicon_url')
       .eq('id', clientId)
       .maybeSingle()
-    const faviconUrl = (data as { favicon_url?: string | null } | null)?.favicon_url ?? null
 
-    return { icons: faviconToIcons(faviconUrl) }
+    return { icons: faviconToIcons(data?.favicon_url) }
   } catch {
     // Degrade to the default app/icon.png rather than throw during metadata resolution.
     return {}

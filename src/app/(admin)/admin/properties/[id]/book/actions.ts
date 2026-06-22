@@ -33,7 +33,7 @@ export async function createMudBooking(
     .select(
       `id, is_mud, unit_count, mud_onboarding_status, strata_contact_id,
        waste_location_notes, collection_area_id,
-       collection_area:collection_area_id(id, code, client_id, contractor_id)`
+       collection_area:collection_area_id(id, code, client_id, contractor_id, is_active)`
     )
     .eq('id', input.property_id)
     .single()
@@ -60,6 +60,16 @@ export async function createMudBooking(
     : property.collection_area
   if (!area) {
     return { ok: false, error: 'Collection area not found.' }
+  }
+
+  // Staged go-live gate (WS-A / VER-269): held-back councils are not bookable on
+  // the new system. The capacity RPC also enforces this (fail closed); this is
+  // the clean staff-facing message before we reach it.
+  if (!area.is_active) {
+    return {
+      ok: false,
+      error: 'This collection area is not currently open for online bookings.',
+    }
   }
 
   // ── 2. Resolve current FY ───────────────────────────────────────────────

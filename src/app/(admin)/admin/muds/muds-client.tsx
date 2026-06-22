@@ -97,7 +97,7 @@ export function MudsClient({ clientId, isContractorAdmin }: MudsClientProps) {
         .select(
           `id, address, formatted_address, collection_area_id, is_eligible,
            mud_code, mud_onboarding_status, unit_count, collection_cadence,
-           strata_contact_id,
+           strata_contact_id, auth_form_url,
            collection_area!inner(name, code, client_id),
            strata_contact:contacts!eligible_properties_strata_contact_id_fkey(first_name, last_name, full_name)`,
           { count: 'exact' }
@@ -250,16 +250,17 @@ export function MudsClient({ clientId, isContractorAdmin }: MudsClientProps) {
               <th className="px-4 py-3">Status</th>
               <th className="px-4 py-3">Strata Contact</th>
               <th className="px-4 py-3">Cadence</th>
+              <th className="px-4 py-3">Auth form</th>
               <th className="px-4 py-3 text-right">Actions</th>
             </tr>
           </thead>
           <tbody>
             {isLoading ? (
               <>{Array.from({ length: 5 }).map((_, i) => (
-                <SkeletonRow key={i} columns={8} />
+                <SkeletonRow key={i} columns={9} />
               ))}</>
             ) : muds.length === 0 ? (
-              <tr><td colSpan={8} className="px-4 py-8 text-center text-gray-400">No MUDs found</td></tr>
+              <tr><td colSpan={9} className="px-4 py-8 text-center text-gray-400">No MUDs found</td></tr>
             ) : (
               muds.map((m) => {
                 const area = m.collection_area as { name: string; code: string }
@@ -303,6 +304,13 @@ export function MudsClient({ clientId, isContractorAdmin }: MudsClientProps) {
                       {contact?.full_name ?? <span className="text-gray-400">—</span>}
                     </td>
                     <td className="px-4 py-2.5 text-gray-600">{m.collection_cadence ?? <span className="text-gray-400">—</span>}</td>
+                    <td className="px-4 py-2.5">
+                      {m.auth_form_url ? (
+                        <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-2xs font-semibold text-emerald-700">✓ PDF</span>
+                      ) : (
+                        <span className="text-2xs text-gray-400">—</span>
+                      )}
+                    </td>
                     <td className="px-4 py-2.5 text-right">
                       <RowActionMenu
                         ariaLabel="MUD actions"

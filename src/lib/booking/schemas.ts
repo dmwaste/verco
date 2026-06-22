@@ -66,7 +66,6 @@ export const LOCATION_OPTIONS = [
   'Front Verge',
   'Side Verge',
   'Driveway',
-  'Rear Verge',
 ] as const
 
 // Staff-only collection location, surfaced only in the on-behalf booking flow.

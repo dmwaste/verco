@@ -2,7 +2,8 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
-import { differenceInDays, format, subDays, setHours, setMinutes } from 'date-fns'
+import { differenceInDays, format } from 'date-fns'
+import { cancellationCutoff } from '@/lib/booking/cancellation-cutoff'
 import { BookingStatusBadge } from '@/components/booking/booking-status-badge'
 import type { Database } from '@/lib/supabase/types'
 
@@ -95,9 +96,7 @@ function getDaysUntil(dateStr: string): number {
 }
 
 function getCutoffDate(collectionDateStr: string): Date {
-  const collectionDate = new Date(collectionDateStr + 'T00:00:00')
-  const dayBefore = subDays(collectionDate, 1)
-  return setMinutes(setHours(dayBefore, 15), 30)
+  return cancellationCutoff(collectionDateStr)
 }
 
 function getBorderClass(status: BookingStatus): string {

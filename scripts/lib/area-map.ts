@@ -35,9 +35,9 @@ export async function loadAreaMap(verco: SupabaseClient): Promise<AreaMap> {
   const map: AreaMap = new Map()
   for (const a of areas) map.set(a.code, a.id)
 
-  if (map.size !== 11) {
-    throw new Error(`Expected 11 collection_areas for vergevalet, found ${map.size}. Codes: ${[...map.keys()].join(', ')}`)
-  }
+  // No exact-count assertion: the area set grows as councils onboard (it's 12+
+  // now). The zero-areas guard above is the real "did the load work" check —
+  // matching loadAreaMapForClient.
   return map
 }
 

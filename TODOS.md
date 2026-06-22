@@ -55,13 +55,3 @@
 - **Context:** Surfaced during the 2026-06-17 per-tenant favicon eng review (deliberately kept out of the favicon PRs to keep that diff surgical). Both call sites build the same `--brand*` CSS-var object.
 - **Effort:** S (human) → XS with CC. **Priority:** P3.
 
-## Favicon types decast (REQUIRED before the next release after favicon ships)
-
-- **What:** After the `favicon_url` migration (`20260617130119`) lands on prod, regenerate Supabase types (`pnpm supabase gen types typescript --project-id tfddjmplcizfirxqhotv > src/lib/supabase/types.ts`) and remove the two localized `favicon_url` casts: narrow `(public)/layout.tsx` `generateMetadata` back to `.select('favicon_url')`, and drop the `(client as { favicon_url?... })` cast in `branding-tab.tsx`.
-- **Why:** To get the whole favicon spec into `develop` without bricking the release (CI `types-check` gens from prod; a `favicon_url` type stub would fail the deploy's `ci` gate and skip the `migrations` job), `favicon_url` is read via cast and is deliberately absent from `types.ts`. Once prod HAS the column, `types.ts` is stale — and the deploy `ci` gate (`deploy.yml` → `migrations needs: ci`) will **fail every subsequent release** until types are regenerated.
-- **Pros:** Restores full type-safety on `favicon_url`; unblocks future releases.
-- **Cons:** None — this is mandatory cleanup, not optional.
-- **Context:** Per-tenant favicon shipped via the cast pattern (PR #196) to satisfy the "whole spec in develop" goal (2026-06-17) without a prod release. See memory `favicon-per-tenant`. The regen diff should be exactly the `favicon_url` lines (Row/Insert/Update) — anything else is unexpected drift.
-- **Depends on / blocked by:** the `develop→main` release that applies `20260617130119` to prod.
-- **Effort:** XS (regen + delete 2 casts). **Priority:** P1 — release-blocking once favicon is on prod.
-

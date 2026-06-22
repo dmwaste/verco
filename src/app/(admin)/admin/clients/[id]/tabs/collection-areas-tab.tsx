@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { createClient as createBrowserClient } from '@/lib/supabase/client'
 import type { Database } from '@/lib/supabase/types'
-import { createCollectionArea } from '../../actions'
+import { createCollectionArea, updateCollectionArea } from '../../actions'
 
 type Client = Database['public']['Tables']['client']['Row']
 
@@ -59,12 +59,38 @@ export function CollectionAreasTab({ client, subClients }: { client: Client; sub
     router.refresh()
   }
 
+  const [togglingId, setTogglingId] = useState<string | null>(null)
+  const [toggleError, setToggleError] = useState<string | null>(null)
+
+  // Staged go-live toggle (WS-A / VER-269): flip a collection area's is_active to
+  // bring it live on the new system or hold it back. The booking gate (lookup +
+  // capacity RPC + RLS) reads this flag.
+  async function handleToggleActive(area: { id: string; code: string; is_active: boolean }) {
+    const goingLive = !area.is_active
+    const confirmed = window.confirm(
+      goingLive
+        ? `Make ${area.code} bookable on the new system? Residents will be able to book straight away.`
+        : `Take ${area.code} offline? Residents will see "not yet available" instead of booking.`
+    )
+    if (!confirmed) return
+    setTogglingId(area.id)
+    setToggleError(null)
+    const result = await updateCollectionArea(area.id, { is_active: goingLive })
+    setTogglingId(null)
+    if (!result.ok) {
+      setToggleError(`${area.code}: ${result.error}`)
+      return
+    }
+    void queryClient.invalidateQueries({ queryKey: ['admin-collection-areas', client.id] })
+    router.refresh()
+  }
+
   const inputClass = 'rounded-lg border-[1.5px] border-gray-100 bg-gray-50 px-3 py-2 text-body-sm text-gray-900 outline-none focus:border-[#293F52] focus:bg-white'
 
   return (
     <div className="max-w-4xl">
       <div className="mb-2 text-2xs text-gray-400">
-        Collection areas define geographic zones. Allocation and service rules are configured in the Rules tab and apply to all areas.
+        Collection areas define geographic zones. Allocation and service rules are configured in the Rules tab and apply to all areas. Toggle a row&rsquo;s status to bring it live on the new booking system or hold it back.
       </div>
 
       <div className="overflow-x-auto rounded-xl bg-white shadow-sm">
@@ -120,9 +146,15 @@ export function CollectionAreasTab({ client, subClients }: { client: Client; sub
                   <td className="px-4 py-3 text-body-sm text-gray-600">{propCount.toLocaleString()}</td>
                   <td className="px-4 py-3 font-mono text-body-sm text-gray-400">{area.dm_job_code ?? '—'}</td>
                   <td className="px-4 py-3">
-                    <span className={`rounded-full px-2 py-0.5 text-2xs font-semibold ${area.is_active ? 'bg-emerald-50 text-emerald-700' : 'bg-gray-100 text-gray-500'}`}>
-                      {area.is_active ? 'Active' : 'Inactive'}
-                    </span>
+                    <button
+                      type="button"
+                      onClick={() => handleToggleActive(area)}
+                      disabled={togglingId === area.id}
+                      title={area.is_active ? 'Live on the new system — click to hold back' : 'Held back — click to make bookable'}
+                      className={`rounded-full px-2 py-0.5 text-2xs font-semibold transition disabled:opacity-50 ${area.is_active ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
+                    >
+                      {togglingId === area.id ? '…' : area.is_active ? 'Active' : 'Inactive'}
+                    </button>
                   </td>
                 </tr>
               )
@@ -130,6 +162,8 @@ export function CollectionAreasTab({ client, subClients }: { client: Client; sub
           </tbody>
         </table>
       </div>
+
+      {toggleError && <p className="mt-2 text-2xs text-red-500">{toggleError}</p>}
 
       {!showAddForm && (
         <button
