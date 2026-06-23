@@ -13,7 +13,11 @@
 - Base branch is `develop`; PRs target `develop` (`gh pr create --base develop`). Verbatim from CLAUDE.md §17.
 - **Two PRs, ordered.** PR-A (migration) must merge → release to `main` → prod → regen types BEFORE PR-B (consumers). Single PR redballs the Types-Freshness CI job (gens types from prod). Verbatim from spec Rollout / Eng F5.
 - Never accept `unit_price_cents` from client; never set `booking.status = 'Scheduled'`; never use service role in `app/`. (CLAUDE.md Red Lines.)
-- The gate's "has terms" predicate is exactly `COALESCE(btrim(terms_markdown), '') <> ''` (SQL) / `(md ?? '').trim().length > 0` (TS). Identical in every layer.
+- The gate's "has terms" predicate is exactly `terms_markdown ~ '\S'` (SQL — has any
+  non-whitespace char) / `(md ?? '').trim().length > 0` (TS). These match across
+  spaces/tabs/newlines. NOTE: `btrim()` trims spaces ONLY and must NOT be used — it would
+  treat a tabs/newlines-only value as terms in SQL while TS reads it as empty, producing a
+  booking dead-end (caught during PR-A verification). Identical predicate in every layer.
 - `terms_accepted_*` are written server-side only; the caller supplies the boolean `p_terms_accepted` + the channel string. Never client-supplied text.
 - Strict TS: no `any`; regenerate `src/lib/supabase/types.ts` after the migration is in prod.
 - Reuse `components/faq-answer.tsx` for rendering — no `rehype-raw`, no new renderer.
