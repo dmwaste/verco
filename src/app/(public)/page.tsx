@@ -71,10 +71,10 @@ const STEPS = [
 // column), so we map by name. Keys cover both short ("General") and long
 // ("General Waste") forms \u2014 different clients may rename.
 const SERVICE_DESCRIPTIONS: Record<string, string> = {
-  'Bulk': 'Household bulk items \u2014 furniture, timber, general rubbish',
-  'Bulk Waste': 'Household bulk items \u2014 furniture, timber, general rubbish',
-  'General': 'Household bulk items \u2014 furniture, timber, general rubbish',
-  'General Waste': 'Household bulk items \u2014 furniture, timber, general rubbish',
+  'Bulk': 'Household bulk items \u2014 furniture, equipment, floor coverings',
+  'Bulk Waste': 'Household bulk items \u2014 furniture, equipment, floor coverings',
+  'General': 'Household bulk items \u2014 furniture, equipment, floor coverings',
+  'General Waste': 'Household bulk items \u2014 furniture, equipment, floor coverings',
   'Green': 'Garden organics \u2014 prunings, lawn clippings, branches',
   'Green Waste': 'Garden organics \u2014 prunings, lawn clippings, branches',
   'Mattress': 'Bed mattresses of any size \u2014 single, double, queen, king',
