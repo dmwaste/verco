@@ -74,12 +74,30 @@ async function setupMocks(page: Page, options?: {
   priorUsage?: Array<{ service_id: string; no_services: number }>
   createBookingResult?: Record<string, unknown>
   inactiveArea?: boolean
+  /** When set, the client's terms_markdown — drives the T&Cs acceptance gate. */
+  clientTerms?: string
 }) {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? 'http://localhost:54321'
 
   // Intercept Supabase REST API calls
   await page.route(`${supabaseUrl}/rest/v1/**`, async (route: Route) => {
     const url = route.request().url()
+
+    // collection_area → client brand (confirm-form: service_name + terms_markdown).
+    // Drives the T&Cs acceptance gate. options.clientTerms (or null = no terms).
+    // Matches the `/collection_area?select=client:client_id(...)` endpoint only —
+    // NOT eligible_properties' embedded collection_area, nor the date-form area-pool
+    // query (which selects no client).
+    if (url.includes('/collection_area?') && url.includes('client')) {
+      const accept = route.request().headers()['accept'] ?? ''
+      const isSingle = accept.includes('vnd.pgrst.object')
+      const row = { client: { service_name: null, terms_markdown: options?.clientTerms ?? null } }
+      return route.fulfill({
+        status: 200,
+        contentType: isSingle ? 'application/vnd.pgrst.object+json' : 'application/json',
+        body: JSON.stringify(isSingle ? row : [row]),
+      })
+    }
 
     // eligible_properties — embed the area's go-live flag so the WS-A gate can read it
     if (url.includes('eligible_properties')) {
@@ -380,6 +398,67 @@ test.describe('Booking Flow', () => {
     expect(createBookingPayload!.location).toBe('Front Verge')
     expect((createBookingPayload!.contact as Record<string, string>).email).toBe('jane@example.com')
     expect((createBookingPayload!.items as Array<Record<string, unknown>>)).toHaveLength(1)
+  })
+
+  test('client with T&Cs — acceptance dialog gates submit, then booking proceeds', async ({ page }) => {
+    await setupMocks(page, { clientTerms: '## Terms & Conditions\n\nYou agree to the rules.' })
+
+    // Walk the wizard to the confirm step (same path as the free-booking flow)
+    await page.goto('/book')
+    await page.getByPlaceholder('Start typing your address...').fill('23 Leda')
+    await page.getByText('23 Leda Blvd, Wellard WA 6170').click()
+    await expect(page.getByText('Property found!')).toBeVisible()
+    await page.getByRole('button', { name: /Book new collection/i }).click()
+
+    await expect(page).toHaveURL(/\/book\/services/)
+    await page.locator('button:has-text("+")').first().click()
+    await page.getByRole('button', { name: /Next step/i }).click()
+
+    await expect(page).toHaveURL(/\/book\/date/)
+    await page.getByRole('button', { name: /available/i }).first().click()
+    await page.getByRole('button', { name: /Next step/i }).click()
+
+    await expect(page).toHaveURL(/\/book\/details/)
+    await page.getByRole('button', { name: /Next step/i }).click()
+
+    await expect(page).toHaveURL(/\/book\/confirm/)
+    await page.getByPlaceholder('First name').fill('Jane')
+    await page.getByPlaceholder('Last name').fill('Smith')
+    await page.getByPlaceholder('Email address').fill('jane@example.com')
+    await page.getByPlaceholder(/Mobile number/).fill('0412345678')
+
+    let createBookingPayload: Record<string, unknown> | null = null
+    page.on('request', (req) => {
+      if (req.url().includes('create-booking') && req.method() === 'POST') {
+        try { createBookingPayload = req.postDataJSON() } catch { /* ignore */ }
+      }
+    })
+
+    // Clicking Confirm must open the T&Cs dialog BEFORE the guest OTP step.
+    await page.getByRole('button', { name: 'Confirm Booking' }).click()
+    await expect(page.getByRole('heading', { name: 'Terms & Conditions' })).toBeVisible()
+    await expect(page.getByText('You agree to the rules.')).toBeVisible()
+    await expect(page.getByText('Verify Email')).toBeHidden()
+
+    // Accept is disabled until the checkbox is ticked.
+    const acceptButton = page.getByRole('button', { name: /Accept & continue/i })
+    await expect(acceptButton).toBeDisabled()
+    await page.getByLabel(/I have read and accept/i).check()
+    await acceptButton.click()
+
+    // Now the guest OTP step appears; completing it submits with terms_accepted: true.
+    await expect(page.getByText('Verify Email')).toBeVisible()
+    const otpCells = page.locator('input[inputmode="numeric"]')
+    for (let i = 0; i < 6; i++) {
+      await otpCells.nth(i).fill(String(i + 1))
+    }
+
+    await page.waitForResponse(
+      (resp) => resp.url().includes('create-booking') && resp.status() === 200,
+      { timeout: 10000 },
+    )
+    expect(createBookingPayload).not.toBeNull()
+    expect(createBookingPayload!.terms_accepted).toBe(true)
   })
 
   test('paid booking — shows payment button and calls create-checkout', async ({ page }) => {
