@@ -125,18 +125,20 @@ export default async function BookingDetailPage({
   const headerStore = await headers()
   const tenantClientId = headerStore.get('x-client-id')
   let placeOutHoursBefore = 48
+  let serviceName: string | null = null
   if (tenantClientId) {
     const { data: c } = await supabase
       .from('client')
-      .select('place_out_hours_before')
+      .select('place_out_hours_before, service_name')
       .eq('id', tenantClientId)
       .single()
     placeOutHoursBefore = c?.place_out_hours_before ?? 48
+    serviceName = c?.service_name ?? null
   }
 
   return (
     <main className="mx-auto w-full max-w-5xl px-6 py-8">
-      <BookingDetailClient booking={booking} tickets={tickets ?? []} receiptUrl={receiptUrl} ncn={ncnData} np={npData} paymentSuccess={paymentSuccess} placeOutHoursBefore={placeOutHoursBefore} />
+      <BookingDetailClient booking={booking} tickets={tickets ?? []} receiptUrl={receiptUrl} ncn={ncnData} np={npData} paymentSuccess={paymentSuccess} placeOutHoursBefore={placeOutHoursBefore} serviceName={serviceName} />
     </main>
   )
 }
