@@ -66,6 +66,7 @@ sync_one "$SHARED/schedule-transition.ts" "src/lib/booking/schedule-transition.t
 sync_one "$SHARED/stops.ts" "src/lib/stops/stops.ts" || drift=1
 sync_one "$SHARED/expiry-decision.ts" "src/lib/payments/expiry-decision.ts" || drift=1
 sync_one "$SHARED/area-gate-server.ts" "src/lib/booking/area-gate-server.ts" || drift=1
+sync_one "$SHARED/terms.ts" "src/lib/booking/terms.ts" || drift=1
 
 if [ "$mode" = "check" ]; then
   if [ "$drift" -eq 1 ]; then
