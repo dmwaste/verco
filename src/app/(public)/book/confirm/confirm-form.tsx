@@ -155,6 +155,24 @@ export function ConfirmForm() {
     }
   }
 
+  // Tenant service brand (e.g. "Verge Valet", "VERCO Kwinana") for the extra-
+  // charges heading. Fetched client-side via the public-SELECT `client` table so
+  // E2E's PostgREST mock intercepts it (a server fetch would bypass page.route);
+  // falls back to a generic label when absent.
+  const { data: serviceName } = useQuery({
+    queryKey: ['client-service-name', collectionAreaId],
+    enabled: !!collectionAreaId,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from('collection_area')
+        .select('client:client_id(service_name)')
+        .eq('id', collectionAreaId)
+        .maybeSingle()
+      const client = data?.client as unknown as { service_name: string | null } | null
+      return client?.service_name ?? null
+    },
+  })
+
   // Fetch service details + collection date for display
   const { data: summaryData } = useQuery({
     queryKey: ['booking-summary', itemsParam, collectionDateId, swap],
@@ -808,7 +826,7 @@ export function ConfirmForm() {
             {summaryData.extras.length > 0 && (
               <>
                 <div className="mb-1 mt-2 text-2xs font-medium uppercase tracking-wide text-gray-400">
-                  Extra services
+                  {serviceName ? `${serviceName} Extra` : 'Extra services'}
                 </div>
                 {summaryData.extras.map((item) => (
                   <div
@@ -849,7 +867,7 @@ export function ConfirmForm() {
           >
             {totalCents > 0
               ? `$${(totalCents / 100).toFixed(2)}`
-              : 'Included'}
+              : 'No Charge'}
           </span>
         </div>
 

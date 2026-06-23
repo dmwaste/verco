@@ -80,6 +80,7 @@ interface BookingDetailClientProps {
   np: NpInfo | null
   paymentSuccess?: boolean
   placeOutHoursBefore: number
+  serviceName: string | null
 }
 
 function formatPlaceOutWindow(hours: number): string {
@@ -127,7 +128,7 @@ const TERMINAL_STATUSES: BookingStatus[] = [
   'Completed', 'Cancelled', 'Non-conformance', 'Nothing Presented', 'Rebooked', 'Missed Collection',
 ]
 
-export function BookingDetailClient({ booking, tickets, receiptUrl, ncn, np, paymentSuccess, placeOutHoursBefore }: BookingDetailClientProps) {
+export function BookingDetailClient({ booking, tickets, receiptUrl, ncn, np, paymentSuccess, placeOutHoursBefore, serviceName }: BookingDetailClientProps) {
   const router = useRouter()
   const [isCancelling, setIsCancelling] = useState(false)
   const [cancelError, setCancelError] = useState<string | null>(null)
@@ -416,7 +417,7 @@ export function BookingDetailClient({ booking, tickets, receiptUrl, ncn, np, pay
           {/* Extra services */}
           <div className="rounded-xl bg-white p-4 shadow-sm">
             <div className="mb-2.5 text-2xs font-semibold uppercase tracking-wide text-gray-500">
-              Extra Services
+              {serviceName ? `${serviceName} Extra` : 'Extra Services'}
             </div>
             <div className="flex flex-col gap-1.5">
               {extraItems.length > 0 ? (

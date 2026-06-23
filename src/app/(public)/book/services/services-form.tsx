@@ -532,7 +532,7 @@ export function ServicesForm({ clientSlug }: { clientSlug: string }) {
             Select services
           </h1>
           <p className="mt-1 text-body-sm leading-relaxed text-gray-500">
-            Choose items for collection. Combine multiple service types.
+            Choose items for collection. You may combine multiple service types.
           </p>
         </div>
 

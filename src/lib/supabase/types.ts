@@ -2649,6 +2649,10 @@ export type Database = {
         Returns: undefined
       }
       close_imminent_collection_dates: { Args: never; Returns: Json }
+      collection_area_is_active: {
+        Args: { p_area_id: string }
+        Returns: boolean
+      }
       create_booking_with_capacity_check: {
         Args: {
           p_actor_id?: string

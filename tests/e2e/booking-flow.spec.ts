@@ -337,8 +337,8 @@ test.describe('Booking Flow', () => {
     await page.getByPlaceholder('Email address').fill('jane@example.com')
     await page.getByPlaceholder(/Mobile number/).fill('0412345678')
 
-    // Verify total shows "Included"
-    await expect(page.getByTestId('booking-total')).toHaveText('Included')
+    // Verify total shows "No Charge" (free booking — nothing to pay)
+    await expect(page.getByTestId('booking-total')).toHaveText('No Charge')
 
     // Verify button says "Confirm Booking"
     const confirmButton = page.getByRole('button', { name: 'Confirm Booking' })
