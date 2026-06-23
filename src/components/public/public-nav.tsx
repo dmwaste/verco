@@ -21,17 +21,18 @@ export function PublicNav({
   return (
     <nav className="sticky top-0 z-50 bg-[var(--brand)]">
       <div className="flex h-16 items-center justify-between px-8">
-        <Link href="/" className="flex items-center gap-2.5">
+        {/* Logo only — the tenant wordmark/crest carries the brand, so we don't
+            render the service name beside it (avoids doubling, e.g. the Verge
+            Valet logo already reads "VergeValet"). serviceName stays as alt text.
+            The lettermark box is the fallback for tenants with no logo. */}
+        <Link href="/" className="flex items-center">
           {logoUrl ? (
             <img src={logoUrl} alt={serviceName} className="h-8 w-auto" />
           ) : (
             <div className="flex size-8 items-center justify-center rounded-lg bg-[var(--brand-accent)] font-[family-name:var(--font-heading)] text-lg md:text-xl font-bold text-[var(--brand)]">
-              V
+              {serviceName.charAt(0) || 'V'}
             </div>
           )}
-          <span className="font-[family-name:var(--font-heading)] text-lg md:text-xl font-bold text-white">
-            {serviceName}
-          </span>
         </Link>
 
         {/* Desktop nav */}
