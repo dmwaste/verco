@@ -3,6 +3,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.100.0'
 import { z } from 'https://esm.sh/zod@3.23.8'
 import { calculatePrice, type ActiveConversion } from '../_shared/pricing.ts'
 import { isAreaBookableServer } from '../_shared/area-gate-server.ts'
+import { type TermsAcceptanceChannel } from '../_shared/terms.ts'
 
 /**
  * Fire-and-forget POST to the send-notification Edge Function. Returns
@@ -81,6 +82,10 @@ const CreateBookingRequest = z.object({
   // active conversion rule for the area, re-validates eligibility server-side
   // (red line #1 — the client cannot grant itself a swap), and records it.
   swap: z.boolean().optional(),
+  // T&Cs acceptance — the resident (or staff on-behalf) affirmed the client's Terms
+  // before submit. The RPC re-reads the client's terms and RAISEs if required-but-not-
+  // accepted; the accepted text/version are snapshotted server-side (never client-supplied).
+  terms_accepted: z.boolean().optional(),
 })
 
 serve(async (req) => {
@@ -118,7 +123,7 @@ serve(async (req) => {
       return jsonResponse({ error: parsed.error.message }, 400)
     }
 
-    const { property_id, collection_area_id, collection_date_id, location, notes, contact, items, replaces, swap } = parsed.data
+    const { property_id, collection_area_id, collection_date_id, location, notes, contact, items, replaces, swap, terms_accepted } = parsed.data
 
     // ── 2. Resolve collection area → client_id, contractor_id, area code ─────
 
@@ -529,6 +534,15 @@ serve(async (req) => {
     //     the staff member's name once the resolver picks it up
     const actingUser = actingUserEarly
 
+    // Acceptance channel: a staff member booking on-behalf acts under their own
+    // JWT but the booking's contact is the RESIDENT (different email) — the same
+    // signal used below to gate profile-linking. A guest or a resident's own
+    // session (matching email) is resident_self.
+    const termsChannel: TermsAcceptanceChannel =
+      actingUser?.email && actingUser.email.toLowerCase() !== contact.email.toLowerCase()
+        ? 'staff_on_behalf'
+        : 'resident_self'
+
     const { data: rpcResult, error: rpcError } = await supabaseService
       .rpc('create_booking_with_capacity_check', {
         p_collection_date_id: collection_date_id,
@@ -544,10 +558,16 @@ serve(async (req) => {
         p_status: initialStatus,
         p_items: rpcItems,
         p_actor_id: actingUser?.id ?? null,
+        p_terms_accepted: terms_accepted ?? false,
+        p_terms_channel: termsChannel,
       })
 
     if (rpcError) {
       console.error('RPC error:', rpcError)
+
+      if (rpcError.message?.includes('Terms and Conditions')) {
+        return jsonResponse({ error: 'Please accept the Terms & Conditions to continue.' }, 409)
+      }
 
       if (rpcError.message?.includes('Insufficient')) {
         return jsonResponse({ error: rpcError.message }, 409)
