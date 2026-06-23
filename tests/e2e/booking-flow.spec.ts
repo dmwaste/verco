@@ -401,7 +401,9 @@ test.describe('Booking Flow', () => {
   })
 
   test('client with T&Cs — acceptance dialog gates submit, then booking proceeds', async ({ page }) => {
-    await setupMocks(page, { clientTerms: '## Terms & Conditions\n\nYou agree to the rules.' })
+    // Heading deliberately NOT "Terms & Conditions" — that markdown h2 would collide
+    // with the dialog's own title (two h2s with the same text → ambiguous locator).
+    await setupMocks(page, { clientTerms: '## Collection Rules\n\nYou agree to the rules.' })
 
     // Walk the wizard to the confirm step (same path as the free-booking flow)
     await page.goto('/book')
@@ -435,15 +437,17 @@ test.describe('Booking Flow', () => {
     })
 
     // Clicking Confirm must open the T&Cs dialog BEFORE the guest OTP step.
+    // Assert on the unique Accept button + markdown body + checkbox (the dialog
+    // title is not a safe locator — the rendered terms markdown may repeat it).
     await page.getByRole('button', { name: 'Confirm Booking' }).click()
-    await expect(page.getByRole('heading', { name: 'Terms & Conditions' })).toBeVisible()
+    const acceptButton = page.getByRole('button', { name: /Accept & continue/i })
+    await expect(acceptButton).toBeVisible()
     await expect(page.getByText('You agree to the rules.')).toBeVisible()
     await expect(page.getByText('Verify Email')).toBeHidden()
 
     // Accept is disabled until the checkbox is ticked.
-    const acceptButton = page.getByRole('button', { name: /Accept & continue/i })
     await expect(acceptButton).toBeDisabled()
-    await page.getByLabel(/I have read and accept/i).check()
+    await page.locator('#tcs-accept').check()
     await acceptButton.click()
 
     // Now the guest OTP step appears; completing it submits with terms_accepted: true.
