@@ -167,6 +167,43 @@ export async function updateClientFaqs(
   return { ok: true, data: undefined }
 }
 
+export async function updateClientTerms(
+  clientId: string,
+  markdown: string,
+): Promise<Result<void>> {
+  const supabase = await createClient()
+
+  // Trim; whitespace-only ⇒ cleared (NULL), matching the SQL `~ '\S'` "has terms"
+  // predicate so blanking the field genuinely turns the gate off. Bump
+  // terms_version only when the text actually changes, so each booking's snapshot
+  // version is meaningful.
+  const next = markdown.trim().length > 0 ? markdown.trim() : null
+
+  const { data: current } = await supabase
+    .from('client')
+    .select('terms_markdown, terms_version')
+    .eq('id', clientId)
+    .single()
+
+  const changed = (current?.terms_markdown ?? null) !== next
+  const nextVersion = changed
+    ? (current?.terms_version ?? 1) + 1
+    : (current?.terms_version ?? 1)
+
+  // .select('id').single() so an RLS deny surfaces instead of a silent no-op
+  // (CLAUDE.md §21 RLS write silent-fail).
+  const { data, error } = await supabase
+    .from('client')
+    .update({ terms_markdown: next, terms_version: nextVersion })
+    .eq('id', clientId)
+    .select('id')
+    .single()
+
+  if (error) return { ok: false, error: error.message }
+  if (!data) return { ok: false, error: 'Update was not applied (no matching row or insufficient permissions)' }
+  return { ok: true, data: undefined }
+}
+
 // ── Sub-Client Actions ─────────────────────────────────────────
 
 export async function createSubClient(
