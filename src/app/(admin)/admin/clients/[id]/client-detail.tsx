@@ -9,6 +9,7 @@ import { GeneralTab } from './tabs/general-tab'
 import { BrandingTab } from './tabs/branding-tab'
 import { NotificationsTab } from './tabs/notifications-tab'
 import { FaqsTab } from './tabs/faqs-tab'
+import { TermsTab } from './tabs/terms-tab'
 import { SubClientsTab } from './tabs/sub-clients-tab'
 import { CollectionAreasTab } from './tabs/collection-areas-tab'
 import { RulesTab } from './tabs/rules-tab'
@@ -46,6 +47,7 @@ const TABS = [
   { key: 'branding', label: 'Branding' },
   { key: 'notifications', label: 'Notifications' },
   { key: 'faqs', label: 'FAQs' },
+  { key: 'terms', label: 'Terms & Conditions' },
   { key: 'rules', label: 'Rules' },
   { key: 'sub-clients', label: 'Sub-Clients' },
   { key: 'areas', label: 'Collection Areas' },
@@ -116,6 +118,7 @@ export function ClientDetail({ client, subClients, categories, services }: Clien
           {activeTab === 'branding' && <BrandingTab client={client} />}
           {activeTab === 'notifications' && <NotificationsTab client={client} />}
           {activeTab === 'faqs' && <FaqsTab client={client} />}
+          {activeTab === 'terms' && <TermsTab client={client} />}
           {activeTab === 'rules' && (
             <RulesTab client={client} categories={categories} services={services} />
           )}

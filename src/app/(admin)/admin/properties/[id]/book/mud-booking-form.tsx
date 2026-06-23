@@ -1,10 +1,12 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { format } from 'date-fns'
 import { createMudBooking } from './actions'
+import { clientHasTerms } from '@/lib/booking/terms'
+import { TermsAcceptanceDialog } from '@/app/(public)/book/confirm/terms-acceptance-dialog'
 import type { MudAllowanceServiceResult } from '@/lib/mud/allowance'
 
 export interface ServiceOption {
@@ -45,6 +47,7 @@ interface MudBookingFormProps {
   allowanceSummary: MudAllowanceServiceResult[]
   dates: DateOption[]
   mudUnitsPerService: number
+  termsMarkdown: string | null
 }
 
 export function MudBookingForm({
@@ -54,6 +57,7 @@ export function MudBookingForm({
   allowanceSummary,
   dates,
   mudUnitsPerService,
+  termsMarkdown,
 }: MudBookingFormProps) {
   const router = useRouter()
   const [selectedDateId, setSelectedDateId] = useState('')
@@ -61,6 +65,9 @@ export function MudBookingForm({
   const [notes, setNotes] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // T&Cs gate — staff acknowledge on the resident's behalf before submit.
+  const [showTerms, setShowTerms] = useState(false)
+  const termsAcceptedRef = useRef(false)
 
   const allowanceByService = useMemo(() => {
     const map = new Map<string, MudAllowanceServiceResult>()
@@ -128,6 +135,13 @@ export function MudBookingForm({
 
   async function handleSubmit() {
     if (!canSubmit) return
+
+    // T&Cs gate — acknowledge before creating the booking. Empty terms ⇒ skipped.
+    if (clientHasTerms(termsMarkdown) && !termsAcceptedRef.current) {
+      setShowTerms(true)
+      return
+    }
+
     setError(null)
     setIsSubmitting(true)
     try {
@@ -136,6 +150,7 @@ export function MudBookingForm({
         collection_date_id: selectedDateId,
         service_ids: Array.from(selectedServices),
         notes: notes.trim() || null,
+        terms_accepted: termsAcceptedRef.current,
       })
       if (!result.ok) {
         setError(result.error)
@@ -352,6 +367,19 @@ export function MudBookingForm({
           </div>
         </div>
       </div>
+
+      {termsMarkdown && (
+        <TermsAcceptanceDialog
+          open={showTerms}
+          termsMarkdown={termsMarkdown}
+          onCancel={() => setShowTerms(false)}
+          onAccept={() => {
+            termsAcceptedRef.current = true
+            setShowTerms(false)
+            void handleSubmit()
+          }}
+        />
+      )}
     </div>
   )
 }

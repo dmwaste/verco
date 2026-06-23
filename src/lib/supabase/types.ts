@@ -370,6 +370,11 @@ export type Database = {
           property_id: string | null
           ref: string
           status: Database["public"]["Enums"]["booking_status"]
+          terms_accepted_at: string | null
+          terms_accepted_by: string | null
+          terms_accepted_channel: string | null
+          terms_accepted_text: string | null
+          terms_version: number | null
           type: Database["public"]["Enums"]["booking_type"]
           updated_at: string
         }
@@ -399,6 +404,11 @@ export type Database = {
           property_id?: string | null
           ref: string
           status?: Database["public"]["Enums"]["booking_status"]
+          terms_accepted_at?: string | null
+          terms_accepted_by?: string | null
+          terms_accepted_channel?: string | null
+          terms_accepted_text?: string | null
+          terms_version?: number | null
           type?: Database["public"]["Enums"]["booking_type"]
           updated_at?: string
         }
@@ -428,6 +438,11 @@ export type Database = {
           property_id?: string | null
           ref?: string
           status?: Database["public"]["Enums"]["booking_status"]
+          terms_accepted_at?: string | null
+          terms_accepted_by?: string | null
+          terms_accepted_channel?: string | null
+          terms_accepted_text?: string | null
+          terms_version?: number | null
           type?: Database["public"]["Enums"]["booking_type"]
           updated_at?: string
         }
@@ -986,6 +1001,8 @@ export type Database = {
           slug: string
           sms_reminder_days_before: number | null
           sms_sender_id: string | null
+          terms_markdown: string | null
+          terms_version: number
           twilio_messaging_service_sid: string | null
           updated_at: string
         }
@@ -1018,6 +1035,8 @@ export type Database = {
           slug: string
           sms_reminder_days_before?: number | null
           sms_sender_id?: string | null
+          terms_markdown?: string | null
+          terms_version?: number
           twilio_messaging_service_sid?: string | null
           updated_at?: string
         }
@@ -1050,6 +1069,8 @@ export type Database = {
           slug?: string
           sms_reminder_days_before?: number | null
           sms_sender_id?: string | null
+          terms_markdown?: string | null
+          terms_version?: number
           twilio_messaging_service_sid?: string | null
           updated_at?: string
         }
@@ -2648,6 +2669,7 @@ export type Database = {
         Args: { p_booking_id: string; p_updates: Json }
         Returns: undefined
       }
+      client_has_terms: { Args: { p_client_id: string }; Returns: boolean }
       close_imminent_collection_dates: { Args: never; Returns: Json }
       collection_area_is_active: {
         Args: { p_area_id: string }
@@ -2668,6 +2690,8 @@ export type Database = {
           p_notes: string
           p_property_id: string
           p_status: string
+          p_terms_accepted?: boolean
+          p_terms_channel?: string
           p_type?: string
         }
         Returns: Json

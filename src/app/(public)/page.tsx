@@ -71,8 +71,10 @@ const STEPS = [
 // column), so we map by name. Keys cover both short ("General") and long
 // ("General Waste") forms \u2014 different clients may rename.
 const SERVICE_DESCRIPTIONS: Record<string, string> = {
-  'General': 'Household bulk items \u2014 furniture, timber, general rubbish',
-  'General Waste': 'Household bulk items \u2014 furniture, timber, general rubbish',
+  'Bulk': 'Household bulk items \u2014 furniture, equipment, floor coverings',
+  'Bulk Waste': 'Household bulk items \u2014 furniture, equipment, floor coverings',
+  'General': 'Household bulk items \u2014 furniture, equipment, floor coverings',
+  'General Waste': 'Household bulk items \u2014 furniture, equipment, floor coverings',
   'Green': 'Garden organics \u2014 prunings, lawn clippings, branches',
   'Green Waste': 'Garden organics \u2014 prunings, lawn clippings, branches',
   'Mattress': 'Bed mattresses of any size \u2014 single, double, queen, king',
@@ -80,28 +82,14 @@ const SERVICE_DESCRIPTIONS: Record<string, string> = {
   'Whitegoods': 'Fridges, washing machines, dryers, dishwashers',
 }
 
-const CATEGORY_TAG: Record<string, { label: string; tagClass: string }> = {
-  bulk: {
-    label: 'Bulk',
-    tagClass: 'bg-[var(--brand-accent-light)] text-[var(--brand-accent-dark)]',
-  },
-  anc: {
-    label: 'Ancillary',
-    tagClass: 'bg-[#E8EEF2] text-[var(--brand)]',
-  },
-}
-
 interface ClientService {
   name: string
   desc: string
-  tag: string
-  tagClass: string
   categoryCode: string
 }
 
 async function getClientServices(
-  clientId: string | null,
-  clientSlug: string
+  clientId: string | null
 ): Promise<ClientService[]> {
   if (!clientId) return []
   const supabase = await createClient()
@@ -122,17 +110,10 @@ async function getClientServices(
     if (seen.has(svc.name)) continue
     const cat = Array.isArray(svc.category) ? svc.category[0] : svc.category
     if (!cat || cat.code === 'id') continue
-    const tag = CATEGORY_TAG[cat.code] ?? CATEGORY_TAG.bulk
-    // Verge Valet renames the 'Bulk' category badge to 'Collection' (display only —
-    // the DB category.code stays 'bulk'). Other tenants keep 'Bulk'.
-    const label =
-      cat.code === 'bulk' && clientSlug === 'vergevalet' ? 'Collection' : tag.label
     seen.add(svc.name)
     result.push({
       name: svc.name,
       desc: SERVICE_DESCRIPTIONS[svc.name] ?? '',
-      tag: label,
-      tagClass: tag.tagClass,
       categoryCode: cat.code,
     })
   }
@@ -151,8 +132,7 @@ export default async function LandingPage() {
 
   const headerStore = await headers()
   const clientId = headerStore.get('x-client-id')
-  const clientSlug = headerStore.get('x-client-slug') ?? ''
-  const services = await getClientServices(clientId, clientSlug)
+  const services = await getClientServices(clientId)
 
   // Placeholder for future per-tenant page-footer content. Null today, so the
   // footer-content section below the CTA collapses entirely. Wire to a client
@@ -223,11 +203,6 @@ export default async function LandingPage() {
                 {svc.name}
               </h3>
               <p className="text-body-sm md:text-body text-gray-500">{svc.desc}</p>
-              <span
-                className={`inline-flex w-fit rounded-full px-2.5 py-0.5 text-[11px] md:text-body-sm font-medium ${svc.tagClass}`}
-              >
-                {svc.tag}
-              </span>
             </div>
           ))}
           {/* Info tile — links through to the FAQ section on the contact page */}
