@@ -12,6 +12,8 @@ import { BookingStepper } from '@/components/booking/booking-stepper'
 import { BookingCancelLink } from '@/components/booking/booking-cancel-link'
 import { VercoButton } from '@/components/ui/verco-button'
 import { decodeItems } from '@/lib/booking/search-params'
+import { clientHasTerms } from '@/lib/booking/terms'
+import { TermsAcceptanceDialog } from './terms-acceptance-dialog'
 import { buildConfirmBreakdown } from '@/lib/pricing/build-breakdown'
 import { type ActiveConversion } from '@/lib/pricing/calculate'
 import {
@@ -71,6 +73,12 @@ export function ConfirmForm() {
   const [isResending, setIsResending] = useState(false)
   const otpInputRefs = useRef<(HTMLInputElement | null)[]>([])
   const pendingContactRef = useRef<ContactFormData | null>(null)
+
+  // T&Cs acceptance gate state. termsAcceptedRef is a ref (not state) so the
+  // re-invoked onSubmit after acceptance reads the updated value synchronously.
+  const [showTerms, setShowTerms] = useState(false)
+  const termsAcceptedRef = useRef(false)
+  const pendingTermsContactRef = useRef<ContactFormData | null>(null)
 
   const {
     register,
@@ -155,23 +163,30 @@ export function ConfirmForm() {
     }
   }
 
-  // Tenant service brand (e.g. "Verge Valet", "VERCO Kwinana") for the extra-
-  // charges heading. Fetched client-side via the public-SELECT `client` table so
-  // E2E's PostgREST mock intercepts it (a server fetch would bypass page.route);
-  // falls back to a generic label when absent.
-  const { data: serviceName } = useQuery({
-    queryKey: ['client-service-name', collectionAreaId],
+  // Tenant brand + terms, fetched client-side via the public-SELECT `client` table
+  // so E2E's PostgREST mock intercepts it (a server fetch would bypass page.route).
+  // service_name drives the extra-charges heading; terms_markdown drives the T&Cs gate.
+  const { data: clientBrand } = useQuery({
+    queryKey: ['client-brand', collectionAreaId],
     enabled: !!collectionAreaId,
     queryFn: async () => {
       const { data } = await supabase
         .from('collection_area')
-        .select('client:client_id(service_name)')
+        .select('client:client_id(service_name, terms_markdown)')
         .eq('id', collectionAreaId)
         .maybeSingle()
-      const client = data?.client as unknown as { service_name: string | null } | null
-      return client?.service_name ?? null
+      const client = data?.client as unknown as { service_name: string | null; terms_markdown: string | null } | null
+      return {
+        serviceName: client?.service_name ?? null,
+        termsMarkdown: client?.terms_markdown ?? null,
+      }
     },
   })
+  const serviceName = clientBrand?.serviceName ?? null
+  const termsMarkdown = clientBrand?.termsMarkdown ?? null
+  // Block submit until the client (and its terms) has loaded, so a fast click
+  // can't slip past the gate. The RPC is the fail-closed backstop regardless.
+  const clientBrandLoading = !!collectionAreaId && clientBrand === undefined
 
   // Fetch service details + collection date for display
   const { data: summaryData } = useQuery({
@@ -365,6 +380,9 @@ export function ConfirmForm() {
         ...(replacesParam ? { replaces: replacesParam } : {}),
         // Allocation swap — the EF re-validates + records it.
         ...(swap ? { swap: true } : {}),
+        // T&Cs acceptance — true once the resident passed the acceptance dialog.
+        // The EF/RPC re-read the client's terms server-side and snapshot them.
+        terms_accepted: termsAcceptedRef.current,
       }
 
       // Forward the user's session JWT to create-booking whenever a session
@@ -576,6 +594,16 @@ export function ConfirmForm() {
   // Form submit handler — checks session, triggers OTP if guest
   async function onSubmit(contact: ContactFormData) {
     setSubmitError(null)
+
+    // T&Cs gate — must accept before the booking is created (and before the
+    // confirmation is sent). Intercept BEFORE the session branch so authenticated
+    // residents AND guests both pass through it. Empty terms ⇒ skipped. On accept
+    // the dialog re-invokes onSubmit with termsAcceptedRef already true.
+    if (clientHasTerms(termsMarkdown) && !termsAcceptedRef.current) {
+      pendingTermsContactRef.current = contact
+      setShowTerms(true)
+      return
+    }
 
     // Check if user already has a session
     const { data: { session } } = await supabase.auth.getSession()
@@ -991,7 +1019,7 @@ export function ConfirmForm() {
             form="confirm-form"
             variant={totalCents > 0 ? 'accent' : 'primary'}
             className="flex-1"
-            disabled={isSubmitting}
+            disabled={isSubmitting || clientBrandLoading}
           >
             {isSubmitting
               ? 'Sending code...'
@@ -1000,6 +1028,20 @@ export function ConfirmForm() {
                 : 'Confirm booking'}
           </VercoButton>
         </div>
+      )}
+
+      {termsMarkdown && (
+        <TermsAcceptanceDialog
+          open={showTerms}
+          termsMarkdown={termsMarkdown}
+          onCancel={() => setShowTerms(false)}
+          onAccept={() => {
+            termsAcceptedRef.current = true
+            setShowTerms(false)
+            const c = pendingTermsContactRef.current
+            if (c) void onSubmit(c)
+          }}
+        />
       )}
     </div>
   )
