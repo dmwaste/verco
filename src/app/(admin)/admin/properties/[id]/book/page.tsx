@@ -22,7 +22,7 @@ export default async function MudBookingPage({ params }: MudBookingPageProps) {
       `id, formatted_address, address, is_mud, unit_count, mud_code,
        mud_onboarding_status, waste_location_notes, collection_area_id,
        strata_contact:strata_contact_id(id, first_name, last_name, full_name, mobile_e164, email),
-       collection_area:collection_area_id(id, code, name, capacity_pool_id)`
+       collection_area:collection_area_id(id, code, name, capacity_pool_id, client_id)`
     )
     .eq('id', id)
     .single()
@@ -41,6 +41,14 @@ export default async function MudBookingPage({ params }: MudBookingPageProps) {
     : property.strata_contact
 
   if (!area || !strata) redirect(`/admin/properties/${id}`)
+
+  // Per-client T&Cs — staff acknowledge on the resident's behalf (mud_admin).
+  const { data: clientRow } = await supabase
+    .from('client')
+    .select('terms_markdown')
+    .eq('id', area.client_id)
+    .maybeSingle()
+  const termsMarkdown = clientRow?.terms_markdown ?? null
 
   // ── 2. Current FY ───────────────────────────────────────────────────────
   const { data: fy } = await supabase
@@ -195,6 +203,7 @@ export default async function MudBookingPage({ params }: MudBookingPageProps) {
       allowanceSummary={allowanceSummary.per_service}
       dates={dateOptions}
       mudUnitsPerService={MUD_UNITS_PER_SERVICE}
+      termsMarkdown={termsMarkdown}
     />
   )
 }

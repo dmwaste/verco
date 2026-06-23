@@ -13,6 +13,8 @@ export interface CreateMudBookingInput {
   collection_date_id: string
   service_ids: string[]
   notes?: string | null
+  /** Staff acknowledged the client's T&Cs on the resident's behalf (mud_admin channel). */
+  terms_accepted: boolean
 }
 
 export async function createMudBooking(
@@ -219,10 +221,15 @@ export async function createMudBooking(
       p_items: rpcItems,
       p_actor_id: actingUser?.id,
       p_type: 'MUD',
+      p_terms_accepted: input.terms_accepted,
+      p_terms_channel: 'mud_admin',
     }
   )
 
   if (rpcError) {
+    if (rpcError.message?.includes('Terms and Conditions')) {
+      return { ok: false, error: 'Please accept the Terms & Conditions to continue.' }
+    }
     if (rpcError.message?.includes('Insufficient')) {
       return { ok: false, error: rpcError.message }
     }

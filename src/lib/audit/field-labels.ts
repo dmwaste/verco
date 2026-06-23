@@ -125,6 +125,8 @@ export const FIELD_LABELS: Record<string, string> = {
   privacy_policy_url: 'Privacy Policy URL',
   email_footer_html: 'Email Footer HTML',
   faq_items: 'FAQ Items',
+  terms_markdown: 'Terms & Conditions',
+  terms_version: 'Terms Version',
   sms_sender_id: 'SMS Sender ID',
   reply_to_email: 'Reply-To Email',
   email_from_name: 'Email From Name',
