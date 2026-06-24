@@ -204,34 +204,23 @@ export async function createMudBooking(
     }
   })
 
-  // ── 7. Call the capacity-safe RPC ───────────────────────────────────────
-  // p_type='MUD' so the booking is created atomically as a MUD record (no
-  // post-write UPDATE race). p_status='Confirmed' so free MUD bookings skip
-  // the legacy Submitted step (CLAUDE.md §7 — free path lands directly in
-  // Confirmed; migration 20260518005936 documents this for create-booking
-  // EF, and the BEFORE-UPDATE state-machine trigger doesn't gate INSERTs).
-  // p_actor_id stamps audit_log with the acting staff member.
-  const { data: { user: actingUser } } = await supabase.auth.getUser()
-
+  // ── 7. Call the dedicated MUD booking RPC (VER-282) ──────────────────────
+  // create_mud_booking_with_capacity_check is SECURITY DEFINER, so a staff
+  // user-JWT caller can insert (booking + booking_item + the counter trigger
+  // all bypass the resident-only RLS — the shared create_booking RPC is
+  // INVOKER and only works for residents via the service-role EF). It
+  // self-enforces the staff role gate + derives tenant/contact/fy/area from
+  // the property server-side (never trusts the caller), then lands the booking
+  // directly in Confirmed as a MUD record. We pass only property + date +
+  // items + terms; auth.uid() stamps the actor inside the RPC.
   const { data: rpcResult, error: rpcError } = await supabase.rpc(
-    'create_booking_with_capacity_check',
+    'create_mud_booking_with_capacity_check',
     {
-      p_collection_date_id: input.collection_date_id,
       p_property_id: input.property_id,
-      p_contact_id: property.strata_contact_id,
-      p_collection_area_id: property.collection_area_id,
-      p_client_id: area.client_id,
-      p_contractor_id: area.contractor_id,
-      p_fy_id: fy.id,
-      p_area_code: area.code,
-      p_location: property.waste_location_notes ?? '',
-      p_notes: input.notes ?? '',
-      p_status: 'Confirmed',
+      p_collection_date_id: input.collection_date_id,
       p_items: rpcItems,
-      p_actor_id: actingUser?.id,
-      p_type: 'MUD',
+      p_notes: input.notes ?? '',
       p_terms_accepted: input.terms_accepted,
-      p_terms_channel: 'mud_admin',
     }
   )
 

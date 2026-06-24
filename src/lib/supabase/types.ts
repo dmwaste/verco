@@ -2710,6 +2710,16 @@ export type Database = {
         }
         Returns: Json
       }
+      create_mud_booking_with_capacity_check: {
+        Args: {
+          p_collection_date_id: string
+          p_items: Json
+          p_notes?: string
+          p_property_id: string
+          p_terms_accepted?: boolean
+        }
+        Returns: Json
+      }
       current_user_client_allows_property: {
         Args: { p_property_id: string }
         Returns: boolean
