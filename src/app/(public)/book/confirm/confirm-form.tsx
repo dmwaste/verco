@@ -917,7 +917,7 @@ export function ConfirmForm() {
           <div className="flex flex-col gap-4 rounded-xl border border-gray-100 bg-white p-6 shadow-sm">
             <div>
               <h2 className="font-[family-name:var(--font-heading)] text-xl font-bold text-[var(--brand)]">
-                Verify email
+                Verify email to confirm booking
               </h2>
               <p className="mt-1.5 text-body-sm leading-relaxed text-gray-500">
                 We sent a 6-digit code to
