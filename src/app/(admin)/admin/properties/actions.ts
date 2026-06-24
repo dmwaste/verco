@@ -7,6 +7,7 @@ import { canMarkRegistered } from '@/lib/mud/state-machine'
 import type { Database } from '@/lib/supabase/types'
 import type { Result } from '@/lib/result'
 import { validateStaffRole } from '@/lib/auth/server'
+import { getCurrentAdminClient } from '@/lib/admin/current-client'
 
 type CollectionCadence = Database['public']['Enums']['collection_cadence']
 type MudOnboardingStatus = Database['public']['Enums']['mud_onboarding_status']
@@ -83,10 +84,17 @@ export async function suggestMudCode(
 
   const supabase = await createClient()
 
+  // Tenant-scope (VER-281 class): collection_area is public-SELECT, so without
+  // the client filter a staff user could read a foreign area's code + MUD codes
+  // by passing another tenant's area id.
+  const currentClient = await getCurrentAdminClient()
+  const clientId = currentClient?.id ?? ''
+
   const { data: area, error: areaError } = await supabase
     .from('collection_area')
     .select('code')
     .eq('id', collection_area_id)
+    .eq('client_id', clientId)
     .single()
 
   if (areaError || !area) {
@@ -213,13 +221,19 @@ export async function markMudRegistered(
 
   const supabase = await createClient()
 
+  // Tenant-scope the pre-read (VER-281 class): eligible_properties is
+  // public-SELECT, so scope by the property's area client.
+  const currentClient = await getCurrentAdminClient()
+  const clientId = currentClient?.id ?? ''
+
   // Re-fetch the row to validate prereqs server-side
   const { data: row, error: fetchError } = await supabase
     .from('eligible_properties')
     .select(
-      'is_mud, unit_count, strata_contact_id, auth_form_url, waste_location_notes, collection_cadence, mud_onboarding_status'
+      'is_mud, unit_count, strata_contact_id, auth_form_url, waste_location_notes, collection_cadence, mud_onboarding_status, collection_area!inner(client_id)'
     )
     .eq('id', property_id)
+    .eq('collection_area.client_id', clientId)
     .single()
 
   if (fetchError || !row) {
@@ -266,10 +280,15 @@ export async function markMudInactive(
 
   const supabase = await createClient()
 
+  // Tenant-scope the pre-read (VER-281 class) by the property's area client.
+  const currentClient = await getCurrentAdminClient()
+  const clientId = currentClient?.id ?? ''
+
   const { data: row, error: fetchError } = await supabase
     .from('eligible_properties')
-    .select('mud_onboarding_status')
+    .select('mud_onboarding_status, collection_area!inner(client_id)')
     .eq('id', property_id)
+    .eq('collection_area.client_id', clientId)
     .single()
 
   if (fetchError || !row) {

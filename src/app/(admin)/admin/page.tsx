@@ -4,6 +4,7 @@ import { BookingStatusBadge } from '@/components/booking/booking-status-badge'
 import Link from 'next/link'
 import { effectiveCapacity, indexPoolDates } from '@/lib/capacity/effective-capacity'
 import { getCurrentAdminClient } from '@/lib/admin/current-client'
+import { getTenantMudPropertyIds } from '@/lib/admin/mud-tenant-scope'
 
 export default async function AdminDashboardPage() {
   const supabase = await createClient()
@@ -20,12 +21,18 @@ export default async function AdminDashboardPage() {
   const weekStart = startOfWeek(now, { weekStartsOn: 1 }).toISOString()
   const weekEnd = endOfWeek(now, { weekStartsOn: 1 }).toISOString()
 
-  // Get current FY
-  const { data: fy } = await supabase
-    .from('financial_year')
-    .select('id, label')
-    .eq('is_current', true)
-    .single()
+  // Get current FY + the current tenant's MUD property ids in parallel. The MUD
+  // reminder view (v_mud_next_expected) reads public-SELECT eligible_properties
+  // and is NOT tenant-scoped by RLS, so it must be filtered by these ids in app
+  // code or it leaks other tenants' MUDs (VER-280).
+  const [{ data: fy }, tenantMudIds] = await Promise.all([
+    supabase
+      .from('financial_year')
+      .select('id, label')
+      .eq('is_current', true)
+      .single(),
+    getTenantMudPropertyIds(clientId),
+  ])
 
   // Parallel data fetches. booking/service_ticket queries are RLS-scoped, but
   // contractor users can see ALL their clients via RLS — so the stat cards must
@@ -129,6 +136,7 @@ export default async function AdminDashboardPage() {
     supabase
       .from('v_mud_next_expected')
       .select('property_id, collection_cadence, last_date, next_expected_date')
+      .in('property_id', tenantMudIds)
       .order('next_expected_date', { ascending: true, nullsFirst: false })
       .limit(20),
   ])
