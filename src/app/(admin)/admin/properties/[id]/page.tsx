@@ -1,6 +1,8 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { resolveAuditLogs } from '@/lib/audit/resolve'
+import { getCurrentAdminClient } from '@/lib/admin/current-client'
+import { getTenantMudPropertyIds } from '@/lib/admin/mud-tenant-scope'
 import { PropertyDetailClient } from './property-detail-client'
 
 interface PropertyDetailPageProps {
@@ -17,7 +19,7 @@ export default async function AdminPropertyDetailPage({
   // Property select uses `*` plus joined relations — `*` covers MUD columns
   // (is_mud, mud_code, mud_onboarding_status, unit_count, collection_cadence,
   // waste_location_notes, auth_form_url) which the MUD section consumes.
-  const [{ data: property }, { data: fy }] = await Promise.all([
+  const [{ data: property }, { data: fy }, currentClient] = await Promise.all([
     supabase
       .from('eligible_properties')
       .select(
@@ -30,7 +32,9 @@ export default async function AdminPropertyDetailPage({
       .select('id, label')
       .eq('is_current', true)
       .single(),
+    getCurrentAdminClient(),
   ])
+  const clientId = currentClient?.id ?? ''
 
   if (!property) {
     redirect('/admin/properties')
@@ -60,12 +64,18 @@ export default async function AdminPropertyDetailPage({
   // - authFormSignedUrl: 1h signed URL for the strata authority form (when uploaded)
   let nextExpected: { last_date: string | null; next_expected_date: string | null } | null = null
   if (property.is_mud && property.mud_onboarding_status === 'Registered') {
-    const { data: nx } = await supabase
-      .from('v_mud_next_expected')
-      .select('last_date, next_expected_date')
-      .eq('property_id', id)
-      .maybeSingle()
-    nextExpected = nx ?? null
+    // Defence-in-depth (VER-280): v_mud_next_expected is not tenant-scoped, so
+    // only surface the next-expected date when this property is one of the
+    // current tenant's MUDs — never another council's.
+    const tenantMudIds = await getTenantMudPropertyIds(clientId)
+    if (tenantMudIds.includes(id)) {
+      const { data: nx } = await supabase
+        .from('v_mud_next_expected')
+        .select('last_date, next_expected_date')
+        .eq('property_id', id)
+        .maybeSingle()
+      nextExpected = nx ?? null
+    }
   }
 
   let authFormSignedUrl: string | null = null
