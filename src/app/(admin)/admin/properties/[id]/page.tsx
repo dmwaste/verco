@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { resolveAuditLogs } from '@/lib/audit/resolve'
+import { getCurrentAdminClient } from '@/lib/admin/current-client'
 import { PropertyDetailClient } from './property-detail-client'
 
 interface PropertyDetailPageProps {
@@ -17,13 +18,23 @@ export default async function AdminPropertyDetailPage({
   // Property select uses `*` plus joined relations — `*` covers MUD columns
   // (is_mud, mud_code, mud_onboarding_status, unit_count, collection_cadence,
   // waste_location_notes, auth_form_url) which the MUD section consumes.
+  // Resolve the active admin client first — the property fetch is tenant-scoped
+  // by it (VER-281).
+  const currentClient = await getCurrentAdminClient()
+  const clientId = currentClient?.id ?? ''
+
   const [{ data: property }, { data: fy }] = await Promise.all([
     supabase
       .from('eligible_properties')
       .select(
-        '*, collection_area!inner(id, name, code), strata_contact:strata_contact_id(id, first_name, last_name, full_name, mobile_e164, email)'
+        '*, collection_area!inner(id, name, code, client_id), strata_contact:strata_contact_id(id, first_name, last_name, full_name, mobile_e164, email)'
       )
       .eq('id', id)
+      // Tenant-scope the fetch (VER-281): eligible_properties is public-SELECT
+      // (RLS USING(true)), so without this any staff user could load another
+      // tenant's property + strata PII by URL. A cross-tenant id yields no row →
+      // the redirect below returns them to the properties list.
+      .eq('collection_area.client_id', clientId)
       .single(),
     supabase
       .from('financial_year')
@@ -60,6 +71,8 @@ export default async function AdminPropertyDetailPage({
   // - authFormSignedUrl: 1h signed URL for the strata authority form (when uploaded)
   let nextExpected: { last_date: string | null; next_expected_date: string | null } | null = null
   if (property.is_mud && property.mud_onboarding_status === 'Registered') {
+    // The property fetch above is tenant-scoped (VER-281), so `id` is always the
+    // current tenant's here — the MUD view lookup is safe by construction.
     const { data: nx } = await supabase
       .from('v_mud_next_expected')
       .select('last_date, next_expected_date')
