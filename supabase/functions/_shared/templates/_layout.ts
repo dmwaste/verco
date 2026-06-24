@@ -63,8 +63,12 @@ export function renderEmailLayout(params: RenderEmailLayoutParams): string {
   const footer = client.email_footer_html ?? DEFAULT_FOOTER_HTML
   const clientNameEscaped = escapeHtml(client.name)
 
+  // The logo is the *light* (reversed) mark — invisible on the white email
+  // header — so wrap it in a brand-colour box (the tenant primary colour) to
+  // keep it visible. Table-based for Outlook; the text fallback below is
+  // already dark-on-white and needs no box.
   const headerMarkup = client.logo_light_url
-    ? `<img src="${escapeHtml(client.logo_light_url)}" alt="${clientNameEscaped}" style="max-height:48px;height:auto;width:auto;display:block" />`
+    ? `<table role="presentation" cellpadding="0" cellspacing="0" style="background:${primary};border-radius:8px"><tr><td style="padding:12px 16px"><img src="${escapeHtml(client.logo_light_url)}" alt="${clientNameEscaped}" style="max-height:48px;height:auto;width:auto;display:block;border:0" /></td></tr></table>`
     : `<span style="font-size:20px;font-weight:bold;color:${primary};font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif">${clientNameEscaped}</span>`
 
   const ctaMarkup =
