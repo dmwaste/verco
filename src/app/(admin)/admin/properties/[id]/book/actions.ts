@@ -7,6 +7,7 @@ import { MUD_UNITS_PER_SERVICE } from '@/lib/mud/capacity'
 import { invokeSendNotification } from '@/lib/notifications/invoke'
 import type { Result } from '@/lib/result'
 import { validateStaffRole } from '@/lib/auth/server'
+import { getCurrentAdminClient } from '@/lib/admin/current-client'
 
 export interface CreateMudBookingInput {
   property_id: string
@@ -29,15 +30,23 @@ export async function createMudBooking(
 
   const supabase = await createClient()
 
+  // Tenant-scope the property load (VER-281 class): eligible_properties is
+  // public-SELECT, so a crafted request from another tenant's staff could
+  // otherwise create a MUD booking against this property. Scope to the acting
+  // admin's current client — a cross-tenant property yields no row → not found.
+  const currentClient = await getCurrentAdminClient()
+  const clientId = currentClient?.id ?? ''
+
   // ── 1. Load the MUD property + strata contact + collection area ─────────
   const { data: property, error: propError } = await supabase
     .from('eligible_properties')
     .select(
       `id, is_mud, unit_count, mud_onboarding_status, strata_contact_id,
        waste_location_notes, collection_area_id,
-       collection_area:collection_area_id(id, code, client_id, contractor_id, is_active)`
+       collection_area:collection_area_id!inner(id, code, client_id, contractor_id, is_active)`
     )
     .eq('id', input.property_id)
+    .eq('collection_area.client_id', clientId)
     .single()
 
   if (propError || !property) {

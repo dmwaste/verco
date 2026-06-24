@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { checkMudAllowance } from '@/lib/mud/allowance'
 import { MUD_UNITS_PER_SERVICE } from '@/lib/mud/capacity'
 import { effectiveCapacity, indexPoolDates } from '@/lib/capacity/effective-capacity'
+import { getCurrentAdminClient } from '@/lib/admin/current-client'
 import { MudBookingForm, type ServiceOption, type DateOption } from './mud-booking-form'
 
 interface MudBookingPageProps {
@@ -15,6 +16,12 @@ export default async function MudBookingPage({ params }: MudBookingPageProps) {
   const { id } = await params
   const supabase = await createClient()
 
+  // Tenant-scope the property fetch (VER-281 class): eligible_properties is
+  // public-SELECT, so without filtering by the active admin client a staff user
+  // could open the book-on-behalf page for ANY tenant's property (+ strata PII).
+  const currentClient = await getCurrentAdminClient()
+  const clientId = currentClient?.id ?? ''
+
   // ── 1. Property + collection area ──────────────────────────────────────
   const { data: property } = await supabase
     .from('eligible_properties')
@@ -22,9 +29,10 @@ export default async function MudBookingPage({ params }: MudBookingPageProps) {
       `id, formatted_address, address, is_mud, unit_count, mud_code,
        mud_onboarding_status, waste_location_notes, collection_area_id,
        strata_contact:strata_contact_id(id, first_name, last_name, full_name, mobile_e164, email),
-       collection_area:collection_area_id(id, code, name, capacity_pool_id, client_id)`
+       collection_area:collection_area_id!inner(id, code, name, capacity_pool_id, client_id)`
     )
     .eq('id', id)
+    .eq('collection_area.client_id', clientId)
     .single()
 
   if (!property) redirect('/admin/properties')
