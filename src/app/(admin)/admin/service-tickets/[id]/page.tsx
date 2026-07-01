@@ -13,19 +13,32 @@ export default async function AdminTicketDetailPage({
   const { id: displayId } = await params
   const supabase = await createClient()
 
-  // RLS: staff_select policy scopes to accessible clients
+  // RLS: staff_select policy scopes to accessible clients.
+  // Contact is fetched separately (not embedded) — `contacts` has accumulated
+  // many FKs, and multi-FK embeds silently return empty inner for authed users
+  // even when readable (CLAUDE.md §21). Split-query + stitch is the safe path.
   const { data: ticket } = await supabase
     .from('service_ticket')
     .select(
       `id, display_id, subject, message, status, priority, category, channel,
-       booking_id, assigned_to, created_at, updated_at, resolved_at, closed_at,
-       contact:contact_id(id, full_name, email, mobile_e164)`
+       booking_id, assigned_to, contact_id, created_at, updated_at, resolved_at, closed_at`
     )
     .eq('display_id', displayId)
     .single()
 
   if (!ticket) {
     redirect('/admin/service-tickets')
+  }
+
+  // Ticket contact (staff-readable via the contacts_ticket_staff_select policy).
+  let contact: { id: string; full_name: string; email: string; mobile_e164: string | null } | null = null
+  if (ticket.contact_id) {
+    const { data: contactRow } = await supabase
+      .from('contacts')
+      .select('id, full_name, email, mobile_e164')
+      .eq('id', ticket.contact_id)
+      .maybeSingle()
+    contact = contactRow ?? null
   }
 
   // Fetch ALL responses including internal notes (staff RLS allows this)
@@ -51,35 +64,23 @@ export default async function AdminTicketDetailPage({
     }
   }
 
-  // Fetch staff users for "assign to" dropdown
-  // Use service_ticket.client_id to scope — we need to get it from the ticket
-  const { data: ticketWithClient } = await supabase
-    .from('service_ticket')
-    .select('client_id')
-    .eq('id', ticket.id)
-    .single()
+  // Eligible "Assign to" staff — contractor staff for the ticket's contractor +
+  // client staff for the ticket's client, computed by the assignable_ticket_staff
+  // SECURITY DEFINER RPC (scoping baked in server-side; user_roles RLS would
+  // otherwise hide contractor staff from a client-tier viewer). Not yet in the
+  // generated types (single-PR + typed-cast per the ghost-release convention —
+  // regen removes the cast once the migration is on prod).
+  const { data: assignableRows } = (await supabase.rpc(
+    'assignable_ticket_staff' as never,
+    { p_ticket_id: ticket.id } as never,
+  )) as { data: Array<{ user_id: string; name: string | null }> | null }
 
   const staffUsers: { id: string; name: string }[] = []
-  if (ticketWithClient) {
-    const { data: staffRoles } = await supabase
-      .from('user_roles')
-      .select('user_id, profiles!inner(id, display_name)')
-      .in('role', ['client-admin', 'client-staff', 'contractor-admin', 'contractor-staff'])
-      .eq('is_active', true)
-
-    if (staffRoles) {
-      const seen = new Set<string>()
-      for (const r of staffRoles) {
-        const profile = r.profiles as unknown as { id: string; display_name: string | null }
-        if (!seen.has(profile.id)) {
-          seen.add(profile.id)
-          staffUsers.push({
-            id: profile.id,
-            name: profile.display_name ?? profile.id.slice(0, 8),
-          })
-        }
-      }
-    }
+  const seen = new Set<string>()
+  for (const r of assignableRows ?? []) {
+    if (seen.has(r.user_id)) continue
+    seen.add(r.user_id)
+    staffUsers.push({ id: r.user_id, name: r.name ?? r.user_id.slice(0, 8) })
   }
 
   // Fetch linked booking if present
@@ -119,8 +120,6 @@ export default async function AdminTicketDetailPage({
       { table: 'ticket_response', fkColumn: 'ticket_id' },
     ],
   })
-
-  const contact = ticket.contact as { id: string; full_name: string; email: string; mobile_e164: string | null } | null
 
   const enrichedResponses = (responses ?? []).map((r) => ({
     id: r.id,
