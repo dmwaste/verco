@@ -73,6 +73,93 @@ export async function upsertStrataContact(
 }
 
 // ----------------------------------------------------------------------------
+// Add a single eligible property (manual one-off address)
+// ----------------------------------------------------------------------------
+
+export interface CreateEligiblePropertyInput {
+  collection_area_id: string
+  address: string
+}
+
+const createEligiblePropertySchema = z.object({
+  collection_area_id: z.string().uuid('Select a collection area'),
+  address: z.string().trim().min(5, 'Enter a full street address').max(255),
+})
+
+/**
+ * Adds one eligible_properties row for a manually-supplied address — the
+ * single-address sibling of the CSV import. Insert is RLS-gated by
+ * eligible_properties_staff_insert (staff role + area in an accessible client +
+ * sub-client scope), so no service role. Coords are left null / has_geocode
+ * false; the caller triggers the geocode-properties EF afterwards (same as the
+ * bulk import). Guards against creating a duplicate address in the same area —
+ * duplicates break that address's /book lookup, which bails on >1 row
+ * (see memory eligible-properties-duplicate-imports).
+ */
+export async function createEligibleProperty(
+  input: CreateEligiblePropertyInput
+): Promise<Result<{ property_id: string }>> {
+  const roleCheck = await validateStaffRole()
+  if (!roleCheck.ok) return roleCheck
+
+  const parsed = createEligiblePropertySchema.safeParse(input)
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0]?.message ?? 'Invalid input' }
+  }
+  const { collection_area_id, address } = parsed.data
+
+  const supabase = await createClient()
+
+  // Tenant-scope the area (VER-281 class): collection_area is public-SELECT, so
+  // verify the area belongs to the acting admin's current client before we
+  // attach a property to it. (The insert RLS policy also enforces this, but the
+  // explicit check yields a clean error instead of an opaque RLS failure.)
+  const currentClient = await getCurrentAdminClient()
+  const clientId = currentClient?.id ?? ''
+
+  const { data: area, error: areaError } = await supabase
+    .from('collection_area')
+    .select('id, code')
+    .eq('id', collection_area_id)
+    .eq('client_id', clientId)
+    .single()
+
+  if (areaError || !area) {
+    return { ok: false, error: 'Collection area not found for the current client.' }
+  }
+
+  // Duplicate guard — case-insensitive exact match within the same area.
+  // `.ilike` with no wildcard chars is an exact case-insensitive compare.
+  const { data: existing, error: dupError } = await supabase
+    .from('eligible_properties')
+    .select('id')
+    .eq('collection_area_id', collection_area_id)
+    .ilike('address', address)
+    .limit(1)
+
+  if (dupError) return { ok: false, error: dupError.message }
+  if (existing && existing.length > 0) {
+    return {
+      ok: false,
+      error: `That address already exists in ${area.code}.`,
+    }
+  }
+
+  const { data: inserted, error: insertError } = await supabase
+    .from('eligible_properties')
+    .insert({ address, collection_area_id })
+    .select('id')
+    .single()
+
+  if (insertError || !inserted) {
+    return { ok: false, error: insertError?.message ?? 'Failed to add property.' }
+  }
+
+  revalidatePath('/admin/properties')
+  return { ok: true, data: { property_id: inserted.id } }
+}
+
+// ----------------------------------------------------------------------------
 // MUD code suggestion (next available <areacode>-MUD-NN for an area)
 // ----------------------------------------------------------------------------
 
