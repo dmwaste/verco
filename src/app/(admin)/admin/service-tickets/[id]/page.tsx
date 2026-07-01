@@ -67,13 +67,10 @@ export default async function AdminTicketDetailPage({
   // Eligible "Assign to" staff — contractor staff for the ticket's contractor +
   // client staff for the ticket's client, computed by the assignable_ticket_staff
   // SECURITY DEFINER RPC (scoping baked in server-side; user_roles RLS would
-  // otherwise hide contractor staff from a client-tier viewer). Not yet in the
-  // generated types (single-PR + typed-cast per the ghost-release convention —
-  // regen removes the cast once the migration is on prod).
-  const { data: assignableRows } = (await supabase.rpc(
-    'assignable_ticket_staff' as never,
-    { p_ticket_id: ticket.id } as never,
-  )) as { data: Array<{ user_id: string; name: string | null }> | null }
+  // otherwise hide contractor staff from a client-tier viewer).
+  const { data: assignableRows } = await supabase.rpc('assignable_ticket_staff', {
+    p_ticket_id: ticket.id,
+  })
 
   const staffUsers: { id: string; name: string }[] = []
   const seen = new Set<string>()
