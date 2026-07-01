@@ -327,7 +327,6 @@ export default async function AdminDashboardPage() {
           <div className="font-[family-name:var(--font-heading)] text-display font-bold text-[#293F52]">
             {bookingsThisWeek}
           </div>
-          <div className="mt-1 text-xs text-gray-500">Scheduled this week</div>
         </div>
 
         <div className="rounded-xl bg-white p-5 shadow-sm">
@@ -419,7 +418,6 @@ export default async function AdminDashboardPage() {
         <div className="rounded-xl bg-white p-5 shadow-sm">
           <div className="mb-3.5 font-[family-name:var(--font-heading)] text-sm font-semibold text-[#293F52]">
             This Week&apos;s Summary
-            <span className="ml-2 text-[11px] font-normal text-gray-400">by collection date</span>
           </div>
           <div className="grid grid-cols-2 gap-2.5">
             {[
