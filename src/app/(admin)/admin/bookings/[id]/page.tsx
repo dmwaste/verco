@@ -14,6 +14,10 @@ export default async function AdminBookingDetailPage({
   const { id } = await params
   const supabase = await createClient()
 
+  // Caller role gates the "reschedule a Scheduled booking" affordance —
+  // contractor roles only (VER-285). RLS + the server action re-check this.
+  const { data: userRole } = await supabase.rpc('current_user_role')
+
   // RLS ensures scoping. Admin roles can see all bookings within their tenant.
   const { data: booking } = await supabase
     .from('booking')
@@ -63,6 +67,7 @@ export default async function AdminBookingDetailPage({
       booking={booking}
       auditLogs={auditLogs}
       mudContext={mudContext}
+      userRole={userRole}
     />
   )
 }

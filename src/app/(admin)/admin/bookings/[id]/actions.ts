@@ -3,6 +3,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { invokeSendNotification } from '@/lib/notifications/invoke'
 import { isPastCancellationCutoff } from '@/lib/booking/cancellation-cutoff'
+import { canEditCollectionDetails } from '@/lib/booking/collection-details-edit'
 import type { Result } from '@/lib/result'
 
 /**
@@ -310,11 +311,23 @@ export async function updateCollectionDetails(
   // without changing anything.
   const { data: current } = await supabase
     .from('booking')
-    .select('location, booking_item(id, collection_date_id)')
+    .select('status, location, booking_item(id, collection_date_id)')
     .eq('id', bookingId)
     .single()
 
   if (!current) return { ok: false, error: 'Booking not found.' }
+
+  // Status gate (VER-285). Standard editing is allowed pre-dispatch; once a
+  // booking is Scheduled only contractor roles (D&M staff) may reschedule it,
+  // to correct a dispatched booking's collection date. Client-tier roles
+  // cannot edit a Scheduled booking; any other status is not editable here.
+  // Shared with the client panel's edit affordance so the two can't drift.
+  if (!canEditCollectionDetails(current.status, role)) {
+    return {
+      ok: false,
+      error: `Cannot edit collection details for a booking with status "${current.status}".`,
+    }
+  }
 
   const items = (current.booking_item ?? []) as Array<{ id: string; collection_date_id: string }>
   const currentCdId = items[0]?.collection_date_id ?? null
