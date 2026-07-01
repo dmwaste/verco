@@ -10,6 +10,7 @@ import { createClient } from '@/lib/supabase/client'
 import { invokeEfWithUserToken } from '@/lib/supabase/invoke-ef-client'
 import { BookingStatusBadge } from '@/components/booking/booking-status-badge'
 import { LOCATION_OPTIONS, type LocationOption } from '@/lib/booking/schemas'
+import { canEditCollectionDetails } from '@/lib/booking/collection-details-edit'
 import { confirmBooking, cancelBooking, updateContact, updateCollectionDetails, updateNotes } from './actions'
 import { effectiveCapacity, indexPoolDates } from '@/lib/capacity/effective-capacity'
 import { cn } from '@/lib/utils'
@@ -19,6 +20,7 @@ import { AuditTimeline } from '@/components/audit-timeline'
 import type { MudContext } from './mud-context'
 
 type BookingStatus = Database['public']['Enums']['booking_status']
+type AppRole = Database['public']['Enums']['app_role']
 
 interface BookingItem {
   id: string
@@ -60,6 +62,7 @@ interface BookingDetailClientProps {
   booking: Booking
   auditLogs: ResolvedAuditEntry[]
   mudContext?: MudContext | null
+  userRole: AppRole | null
 }
 
 // Pencil icon shared across edit buttons
@@ -76,6 +79,7 @@ export function BookingDetailClient({
   booking,
   auditLogs,
   mudContext,
+  userRole,
 }: BookingDetailClientProps) {
   const router = useRouter()
   const listSearchParams = useSearchParams()
@@ -136,6 +140,12 @@ export function BookingDetailClient({
   const canConfirm = booking.status === 'Submitted'
   const canCancel = ['Pending Payment', 'Submitted', 'Confirmed'].includes(booking.status)
   const canEdit = ['Pending Payment', 'Submitted', 'Confirmed'].includes(booking.status)
+
+  // Collection-details edit affordance. Pre-dispatch this matches `canEdit`;
+  // once Scheduled it additionally opens to contractor roles so D&M staff can
+  // correct a dispatched booking's collection date (VER-285). The
+  // updateCollectionDetails server action + RLS re-enforce this.
+  const canEditDetails = canEditCollectionDetails(booking.status, userRole)
 
   // Services edit URL — wizard handles pricing/capacity.
   //
@@ -506,7 +516,7 @@ export function BookingDetailClient({
           <span className="text-2xs font-semibold uppercase tracking-wide text-gray-500">
             Collection Details
           </span>
-          {canEdit && !editingDetails && (
+          {canEditDetails && !editingDetails && (
             <button type="button" onClick={() => setEditingDetails(true)} className="text-gray-400 hover:text-[#293F52]" aria-label="Edit collection details">
               <PencilIcon />
             </button>
