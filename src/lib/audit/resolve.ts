@@ -117,25 +117,24 @@ export async function resolveAuditLogs(
 /**
  * Resolve a set of `auth.uid` UUIDs to display names for the audit timeline.
  *
- * Staff users have `profiles.display_name = NULL` (the `handle_new_user`
- * auth trigger only writes id + email); their real names live in
- * `contacts.first_name / last_name`, exposed via the generated
- * `contacts.full_name` column and linked through `profiles.contact_id`.
+ * Delegates to the `resolve_actor_names` SECURITY DEFINER RPC
+ * (migration 20260701030000). The name lives in `profiles.display_name`
+ * or, for the common case where that's NULL, `contacts.full_name` via
+ * `profiles.contact_id`. That traversal CANNOT be done under the viewer's
+ * RLS: for a resident actor, `profiles_staff_select` hides the profiles row
+ * from staff (so staff can't enumerate residents), so a direct
+ * profiles → contacts read returns nothing and every resident-created
+ * booking showed "System". The definer RPC bypasses that one blocked hop
+ * and is itself staff-role gated, so field / ranger / resident callers get
+ * nothing — the PII rule is preserved (CLAUDE.md §4/§20).
  *
- * Resolution order per user:
- *   1. `profiles.display_name` if populated (covers any future code path
- *      that backfills the column, plus residents who set a display name)
- *   2. `contacts.full_name` via `profiles.contact_id`
- *   3. unresolved — caller renders the "System" fallback
+ * Both admin surfaces (this timeline + the global audit-log page) share
+ * this resolver, so both are fixed at once.
  *
- * Uses the two-query + stitch pattern (CLAUDE.md §21) — embedded
- * `contacts(full_name)` joins on profiles are fragile when contacts
- * accumulates FKs, and authenticated reads sometimes silently return
- * empty inner results even when service-role works.
- *
- * Exported so the admin audit-log page (`app/(admin)/admin/audit-log/
- * actions.ts`) can use the same resolver — previously had a separate
- * copy that fell through to "System" for the same reason.
+ * NOTE: `resolve_actor_names` is not yet in the generated Supabase types
+ * (single-PR + typed-cast per the ghost-release convention — types regen
+ * lands in a follow-up once the migration is on prod). The `as never` casts
+ * satisfy the rpc overload until then.
  */
 export async function resolveActorNames(
   supabase: SupabaseClient<Database>,
@@ -143,41 +142,15 @@ export async function resolveActorNames(
 ): Promise<Record<string, string>> {
   if (userIds.length === 0) return {}
 
-  const { data: profileRows } = await supabase
-    .from('profiles')
-    .select('id, display_name, contact_id')
-    .in('id', userIds)
-
-  if (!profileRows) return {}
+  const { data } = (await supabase.rpc(
+    'resolve_actor_names' as never,
+    { p_user_ids: userIds } as never,
+  )) as { data: Array<{ user_id: string; name: string | null }> | null }
 
   const map: Record<string, string> = {}
-  // contact_id → profile.id, used to stitch contact full_names back to
-  // their profile UUID after the second query
-  const contactIdToProfileId = new Map<string, string>()
-
-  for (const row of profileRows) {
-    if (row.display_name) {
-      map[row.id] = row.display_name
-    } else if (row.contact_id) {
-      contactIdToProfileId.set(row.contact_id, row.id)
-    }
+  for (const row of data ?? []) {
+    if (row.name) map[row.user_id] = row.name
   }
-
-  if (contactIdToProfileId.size > 0) {
-    const { data: contacts } = await supabase
-      .from('contacts')
-      .select('id, full_name')
-      .in('id', Array.from(contactIdToProfileId.keys()))
-
-    if (contacts) {
-      for (const c of contacts) {
-        if (!c.full_name) continue
-        const profileId = contactIdToProfileId.get(c.id)
-        if (profileId) map[profileId] = c.full_name
-      }
-    }
-  }
-
   return map
 }
 
