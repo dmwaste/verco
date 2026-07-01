@@ -2665,6 +2665,14 @@ export type Database = {
     }
     Functions: {
       accessible_client_ids: { Args: never; Returns: string[] }
+      assignable_ticket_staff: {
+        Args: { p_ticket_id: string }
+        Returns: {
+          name: string
+          role: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }[]
+      }
       bulk_update_booking_item_actuals: {
         Args: { p_booking_id: string; p_updates: Json }
         Returns: undefined
