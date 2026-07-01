@@ -10,6 +10,7 @@ import { SkeletonRow } from '@/components/ui/skeleton'
 import { RowActionMenu } from '@/components/admin/row-action-menu'
 import { AllocationFormModal } from '@/app/(admin)/admin/allocations/allocation-form-modal'
 import { SetMudModal } from './set-mud-modal'
+import { createEligibleProperty } from './actions'
 
 const PAGE_SIZE = 50
 
@@ -42,6 +43,13 @@ export function PropertiesClient({ clientId, isContractorAdmin }: PropertiesClie
   const [areaFilter, setAreaFilter] = useState('')
   const [mudFilter, setMudFilter] = useState<'all' | 'mud' | 'residential'>('all')
   const [showImport, setShowImport] = useState(false)
+  // Add single property panel
+  const [showAdd, setShowAdd] = useState(false)
+  const [addArea, setAddArea] = useState('')
+  const [addAddress, setAddAddress] = useState('')
+  const [isAdding, setIsAdding] = useState(false)
+  const [addError, setAddError] = useState<string | null>(null)
+  const [addResult, setAddResult] = useState<string | null>(null)
   const [isGeocoding, setIsGeocoding] = useState(false)
   const [geocodeResult, setGeocodeResult] = useState<string | null>(null)
   const [setMudOpen, setSetMudOpen] = useState(false)
@@ -346,6 +354,40 @@ export function PropertiesClient({ clientId, isContractorAdmin }: PropertiesClie
     }
   }
 
+  async function handleAddProperty() {
+    if (isAdding) return
+    setAddError(null)
+    setAddResult(null)
+
+    if (!addArea) {
+      setAddError('Select a collection area.')
+      return
+    }
+    if (addAddress.trim().length < 5) {
+      setAddError('Enter a full street address.')
+      return
+    }
+
+    setIsAdding(true)
+    const result = await createEligibleProperty({
+      collection_area_id: addArea,
+      address: addAddress.trim(),
+    })
+    setIsAdding(false)
+
+    if (!result.ok) {
+      setAddError(result.error)
+      return
+    }
+
+    setAddResult('Property added.')
+    setAddAddress('')
+    void queryClient.invalidateQueries({ queryKey: ['admin-properties'] })
+    void queryClient.invalidateQueries({ queryKey: ['ungeocoded-count'] })
+    // Geocode the new address (same as the bulk import).
+    void handleGeocodeAll()
+  }
+
   return (
     <>
       {/* Header */}
@@ -372,7 +414,16 @@ export function PropertiesClient({ clientId, isContractorAdmin }: PropertiesClie
           {isContractorAdmin && (
             <button
               type="button"
-              onClick={() => setShowImport((p) => !p)}
+              onClick={() => { setShowAdd((p) => !p); setShowImport(false) }}
+              className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-body-sm font-medium text-gray-600 hover:bg-gray-50"
+            >
+              Add Property
+            </button>
+          )}
+          {isContractorAdmin && (
+            <button
+              type="button"
+              onClick={() => { setShowImport((p) => !p); setShowAdd(false) }}
               className="rounded-lg bg-[#00E47C] px-4 py-2 text-body-sm font-semibold text-[#293F52]"
             >
               Import Properties
@@ -380,6 +431,52 @@ export function PropertiesClient({ clientId, isContractorAdmin }: PropertiesClie
           )}
         </div>
       </div>
+
+      {/* Add single property */}
+      {showAdd && (
+        <div className="mx-7 mt-4 rounded-xl border border-gray-200 bg-white p-5">
+          <h3 className="mb-3 text-sm font-semibold text-[#293F52]">Add a single property</h3>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+            <div className="sm:w-56">
+              <label className="mb-1 block text-xs font-medium text-gray-500">Collection area</label>
+              <select
+                value={addArea}
+                onChange={(e) => setAddArea(e.target.value)}
+                className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+              >
+                <option value="">Select area…</option>
+                {(areas ?? []).map((a) => (
+                  <option key={a.id} value={a.id}>{a.code} — {a.name}</option>
+                ))}
+              </select>
+            </div>
+            <div className="flex-1">
+              <label className="mb-1 block text-xs font-medium text-gray-500">Address</label>
+              <input
+                type="text"
+                value={addAddress}
+                onChange={(e) => setAddAddress(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') void handleAddProperty() }}
+                placeholder="e.g. 23 Leda Blvd, Wellard WA 6170"
+                className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:border-[#293F52]"
+              />
+            </div>
+            <button
+              type="button"
+              onClick={() => void handleAddProperty()}
+              disabled={isAdding}
+              className="rounded-lg bg-[#293F52] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+            >
+              {isAdding ? 'Adding…' : 'Add'}
+            </button>
+          </div>
+          {addError && <p className="mt-2 text-sm text-red-600">{addError}</p>}
+          {addResult && <p className="mt-2 text-sm text-emerald-600">{addResult}</p>}
+          <p className="mt-2 text-xs text-gray-400">
+            Added as a residential eligible address and geocoded automatically. Convert to a MUD later via the row menu.
+          </p>
+        </div>
+      )}
 
       {geocodeResult && (
         <div className="mx-7 mt-4 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm text-emerald-700">
