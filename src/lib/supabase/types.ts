@@ -2742,6 +2742,13 @@ export type Database = {
       is_contractor_user: { Args: never; Returns: boolean }
       is_field_user: { Args: never; Returns: boolean }
       is_staff_role: { Args: never; Returns: boolean }
+      resolve_actor_names: {
+        Args: { p_user_ids: string[] }
+        Returns: {
+          name: string
+          user_id: string
+        }[]
+      }
       resolve_booking_redirect: {
         Args: { p_ref: string }
         Returns: {

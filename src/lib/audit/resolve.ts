@@ -130,11 +130,6 @@ export async function resolveAuditLogs(
  *
  * Both admin surfaces (this timeline + the global audit-log page) share
  * this resolver, so both are fixed at once.
- *
- * NOTE: `resolve_actor_names` is not yet in the generated Supabase types
- * (single-PR + typed-cast per the ghost-release convention — types regen
- * lands in a follow-up once the migration is on prod). The `as never` casts
- * satisfy the rpc overload until then.
  */
 export async function resolveActorNames(
   supabase: SupabaseClient<Database>,
@@ -142,10 +137,9 @@ export async function resolveActorNames(
 ): Promise<Record<string, string>> {
   if (userIds.length === 0) return {}
 
-  const { data } = (await supabase.rpc(
-    'resolve_actor_names' as never,
-    { p_user_ids: userIds } as never,
-  )) as { data: Array<{ user_id: string; name: string | null }> | null }
+  const { data } = await supabase.rpc('resolve_actor_names', {
+    p_user_ids: userIds,
+  })
 
   const map: Record<string, string> = {}
   for (const row of data ?? []) {
