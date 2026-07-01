@@ -30,6 +30,7 @@ BEGIN
 END;
 $$;
 
+DROP TRIGGER IF EXISTS ticket_response_stamp_first_response ON public.ticket_response;
 CREATE TRIGGER ticket_response_stamp_first_response
   AFTER INSERT ON public.ticket_response
   FOR EACH ROW EXECUTE FUNCTION public.stamp_first_response();
