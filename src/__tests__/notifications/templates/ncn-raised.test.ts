@@ -80,4 +80,51 @@ describe('renderNcnRaised', () => {
     expect(html).toContain(`https://kwn.verco.au/booking/${encodeURIComponent('VV-NCN009')}`)
     expect(html).not.toContain('verco.test/kwn/booking')
   })
+
+  describe('City of Kwinana compliance directive', () => {
+    it('appends the Kwinana infringement notice for kwn resident-fault NCNs', () => {
+      const booking = makeMockBooking()
+      booking.client.slug = 'kwn'
+      const { html } = renderNcnRaised(booking, APP_URL, { reason: 'Building Waste' })
+      expect(html).toContain('$400 infringement under section 2.10(1)')
+      expect(html).toContain('City of Kwinana Waste Local Law 2022')
+      expect(html).toContain('7 days of this notice')
+      expect(html).toContain('Emma Gillham')
+      expect(html).toContain('Waste Management Officer')
+    })
+
+    it('uses the corrected contact URL and collection wording, not the supplied typos', () => {
+      const booking = makeMockBooking()
+      booking.client.slug = 'kwn'
+      const { html } = renderNcnRaised(booking, APP_URL, { reason: 'Building Waste' })
+      // Two fixes approved alongside the copy: verco.au (not .com), /contact
+      // (not the non-existent /contact-us), and "collection" (not "collation").
+      expect(html).toContain('https://kwn.verco.au/contact')
+      expect(html).toContain('arrange an additional collection at')
+      expect(html).not.toContain('verco.com')
+      expect(html).not.toContain('contact-us')
+      expect(html).not.toContain('collation')
+    })
+
+    it('omits the Kwinana directive for other tenants', () => {
+      const booking = makeMockBooking() // default slug 'mock-tenant'
+      const { html } = renderNcnRaised(booking, APP_URL, { reason: 'Building Waste' })
+      expect(html).not.toContain('$400 infringement')
+      expect(html).not.toContain('Emma Gillham')
+      expect(html).not.toContain('Waste Local Law 2022')
+    })
+
+    it('suppresses the infringement warning on contractor-fault Kwinana NCNs', () => {
+      const booking = makeMockBooking()
+      booking.client.slug = 'kwn'
+      const { html } = renderNcnRaised(booking, APP_URL, {
+        reason: 'Collection Limit Exceeded',
+        contractor_fault: true,
+      })
+      // Contractor fault → softer intro, no fine threat, no signature.
+      expect(html).toContain('unable to complete your collection')
+      expect(html).not.toContain('$400 infringement')
+      expect(html).not.toContain('Emma Gillham')
+    })
+  })
 })
