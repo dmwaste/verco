@@ -992,18 +992,11 @@ export function CollectionsTrendCard({ clientId, area, period }: CardScope) {
       label="Total Collections"
       isLoading={!period.unresolved && (isLoading || periodTotal === undefined)}
       value={period.unresolved ? '—' : String(periodTotal ?? 0)}
-      sub={
-        period.unresolved
-          ? 'Period unavailable'
-          : 'Completed collections — the current month grows as collections complete'
-      }
+      sub={period.unresolved ? 'Period unavailable' : 'Completed collections'}
       provenance={liveStamp(period)}
       footer={
         trend && trend.length > 0 ? (
-          <Sparkline
-            points={trend}
-            caption="Completed collections per month · last 12 months · history starts at platform adoption"
-          />
+          <Sparkline points={trend} caption="Completed collections per month · last 12 months" />
         ) : undefined
       }
     />
