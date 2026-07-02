@@ -2743,15 +2743,53 @@ export type Database = {
           month: string
         }[]
       }
+      get_notices_monthly: {
+        Args: {
+          p_area_id?: string
+          p_client_id: string
+          p_from?: string
+          p_to?: string
+        }
+        Returns: {
+          month: string
+          ncn_contractor: number
+          ncn_other: number
+          np_contractor: number
+          np_other: number
+        }[]
+      }
+      get_on_time_monthly: {
+        Args: {
+          p_area_id?: string
+          p_client_id: string
+          p_from?: string
+          p_to?: string
+        }
+        Returns: {
+          completed: number
+          month: string
+          on_time: number
+        }[]
+      }
       get_property_penetration: {
-        Args: { p_area_id?: string; p_client_id: string }
+        Args: {
+          p_area_id?: string
+          p_client_id: string
+          p_from?: string
+          p_to?: string
+        }
         Returns: {
           booked: number
           eligible: number
         }[]
       }
       get_rect_sla: {
-        Args: { p_area_id?: string; p_client_id: string }
+        Args: {
+          p_area_id?: string
+          p_client_id: string
+          p_from?: string
+          p_to?: string
+        }
         Returns: {
           denominator: number
           numerator: number

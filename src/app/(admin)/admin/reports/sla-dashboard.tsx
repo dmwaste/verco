@@ -45,12 +45,6 @@
  * in `lib/reports/audience.ts` — contractor-only cards (penetration,
  * self-service, notification delivery) are never mounted for council viewers,
  * so their queries never fire. New cards default contractor-only.
- *
- * ⚠️ TYPE-GATED (release #249): `rpcUntyped` below covers the RPC shapes that
- * only land in types once migration 20260702160000 reaches prod and types are
- * regenerated (get_on_time_monthly, get_notices_monthly, and the 4-arg
- * rect/penetration signatures). Decast to plain `supabase.rpc(...)` after the
- * regen — tracked in the PR checklist.
  */
 
 import { useQuery } from '@tanstack/react-query'
@@ -130,24 +124,6 @@ function liveStamp(period: PeriodRange): string {
 }
 
 type RpcRow = Record<string, unknown>
-interface UntypedRpcResult {
-  data: RpcRow[] | null
-  error: { message: string } | null
-}
-/**
- * TYPE-GATED (release #249): typed escape hatch for RPC shapes not yet in
- * generated types (see file header). Decast after the post-release regen.
- */
-function rpcUntyped(
-  supabase: ReturnType<typeof createClient>,
-  fn: string,
-  args: Record<string, unknown>,
-): PromiseLike<UntypedRpcResult> {
-  return (supabase.rpc as unknown as (f: string, a: Record<string, unknown>) => PromiseLike<UntypedRpcResult>)(
-    fn,
-    args,
-  )
-}
 
 /**
  * Throws on PostgREST errors so TanStack surfaces isError and the card
@@ -167,25 +143,21 @@ function orThrow<T>(res: { data: T | null; error: { message: string } | null }):
  */
 function useMonthlyTrend(
   name: string,
-  rpcFn: string,
   clientId: string,
   area: string,
+  call: (anchor: string) => PromiseLike<{
+    data: RpcRow[] | null
+    error: { message: string } | null
+  }>,
   mapRow: (r: RpcRow) => number,
 ) {
-  const supabase = createClient()
   const now = new Date()
   const anchor = rolling12From(now)
   return useQuery({
     queryKey: [name, clientId, area, anchor],
     enabled: !!clientId,
     queryFn: async () => {
-      // TYPE-GATED (release #249): decast to supabase.rpc after types regen.
-      const { data: rows, error } = await rpcUntyped(supabase, rpcFn, {
-        p_client_id: clientId,
-        p_area_id: area || undefined,
-        p_from: anchor,
-      })
-      if (error) throw new Error(error.message)
+      const rows = orThrow(await call(anchor))
       const observed = (rows ?? []).map((r) => ({
         month: String(r.month),
         value: mapRow(r),
@@ -347,9 +319,14 @@ function OnTimeCard({ clientId, area, period }: CardScope) {
 
   const { data: trend } = useMonthlyTrend(
     'sla-ontime-trend',
-    'get_on_time_monthly',
     clientId,
     area,
+    (anchor) =>
+      supabase.rpc('get_on_time_monthly', {
+        p_client_id: clientId,
+        p_area_id: area || undefined,
+        p_from: anchor,
+      }),
     (r) => Number(r.completed ?? 0),
   )
 
@@ -388,16 +365,15 @@ function RectCard({ clientId, area, period }: CardScope) {
     queryKey: ['sla-rect', clientId, area, ...periodKey(period)],
     enabled: !!clientId && !period.unresolved,
     queryFn: async () => {
-      // TYPE-GATED (release #249): 4-arg signature lands with the types regen.
-      const { data: rows, error } = await rpcUntyped(supabase, 'get_rect_sla', {
-        p_client_id: clientId,
-        p_area_id: area || undefined,
-        p_from: period.from ?? undefined,
-        p_to: period.to ?? undefined,
-      })
-      if (error) throw new Error(error.message)
-      const row = (rows ?? [])[0] ?? { numerator: 0, denominator: 0, pct: null }
-      return row as { numerator: number; denominator: number; pct: number | null }
+      const rows = orThrow(
+        await supabase.rpc('get_rect_sla', {
+          p_client_id: clientId,
+          p_area_id: area || undefined,
+          p_from: period.from ?? undefined,
+          p_to: period.to ?? undefined,
+        }),
+      )
+      return (rows ?? [])[0] ?? { numerator: 0, denominator: 0, pct: null }
     },
   })
   if (period.unresolved) {
@@ -595,17 +571,16 @@ function PenetrationCard({ clientId, area, period }: CardScope) {
     queryKey: ['sla-penetration', clientId, area, ...periodKey(period)],
     enabled: !!clientId && !period.unresolved,
     queryFn: async () => {
-      // TYPE-GATED (release #249): 4-arg signature lands with the types regen.
-      const { data: rows, error } = await rpcUntyped(supabase, 'get_property_penetration', {
-        p_client_id: clientId,
-        p_area_id: area || undefined,
-        p_from: period.from ?? undefined,
-        p_to: period.to ?? undefined,
-      })
-      if (error) throw new Error(error.message)
+      const rows = orThrow(
+        await supabase.rpc('get_property_penetration', {
+          p_client_id: clientId,
+          p_area_id: area || undefined,
+          p_from: period.from ?? undefined,
+          p_to: period.to ?? undefined,
+        }),
+      )
       const row = (rows ?? [])[0] ?? { booked: 0, eligible: 0 }
-      const { booked, eligible } = row as { booked: number; eligible: number }
-      return { result: computePenetration({ booked: Number(booked), eligible: Number(eligible) }), booked: Number(booked) }
+      return { result: computePenetration({ booked: Number(row.booked), eligible: Number(row.eligible) }), booked: Number(row.booked) }
     },
   })
   if (period.unresolved) {
@@ -722,9 +697,14 @@ function OpenNoticesCard({ clientId, area }: CardScope) {
 
   const { data: trend } = useMonthlyTrend(
     'sla-notices-trend',
-    'get_notices_monthly',
     clientId,
     area,
+    (anchor) =>
+      supabase.rpc('get_notices_monthly', {
+        p_client_id: clientId,
+        p_area_id: area || undefined,
+        p_from: anchor,
+      }),
     (r) =>
       Number(r.ncn_contractor ?? 0) + Number(r.ncn_other ?? 0) +
       Number(r.np_contractor ?? 0) + Number(r.np_other ?? 0),
@@ -781,9 +761,14 @@ function CollectionsTrendCard({ clientId, area, period }: CardScope) {
 
   const { data: trend } = useMonthlyTrend(
     'sla-trend-bars',
-    'get_collections_trend',
     clientId,
     area,
+    (anchor) =>
+      supabase.rpc('get_collections_trend', {
+        p_client_id: clientId,
+        p_area_id: area || undefined,
+        p_from: anchor,
+      }),
     (r) => Number(r.collections ?? 0),
   )
 
