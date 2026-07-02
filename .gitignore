@@ -65,3 +65,7 @@ docs/*-user-guide.html
 
 # prod faq_items snapshots written by scripts/load-faqs.mjs before --apply
 scripts/.faq-snapshots/
+
+# local agent/session state (skill sources, gstack retros) — machine-local, not project code
+.agents/
+.context/

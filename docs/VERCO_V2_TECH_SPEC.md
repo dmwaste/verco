@@ -311,8 +311,6 @@ CREATE TABLE contacts (
   full_name           text NOT NULL,
   mobile_e164         text NOT NULL,
   email               text NOT NULL,
-  attio_person_id     text,
-  attio_person_web_url text,
   last_synced_by      text DEFAULT 'supabase',
   created_at          timestamptz NOT NULL DEFAULT now(),
   updated_at          timestamptz NOT NULL DEFAULT now()
@@ -537,8 +535,8 @@ CREATE TABLE booking (
   latitude              numeric,
   longitude             numeric,
   geo_address           text,
-  -- Future OptimoRoute fields (nullable)
-  optimo_stop_id        text,
+  -- Future crew-assignment field (nullable; the optimo_stop_id placeholder
+  -- was dropped 02/07/2026 — stops use collection_stop.external_order_ref)
   crew_id               uuid,
   -- Audit
   created_at            timestamptz NOT NULL DEFAULT now(),
@@ -673,7 +671,6 @@ CREATE TABLE service_ticket (
   first_response_at timestamptz,
   resolved_at       timestamptz,
   closed_at         timestamptz,
-  attio_record_id   text,
   created_at        timestamptz NOT NULL DEFAULT now(),
   updated_at        timestamptz NOT NULL DEFAULT now()
 );
@@ -831,7 +828,6 @@ CREATE TABLE sync_log (
   entity_type      text NOT NULL,
   entity_id        uuid NOT NULL,
   direction        text NOT NULL,   -- 'outbound' | 'inbound'
-  attio_record_id  text,
   status           text NOT NULL DEFAULT 'success',
   error_message    text,
   payload          jsonb,
@@ -1545,20 +1541,6 @@ All Edge Functions are in `supabase/functions/`. Auth pattern: Bearer JWT unless
 - **Input:** `{ input, session_token }`
 - **Output:** Google Places Autocomplete results (filtered to AJA bounds)
 - **Side effects:** None
-
-### `attio-sync-contact`
-- **Auth:** Internal (DB trigger via pg_net)
-- **Trigger:** `contacts` INSERT/UPDATE
-- **Side effects:** Upserts contact in Attio, updates `contacts.attio_person_id`, inserts `sync_log`
-
-### `attio-sync-ticket`
-- **Auth:** Internal (DB trigger)
-- **Trigger:** `service_ticket` INSERT/UPDATE
-- **Side effects:** Upserts ticket in Attio, inserts `sync_log`
-
-### `attio-inbound-webhook`
-- **Auth:** Attio HMAC
-- **Side effects:** Updates `contacts` or `service_ticket` from Attio payload
 
 ### `geocode-property`
 - **Auth:** Bearer JWT (admin only)

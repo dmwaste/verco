@@ -298,7 +298,7 @@ Contact details (name, mobile, email) are **never** included on run sheets. `fie
 
 ### 7.3 Future Integration
 
-OptimoRoute integration is **out of scope for v2**. The data model will include `optimo_stop_id` and `crew_id` nullable columns on `booking` to support the future webhook from OptimoRoute that returns crew assignment and collection sequence number.
+OptimoRoute integration is **out of scope for v2**. The data model includes a nullable `crew_id` column on `booking` for future crew assignment. (The original `optimo_stop_id` placeholder was dropped 02/07/2026 — the shipped OR sync keys stops on `collection_stop.external_order_ref` instead.)
 
 ---
 
