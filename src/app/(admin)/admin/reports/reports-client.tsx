@@ -5,7 +5,6 @@ import { useQuery } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
 import { metricVisible } from '@/lib/reports/audience'
 import {
-  awstTimestampBounds,
   resolvePeriod,
   type PeriodFyRow,
   type PeriodPreset,
@@ -57,7 +56,6 @@ export function ReportsClient({
     },
   })
 
-  const bounds = awstTimestampBounds(period)
   const { data: stats, isLoading, isError: statsError } = useQuery({
     queryKey: [
       'report-stats',
@@ -72,16 +70,27 @@ export function ReportsClient({
     ],
     enabled: !period.unresolved,
     queryFn: async () => {
-      // Bookings by status — period anchor: booking created_at (booked-in-
-      // period; FY presets use the FY's date bounds here since the status
-      // breakdown is a workload view, not an FY-attributed KPI).
-      let bookingQuery = supabase
-        .from('booking')
-        .select('status', { count: 'exact', head: false })
+      // Bookings by status — SERVICE-period anchor (review 02/07): fy presets
+      // → fy_id, range presets → item collection_date inside the window.
+      // created_at surfaced legacy-imported bookings under Last FY/Last month.
+      let bookingQuery = period.kind === 'fy'
+        ? supabase
+            .from('booking')
+            .select('status', { count: 'exact', head: false })
+            .eq('fy_id', period.fyId!)
+        : (() => {
+            let q = supabase
+              .from('booking')
+              .select('status, booking_item!inner(collection_date!inner(date))', {
+                count: 'exact',
+                head: false,
+              })
+            if (period.from) q = q.gte('booking_item.collection_date.date', period.from)
+            if (period.to) q = q.lte('booking_item.collection_date.date', period.to)
+            return q
+          })()
       if (clientId) bookingQuery = bookingQuery.eq('client_id', clientId)
       if (selectedArea) bookingQuery = bookingQuery.eq('collection_area_id', selectedArea)
-      if (bounds.gte) bookingQuery = bookingQuery.gte('created_at', bounds.gte)
-      if (bounds.lt) bookingQuery = bookingQuery.lt('created_at', bounds.lt)
 
       // Refund totals — contractor-only (VER-288): skip the query entirely
       // for council viewers. Period anchor: none — refunds stay all-time
@@ -216,7 +225,7 @@ export function ReportsClient({
               <SlaCard
                 label="Total Bookings"
                 value={String(stats.totalBookings)}
-                provenance={`${stamp} · booked in period`}
+                provenance={`${stamp} · by service date`}
               />
               <SlaCard
                 label="Open Tickets"
@@ -275,7 +284,7 @@ export function ReportsClient({
                   Breakdown reflects the first 1,000 bookings of {stats.totalBookings} in this period.
                 </p>
               )}
-              <ProvenanceStamp text={`${stamp} · booked in period`} />
+              <ProvenanceStamp text={`${stamp} · by service date`} />
             </div>
 
           </div>

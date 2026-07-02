@@ -23,17 +23,21 @@
  * Period semantics (VER-297) — the period changes WHICH rows are counted,
  * never HOW a metric is measured. `period.unresolved` (no matching FY row /
  * empty Custom) DISABLES every query — running with null bounds would
- * silently widen to all-time under the selected-period stamp. Per card:
- *   BC        fy presets → booking.fy_id; range presets → booking.created_at
- *             (a booking can be created before its service FY starts, so the
- *             two anchors are deliberately different)
+ * silently widen to all-time under the selected-period stamp.
+ *
+ * BOOKING-OBJECT cards anchor on the SERVICE period, never created_at
+ * (review 02/07): legacy-imported and pre-season bookings are created long
+ * before their service window, so created_at made "Last FY / Last month"
+ * report activity that never happened. EVENT cards keep their event anchor —
+ * an email sent in June IS June activity. Per card:
+ *   BC        fy presets → booking.fy_id (the service FY); range presets →
+ *             item collection_date.date inside the window
  *   ONTIME    scheduled collection_date.date
  *   RECT      notice reported_at (RPC p_from/p_to)
- *   SR/SELFSVC/NOTIF  created_at (NOTIF also ignores the area filter by
- *             design — notification_log has no area)
+ *   SR/SELFSVC/NOTIF  event created_at (NOTIF also ignores the area filter
+ *             by design — notification_log has no area)
  *   RS        survey submitted_at
- *   VOLMIX    booking created_at (booked-in-period; item service dates would
- *             need a per-item date join — documented divergence)
+ *   VOLMIX    fy presets → fy_id; range presets → item collection_date.date
  *   TREND     booking service date = MIN item collection_date.date (RPC)
  *   NOTICES   snapshot of OPEN notices — deliberately period-INDEPENDENT
  *             (an open notice is open regardless of the selected period);
@@ -215,52 +219,64 @@ export function SlaDashboard({ clientId, selectedArea, period, viewerRole }: {
 }
 
 // ── BC — Clean Collection Rate (spec §3.1) ──────────────────────────────────
-// Period anchor: fy presets → booking.fy_id (the service FY — a booking can
-// be created before its FY starts); range presets → booking.created_at.
+// Period anchor: SERVICE period, never created_at (design review 02/07 —
+// legacy-imported and pre-season bookings made "Last FY / Last month" report
+// activity that never happened). fy presets → booking.fy_id (the service FY);
+// range presets → item collection_date.date inside the window.
 function BcCard({ clientId, area, period }: CardScope) {
   const supabase = createClient()
   const fyScoped = period.kind === 'fy'
-  const bounds = awstTimestampBounds(period)
   const { data, isLoading, isError } = useQuery({
     queryKey: ['sla-bc', clientId, area, ...periodKey(period)],
     enabled: !!clientId && !period.unresolved,
     queryFn: async () => {
-      let elig = supabase
-        .from('booking')
-        .select('id')
+      let elig = fyScoped
+        ? supabase.from('booking').select('id').eq('fy_id', period.fyId!)
+        : (() => {
+            let q = supabase
+              .from('booking')
+              .select('id, booking_item!inner(collection_date!inner(date))')
+            if (period.from) q = q.gte('booking_item.collection_date.date', period.from)
+            if (period.to) q = q.lte('booking_item.collection_date.date', period.to)
+            return q
+          })()
+      elig = elig
         .eq('client_id', clientId)
         .is('deleted_at', null)
         .in('status', BC_ELIGIBLE_STATUSES)
-      if (fyScoped) {
-        elig = elig.eq('fy_id', period.fyId!)
-      } else {
-        if (bounds.gte) elig = elig.gte('created_at', bounds.gte)
-        if (bounds.lt) elig = elig.lt('created_at', bounds.lt)
-      }
       if (area) elig = elig.eq('collection_area_id', area)
 
       // Contractor-fault NCNs, scoped via the EXPLICIT booking FK (NCN has two
       // FKs to booking — the multi-FK embed trap; alias the intake FK).
-      let ncn = supabase
-        .from('non_conformance_notice')
-        .select(
-          'booking_id, orig:booking!non_conformance_notice_booking_id_fkey!inner(collection_area_id, fy_id, created_at, deleted_at)'
-        )
+      let ncn = fyScoped
+        ? supabase
+            .from('non_conformance_notice')
+            .select(
+              'booking_id, orig:booking!non_conformance_notice_booking_id_fkey!inner(collection_area_id, fy_id, deleted_at)'
+            )
+            .eq('orig.fy_id', period.fyId!)
+        : (() => {
+            let q = supabase
+              .from('non_conformance_notice')
+              .select(
+                'booking_id, orig:booking!non_conformance_notice_booking_id_fkey!inner(collection_area_id, deleted_at, booking_item!inner(collection_date!inner(date)))'
+              )
+            if (period.from) q = q.gte('orig.booking_item.collection_date.date', period.from)
+            if (period.to) q = q.lte('orig.booking_item.collection_date.date', period.to)
+            return q
+          })()
+      ncn = ncn
         .eq('client_id', clientId)
         .eq('contractor_fault', true)
         .is('orig.deleted_at', null)
-      if (fyScoped) {
-        ncn = ncn.eq('orig.fy_id', period.fyId!)
-      } else {
-        if (bounds.gte) ncn = ncn.gte('orig.created_at', bounds.gte)
-        if (bounds.lt) ncn = ncn.lt('orig.created_at', bounds.lt)
-      }
       if (area) ncn = ncn.eq('orig.collection_area_id', area)
 
       // Independent queries — no waterfall; either failure throws (isError).
+      // Explicit orThrow params: the fy/range branches select different embed
+      // shapes, and only these fields are read from either.
       const [eligRes, ncnRes] = await Promise.all([elig, ncn])
-      const eligRows = orThrow(eligRes)
-      const ncnRows = orThrow(ncnRes)
+      const eligRows = orThrow<{ id: string }[]>(eligRes)
+      const ncnRows = orThrow<{ booking_id: string }[]>(ncnRes)
       const eligibleBookingIds = new Set((eligRows ?? []).map((r) => r.id))
       const contractorFaultNcnBookingIds = new Set(
         (ncnRows ?? []).map((r) => r.booking_id)
@@ -846,19 +862,33 @@ const SERVICE_COLOR_FALLBACK = ['#6B8299', '#B0763A', '#26506B', '#93A7B8']
 
 function VolumeMixCard({ clientId, area, period }: CardScope) {
   const supabase = createClient()
-  const bounds = awstTimestampBounds(period)
+  const fyScoped = period.kind === 'fy'
   const { data, isLoading, isError } = useQuery({
     queryKey: ['sla-volmix', clientId, area, ...periodKey(period)],
     enabled: !!clientId && !period.unresolved,
     queryFn: async () => {
-      let q = supabase
-        .from('booking')
-        .select('booking_item(no_services, actual_services, is_extra, service!inner(name, waste_stream))')
+      // Service-date anchor (review 02/07): fy presets → fy_id, range presets
+      // → item collection_date inside the window — never created_at, which
+      // surfaced legacy-imported bookings under Last FY / Last month.
+      let q = fyScoped
+        ? supabase
+            .from('booking')
+            .select('booking_item(no_services, actual_services, is_extra, service!inner(name, waste_stream))')
+            .eq('fy_id', period.fyId!)
+        : (() => {
+            let ranged = supabase
+              .from('booking')
+              .select(
+                'booking_item!inner(no_services, actual_services, is_extra, service!inner(name, waste_stream), collection_date!inner(date))'
+              )
+            if (period.from) ranged = ranged.gte('booking_item.collection_date.date', period.from)
+            if (period.to) ranged = ranged.lte('booking_item.collection_date.date', period.to)
+            return ranged
+          })()
+      q = q
         .eq('client_id', clientId)
         .not('status', 'in', '("Cancelled","Pending Payment")')
       if (area) q = q.eq('collection_area_id', area)
-      if (bounds.gte) q = q.gte('created_at', bounds.gte)
-      if (bounds.lt) q = q.lt('created_at', bounds.lt)
       const rows = orThrow(await q)
       const flat = (rows ?? []).flatMap((b) => {
         const items = (b.booking_item ?? []) as Array<{
@@ -923,7 +953,7 @@ function VolumeMixCard({ clientId, area, period }: CardScope) {
                   ? 'Building data'
                   : `${r.freeUnits} included · ${r.extraUnits} extra`
         }
-        provenance={`${liveStamp(period)} · booked in period`}
+        provenance={`${liveStamp(period)} · by service date`}
         footer={bars}
       />
     </div>
