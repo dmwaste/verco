@@ -12,6 +12,31 @@ export type Database = {
   __InternalSupabase: {
     PostgrestVersion: "14.4"
   }
+  graphql_public: {
+    Tables: {
+      [_ in never]: never
+    }
+    Views: {
+      [_ in never]: never
+    }
+    Functions: {
+      graphql: {
+        Args: {
+          extensions?: Json
+          operationName?: string
+          query?: string
+          variables?: Json
+        }
+        Returns: Json
+      }
+    }
+    Enums: {
+      [_ in never]: never
+    }
+    CompositeTypes: {
+      [_ in never]: never
+    }
+  }
   public: {
     Tables: {
       allocation_conversion_rule: {
@@ -366,7 +391,6 @@ export type Database = {
           location: string | null
           longitude: number | null
           notes: string | null
-          optimo_stop_id: string | null
           photos: string[]
           property_id: string | null
           ref: string
@@ -401,7 +425,6 @@ export type Database = {
           location?: string | null
           longitude?: number | null
           notes?: string | null
-          optimo_stop_id?: string | null
           photos?: string[]
           property_id?: string | null
           ref: string
@@ -436,7 +459,6 @@ export type Database = {
           location?: string | null
           longitude?: number | null
           notes?: string | null
-          optimo_stop_id?: string | null
           photos?: string[]
           property_id?: string | null
           ref?: string
@@ -1518,8 +1540,6 @@ export type Database = {
       }
       contacts: {
         Row: {
-          attio_person_id: string | null
-          attio_person_web_url: string | null
           created_at: string
           email: string
           first_name: string
@@ -1531,8 +1551,6 @@ export type Database = {
           updated_at: string
         }
         Insert: {
-          attio_person_id?: string | null
-          attio_person_web_url?: string | null
           created_at?: string
           email: string
           first_name?: string
@@ -1544,8 +1562,6 @@ export type Database = {
           updated_at?: string
         }
         Update: {
-          attio_person_id?: string | null
-          attio_person_web_url?: string | null
           created_at?: string
           email?: string
           first_name?: string
@@ -2289,7 +2305,6 @@ export type Database = {
       service_ticket: {
         Row: {
           assigned_to: string | null
-          attio_record_id: string | null
           booking_id: string | null
           category: Database["public"]["Enums"]["ticket_category"]
           channel: Database["public"]["Enums"]["ticket_channel"]
@@ -2309,7 +2324,6 @@ export type Database = {
         }
         Insert: {
           assigned_to?: string | null
-          attio_record_id?: string | null
           booking_id?: string | null
           category?: Database["public"]["Enums"]["ticket_category"]
           channel?: Database["public"]["Enums"]["ticket_channel"]
@@ -2329,7 +2343,6 @@ export type Database = {
         }
         Update: {
           assigned_to?: string | null
-          attio_record_id?: string | null
           booking_id?: string | null
           category?: Database["public"]["Enums"]["ticket_category"]
           channel?: Database["public"]["Enums"]["ticket_channel"]
@@ -2502,7 +2515,6 @@ export type Database = {
       }
       sync_log: {
         Row: {
-          attio_record_id: string | null
           created_at: string
           direction: string
           entity_id: string
@@ -2513,7 +2525,6 @@ export type Database = {
           status: string
         }
         Insert: {
-          attio_record_id?: string | null
           created_at?: string
           direction: string
           entity_id: string
@@ -2524,7 +2535,6 @@ export type Database = {
           status?: string
         }
         Update: {
-          attio_record_id?: string | null
           created_at?: string
           direction?: string
           entity_id?: string
@@ -3039,6 +3049,9 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
+  graphql_public: {
+    Enums: {},
+  },
   public: {
     Enums: {
       app_permission_action: ["view", "create", "edit", "delete", "manage"],
