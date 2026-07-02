@@ -17,9 +17,14 @@ export default async function ReportsPage() {
     .select('id, is_current')
   const currentFyId = pickCurrentFyId(fyRows)
 
+  // VER-288: viewer role resolved server-side (SECURITY DEFINER lookup on
+  // user_roles) — drives per-metric audience gating. Structural: contractor-
+  // only cards are never mounted (and never query) for council viewers.
+  const { data: viewerRole } = await supabase.rpc('current_user_role')
+
   return (
     <Suspense>
-      <ReportsClient clientId={clientId} currentFyId={currentFyId} />
+      <ReportsClient clientId={clientId} currentFyId={currentFyId} viewerRole={viewerRole ?? null} />
     </Suspense>
   )
 }
