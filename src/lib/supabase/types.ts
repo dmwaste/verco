@@ -2796,6 +2796,19 @@ export type Database = {
           pct: number
         }[]
       }
+      get_reports_monthly: {
+        Args: {
+          p_area_id?: string
+          p_client_id: string
+          p_from?: string
+          p_to?: string
+        }
+        Returns: {
+          month: string
+          series: string
+          value: number
+        }[]
+      }
       has_role: {
         Args: { check_role: Database["public"]["Enums"]["app_role"] }
         Returns: boolean

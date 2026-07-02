@@ -4,25 +4,14 @@
  * ONE rolling-12 fetch feeding every sparkline (design 02/07): the
  * `get_reports_monthly` RPC returns long-format (month, series, value) rows
  * and every card shares the identical queryKey, so TanStack dedupes the
- * whole dashboard's sparkline needs into a single request.
- *
- * TYPED SEAM: the RPC ships in the SAME release as this consumer (migration
- * 20260702180000) but is absent from the generated types until the
- * post-release regen — the cast below is replaced by generated types then
- * (tracked on VER-298). Keeping the seam local avoids hand-editing
- * lib/supabase/types.ts, which would break the Types Freshness CI.
+ * whole dashboard's sparkline needs into a single request. (The pre-release
+ * typed seam was removed after the #254 release types regen.)
  */
 
 import { useQuery } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
 import { awstDateFromUtc } from '@/lib/booking/schedule-transition'
 import { rolling12From } from '@/lib/reports/periods'
-import type { MonthlySeriesRow } from '@/lib/reports/monthly-series'
-
-type ReportsMonthlyRpc = (
-  name: 'get_reports_monthly',
-  args: { p_client_id: string; p_area_id?: string; p_from?: string; p_to?: string },
-) => PromiseLike<{ data: MonthlySeriesRow[] | null; error: { message: string } | null }>
 
 /**
  * Shared tuning for the monthly trend queries (this hook + the two dedicated
@@ -48,8 +37,7 @@ export function useReportsMonthly(clientId: string, area: string) {
     enabled: !!clientId,
     ...MONTHLY_QUERY_OPTIONS,
     queryFn: async () => {
-      const rpc = supabase.rpc.bind(supabase) as unknown as ReportsMonthlyRpc
-      const { data, error } = await rpc('get_reports_monthly', {
+      const { data, error } = await supabase.rpc('get_reports_monthly', {
         p_client_id: clientId,
         p_area_id: area || undefined,
         p_from: anchor,
