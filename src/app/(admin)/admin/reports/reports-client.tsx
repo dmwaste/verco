@@ -11,7 +11,7 @@ import {
   type PeriodPreset,
 } from '@/lib/reports/periods'
 import { PeriodSelector } from './period-selector'
-import { ProvenanceStamp } from './sla-card'
+import { CardLabel, ProvenanceStamp, SlaCard } from './sla-card'
 import { SlaDashboard } from './sla-dashboard'
 
 export function ReportsClient({
@@ -207,23 +207,47 @@ export function ReportsClient({
         ) : stats ? (
           <div className="space-y-6">
             {/* Summary cards — NCN/NP counts were retired for the three-way
-                Open Notices split card in the dashboard above (VER-294). */}
-            <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-              <div className="rounded-xl bg-white p-5 shadow-sm">
-                <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Total Bookings</p>
-                <p className="mt-1 font-[family-name:var(--font-heading)] text-2xl font-bold text-[#293F52]">{stats.totalBookings}</p>
-                <ProvenanceStamp text={`${stamp} · booked in period`} />
-              </div>
-              <div className="rounded-xl bg-white p-5 shadow-sm">
-                <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Open Tickets</p>
-                <p className="mt-1 font-[family-name:var(--font-heading)] text-2xl font-bold text-[#293F52]">{stats.openTickets}</p>
-                <ProvenanceStamp text="Live · Current snapshot" />
-              </div>
+                Open Notices split card in the dashboard above (VER-294).
+                One auto-fit grid: the card count varies by audience (refunds
+                are contractor-only), so columns derive from content — no
+                orphan slots for any viewer (design review 02/07 F-005). */}
+            <div className="grid grid-cols-[repeat(auto-fit,minmax(min(230px,100%),1fr))] gap-4">
+              <SlaCard
+                label="Total Bookings"
+                value={String(stats.totalBookings)}
+                provenance={`${stamp} · booked in period`}
+              />
+              <SlaCard
+                label="Open Tickets"
+                value={String(stats.openTickets)}
+                provenance="Live · Current snapshot"
+              />
+              {/* Refund summary — contractor-only (VER-288). Amber = money
+                  waiting on action, green = settled (matches the SLA tones). */}
+              {showRefunds && (
+                <SlaCard
+                  label="Refunds Pending"
+                  value={`$${(stats.refundPending / 100).toFixed(2)}`}
+                  tone="below"
+                  provenance="Live · All time"
+                />
+              )}
+              {showRefunds && (
+                <SlaCard
+                  label="Refunds Processed"
+                  value={`$${(stats.refundProcessed / 100).toFixed(2)}`}
+                  tone="pass"
+                  provenance="Live · All time"
+                />
+              )}
             </div>
 
-            {/* Bookings by status */}
+            {/* Bookings by status — a chart panel, but its title sits at the
+                CARD level, not the page-section level (CardLabel, not h2). */}
             <div className="rounded-xl bg-white p-5 shadow-sm">
-              <h2 className="mb-4 font-[family-name:var(--font-heading)] text-sm font-bold text-[#293F52]">Bookings by Status</h2>
+              <div className="mb-4">
+                <CardLabel text="Bookings by Status" />
+              </div>
               <div className="space-y-2">
                 {Object.entries(stats.statusCounts)
                   .sort(([, a], [, b]) => b - a)
@@ -252,25 +276,6 @@ export function ReportsClient({
               <ProvenanceStamp text={`${stamp} · booked in period`} />
             </div>
 
-            {/* Refund summary — contractor-only (VER-288) */}
-            {showRefunds && (
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                <div className="rounded-xl bg-white p-5 shadow-sm">
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Refunds Pending</p>
-                  <p className="mt-1 font-[family-name:var(--font-heading)] text-2xl font-bold text-amber-600">
-                    ${(stats.refundPending / 100).toFixed(2)}
-                  </p>
-                  <ProvenanceStamp text="Live · All time" />
-                </div>
-                <div className="rounded-xl bg-white p-5 shadow-sm">
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Refunds Processed</p>
-                  <p className="mt-1 font-[family-name:var(--font-heading)] text-2xl font-bold text-emerald-600">
-                    ${(stats.refundProcessed / 100).toFixed(2)}
-                  </p>
-                  <ProvenanceStamp text="Live · All time" />
-                </div>
-              </div>
-            )}
           </div>
         ) : null}
       </div>

@@ -63,7 +63,7 @@ import {
   NP_TERMINAL_STATUSES,
   type NoticeRow,
 } from '@/lib/reports/notice-split'
-import { SlaCard, ProvenanceStamp, scorecardTone } from './sla-card'
+import { SlaCard, scorecardTone } from './sla-card'
 import { Sparkline, type TrendPoint } from './sparkline'
 import {
   computeCleanCollection,
@@ -271,10 +271,13 @@ function BcCard({ clientId, area, period }: CardScope) {
     return <SlaCard label="Service Delivery" value="—" sub="Period unavailable" provenance={liveStamp(period)} />
   }
   const r = data
-  const value = !r ? '—' : r.isEmpty ? 'No collections yet'
+  // Empty states render as muted SUB text under an em-dash value — a long
+  // phrase in the value slot shouts louder than real data (review F-003).
+  const value = !r || r.isEmpty ? '—'
     : r.isLowN ? `${r.eligible - r.miss} / ${r.eligible}`
     : pct1(r.pct!)
-  const sub = !r || r.isEmpty ? undefined
+  const sub = !r ? undefined
+    : r.isEmpty ? 'No collections yet'
     : r.isLowN ? 'Building data' : `${r.eligible - r.miss} / ${r.eligible} clean`
   return (
     <SlaCard
@@ -334,9 +337,10 @@ function OnTimeCard({ clientId, area, period }: CardScope) {
     return <SlaCard label="On-Time Collection" value="—" sub="Period unavailable" provenance={liveStamp(period)} />
   }
   const r = data
-  const value = !r ? '—' : r.isEmpty ? 'No completed stops'
+  const value = !r || r.isEmpty ? '—'
     : r.isLowN ? `${r.onTime} / ${r.completed}` : pct1(r.pct!)
-  const sub = !r || r.isEmpty ? undefined
+  const sub = !r ? undefined
+    : r.isEmpty ? 'No completed stops'
     : r.isLowN ? 'Building data' : `${r.onTime} / ${r.completed} on time`
   return (
     <SlaCard
@@ -359,6 +363,8 @@ function OnTimeCard({ clientId, area, period }: CardScope) {
 
 // ── RECT — Rectification ≤ 2 working days (spec §3.3, RPC) ───────────────────
 // Period anchor: notice reported_at (RPC p_from/p_to).
+const RECT_TARGET_PCT = 90
+
 function RectCard({ clientId, area, period }: CardScope) {
   const supabase = createClient()
   const { data, isLoading, isError } = useQuery({
@@ -383,9 +389,10 @@ function RectCard({ clientId, area, period }: CardScope) {
   const denom = r?.denominator ?? 0
   const isEmpty = denom === 0
   const isLowN = denom > 0 && denom < 5
-  const value = !r ? '—' : isEmpty ? 'No rectifications'
+  const value = !r || isEmpty ? '—'
     : isLowN ? `${r.numerator} / ${denom}` : pct1(Number(r.pct))
-  const sub = !r || isEmpty ? undefined
+  const sub = !r ? undefined
+    : isEmpty ? 'No rectifications'
     : isLowN ? 'Building data' : `${r.numerator} / ${denom} within 2 working days`
   return (
     <SlaCard
@@ -394,8 +401,8 @@ function RectCard({ clientId, area, period }: CardScope) {
       isError={isError}
       value={value}
       sub={sub}
-      tone={r ? scorecardTone(r.pct === null ? null : Number(r.pct), 90, { isEmpty, isLowN }) : 'neutral'}
-      target="Target ≥ 90%"
+      tone={r ? scorecardTone(r.pct === null ? null : Number(r.pct), RECT_TARGET_PCT, { isEmpty, isLowN }) : 'neutral'}
+      target={`Target ≥ ${RECT_TARGET_PCT}%`}
       provenance={liveStamp(period)}
     />
   )
@@ -449,12 +456,16 @@ function SrCards({ clientId, area, period }: CardScope) {
       <SlaCard
         label="Ticket First Response"
         isLoading={isLoading}
-      isError={isError}
+        isError={isError}
         value={
-          !resp ? '—' : resp.isEmpty ? 'Tracking starts soon'
+          !resp || resp.isEmpty ? '—'
             : resp.isLowN ? `${resp.withinTarget} / ${resp.n}` : pct1(resp.pct!)
         }
-        sub={!resp || resp.isEmpty ? undefined : resp.isLowN ? 'Building data' : `${resp.withinTarget} / ${resp.n} in time`}
+        sub={
+          !resp ? undefined
+            : resp.isEmpty ? 'Tracking starts soon'
+            : resp.isLowN ? 'Building data' : `${resp.withinTarget} / ${resp.n} in time`
+        }
         tone={resp ? scorecardTone(resp.pct, 100, resp) : 'neutral'}
         target={`Target ≤ ${RESPONSE_TARGET_WD} working days`}
         provenance={liveStamp(period)}
@@ -462,12 +473,16 @@ function SrCards({ clientId, area, period }: CardScope) {
       <SlaCard
         label="Ticket Resolution"
         isLoading={isLoading}
-      isError={isError}
+        isError={isError}
         value={
-          !res ? '—' : res.isEmpty ? 'No resolved tickets'
+          !res || res.isEmpty ? '—'
             : res.isLowN ? `${res.withinTarget} / ${res.n}` : pct1(res.pct!)
         }
-        sub={!res || res.isEmpty ? undefined : res.isLowN ? 'Building data' : `${res.withinTarget} / ${res.n} in time`}
+        sub={
+          !res ? undefined
+            : res.isEmpty ? 'No resolved tickets'
+            : res.isLowN ? 'Building data' : `${res.withinTarget} / ${res.n} in time`
+        }
         tone={res ? scorecardTone(res.pct, 100, res) : 'neutral'}
         target={`Target ≤ ${RESOLUTION_TARGET_DAYS} days`}
         provenance={liveStamp(period)}
@@ -478,6 +493,8 @@ function SrCards({ clientId, area, period }: CardScope) {
 
 // ── SELFSVC — Self-Service Rate (spec §3.6, contractor-only per 8A) ──────────
 // Period anchor: booking created_at.
+const SELF_SERVICE_TARGET_PCT = 80
+
 function SelfServiceCard({ clientId, area, period }: CardScope) {
   const supabase = createClient()
   const bounds = awstTimestampBounds(period)
@@ -500,11 +517,14 @@ function SelfServiceCard({ clientId, area, period }: CardScope) {
     return <SlaCard label="Self-Service Rate" value="—" sub="Period unavailable" provenance={liveStamp(period)} />
   }
   const r = data
-  const value = !r ? '—' : r.isEmpty ? 'Tracking starts soon'
+  const value = !r || r.isEmpty ? '—'
     : r.isLowN ? `${r.selfServed} / ${r.inScope}` : pct1(r.pct!)
-  const sub = !r || r.isEmpty
-    ? r && r.excludedLegacy > 0 ? `${r.excludedLegacy} earlier bookings excluded` : undefined
-    : r.isLowN ? 'Building data' : `${r.selfServed} / ${r.inScope} resident-created`
+  const sub = !r ? undefined
+    : r.isEmpty
+      ? r.excludedLegacy > 0
+        ? `Tracking starts soon · ${r.excludedLegacy} earlier bookings excluded`
+        : 'Tracking starts soon'
+      : r.isLowN ? 'Building data' : `${r.selfServed} / ${r.inScope} resident-created`
   return (
     <SlaCard
       label="Self-Service Rate"
@@ -513,7 +533,7 @@ function SelfServiceCard({ clientId, area, period }: CardScope) {
       value={value}
       sub={sub}
       tone="neutral"
-      target="Target ≥ 80%"
+      target={`Target ≥ ${SELF_SERVICE_TARGET_PCT}%`}
       provenance={liveStamp(period)}
     />
   )
@@ -544,9 +564,10 @@ function NotifCard({ clientId, period }: CardScope) {
     return <SlaCard label="Notification Delivery" value="—" sub="Period unavailable" provenance={liveStamp(period)} />
   }
   const r = data
-  const value = !r ? '—' : r.isEmpty ? 'No tracked email'
+  const value = !r || r.isEmpty ? '—'
     : r.isLowN ? `${r.positive} / ${r.tracked}` : pct1(r.pct!)
-  const sub = !r || r.isEmpty ? 'Email only'
+  const sub = !r ? 'Email only'
+    : r.isEmpty ? 'No tracked email · email only'
     : r.isLowN ? 'Building data' : `${r.positive} / ${r.tracked} delivered · email only`
   return (
     <SlaCard
@@ -633,9 +654,10 @@ function ResidentSatisfactionCard({ clientId, area, period }: CardScope) {
     return <SlaCard label="Resident Satisfaction" value="—" sub="Period unavailable" provenance={liveStamp(period)} />
   }
   const r = data
-  const value = !r ? '—' : r.isEmpty ? 'No responses yet'
+  const value = !r || r.isEmpty ? '—'
     : r.isLowN ? `${r.good} / ${r.n}` : pct1(r.pct!)
-  const sub = !r || r.isEmpty ? undefined
+  const sub = !r ? undefined
+    : r.isEmpty ? 'No responses yet'
     : r.isLowN ? 'Building data' : `${r.good} / ${r.n} rated good · target ≥ ${RS_TARGET_PCT}%`
   return (
     <SlaCard label="Resident Satisfaction" isLoading={isLoading}
@@ -773,28 +795,26 @@ function CollectionsTrendCard({ clientId, area, period }: CardScope) {
   )
 
   return (
-    <div className="mt-4 rounded-xl bg-white p-5 shadow-sm">
-      <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">
-        Collections per Period
-      </p>
-      <p className="mt-1 font-[family-name:var(--font-heading)] text-2xl font-bold text-[#293F52]">
-        {period.unresolved ? '—' : isLoading || periodTotal === undefined ? '—' : periodTotal}
-        <span className="ml-1 text-[11px] font-medium text-gray-400">completed collections</span>
-      </p>
-      <p className="mt-0.5 text-[11px] text-gray-500">
-        {period.unresolved
-          ? 'Period unavailable'
-          : 'The current month grows as collections complete — compare closed months.'}
-      </p>
-      {trend && trend.length > 0 && (
-        <div className="mt-3">
-          <Sparkline
-            points={trend}
-            caption="Completed collections per month · last 12 months · history starts at platform adoption"
-          />
-        </div>
-      )}
-      <ProvenanceStamp text={liveStamp(period)} />
+    <div className="mt-4">
+      <SlaCard
+        label="Collections per Period"
+        isLoading={!period.unresolved && (isLoading || periodTotal === undefined)}
+        value={period.unresolved ? '—' : String(periodTotal ?? 0)}
+        sub={
+          period.unresolved
+            ? 'Period unavailable'
+            : 'Completed collections — the current month grows as collections complete'
+        }
+        provenance={liveStamp(period)}
+        footer={
+          trend && trend.length > 0 ? (
+            <Sparkline
+              points={trend}
+              caption="Completed collections per month · last 12 months · history starts at platform adoption"
+            />
+          ) : undefined
+        }
+      />
     </div>
   )
 }
@@ -859,49 +879,50 @@ function VolumeMixCard({ clientId, area, period }: CardScope) {
     },
   })
   const r = data
-  return (
-    <div className="mt-4 rounded-xl bg-white p-5 shadow-sm">
-      <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Service Breakdown</p>
-      {period.unresolved ? (
-        <p className="mt-1 text-body-sm text-gray-400">Period unavailable.</p>
-      ) : isLoading || !r ? (
-        <p className="mt-1 text-body-sm text-gray-400">Loading…</p>
-      ) : r.isEmpty ? (
-        <p className="mt-1 text-body-sm text-gray-400">No collections match these filters.</p>
-      ) : (
-        <>
-          <p className="mt-1 font-[family-name:var(--font-heading)] text-2xl font-bold text-[#293F52]">
-            {r.totalCollections}
-            <span className="ml-1 text-[11px] font-medium text-gray-400">collections (booked)</span>
-          </p>
-          <p className="mt-0.5 text-[11px] text-gray-500">
-            {r.freeUnits} included · {r.extraUnits} extra
-          </p>
-          {!r.isLowN && (
-            <div className="mt-3 space-y-1">
-              {r.byService.map((s, i) => (
-                <div key={s.name} className="flex items-center gap-3">
-                  <span className="w-40 truncate text-body-sm text-gray-600">{s.name}</span>
-                  <div className="h-2 flex-1 overflow-hidden rounded-full bg-gray-100">
-                    <div
-                      className="h-full rounded-full"
-                      style={{
-                        width: `${Math.max(2, (s.qty / r.totalCollections) * 100)}%`,
-                        backgroundColor:
-                          SERVICE_COLORS[s.name] ??
-                          SERVICE_COLOR_FALLBACK[i % SERVICE_COLOR_FALLBACK.length],
-                      }}
-                    />
-                  </div>
-                  <span className="w-10 text-right text-body-sm font-semibold text-gray-700">{s.qty}</span>
-                </div>
-              ))}
+  const bars =
+    r && !r.isEmpty && !r.isLowN && !period.unresolved ? (
+      <div className="space-y-1">
+        {r.byService.map((s, i) => (
+          <div key={s.name} className="flex items-center gap-3">
+            <span className="w-40 truncate text-body-sm text-gray-600">{s.name}</span>
+            {/* Adjacent text carries name + count — the bar is decorative. */}
+            <div aria-hidden="true" className="h-2 flex-1 overflow-hidden rounded-full bg-gray-100">
+              <div
+                className="h-full rounded-full"
+                style={{
+                  width: `${Math.max(2, (s.qty / r.totalCollections) * 100)}%`,
+                  backgroundColor:
+                    SERVICE_COLORS[s.name] ??
+                    SERVICE_COLOR_FALLBACK[i % SERVICE_COLOR_FALLBACK.length],
+                }}
+              />
             </div>
-          )}
-          {r.isLowN && <p className="mt-2 text-[11px] text-gray-400">Building data</p>}
-        </>
-      )}
-      <ProvenanceStamp text={`${liveStamp(period)} · booked in period`} />
+            <span className="w-12 text-right text-body-sm font-semibold text-gray-700">{s.qty}</span>
+          </div>
+        ))}
+      </div>
+    ) : undefined
+  return (
+    <div className="mt-4">
+      <SlaCard
+        label="Service Breakdown"
+        isLoading={!period.unresolved && (isLoading || !r)}
+        isError={isError}
+        value={period.unresolved || !r || r.isEmpty ? '—' : String(r.totalCollections)}
+        sub={
+          period.unresolved
+            ? 'Period unavailable'
+            : !r
+              ? undefined
+              : r.isEmpty
+                ? 'No collections match these filters.'
+                : r.isLowN
+                  ? 'Building data'
+                  : `${r.freeUnits} included · ${r.extraUnits} extra`
+        }
+        provenance={`${liveStamp(period)} · booked in period`}
+        footer={bars}
+      />
     </div>
   )
 }
