@@ -26,10 +26,10 @@ describe('reports audience gating (VER-288 / decision 8A)', () => {
       'ticket-resolution',
       'resident-satisfaction',
       'service-breakdown',
+      'collections-trend',
+      'open-notices',
       'total-bookings',
       'bookings-by-status',
-      'ncn-count',
-      'np-count',
       'open-tickets',
     ]
     for (const role of councilRoles) {

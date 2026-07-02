@@ -35,6 +35,14 @@ export interface SlaCardProps {
   tone?: SlaTone
   /** Optional reference line, e.g. "Target ≥ 98%". */
   target?: string
+  /**
+   * Freshness + period stamp (VER-290), e.g. "Live · This month" or
+   * "Data as at Jun 2026". Rendered as the card's last line so live and
+   * month-stale figures are never read as the same thing.
+   */
+  provenance?: string
+  /** Optional footer slot — e.g. a rolling-12 <TrendBars> strip (VER-297). */
+  footer?: React.ReactNode
 }
 
 export function SlaCard({
@@ -44,6 +52,8 @@ export function SlaCard({
   sub,
   tone = 'neutral',
   target,
+  provenance,
+  footer,
 }: SlaCardProps) {
   return (
     <div className="rounded-xl bg-white p-5 shadow-sm">
@@ -58,6 +68,12 @@ export function SlaCard({
       {sub && !isLoading && <p className="mt-0.5 text-[11px] text-gray-500">{sub}</p>}
       {target && !isLoading && (
         <p className="mt-1 text-[11px] font-medium text-gray-400">{target}</p>
+      )}
+      {footer && !isLoading && <div className="mt-2">{footer}</div>}
+      {provenance && (
+        <p className="mt-1.5 text-[10px] font-medium uppercase tracking-wide text-gray-300">
+          {provenance}
+        </p>
       )}
     </div>
   )

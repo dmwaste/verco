@@ -1,27 +1,45 @@
 'use client'
 
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
 import { metricVisible } from '@/lib/reports/audience'
+import {
+  resolvePeriod,
+  type PeriodFyRow,
+  type PeriodPreset,
+} from '@/lib/reports/periods'
+import { PeriodSelector } from './period-selector'
 import { SlaDashboard } from './sla-dashboard'
 
 export function ReportsClient({
   clientId,
-  currentFyId,
+  fyRows,
   viewerRole,
 }: {
   clientId: string
-  currentFyId: string | null
+  fyRows: PeriodFyRow[]
   viewerRole: string | null
 }) {
   const supabase = createClient()
   const [selectedArea, setSelectedArea] = useState('')
-  const [dateFrom, setDateFrom] = useState('')
-  const [dateTo, setDateTo] = useState('')
+  // VER-297 standard periods — presets replace the old free date inputs;
+  // Custom reveals them again. Default: This FY (the KPI reporting frame).
+  const [preset, setPreset] = useState<PeriodPreset>('this-fy')
+  const [customFrom, setCustomFrom] = useState('')
+  const [customTo, setCustomTo] = useState('')
   // VER-288 (8A): refunds are monetary — contractor-only. Structural gate:
   // the refund query never runs for council viewers, not just hidden.
   const showRefunds = metricVisible('refunds', viewerRole)
+
+  const period = useMemo(
+    () =>
+      resolvePeriod(preset, new Date(), fyRows, {
+        from: customFrom || undefined,
+        to: customTo || undefined,
+      }),
+    [preset, fyRows, customFrom, customTo],
+  )
 
   const { data: areas } = useQuery({
     queryKey: ['report-areas', clientId],
@@ -38,16 +56,27 @@ export function ReportsClient({
   })
 
   const { data: stats, isLoading } = useQuery({
-    queryKey: ['report-stats', selectedArea, clientId, dateFrom, dateTo, showRefunds],
+    queryKey: [
+      'report-stats',
+      selectedArea,
+      clientId,
+      period.kind,
+      period.fyId,
+      period.from,
+      period.to,
+      showRefunds,
+    ],
     queryFn: async () => {
-      // Bookings by status
+      // Bookings by status — period anchor: booking created_at (booked-in-
+      // period; FY presets use the FY's date bounds here since the status
+      // breakdown is a workload view, not an FY-attributed KPI).
       let bookingQuery = supabase
         .from('booking')
         .select('status', { count: 'exact', head: false })
       if (clientId) bookingQuery = bookingQuery.eq('client_id', clientId)
       if (selectedArea) bookingQuery = bookingQuery.eq('collection_area_id', selectedArea)
-      if (dateFrom) bookingQuery = bookingQuery.gte('created_at', `${dateFrom}T00:00:00+08:00`)
-      if (dateTo) bookingQuery = bookingQuery.lte('created_at', `${dateTo}T23:59:59+08:00`)
+      if (period.from) bookingQuery = bookingQuery.gte('created_at', `${period.from}T00:00:00+08:00`)
+      if (period.to) bookingQuery = bookingQuery.lte('created_at', `${period.to}T23:59:59+08:00`)
       const { data: bookings } = await bookingQuery
 
       const statusCounts: Record<string, number> = {}
@@ -55,18 +84,9 @@ export function ReportsClient({
         statusCounts[b.status] = (statusCounts[b.status] ?? 0) + 1
       }
 
-      // NCN count
-      let ncnQuery = supabase.from('non_conformance_notice').select('id', { count: 'exact', head: true })
-      if (clientId) ncnQuery = ncnQuery.eq('client_id', clientId)
-      const { count: ncnCount } = await ncnQuery
-
-      // NP count
-      let npQuery = supabase.from('nothing_presented').select('id', { count: 'exact', head: true })
-      if (clientId) npQuery = npQuery.eq('client_id', clientId)
-      const { count: npCount } = await npQuery
-
       // Refund totals — contractor-only (VER-288): skip the query entirely
-      // for council viewers.
+      // for council viewers. Period anchor: requested_at is not selected —
+      // refunds stay all-time (money reconciliation, not a period KPI).
       let refundPending = 0
       let refundProcessed = 0
       if (showRefunds) {
@@ -77,7 +97,7 @@ export function ReportsClient({
         refundProcessed = (refunds ?? []).filter((r) => r.status === 'processed').reduce((sum, r) => sum + r.amount_cents, 0)
       }
 
-      // Open tickets
+      // Open tickets — snapshot (open is open regardless of period).
       let ticketQuery = supabase
         .from('service_ticket')
         .select('id', { count: 'exact', head: true })
@@ -88,8 +108,6 @@ export function ReportsClient({
       return {
         statusCounts,
         totalBookings: bookings?.length ?? 0,
-        ncnCount: ncnCount ?? 0,
-        npCount: npCount ?? 0,
         refundPending,
         refundProcessed,
         openTickets: openTickets ?? 0,
@@ -108,10 +126,12 @@ export function ReportsClient({
     Rebooked: 'bg-blue-100 text-blue-700',
   }
 
+  const stamp = `Live · ${period.label}`
+
   return (
     <>
       {/* Header */}
-      <div className="flex items-center justify-between border-b border-gray-100 bg-white px-7 pb-5 pt-6">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-100 bg-white px-7 pb-5 pt-6">
         <div>
           <h1 className="font-[family-name:var(--font-heading)] text-xl font-bold text-[#293F52]">
             Reports
@@ -121,21 +141,15 @@ export function ReportsClient({
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Booked</span>
-          <input
-            type="date"
-            value={dateFrom}
-            onChange={(e) => setDateFrom(e.target.value)}
-            aria-label="From date"
-            className="rounded-lg border-[1.5px] border-gray-100 bg-white px-3 py-[7px] text-body-sm text-gray-700"
-          />
-          <span className="text-body-sm text-gray-400">–</span>
-          <input
-            type="date"
-            value={dateTo}
-            onChange={(e) => setDateTo(e.target.value)}
-            aria-label="To date"
-            className="rounded-lg border-[1.5px] border-gray-100 bg-white px-3 py-[7px] text-body-sm text-gray-700"
+          <PeriodSelector
+            preset={preset}
+            onPresetChange={setPreset}
+            customFrom={customFrom}
+            customTo={customTo}
+            onCustomChange={(from, to) => {
+              setCustomFrom(from)
+              setCustomTo(to)
+            }}
           />
           <select
             value={selectedArea}
@@ -147,25 +161,16 @@ export function ReportsClient({
               <option key={a.id} value={a.id}>{a.code} — {a.name}</option>
             ))}
           </select>
-          {(dateFrom || dateTo || selectedArea) && (
-            <button
-              type="button"
-              onClick={() => { setDateFrom(''); setDateTo(''); setSelectedArea('') }}
-              className="rounded-lg border border-gray-200 px-3 py-[7px] text-body-sm text-gray-600 hover:bg-gray-50"
-            >
-              Clear
-            </button>
-          )}
         </div>
       </div>
 
       <div className="px-7 py-6">
-        {/* VER-179 SLA dashboard — reuses the area filter above; FY-scoped BC. */}
+        {/* VER-179 SLA dashboard + M2 delta cards — share the period + area scope. */}
         <div className="mb-6">
           <SlaDashboard
             clientId={clientId}
-            currentFyId={currentFyId}
             selectedArea={selectedArea}
+            period={period}
             viewerRole={viewerRole}
           />
         </div>
@@ -174,23 +179,18 @@ export function ReportsClient({
           <p className="text-sm text-gray-400">Loading reports...</p>
         ) : stats ? (
           <div className="space-y-6">
-            {/* Summary cards */}
+            {/* Summary cards — NCN/NP counts were retired for the three-way
+                Open Notices split card in the dashboard above (VER-294). */}
             <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
               <div className="rounded-xl bg-white p-5 shadow-sm">
                 <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Total Bookings</p>
                 <p className="mt-1 font-[family-name:var(--font-heading)] text-2xl font-bold text-[#293F52]">{stats.totalBookings}</p>
-              </div>
-              <div className="rounded-xl bg-white p-5 shadow-sm">
-                <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Non-Conformance</p>
-                <p className="mt-1 font-[family-name:var(--font-heading)] text-2xl font-bold text-red-600">{stats.ncnCount}</p>
-              </div>
-              <div className="rounded-xl bg-white p-5 shadow-sm">
-                <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Nothing Presented</p>
-                <p className="mt-1 font-[family-name:var(--font-heading)] text-2xl font-bold text-amber-600">{stats.npCount}</p>
+                <p className="mt-1.5 text-[10px] font-medium uppercase tracking-wide text-gray-300">{stamp} · booked in period</p>
               </div>
               <div className="rounded-xl bg-white p-5 shadow-sm">
                 <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Open Tickets</p>
                 <p className="mt-1 font-[family-name:var(--font-heading)] text-2xl font-bold text-[#293F52]">{stats.openTickets}</p>
+                <p className="mt-1.5 text-[10px] font-medium uppercase tracking-wide text-gray-300">Live · Current snapshot</p>
               </div>
             </div>
 
@@ -217,6 +217,7 @@ export function ReportsClient({
                     </div>
                   ))}
               </div>
+              <p className="mt-3 text-[10px] font-medium uppercase tracking-wide text-gray-300">{stamp} · booked in period</p>
             </div>
 
             {/* Refund summary — contractor-only (VER-288) */}
@@ -227,12 +228,14 @@ export function ReportsClient({
                   <p className="mt-1 font-[family-name:var(--font-heading)] text-2xl font-bold text-amber-600">
                     ${(stats.refundPending / 100).toFixed(2)}
                   </p>
+                  <p className="mt-1.5 text-[10px] font-medium uppercase tracking-wide text-gray-300">Live · All time</p>
                 </div>
                 <div className="rounded-xl bg-white p-5 shadow-sm">
                   <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Refunds Processed</p>
                   <p className="mt-1 font-[family-name:var(--font-heading)] text-2xl font-bold text-emerald-600">
                     ${(stats.refundProcessed / 100).toFixed(2)}
                   </p>
+                  <p className="mt-1.5 text-[10px] font-medium uppercase tracking-wide text-gray-300">Live · All time</p>
                 </div>
               </div>
             )}

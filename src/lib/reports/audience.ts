@@ -33,11 +33,13 @@ export const METRIC_AUDIENCE = {
   'property-penetration': 'contractor-only',
   'self-service-rate': 'contractor-only',
   'notification-delivery': 'contractor-only',
-  // Summary cards
+  // M2 delta cards (VER-294)
+  'collections-trend': 'council-visible',
+  'open-notices': 'council-visible',
+  // Summary cards ('ncn-count'/'np-count' were retired for the three-way
+  // 'open-notices' split card, VER-294)
   'total-bookings': 'council-visible',
   'bookings-by-status': 'council-visible',
-  'ncn-count': 'council-visible',
-  'np-count': 'council-visible',
   'open-tickets': 'council-visible',
   // Monetary — councils never see revenue/cost (booking_payment rule)
   'refunds': 'contractor-only',
