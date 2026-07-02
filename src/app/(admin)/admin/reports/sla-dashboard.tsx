@@ -29,7 +29,6 @@ import { SlaCard, scorecardTone } from './sla-card'
 import {
   computeCleanCollection,
   CLEAN_TARGET_PCT,
-  CLEAN_LOW_N,
 } from '@/lib/reports/clean-collection'
 import { computeOnTime, ON_TIME_TARGET_PCT } from '@/lib/reports/on-time'
 import {
@@ -252,7 +251,7 @@ function SrCards({ clientId, area }: CardScope) {
     enabled: !!clientId,
     queryFn: async () => {
       const waHolidays = await fetchWaHolidays(supabase)
-      let q = area
+      const q = area
         ? supabase
             .from('service_ticket')
             .select('created_at, first_response_at, resolved_at, closed_at, booking!inner(collection_area_id)')
@@ -410,7 +409,7 @@ function ResidentSatisfactionCard({ clientId, area }: CardScope) {
     queryFn: async () => {
       // For "All Areas" drop the embed (avoids multi-FK fragility); booking_survey
       // has a single booking FK so the inner embed is safe when an area is set.
-      let q = area
+      const q = area
         ? supabase
             .from('booking_survey')
             .select('responses, booking!inner(collection_area_id)')
