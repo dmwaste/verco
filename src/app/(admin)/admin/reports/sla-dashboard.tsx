@@ -220,7 +220,7 @@ function RectCard({ clientId, area }: CardScope) {
       // TYPE-GATED: get_rect_sla RPC lands with PR-A types regen.
       const { data: rows } = await supabase.rpc('get_rect_sla', {
         p_client_id: clientId,
-        p_area_id: area || null,
+        p_area_id: area || undefined,
       })
       const row = (rows ?? [])[0] ?? { numerator: 0, denominator: 0, pct: null }
       return row as { numerator: number; denominator: number; pct: number | null }
@@ -444,7 +444,7 @@ function PenetrationCard({ clientId, area }: CardScope) {
       // TYPE-GATED: get_property_penetration RPC lands with PR-A types regen.
       const { data: rows } = await supabase.rpc('get_property_penetration', {
         p_client_id: clientId,
-        p_area_id: area || null,
+        p_area_id: area || undefined,
       })
       const row = (rows ?? [])[0] ?? { booked: 0, eligible: 0 }
       const { booked, eligible } = row as { booked: number; eligible: number }
