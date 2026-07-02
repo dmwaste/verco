@@ -51,6 +51,15 @@ export interface PeriodRange {
   fyId: string | null
   /** Short human label for card provenance footers, e.g. "This month". */
   label: string
+  /**
+   * True when the preset cannot resolve to real bounds — an FY preset with no
+   * matching financial_year row (single-FY tenant asking for Last FY, an
+   * FY-rollover gap, or a failed fy fetch) or a Custom preset with no dates
+   * yet. Cards MUST disable their queries and render an unavailable state:
+   * running with null bounds would silently widen to ALL-TIME data while the
+   * provenance stamp claims the selected period.
+   */
+  unresolved: boolean
 }
 
 const DATE_RE = /^(\d{4})-(\d{2})-(\d{2})$/
@@ -101,8 +110,8 @@ export interface CustomRange {
 /**
  * Resolves a preset to concrete AWST bounds. Custom bounds with malformed
  * dates are dropped (unbounded on that side). A missing FY row (no is_current,
- * or no prior FY) yields null bounds + kind 'fy' with fyId null — cards render
- * their empty state rather than silently widening to all-time.
+ * or no prior FY) — or a Custom preset with no dates yet — resolves as
+ * `unresolved: true`; consumers gate their queries on it (see PeriodRange).
  */
 export function resolvePeriod(
   preset: PeriodPreset,
@@ -116,12 +125,12 @@ export function resolvePeriod(
   switch (preset) {
     case 'this-week': {
       const from = addDays(today, -mondayIndexedDow(today))
-      return { from, to: addDays(from, 6), kind: 'range', fyId: cur?.id ?? null, label: 'This week' }
+      return { from, to: addDays(from, 6), kind: 'range', fyId: cur?.id ?? null, label: 'This week', unresolved: false }
     }
     case 'last-week': {
       const thisMon = addDays(today, -mondayIndexedDow(today))
       const from = addDays(thisMon, -7)
-      return { from, to: addDays(from, 6), kind: 'range', fyId: cur?.id ?? null, label: 'Last week' }
+      return { from, to: addDays(from, 6), kind: 'range', fyId: cur?.id ?? null, label: 'Last week', unresolved: false }
     }
     case 'this-month':
       return {
@@ -130,6 +139,7 @@ export function resolvePeriod(
         kind: 'range',
         fyId: cur?.id ?? null,
         label: 'This month',
+        unresolved: false,
       }
     case 'last-month': {
       const lastMonthDay = addDays(monthStart(today), -1)
@@ -139,6 +149,7 @@ export function resolvePeriod(
         kind: 'range',
         fyId: cur?.id ?? null,
         label: 'Last month',
+        unresolved: false,
       }
     }
     case 'this-fy':
@@ -148,6 +159,7 @@ export function resolvePeriod(
         kind: 'fy',
         fyId: cur?.id ?? null,
         label: cur ? `This FY (${cur.label})` : 'This FY',
+        unresolved: !cur,
       }
     case 'last-fy': {
       const prior = lastFy(fyRows)
@@ -157,12 +169,22 @@ export function resolvePeriod(
         kind: 'fy',
         fyId: prior?.id ?? null,
         label: prior ? `Last FY (${prior.label})` : 'Last FY',
+        unresolved: !prior,
       }
     }
     case 'custom': {
       const from = custom.from !== undefined && DATE_RE.test(custom.from) ? custom.from : null
       const to = custom.to !== undefined && DATE_RE.test(custom.to) ? custom.to : null
-      return { from, to, kind: 'range', fyId: cur?.id ?? null, label: 'Custom' }
+      return {
+        from,
+        to,
+        kind: 'range',
+        fyId: cur?.id ?? null,
+        label: from || to ? `Custom (${from ?? '…'} – ${to ?? '…'})` : 'Custom',
+        // No dates yet → running the queries would be an unbounded all-time
+        // fan-out labelled "Custom"; wait until at least one bound is set.
+        unresolved: !from && !to,
+      }
     }
   }
 }
@@ -172,4 +194,44 @@ export function rolling12From(nowUtc: Date): string {
   const today = awstDateFromUtc(nowUtc)
   const [y, m] = today.split('-').map(Number)
   return new Date(Date.UTC(y!, m! - 1 - 11, 1)).toISOString().slice(0, 10)
+}
+
+/**
+ * Timestamptz bounds for an inclusive AWST date range. The upper bound is
+ * EXCLUSIVE at next-day midnight (`.lt`), matching the RPCs' semantics of
+ * `(col AT TIME ZONE 'Australia/Perth')::date <= p_to` — an inclusive
+ * `T23:59:59` literal would drop sub-second events in the final second and
+ * classify boundary rows differently to the RPC-backed cards.
+ */
+export function awstTimestampBounds(period: Pick<PeriodRange, 'from' | 'to'>): {
+  gte: string | null
+  lt: string | null
+} {
+  return {
+    gte: period.from ? `${period.from}T00:00:00+08:00` : null,
+    lt: period.to ? `${addDays(period.to, 1)}T00:00:00+08:00` : null,
+  }
+}
+
+/**
+ * Zero-fills monthly RPC rows across the full rolling window so trend strips
+ * render every month — the monthly RPCs GROUP BY observed months only, and a
+ * strip that silently elides zero months misaligns bars across time.
+ */
+export function zeroFillMonths(
+  rows: ReadonlyArray<{ month: string; value: number }>,
+  fromIso: string,
+  nowUtc: Date,
+): Array<{ month: string; value: number }> {
+  const byMonth = new Map(rows.map((r) => [r.month.slice(0, 7), r.value]))
+  const end = awstDateFromUtc(nowUtc).slice(0, 7)
+  const out: Array<{ month: string; value: number }> = []
+  let m = fromIso.slice(0, 7)
+  // Bounded to 24 iterations as a runaway guard (window is 12 months).
+  for (let i = 0; i < 24 && m <= end; i++) {
+    out.push({ month: `${m}-01`, value: byMonth.get(m) ?? 0 })
+    const [y, mo] = m.split('-').map(Number)
+    m = mo === 12 ? `${y! + 1}-01` : `${y}-${String(mo! + 1).padStart(2, '0')}`
+  }
+  return out
 }

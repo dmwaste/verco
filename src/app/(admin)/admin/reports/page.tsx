@@ -11,10 +11,14 @@ export default async function ReportsPage() {
   // resolve from the financial_year table — TY = is_current, LY = the prior
   // row). financial_year is public-SELECT; resolution lives in
   // lib/reports/periods.ts.
+  // Ordered for deterministic is_current resolution if a rollover race ever
+  // leaves two current rows; a failed fetch yields [] → the FY presets
+  // resolve as `unresolved` and cards pause instead of widening to all-time.
   const supabase = await createClient()
   const { data: fyRows } = await supabase
     .from('financial_year')
     .select('id, label, start_date, end_date, is_current')
+    .order('start_date', { ascending: false })
 
   // VER-288: viewer role resolved server-side (SECURITY DEFINER lookup on
   // user_roles) — drives per-metric audience gating. Structural: contractor-

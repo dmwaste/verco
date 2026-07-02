@@ -5,11 +5,13 @@ import { useQuery } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
 import { metricVisible } from '@/lib/reports/audience'
 import {
+  awstTimestampBounds,
   resolvePeriod,
   type PeriodFyRow,
   type PeriodPreset,
 } from '@/lib/reports/periods'
 import { PeriodSelector } from './period-selector'
+import { ProvenanceStamp } from './sla-card'
 import { SlaDashboard } from './sla-dashboard'
 
 export function ReportsClient({
@@ -55,6 +57,7 @@ export function ReportsClient({
     },
   })
 
+  const bounds = awstTimestampBounds(period)
   const { data: stats, isLoading } = useQuery({
     queryKey: [
       'report-stats',
@@ -64,8 +67,10 @@ export function ReportsClient({
       period.fyId,
       period.from,
       period.to,
+      period.unresolved,
       showRefunds,
     ],
+    enabled: !period.unresolved,
     queryFn: async () => {
       // Bookings by status — period anchor: booking created_at (booked-in-
       // period; FY presets use the FY's date bounds here since the status
@@ -75,27 +80,15 @@ export function ReportsClient({
         .select('status', { count: 'exact', head: false })
       if (clientId) bookingQuery = bookingQuery.eq('client_id', clientId)
       if (selectedArea) bookingQuery = bookingQuery.eq('collection_area_id', selectedArea)
-      if (period.from) bookingQuery = bookingQuery.gte('created_at', `${period.from}T00:00:00+08:00`)
-      if (period.to) bookingQuery = bookingQuery.lte('created_at', `${period.to}T23:59:59+08:00`)
-      const { data: bookings } = await bookingQuery
-
-      const statusCounts: Record<string, number> = {}
-      for (const b of bookings ?? []) {
-        statusCounts[b.status] = (statusCounts[b.status] ?? 0) + 1
-      }
+      if (bounds.gte) bookingQuery = bookingQuery.gte('created_at', bounds.gte)
+      if (bounds.lt) bookingQuery = bookingQuery.lt('created_at', bounds.lt)
 
       // Refund totals — contractor-only (VER-288): skip the query entirely
-      // for council viewers. Period anchor: requested_at is not selected —
-      // refunds stay all-time (money reconciliation, not a period KPI).
-      let refundPending = 0
-      let refundProcessed = 0
-      if (showRefunds) {
-        let refundQuery = supabase.from('refund_request').select('amount_cents, status')
-        if (clientId) refundQuery = refundQuery.eq('client_id', clientId)
-        const { data: refunds } = await refundQuery
-        refundPending = (refunds ?? []).filter((r) => r.status === 'pending').reduce((sum, r) => sum + r.amount_cents, 0)
-        refundProcessed = (refunds ?? []).filter((r) => r.status === 'processed').reduce((sum, r) => sum + r.amount_cents, 0)
-      }
+      // for council viewers. Period anchor: none — refunds stay all-time
+      // (money reconciliation, not a period KPI).
+      const refundQuery = showRefunds
+        ? supabase.from('refund_request').select('amount_cents, status').eq('client_id', clientId)
+        : null
 
       // Open tickets — snapshot (open is open regardless of period).
       let ticketQuery = supabase
@@ -103,14 +96,33 @@ export function ReportsClient({
         .select('id', { count: 'exact', head: true })
         .in('status', ['open', 'in_progress'])
       if (clientId) ticketQuery = ticketQuery.eq('client_id', clientId)
-      const { count: openTickets } = await ticketQuery
+
+      // Independent queries — no waterfall.
+      const [bookingRes, refundRes, ticketRes] = await Promise.all([
+        bookingQuery,
+        refundQuery,
+        ticketQuery,
+      ])
+
+      const statusCounts: Record<string, number> = {}
+      for (const b of bookingRes.data ?? []) {
+        statusCounts[b.status] = (statusCounts[b.status] ?? 0) + 1
+      }
+
+      const refunds = refundRes?.data ?? []
+      const refundPending = refunds.filter((r) => r.status === 'pending').reduce((sum, r) => sum + r.amount_cents, 0)
+      const refundProcessed = refunds.filter((r) => r.status === 'processed').reduce((sum, r) => sum + r.amount_cents, 0)
 
       return {
         statusCounts,
-        totalBookings: bookings?.length ?? 0,
+        // Exact count from PostgREST — immune to the max_rows=1000 row cap.
+        // The status BREAKDOWN still reflects at most 1,000 rows; converting
+        // it to an in-DB GROUP BY RPC is tracked follow-up work.
+        totalBookings: bookingRes.count ?? bookingRes.data?.length ?? 0,
+        statusRowsCapped: (bookingRes.count ?? 0) > (bookingRes.data?.length ?? 0),
         refundPending,
         refundProcessed,
-        openTickets: openTickets ?? 0,
+        openTickets: ticketRes.count ?? 0,
       }
     },
   })
@@ -165,6 +177,13 @@ export function ReportsClient({
       </div>
 
       <div className="px-7 py-6">
+        {period.unresolved && (
+          <p className="mb-4 rounded-lg border border-blue-100 bg-blue-50 px-4 py-2 text-body-sm text-blue-800">
+            {preset === 'custom'
+              ? 'Enter a date to apply the custom period.'
+              : 'No matching financial year for this period — cards are paused rather than showing all-time data.'}
+          </p>
+        )}
         {/* VER-179 SLA dashboard + M2 delta cards — share the period + area scope. */}
         <div className="mb-6">
           <SlaDashboard
@@ -175,7 +194,7 @@ export function ReportsClient({
           />
         </div>
 
-        {isLoading ? (
+        {isLoading && !period.unresolved ? (
           <p className="text-sm text-gray-400">Loading reports...</p>
         ) : stats ? (
           <div className="space-y-6">
@@ -185,12 +204,12 @@ export function ReportsClient({
               <div className="rounded-xl bg-white p-5 shadow-sm">
                 <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Total Bookings</p>
                 <p className="mt-1 font-[family-name:var(--font-heading)] text-2xl font-bold text-[#293F52]">{stats.totalBookings}</p>
-                <p className="mt-1.5 text-[10px] font-medium uppercase tracking-wide text-gray-300">{stamp} · booked in period</p>
+                <ProvenanceStamp text={`${stamp} · booked in period`} />
               </div>
               <div className="rounded-xl bg-white p-5 shadow-sm">
                 <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Open Tickets</p>
                 <p className="mt-1 font-[family-name:var(--font-heading)] text-2xl font-bold text-[#293F52]">{stats.openTickets}</p>
-                <p className="mt-1.5 text-[10px] font-medium uppercase tracking-wide text-gray-300">Live · Current snapshot</p>
+                <ProvenanceStamp text="Live · Current snapshot" />
               </div>
             </div>
 
@@ -217,7 +236,12 @@ export function ReportsClient({
                     </div>
                   ))}
               </div>
-              <p className="mt-3 text-[10px] font-medium uppercase tracking-wide text-gray-300">{stamp} · booked in period</p>
+              {stats.statusRowsCapped && (
+                <p className="mt-3 text-[11px] text-amber-600">
+                  Breakdown reflects the first 1,000 bookings of {stats.totalBookings} in this period.
+                </p>
+              )}
+              <ProvenanceStamp text={`${stamp} · booked in period`} />
             </div>
 
             {/* Refund summary — contractor-only (VER-288) */}
@@ -228,14 +252,14 @@ export function ReportsClient({
                   <p className="mt-1 font-[family-name:var(--font-heading)] text-2xl font-bold text-amber-600">
                     ${(stats.refundPending / 100).toFixed(2)}
                   </p>
-                  <p className="mt-1.5 text-[10px] font-medium uppercase tracking-wide text-gray-300">Live · All time</p>
+                  <ProvenanceStamp text="Live · All time" />
                 </div>
                 <div className="rounded-xl bg-white p-5 shadow-sm">
                   <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Refunds Processed</p>
                   <p className="mt-1 font-[family-name:var(--font-heading)] text-2xl font-bold text-emerald-600">
                     ${(stats.refundProcessed / 100).toFixed(2)}
                   </p>
-                  <p className="mt-1.5 text-[10px] font-medium uppercase tracking-wide text-gray-300">Live · All time</p>
+                  <ProvenanceStamp text="Live · All time" />
                 </div>
               </div>
             )}

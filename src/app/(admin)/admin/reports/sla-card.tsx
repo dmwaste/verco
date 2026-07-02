@@ -70,12 +70,22 @@ export function SlaCard({
         <p className="mt-1 text-[11px] font-medium text-gray-400">{target}</p>
       )}
       {footer && !isLoading && <div className="mt-2">{footer}</div>}
-      {provenance && (
-        <p className="mt-1.5 text-[10px] font-medium uppercase tracking-wide text-gray-300">
-          {provenance}
-        </p>
-      )}
+      {provenance && <ProvenanceStamp text={provenance} />}
     </div>
+  )
+}
+
+/**
+ * VER-290 freshness/period stamp — the single source of the stamp's markup.
+ * gray-400 (not lighter): the stamp is load-bearing ("live vs month-stale
+ * figures are never read as the same thing"), so it must clear readable
+ * contrast, matching the established card-label grey.
+ */
+export function ProvenanceStamp({ text }: { text: string }) {
+  return (
+    <p className="mt-1.5 text-[10px] font-medium uppercase tracking-wide text-gray-400">
+      {text}
+    </p>
   )
 }
 

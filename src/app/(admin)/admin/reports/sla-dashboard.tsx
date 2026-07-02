@@ -15,9 +15,15 @@
  * PENETRATION — COUNT(DISTINCT) over a ~110k-row denominator; monthly
  * trendlines — in-DB bucketing, never row-fetch-then-bucket past
  * max_rows=1000). Every card keys its query on the full period scope.
+ * ⚠ Known at-scale debt (review 02/07): the row-fetching headline cards
+ * (BC, ONTIME, SELFSVC, VOLMIX, RS, NOTIF) truncate at max_rows=1000 once a
+ * tenant's FY exceeds 1,000 rows — converting them to aggregate RPCs is the
+ * follow-up that also unlocks their trendlines (tracked in Linear).
  *
  * Period semantics (VER-297) — the period changes WHICH rows are counted,
- * never HOW a metric is measured. Per card:
+ * never HOW a metric is measured. `period.unresolved` (no matching FY row /
+ * empty Custom) DISABLES every query — running with null bounds would
+ * silently widen to all-time under the selected-period stamp. Per card:
  *   BC        fy presets → booking.fy_id; range presets → booking.created_at
  *             (a booking can be created before its service FY starts, so the
  *             two anchors are deliberately different)
@@ -32,6 +38,8 @@
  *   NOTICES   snapshot of OPEN notices — deliberately period-INDEPENDENT
  *             (an open notice is open regardless of the selected period);
  *             its trendline shows notices raised per month, rolling 12
+ * Timestamptz bounds come from awstTimestampBounds (exclusive next-day upper
+ * bound, matching the RPCs' AWST-date semantics).
  *
  * Audience gating (VER-288, decision 8A): every card has an audience declared
  * in `lib/reports/audience.ts` — contractor-only cards (penetration,
@@ -49,9 +57,19 @@ import { useQuery } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
 import { awstDateFromUtc } from '@/lib/booking/schedule-transition'
 import { metricVisible } from '@/lib/reports/audience'
-import { rolling12From, type PeriodRange } from '@/lib/reports/periods'
-import { computeNoticeSplit, type NoticeRow } from '@/lib/reports/notice-split'
-import { SlaCard, scorecardTone } from './sla-card'
+import {
+  awstTimestampBounds,
+  rolling12From,
+  zeroFillMonths,
+  type PeriodRange,
+} from '@/lib/reports/periods'
+import {
+  computeNoticeSplit,
+  NCN_TERMINAL_STATUSES,
+  NP_TERMINAL_STATUSES,
+  type NoticeRow,
+} from '@/lib/reports/notice-split'
+import { SlaCard, ProvenanceStamp, scorecardTone } from './sla-card'
 import { TrendBars, type TrendPoint } from './trend-bars'
 import {
   computeCleanCollection,
@@ -84,17 +102,13 @@ const BC_ELIGIBLE_STATUSES = [
   'Missed Collection',
 ] as const
 
+/** PostgREST `.not('status','in',...)` literals for the terminal sets. */
+const NCN_TERMINAL_IN = `(${NCN_TERMINAL_STATUSES.map((s) => `"${s}"`).join(',')})`
+const NP_TERMINAL_IN = `(${NP_TERMINAL_STATUSES.map((s) => `"${s}"`).join(',')})`
+
 /** Format a 0–100 number as a 1-dp percentage. */
 function pct1(pct: number): string {
   return `${(Math.round(pct * 10) / 10).toFixed(1)}%`
-}
-
-/** Inclusive AWST date bounds → timestamptz bounds for created_at-style columns. */
-function tsFrom(dateIso: string): string {
-  return `${dateIso}T00:00:00+08:00`
-}
-function tsTo(dateIso: string): string {
-  return `${dateIso}T23:59:59+08:00`
 }
 
 interface CardScope {
@@ -106,8 +120,8 @@ interface CardScope {
 }
 
 /** queryKey fragment covering the full period scope. */
-function periodKey(period: PeriodRange): (string | null)[] {
-  return [period.kind, period.fyId, period.from, period.to]
+function periodKey(period: PeriodRange): (string | boolean | null)[] {
+  return [period.kind, period.fyId, period.from, period.to, period.unresolved]
 }
 
 /** Card provenance stamp (VER-290): live cards state period + freshness. */
@@ -133,6 +147,42 @@ function rpcUntyped(
     fn,
     args,
   )
+}
+
+/**
+ * Shared rolling-12 trendline query (VER-297): one place owns the window
+ * anchor (computed per render and INCLUDED in the queryKey so a month
+ * rollover in a long-lived tab re-keys the cache instead of silently mixing
+ * windows), the RPC arg shape, and the zero-filled TrendPoint mapping.
+ */
+function useMonthlyTrend(
+  name: string,
+  rpcFn: string,
+  clientId: string,
+  area: string,
+  mapRow: (r: RpcRow) => number,
+) {
+  const supabase = createClient()
+  const now = new Date()
+  const anchor = rolling12From(now)
+  return useQuery({
+    queryKey: [name, clientId, area, anchor],
+    enabled: !!clientId,
+    queryFn: async () => {
+      // TYPE-GATED (release #249): decast to supabase.rpc after types regen.
+      const { data: rows, error } = await rpcUntyped(supabase, rpcFn, {
+        p_client_id: clientId,
+        p_area_id: area || undefined,
+        p_from: anchor,
+      })
+      if (error) throw new Error(error.message)
+      const observed = (rows ?? []).map((r) => ({
+        month: String(r.month),
+        value: mapRow(r),
+      }))
+      return zeroFillMonths(observed, anchor, now) as TrendPoint[]
+    },
+  })
 }
 
 export function SlaDashboard({ clientId, selectedArea, period, viewerRole }: {
@@ -185,9 +235,10 @@ export function SlaDashboard({ clientId, selectedArea, period, viewerRole }: {
 function BcCard({ clientId, area, period }: CardScope) {
   const supabase = createClient()
   const fyScoped = period.kind === 'fy'
+  const bounds = awstTimestampBounds(period)
   const { data, isLoading } = useQuery({
     queryKey: ['sla-bc', clientId, area, ...periodKey(period)],
-    enabled: !!clientId && (!fyScoped || !!period.fyId),
+    enabled: !!clientId && !period.unresolved,
     queryFn: async () => {
       let elig = supabase
         .from('booking')
@@ -198,12 +249,10 @@ function BcCard({ clientId, area, period }: CardScope) {
       if (fyScoped) {
         elig = elig.eq('fy_id', period.fyId!)
       } else {
-        if (period.from) elig = elig.gte('created_at', tsFrom(period.from))
-        if (period.to) elig = elig.lte('created_at', tsTo(period.to))
+        if (bounds.gte) elig = elig.gte('created_at', bounds.gte)
+        if (bounds.lt) elig = elig.lt('created_at', bounds.lt)
       }
       if (area) elig = elig.eq('collection_area_id', area)
-      const { data: eligRows } = await elig
-      const eligibleBookingIds = new Set((eligRows ?? []).map((r) => r.id))
 
       // Contractor-fault NCNs, scoped via the EXPLICIT booking FK (NCN has two
       // FKs to booking — the multi-FK embed trap; alias the intake FK).
@@ -218,11 +267,14 @@ function BcCard({ clientId, area, period }: CardScope) {
       if (fyScoped) {
         ncn = ncn.eq('orig.fy_id', period.fyId!)
       } else {
-        if (period.from) ncn = ncn.gte('orig.created_at', tsFrom(period.from))
-        if (period.to) ncn = ncn.lte('orig.created_at', tsTo(period.to))
+        if (bounds.gte) ncn = ncn.gte('orig.created_at', bounds.gte)
+        if (bounds.lt) ncn = ncn.lt('orig.created_at', bounds.lt)
       }
       if (area) ncn = ncn.eq('orig.collection_area_id', area)
-      const { data: ncnRows } = await ncn
+
+      // Independent queries — no waterfall.
+      const [{ data: eligRows }, { data: ncnRows }] = await Promise.all([elig, ncn])
+      const eligibleBookingIds = new Set((eligRows ?? []).map((r) => r.id))
       const contractorFaultNcnBookingIds = new Set(
         (ncnRows ?? []).map((r) => r.booking_id)
       )
@@ -231,8 +283,8 @@ function BcCard({ clientId, area, period }: CardScope) {
     },
   })
 
-  if (fyScoped && !period.fyId) {
-    return <SlaCard label="Service Delivery" value="—" sub="No matching financial year" provenance={liveStamp(period)} />
+  if (period.unresolved) {
+    return <SlaCard label="Service Delivery" value="—" sub="Period unavailable" provenance={liveStamp(period)} />
   }
   const r = data
   const value = !r ? '—' : r.isEmpty ? 'No collections yet'
@@ -260,7 +312,7 @@ function OnTimeCard({ clientId, area, period }: CardScope) {
   const supabase = createClient()
   const { data, isLoading } = useQuery({
     queryKey: ['sla-ontime', clientId, area, ...periodKey(period)],
-    enabled: !!clientId,
+    enabled: !!clientId && !period.unresolved,
     queryFn: async () => {
       let q = supabase
         .from('collection_stop')
@@ -280,23 +332,17 @@ function OnTimeCard({ clientId, area, period }: CardScope) {
     },
   })
 
-  const { data: trend } = useQuery({
-    queryKey: ['sla-ontime-trend', clientId, area],
-    enabled: !!clientId,
-    queryFn: async () => {
-      // TYPE-GATED (release #249): decast to supabase.rpc after types regen.
-      const { data: rows } = await rpcUntyped(supabase, 'get_on_time_monthly', {
-        p_client_id: clientId,
-        p_area_id: area || undefined,
-        p_from: rolling12From(new Date()),
-      })
-      return (rows ?? []).map((r): TrendPoint => ({
-        month: String(r.month),
-        value: Number(r.completed ?? 0),
-      }))
-    },
-  })
+  const { data: trend } = useMonthlyTrend(
+    'sla-ontime-trend',
+    'get_on_time_monthly',
+    clientId,
+    area,
+    (r) => Number(r.completed ?? 0),
+  )
 
+  if (period.unresolved) {
+    return <SlaCard label="On-Time Collection" value="—" sub="Period unavailable" provenance={liveStamp(period)} />
+  }
   const r = data
   const value = !r ? '—' : r.isEmpty ? 'No completed stops'
     : r.isLowN ? `${r.onTime} / ${r.completed}` : pct1(r.pct!)
@@ -326,19 +372,23 @@ function RectCard({ clientId, area, period }: CardScope) {
   const supabase = createClient()
   const { data, isLoading } = useQuery({
     queryKey: ['sla-rect', clientId, area, ...periodKey(period)],
-    enabled: !!clientId,
+    enabled: !!clientId && !period.unresolved,
     queryFn: async () => {
       // TYPE-GATED (release #249): 4-arg signature lands with the types regen.
-      const { data: rows } = await rpcUntyped(supabase, 'get_rect_sla', {
+      const { data: rows, error } = await rpcUntyped(supabase, 'get_rect_sla', {
         p_client_id: clientId,
         p_area_id: area || undefined,
         p_from: period.from ?? undefined,
         p_to: period.to ?? undefined,
       })
+      if (error) throw new Error(error.message)
       const row = (rows ?? [])[0] ?? { numerator: 0, denominator: 0, pct: null }
       return row as { numerator: number; denominator: number; pct: number | null }
     },
   })
+  if (period.unresolved) {
+    return <SlaCard label="Rectification ≤ 2 Days" value="—" sub="Period unavailable" provenance={liveStamp(period)} />
+  }
   const r = data
   const denom = r?.denominator ?? 0
   const isEmpty = denom === 0
@@ -364,11 +414,11 @@ function RectCard({ clientId, area, period }: CardScope) {
 // Period anchor: ticket created_at.
 function SrCards({ clientId, area, period }: CardScope) {
   const supabase = createClient()
+  const bounds = awstTimestampBounds(period)
   const { data, isLoading } = useQuery({
     queryKey: ['sla-sr', clientId, area, ...periodKey(period)],
-    enabled: !!clientId,
+    enabled: !!clientId && !period.unresolved,
     queryFn: async () => {
-      const waHolidays = await fetchWaHolidays(supabase)
       let q = area
         ? supabase
             .from('service_ticket')
@@ -379,9 +429,10 @@ function SrCards({ clientId, area, period }: CardScope) {
             .from('service_ticket')
             .select('created_at, first_response_at, resolved_at, closed_at')
             .eq('client_id', clientId)
-      if (period.from) q = q.gte('created_at', tsFrom(period.from))
-      if (period.to) q = q.lte('created_at', tsTo(period.to))
-      const { data: rows } = await q
+      if (bounds.gte) q = q.gte('created_at', bounds.gte)
+      if (bounds.lt) q = q.lt('created_at', bounds.lt)
+      // Holidays are independent of the ticket rows — no waterfall.
+      const [waHolidays, { data: rows }] = await Promise.all([fetchWaHolidays(supabase), q])
       const tickets = (rows ?? []).map((t) => ({
         createdAtAwst: awstDateFromUtc(new Date(t.created_at)),
         firstResponseAtAwst: t.first_response_at ? awstDateFromUtc(new Date(t.first_response_at)) : null,
@@ -391,6 +442,14 @@ function SrCards({ clientId, area, period }: CardScope) {
     },
   })
 
+  if (period.unresolved) {
+    return (
+      <>
+        <SlaCard label="Ticket First Response" value="—" sub="Period unavailable" provenance={liveStamp(period)} />
+        <SlaCard label="Ticket Resolution" value="—" sub="Period unavailable" provenance={liveStamp(period)} />
+      </>
+    )
+  }
   const resp = data?.responded
   const res = data?.resolved
   return (
@@ -427,21 +486,25 @@ function SrCards({ clientId, area, period }: CardScope) {
 // Period anchor: booking created_at.
 function SelfServiceCard({ clientId, area, period }: CardScope) {
   const supabase = createClient()
+  const bounds = awstTimestampBounds(period)
   const { data, isLoading } = useQuery({
     queryKey: ['sla-selfsvc', clientId, area, ...periodKey(period)],
-    enabled: !!clientId,
+    enabled: !!clientId && !period.unresolved,
     queryFn: async () => {
       let q = supabase
         .from('booking')
         .select('created_via, type, status')
         .eq('client_id', clientId)
       if (area) q = q.eq('collection_area_id', area)
-      if (period.from) q = q.gte('created_at', tsFrom(period.from))
-      if (period.to) q = q.lte('created_at', tsTo(period.to))
+      if (bounds.gte) q = q.gte('created_at', bounds.gte)
+      if (bounds.lt) q = q.lt('created_at', bounds.lt)
       const { data: rows } = await q
       return computeSelfServiceRate(rows ?? [])
     },
   })
+  if (period.unresolved) {
+    return <SlaCard label="Self-Service Rate" value="—" sub="Period unavailable" provenance={liveStamp(period)} />
+  }
   const r = data
   const value = !r ? '—' : r.isEmpty ? 'Tracking starts soon'
     : r.isLowN ? `${r.selfServed} / ${r.inScope}` : pct1(r.pct!)
@@ -465,9 +528,10 @@ function SelfServiceCard({ clientId, area, period }: CardScope) {
 // Period anchor: notification_log created_at. Contractor-only per 8A.
 function NotifCard({ clientId, period }: CardScope) {
   const supabase = createClient()
+  const bounds = awstTimestampBounds(period)
   const { data, isLoading } = useQuery({
     queryKey: ['sla-notif', clientId, ...periodKey(period)],
-    enabled: !!clientId,
+    enabled: !!clientId && !period.unresolved,
     queryFn: async () => {
       let q = supabase
         .from('notification_log')
@@ -475,12 +539,15 @@ function NotifCard({ clientId, period }: CardScope) {
         .eq('client_id', clientId)
         .eq('channel', 'email')
         .not('delivery_status', 'is', null)
-      if (period.from) q = q.gte('created_at', tsFrom(period.from))
-      if (period.to) q = q.lte('created_at', tsTo(period.to))
+      if (bounds.gte) q = q.gte('created_at', bounds.gte)
+      if (bounds.lt) q = q.lt('created_at', bounds.lt)
       const { data: rows } = await q
       return computeNotificationReliability((rows ?? []).map((r) => r.delivery_status))
     },
   })
+  if (period.unresolved) {
+    return <SlaCard label="Notification Delivery" value="—" sub="Period unavailable" provenance={liveStamp(period)} />
+  }
   const r = data
   const value = !r ? '—' : r.isEmpty ? 'No tracked email'
     : r.isLowN ? `${r.positive} / ${r.tracked}` : pct1(r.pct!)
@@ -506,20 +573,24 @@ function PenetrationCard({ clientId, area, period }: CardScope) {
   const supabase = createClient()
   const { data, isLoading } = useQuery({
     queryKey: ['sla-penetration', clientId, area, ...periodKey(period)],
-    enabled: !!clientId,
+    enabled: !!clientId && !period.unresolved,
     queryFn: async () => {
       // TYPE-GATED (release #249): 4-arg signature lands with the types regen.
-      const { data: rows } = await rpcUntyped(supabase, 'get_property_penetration', {
+      const { data: rows, error } = await rpcUntyped(supabase, 'get_property_penetration', {
         p_client_id: clientId,
         p_area_id: area || undefined,
         p_from: period.from ?? undefined,
         p_to: period.to ?? undefined,
       })
+      if (error) throw new Error(error.message)
       const row = (rows ?? [])[0] ?? { booked: 0, eligible: 0 }
       const { booked, eligible } = row as { booked: number; eligible: number }
       return { result: computePenetration({ booked: Number(booked), eligible: Number(eligible) }), booked: Number(booked) }
     },
   })
+  if (period.unresolved) {
+    return <SlaCard label="Property Penetration" value="—" sub="Period unavailable" provenance={liveStamp(period)} />
+  }
   const r = data?.result
   return (
     <SlaCard
@@ -537,9 +608,10 @@ function PenetrationCard({ clientId, area, period }: CardScope) {
 // Period anchor: survey submitted_at.
 function ResidentSatisfactionCard({ clientId, area, period }: CardScope) {
   const supabase = createClient()
+  const bounds = awstTimestampBounds(period)
   const { data, isLoading } = useQuery({
     queryKey: ['sla-rs', clientId, area, ...periodKey(period)],
-    enabled: !!clientId,
+    enabled: !!clientId && !period.unresolved,
     queryFn: async () => {
       // For "All Areas" drop the embed (avoids multi-FK fragility); booking_survey
       // has a single booking FK so the inner embed is safe when an area is set.
@@ -555,12 +627,15 @@ function ResidentSatisfactionCard({ clientId, area, period }: CardScope) {
             .select('responses')
             .not('submitted_at', 'is', null)
             .eq('client_id', clientId)
-      if (period.from) q = q.gte('submitted_at', tsFrom(period.from))
-      if (period.to) q = q.lte('submitted_at', tsTo(period.to))
+      if (bounds.gte) q = q.gte('submitted_at', bounds.gte)
+      if (bounds.lt) q = q.lt('submitted_at', bounds.lt)
       const { data: rows } = await q
       return computeResidentSatisfaction((rows ?? []).map((r) => ({ responses: r.responses })))
     },
   })
+  if (period.unresolved) {
+    return <SlaCard label="Resident Satisfaction" value="—" sub="Period unavailable" provenance={liveStamp(period)} />
+  }
   const r = data
   const value = !r ? '—' : r.isEmpty ? 'No responses yet'
     : r.isLowN ? `${r.good} / ${r.n}` : pct1(r.pct!)
@@ -573,13 +648,14 @@ function ResidentSatisfactionCard({ clientId, area, period }: CardScope) {
 
 // ── NOTICES — Open NCN + NP, three-way responsibility split (VER-294) ────────
 // Snapshot of OPEN notices — deliberately period-independent (an open notice
-// is open regardless of the selected period). Trendline: notices RAISED per
-// month, rolling 12, via get_notices_monthly (in-DB buckets). Split semantics
-// live in the tested pure fn (lib/reports/notice-split.ts) and MUST match the
-// council definitions doc v1.0 §3 (resident-fault presumption + 14-day
-// dispute window stated there).
-// `period` is intentionally not consumed: open-notice counts are a snapshot.
-function OpenNoticesCard({ clientId, area }: Omit<CardScope, 'period'> & Partial<Pick<CardScope, 'period'>>) {
+// is open regardless of the selected period). Terminal statuses are excluded
+// IN THE QUERY (terminal history accumulates forever; open notices are
+// naturally bounded by the 14-day auto-close, so the fetched set stays small
+// and never hits max_rows=1000). Trendline: notices RAISED per month, rolling
+// 12, via get_notices_monthly. Split semantics live in the tested pure fn
+// (lib/reports/notice-split.ts) and MUST match the council definitions doc
+// v1.0 §3 (resident-fault presumption + 14-day dispute window stated there).
+function OpenNoticesCard({ clientId, area }: CardScope) {
   const supabase = createClient()
   const { data, isLoading } = useQuery({
     queryKey: ['sla-notices', clientId, area],
@@ -597,6 +673,7 @@ function OpenNoticesCard({ clientId, area }: Omit<CardScope, 'period'> & Partial
             .from('non_conformance_notice')
             .select('status, contractor_fault')
             .eq('client_id', clientId)
+      ncn = ncn.not('status', 'in', NCN_TERMINAL_IN)
       let np = area
         ? supabase
             .from('nothing_presented')
@@ -607,33 +684,27 @@ function OpenNoticesCard({ clientId, area }: Omit<CardScope, 'period'> & Partial
             .from('nothing_presented')
             .select('status, contractor_fault')
             .eq('client_id', clientId)
+      np = np.not('status', 'in', NP_TERMINAL_IN)
       const [{ data: ncnRows }, { data: npRows }] = await Promise.all([ncn, np])
       const rows: NoticeRow[] = [
         ...(ncnRows ?? []).map((r) => ({ table: 'ncn' as const, status: String(r.status), contractor_fault: !!r.contractor_fault })),
         ...(npRows ?? []).map((r) => ({ table: 'np' as const, status: String(r.status), contractor_fault: !!r.contractor_fault })),
       ]
+      // computeNoticeSplit re-applies the terminal exclusion — a harmless
+      // defence-in-depth no-op now that the query filters server-side.
       return computeNoticeSplit(rows)
     },
   })
 
-  const { data: trend } = useQuery({
-    queryKey: ['sla-notices-trend', clientId, area],
-    enabled: !!clientId,
-    queryFn: async () => {
-      // TYPE-GATED (release #249): decast to supabase.rpc after types regen.
-      const { data: rows } = await rpcUntyped(supabase, 'get_notices_monthly', {
-        p_client_id: clientId,
-        p_area_id: area || undefined,
-        p_from: rolling12From(new Date()),
-      })
-      return (rows ?? []).map((r): TrendPoint => ({
-        month: String(r.month),
-        value:
-          Number(r.ncn_contractor ?? 0) + Number(r.ncn_other ?? 0) +
-          Number(r.np_contractor ?? 0) + Number(r.np_other ?? 0),
-      }))
-    },
-  })
+  const { data: trend } = useMonthlyTrend(
+    'sla-notices-trend',
+    'get_notices_monthly',
+    clientId,
+    area,
+    (r) =>
+      Number(r.ncn_contractor ?? 0) + Number(r.ncn_other ?? 0) +
+      Number(r.np_contractor ?? 0) + Number(r.np_other ?? 0),
+  )
 
   const s = data
   return (
@@ -669,7 +740,7 @@ function CollectionsTrendCard({ clientId, area, period }: CardScope) {
 
   const { data: periodTotal, isLoading } = useQuery({
     queryKey: ['sla-trend-total', clientId, area, ...periodKey(period)],
-    enabled: !!clientId,
+    enabled: !!clientId && !period.unresolved,
     queryFn: async () => {
       const { data: rows } = await supabase.rpc('get_collections_trend', {
         p_client_id: clientId,
@@ -681,21 +752,13 @@ function CollectionsTrendCard({ clientId, area, period }: CardScope) {
     },
   })
 
-  const { data: trend } = useQuery({
-    queryKey: ['sla-trend-bars', clientId, area],
-    enabled: !!clientId,
-    queryFn: async () => {
-      const { data: rows } = await supabase.rpc('get_collections_trend', {
-        p_client_id: clientId,
-        p_area_id: area || undefined,
-        p_from: rolling12From(new Date()),
-      })
-      return (rows ?? []).map((r): TrendPoint => ({
-        month: String(r.month),
-        value: Number(r.collections ?? 0),
-      }))
-    },
-  })
+  const { data: trend } = useMonthlyTrend(
+    'sla-trend-bars',
+    'get_collections_trend',
+    clientId,
+    area,
+    (r) => Number(r.collections ?? 0),
+  )
 
   return (
     <div className="mt-4 rounded-xl bg-white p-5 shadow-sm">
@@ -703,11 +766,13 @@ function CollectionsTrendCard({ clientId, area, period }: CardScope) {
         Collections per Period
       </p>
       <p className="mt-1 font-[family-name:var(--font-heading)] text-2xl font-bold text-[#293F52]">
-        {isLoading || periodTotal === undefined ? '—' : periodTotal}
+        {period.unresolved ? '—' : isLoading || periodTotal === undefined ? '—' : periodTotal}
         <span className="ml-1 text-[11px] font-medium text-gray-400">completed collections</span>
       </p>
       <p className="mt-0.5 text-[11px] text-gray-500">
-        The current month grows as collections complete — compare closed months.
+        {period.unresolved
+          ? 'Period unavailable'
+          : 'The current month grows as collections complete — compare closed months.'}
       </p>
       {trend && trend.length > 0 && (
         <div className="mt-3">
@@ -717,9 +782,7 @@ function CollectionsTrendCard({ clientId, area, period }: CardScope) {
           />
         </div>
       )}
-      <p className="mt-1.5 text-[10px] font-medium uppercase tracking-wide text-gray-300">
-        {liveStamp(period)}
-      </p>
+      <ProvenanceStamp text={liveStamp(period)} />
     </div>
   )
 }
@@ -748,9 +811,10 @@ const SERVICE_COLOR_FALLBACK = ['#6B8299', '#B0763A', '#26506B', '#93A7B8']
 
 function VolumeMixCard({ clientId, area, period }: CardScope) {
   const supabase = createClient()
+  const bounds = awstTimestampBounds(period)
   const { data, isLoading } = useQuery({
     queryKey: ['sla-volmix', clientId, area, ...periodKey(period)],
-    enabled: !!clientId,
+    enabled: !!clientId && !period.unresolved,
     queryFn: async () => {
       let q = supabase
         .from('booking')
@@ -758,8 +822,8 @@ function VolumeMixCard({ clientId, area, period }: CardScope) {
         .eq('client_id', clientId)
         .not('status', 'in', '("Cancelled","Pending Payment")')
       if (area) q = q.eq('collection_area_id', area)
-      if (period.from) q = q.gte('created_at', tsFrom(period.from))
-      if (period.to) q = q.lte('created_at', tsTo(period.to))
+      if (bounds.gte) q = q.gte('created_at', bounds.gte)
+      if (bounds.lt) q = q.lt('created_at', bounds.lt)
       const { data: rows } = await q
       const flat = (rows ?? []).flatMap((b) => {
         const items = (b.booking_item ?? []) as Array<{
@@ -786,7 +850,9 @@ function VolumeMixCard({ clientId, area, period }: CardScope) {
   return (
     <div className="mt-4 rounded-xl bg-white p-5 shadow-sm">
       <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Service Breakdown</p>
-      {isLoading || !r ? (
+      {period.unresolved ? (
+        <p className="mt-1 text-body-sm text-gray-400">Period unavailable.</p>
+      ) : isLoading || !r ? (
         <p className="mt-1 text-body-sm text-gray-400">Loading…</p>
       ) : r.isEmpty ? (
         <p className="mt-1 text-body-sm text-gray-400">No collections match these filters.</p>
@@ -823,9 +889,7 @@ function VolumeMixCard({ clientId, area, period }: CardScope) {
           {r.isLowN && <p className="mt-2 text-[11px] text-gray-400">Building data</p>}
         </>
       )}
-      <p className="mt-1.5 text-[10px] font-medium uppercase tracking-wide text-gray-300">
-        {liveStamp(period)} · booked in period
-      </p>
+      <ProvenanceStamp text={`${liveStamp(period)} · booked in period`} />
     </div>
   )
 }

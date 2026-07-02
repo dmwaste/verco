@@ -74,3 +74,30 @@ describe('SlaCard', () => {
     expect(screen.getByText('No responses yet')).toBeInTheDocument()
   })
 })
+
+// ── VER-290/VER-297 additions (review 02/07): provenance + footer contract ──
+describe('SlaCard provenance and footer', () => {
+  it('renders provenance always but hides the footer while loading', () => {
+    render(
+      <SlaCard
+        label="X"
+        value="1"
+        provenance="Live · This month"
+        footer={<span>trend</span>}
+        isLoading
+      />,
+    )
+    expect(screen.getByText('Live · This month')).toBeInTheDocument()
+    expect(screen.queryByText('trend')).not.toBeInTheDocument()
+  })
+
+  it('renders the footer when not loading', () => {
+    render(<SlaCard label="X" value="1" footer={<span>trend</span>} />)
+    expect(screen.getByText('trend')).toBeInTheDocument()
+  })
+
+  it('omits the stamp entirely when no provenance is given', () => {
+    const { container } = render(<SlaCard label="X" value="1" />)
+    expect(container.querySelectorAll('p')).toHaveLength(2) // label + value only
+  })
+})

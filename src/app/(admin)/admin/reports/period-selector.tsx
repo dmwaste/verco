@@ -1,23 +1,27 @@
 'use client'
 
-import type { PeriodPreset } from '@/lib/reports/periods'
+import { PERIOD_PRESETS, type PeriodPreset } from '@/lib/reports/periods'
 
 /**
  * Standard period presets for /admin/reports (VER-297, Dan 02/07): This week ·
  * Last week · This month · Last month · This FY · Last FY, plus a Custom
  * escape hatch that reveals the original date inputs. Presets resolve to AWST
  * bounds in lib/reports/periods.ts — this component is chrome only.
+ *
+ * Labels are a Record over PeriodPreset and buttons render from the imported
+ * PERIOD_PRESETS, so adding a preset without a label (or a button) is a
+ * compile error rather than a silently missing pill.
  */
 
-const PRESET_LABELS: Array<{ id: PeriodPreset; label: string }> = [
-  { id: 'this-week', label: 'This week' },
-  { id: 'last-week', label: 'Last week' },
-  { id: 'this-month', label: 'This month' },
-  { id: 'last-month', label: 'Last month' },
-  { id: 'this-fy', label: 'This FY' },
-  { id: 'last-fy', label: 'Last FY' },
-  { id: 'custom', label: 'Custom' },
-]
+const PRESET_LABEL: Record<PeriodPreset, string> = {
+  'this-week': 'This week',
+  'last-week': 'Last week',
+  'this-month': 'This month',
+  'last-month': 'Last month',
+  'this-fy': 'This FY',
+  'last-fy': 'Last FY',
+  custom: 'Custom',
+}
 
 export function PeriodSelector({
   preset,
@@ -34,11 +38,16 @@ export function PeriodSelector({
 }) {
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <div className="flex flex-wrap items-center gap-1 rounded-lg border-[1.5px] border-gray-100 bg-white p-1">
-        {PRESET_LABELS.map(({ id, label }) => (
+      <div
+        role="group"
+        aria-label="Report period"
+        className="flex flex-wrap items-center gap-1 rounded-lg border-[1.5px] border-gray-100 bg-white p-1"
+      >
+        {PERIOD_PRESETS.map((id) => (
           <button
             key={id}
             type="button"
+            aria-pressed={preset === id}
             onClick={() => onPresetChange(id)}
             className={`rounded-md px-2.5 py-1 text-[12px] font-semibold transition-colors ${
               preset === id
@@ -46,7 +55,7 @@ export function PeriodSelector({
                 : 'text-gray-600 hover:bg-gray-50'
             }`}
           >
-            {label}
+            {PRESET_LABEL[id]}
           </button>
         ))}
       </div>
