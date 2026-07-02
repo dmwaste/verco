@@ -5,12 +5,14 @@
  * bucketing arithmetic is DB-independent + unit-testable to 100% (CLAUDE.md
  * §14). No Supabase, no network, no wall-clock.
  *
- * A "collection" is a booking that reached the field (the dashboard's
- * established BC status set: Completed / Non-conformance / Nothing Presented /
- * Scheduled / Missed Collection — the CALLER filters statuses, exactly as the
- * clean-collection fn receives pre-scoped sets). Each booking counts ONCE, in
- * the month of its service date = the MIN `collection_date.date` across its
- * booking_items (schema allows per-item dates; real carts share one).
+ * A "collection" is a booking DELIVERED — status Completed only (Dan, 02/07:
+ * the wider reached-the-field set presented a fully-Scheduled season as
+ * delivered work, and NP/Missed mean "nothing collected" per the council
+ * definitions doc §3). The CALLER filters statuses, exactly as the
+ * clean-collection fn receives pre-scoped sets — keep in sync with the
+ * get_collections_trend RPC. Each booking counts ONCE, in the month of its
+ * service date = the MIN `collection_date.date` across its booking_items
+ * (schema allows per-item dates; real carts share one).
  *
  * Months with zero collections BETWEEN the first and last observed month are
  * gap-filled with 0 so the card renders a continuous axis. The series is NOT
