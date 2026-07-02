@@ -171,6 +171,9 @@ function useMonthlyTrend(
   return useQuery({
     queryKey: [name, clientId, area, anchor],
     enabled: !!clientId,
+    retry: 1,
+    staleTime: 10 * 60_000,
+    refetchOnWindowFocus: false,
     queryFn: async () => {
       const rows = orThrow(await call(anchor))
       const observed = (rows ?? []).map((r) => ({
@@ -202,6 +205,9 @@ function useMonthlyPercentTrend(
   return useQuery({
     queryKey: [name, clientId, area, anchor],
     enabled: !!clientId,
+    retry: 1,
+    staleTime: 10 * 60_000,
+    refetchOnWindowFocus: false,
     queryFn: async () => {
       const rows = orThrow(await call(anchor)) ?? []
       return rows

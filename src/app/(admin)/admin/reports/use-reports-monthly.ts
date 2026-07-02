@@ -32,6 +32,12 @@ export function useReportsMonthly(clientId: string, area: string) {
   const query = useQuery({
     queryKey: ['reports-monthly', clientId, area, anchor],
     enabled: !!clientId,
+    // Monthly aggregates: one retry and a long staleTime. The defaults
+    // (3 retries, refetch-on-focus, failed-is-always-stale) turned one
+    // unhealthy endpoint into a request storm across 10 subscribed cards.
+    retry: 1,
+    staleTime: 10 * 60_000,
+    refetchOnWindowFocus: false,
     queryFn: async () => {
       const rpc = supabase.rpc.bind(supabase) as unknown as ReportsMonthlyRpc
       const { data, error } = await rpc('get_reports_monthly', {
