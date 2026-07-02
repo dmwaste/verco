@@ -6,27 +6,16 @@
 -- Types-Freshness CI gens from prod, so these must be RELEASED before the
 -- consumer PR can pass CI.
 --
--- Contents:
---   1. get_collections_trend   — DELIVERED service units per AWST month,
---      rolling 12. GRAIN DECISION (02/07, revised against live data):
---      booking_item units on **Completed bookings only**, bucketed by the
---      item's scheduled collection month; unit qty = COALESCE(actual_services,
---      no_services) clamped ≥ 0 (crew-confirmed actuals override booked
---      counts — the volume-mix.ts rule). Why Completed-only: prod is at the
---      start of its first collection season (verified 02/07: all item dates
---      are Jul/Aug 2026, zero closed-out stops) — a booked-units trend would
---      present ~1,300 not-yet-collected July units to councils as delivered
---      work. The Service Breakdown card intentionally differs (booked
---      capacity/mix); this trend is delivered volume. NOT collection_stop-
---      grain: stop rows only exist since the June-2026 stops model, so a
---      stop-based trend would cliff at weeks of history once seasons accrue.
---   2. get_on_time_monthly     — completed + on-time stop counts per AWST
+-- Contents (get_collections_trend deliberately NOT here — it ships in
+-- 20260702150000 / PR #246, which owns the trend at booking-grain; this
+-- migration carries the rest of the M2 database layer):
+--   1. get_on_time_monthly     — completed + on-time stop counts per AWST
 --      month (SQL mirror of src/lib/reports/on-time.ts: on-time when the
 --      AWST date of completed_at equals collection_date.date). History
 --      necessarily starts at the stops model — UI carries the go-live label.
---   3. get_notices_monthly     — NCN + NP raised per AWST month of
+--   2. get_notices_monthly     — NCN + NP raised per AWST month of
 --      reported_at, split contractor_fault vs other, per table.
---   4. get_rect_sla / get_property_penetration — optional p_from/p_to period
+--   3. get_rect_sla / get_property_penetration — optional p_from/p_to period
 --      params (VER-297 slicers). DROP + CREATE (new signature would otherwise
 --      OVERLOAD and make PostgREST rpc calls ambiguous); named-arg callers on
 --      the old 2-arg shape still resolve via the DEFAULTs, so the deployed UI
@@ -43,43 +32,7 @@
 -- No table locks taken; idempotent (OR REPLACE / DROP IF EXISTS).
 -- ============================================================================
 
--- 1 ── Collections trend ─────────────────────────────────────────────────────
-CREATE OR REPLACE FUNCTION public.get_collections_trend(p_client_id uuid, p_area_id uuid DEFAULT NULL::uuid)
- RETURNS TABLE(month date, units numeric)
- LANGUAGE plpgsql
- STABLE SECURITY DEFINER
- SET search_path TO 'public', 'pg_temp'
-AS $function$
-DECLARE
-  v_month_start date := date_trunc('month', (now() AT TIME ZONE 'Australia/Perth'))::date;
-BEGIN
-  IF (p_client_id IN (SELECT accessible_client_ids())) IS NOT TRUE THEN
-    RETURN;
-  END IF;
-
-  RETURN QUERY
-  SELECT
-    date_trunc('month', cd.date)::date AS month,
-    SUM(GREATEST(COALESCE(bi.actual_services, bi.no_services, 0), 0))::numeric AS units
-  FROM booking_item bi
-  JOIN booking b          ON b.id  = bi.booking_id
-  JOIN collection_date cd ON cd.id = bi.collection_date_id
-  WHERE b.client_id = p_client_id
-    AND b.deleted_at IS NULL
-    AND b.status = 'Completed'::booking_status
-    AND (p_area_id IS NULL OR b.collection_area_id = p_area_id)
-    AND user_sub_client_allows_area(b.collection_area_id)
-    AND cd.date >= (v_month_start - interval '11 months')::date
-    AND cd.date <  (v_month_start + interval '1 month')::date
-  GROUP BY 1
-  ORDER BY 1;
-END;
-$function$;
-
-REVOKE EXECUTE ON FUNCTION public.get_collections_trend(uuid, uuid) FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.get_collections_trend(uuid, uuid) TO authenticated, service_role;
-
--- 2 ── On-time by month (trendline source; mirrors on-time.ts) ───────────────
+-- 1 ── On-time by month (trendline source; mirrors on-time.ts) ───────────────
 CREATE OR REPLACE FUNCTION public.get_on_time_monthly(p_client_id uuid, p_area_id uuid DEFAULT NULL::uuid)
  RETURNS TABLE(month date, completed bigint, on_time bigint)
  LANGUAGE plpgsql
@@ -117,7 +70,7 @@ $function$;
 REVOKE EXECUTE ON FUNCTION public.get_on_time_monthly(uuid, uuid) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.get_on_time_monthly(uuid, uuid) TO authenticated, service_role;
 
--- 3 ── Notices raised by month, contractor-fault split (NCN + NP) ────────────
+-- 2 ── Notices raised by month, contractor-fault split (NCN + NP) ────────────
 CREATE OR REPLACE FUNCTION public.get_notices_monthly(p_client_id uuid, p_area_id uuid DEFAULT NULL::uuid)
  RETURNS TABLE(month date, ncn_contractor bigint, ncn_other bigint, np_contractor bigint, np_other bigint)
  LANGUAGE plpgsql
@@ -170,7 +123,7 @@ $function$;
 REVOKE EXECUTE ON FUNCTION public.get_notices_monthly(uuid, uuid) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.get_notices_monthly(uuid, uuid) TO authenticated, service_role;
 
--- 4a ── get_rect_sla: + p_from/p_to (reported_at window, AWST dates) ─────────
+-- 3a ── get_rect_sla: + p_from/p_to (reported_at window, AWST dates) ─────────
 DROP FUNCTION IF EXISTS public.get_rect_sla(uuid, uuid);
 
 CREATE FUNCTION public.get_rect_sla(
@@ -254,7 +207,7 @@ $function$;
 REVOKE EXECUTE ON FUNCTION public.get_rect_sla(uuid, uuid, date, date) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.get_rect_sla(uuid, uuid, date, date) TO authenticated, service_role;
 
--- 4b ── get_property_penetration: + p_from/p_to (booked-during-period) ───────
+-- 3b ── get_property_penetration: + p_from/p_to (booked-during-period) ───────
 DROP FUNCTION IF EXISTS public.get_property_penetration(uuid, uuid);
 
 CREATE FUNCTION public.get_property_penetration(
