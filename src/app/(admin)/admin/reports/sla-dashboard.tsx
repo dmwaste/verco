@@ -185,7 +185,10 @@ export function SlaDashboard({ clientId, selectedArea, period, viewerRole }: {
         <h2 className="mb-3 font-[family-name:var(--font-heading)] text-sm font-bold text-[#293F52]">
           Insights
         </h2>
-        <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+        {/* Auto-fit: the card count varies by audience (penetration is
+            contractor-only), so columns derive from content — the row always
+            fills with no orphan slots (design review 02/07 F-005). */}
+        <div className="grid grid-cols-[repeat(auto-fit,minmax(min(230px,100%),1fr))] gap-4">
           {show('property-penetration') && <PenetrationCard {...scope} />}
           {show('resident-satisfaction') && <ResidentSatisfactionCard {...scope} />}
           {show('open-notices') && <OpenNoticesCard {...scope} />}
