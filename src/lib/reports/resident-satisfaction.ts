@@ -112,3 +112,36 @@ export function computeResidentSatisfaction(
 ): ResidentSatisfactionResult {
   return computeSurveyRating(rows, 'overall_rating')
 }
+
+export interface ServicePreferenceResult {
+  yes: number
+  no: number
+  indifferent: number
+  /** yes + no + indifferent — rows with a recognised answer. */
+  total: number
+}
+
+/**
+ * "Would you prefer this service over traditional bulk verge collection?"
+ * (survey `responses.prefer_service`, options Yes / No / Indifferent —
+ * design 02/07 batch 5 donut). Same defensive posture as the rating fold:
+ * only recognised answers count; case/whitespace tolerated.
+ */
+export function computeServicePreference(
+  rows: ResidentSatisfactionRow[],
+): ServicePreferenceResult {
+  let yes = 0
+  let no = 0
+  let indifferent = 0
+  for (const r of rows) {
+    const responses = r?.responses
+    if (responses === null || typeof responses !== 'object' || Array.isArray(responses)) continue
+    const raw = (responses as Record<string, unknown>).prefer_service
+    if (typeof raw !== 'string') continue
+    const answer = raw.trim().toLowerCase()
+    if (answer === 'yes') yes += 1
+    else if (answer === 'no') no += 1
+    else if (answer === 'indifferent') indifferent += 1
+  }
+  return { yes, no, indifferent, total: yes + no + indifferent }
+}

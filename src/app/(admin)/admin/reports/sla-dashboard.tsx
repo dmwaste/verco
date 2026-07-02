@@ -94,10 +94,13 @@ import { computeSelfServiceRate } from '@/lib/reports/self-service'
 import { computeVolumeMix } from '@/lib/reports/volume-mix'
 import { computePenetration } from '@/lib/reports/penetration'
 import {
+  computeServicePreference,
   computeSurveyRating,
   RS_TARGET_PCT,
   type ResidentSatisfactionResult,
+  type ServicePreferenceResult,
 } from '@/lib/reports/resident-satisfaction'
+import { computeNoticeReasons } from '@/lib/reports/notice-types'
 
 /** Booking statuses that "reached the field" this FY (BC denominator, spec §3.1). */
 const BC_ELIGIBLE_STATUSES = [
@@ -237,12 +240,12 @@ export function SlaDashboard({ clientId, selectedArea, period, viewerRole }: {
           Insights
         </h2>
         {/* Side by side (design feedback 02/07) — auto-fit so a lone card
-            (audience-gated sibling) still fills the row. Open Notices moved
-            to the page top line (reports-client); Penetration lives in the
-            Service Level grid (batch 3). */}
+            (audience-gated sibling) still fills the row. Total Collections
+            moved to the page top line (batch 5); Open Notices too (batch 3);
+            Penetration lives in the Service Level grid. */}
         <div className="grid grid-cols-[repeat(auto-fit,minmax(min(320px,100%),1fr))] gap-4">
-          {show('collections-trend') && <CollectionsTrendCard {...scope} />}
           {show('service-breakdown') && <VolumeMixCard {...scope} />}
+          {show('notice-types') && <NoticeTypesCard {...scope} />}
         </div>
       </section>
 
@@ -754,6 +757,7 @@ function CustomerSatisfactionCards({ clientId, area, period }: CardScope) {
         booking: computeSurveyRating(surveyRows, 'booking_rating'),
         service: computeSurveyRating(surveyRows, 'collection_rating'),
         overall: computeSurveyRating(surveyRows, 'overall_rating'),
+        pref: computeServicePreference(surveyRows),
       }
     },
   })
@@ -796,7 +800,61 @@ function CustomerSatisfactionCards({ clientId, area, period }: CardScope) {
       {card('Booking Rating', data?.booking, 'booking')}
       {card('Service Rating', data?.service, 'service')}
       {card('Overall Rating', data?.overall, 'overall', `Reference ≥ ${RS_TARGET_PCT}%`)}
+      <PreferServicePanel
+        period={period}
+        isLoading={isLoading}
+        isError={isError}
+        pref={data?.pref}
+      />
     </>
+  )
+}
+
+/**
+ * "Would you prefer this service over traditional bulk verge collection?" —
+ * Yes / No / Indifferent donut, 4th card of the Customer Satisfaction row
+ * (design 02/07 batch 5). Shares the section's single survey fetch.
+ */
+function PreferServicePanel({
+  period,
+  isLoading,
+  isError,
+  pref,
+}: {
+  period: PeriodRange
+  isLoading: boolean
+  isError: boolean
+  pref: ServicePreferenceResult | undefined
+}) {
+  return (
+    <div className="flex min-h-[164px] flex-col rounded-xl bg-white p-5 shadow-sm">
+      <CardLabel text="Prefer This Service" />
+      <div className="flex flex-1 items-center py-2">
+        {period.unresolved ? (
+          <p className="text-[11px] text-gray-500">Period unavailable.</p>
+        ) : isError ? (
+          <p className="font-[family-name:var(--font-heading)] text-sm font-bold text-amber-600">
+            Couldn&apos;t load
+          </p>
+        ) : isLoading ? (
+          <p className="text-[11px] text-gray-500">Loading…</p>
+        ) : !pref || pref.total === 0 ? (
+          <p className="text-[11px] text-gray-500">No responses yet</p>
+        ) : (
+          <DonutChart
+            ariaLabel="Prefer this service over traditional verge collection"
+            segments={[
+              { label: 'Yes', value: pref.yes, color: '#10B981' },
+              { label: 'No', value: pref.no, color: '#F59E0B' },
+              { label: 'Indifferent', value: pref.indifferent, color: '#8FA5B8' },
+            ]}
+          />
+        )}
+      </div>
+      <div className="mt-auto">
+        <ProvenanceStamp text={liveStamp(period)} />
+      </div>
+    </div>
   )
 }
 
@@ -897,7 +955,7 @@ export function OpenNoticesCard({ clientId, area }: CardScope) {
 // service date — the definitions doc v1.0 §2 basis). Headline = selected
 // period total; bars = rolling last 12 months. History starts at platform
 // adoption (the go-live cliff) — the caption says so.
-function CollectionsTrendCard({ clientId, area, period }: CardScope) {
+export function CollectionsTrendCard({ clientId, area, period }: CardScope) {
   const supabase = createClient()
 
   const { data: periodTotal, isLoading } = useQuery({
@@ -931,7 +989,7 @@ function CollectionsTrendCard({ clientId, area, period }: CardScope) {
 
   return (
     <SlaCard
-      label="Collections per Period"
+      label="Total Collections"
       isLoading={!period.unresolved && (isLoading || periodTotal === undefined)}
       value={period.unresolved ? '—' : String(periodTotal ?? 0)}
       sub={
@@ -1064,6 +1122,67 @@ function VolumeMixCard({ clientId, area, period }: CardScope) {
       )}
       <div className="mt-auto">
         <ProvenanceStamp text={`${liveStamp(period)} · by service date`} />
+      </div>
+    </div>
+  )
+}
+
+// ── NCN Types — reasons donut, top 4 + Other (design 02/07 batch 5) ──────────
+// Period anchor: notice reported_at (the rect convention). NCN only — NP has
+// no reason taxonomy.
+const REASON_COLORS = ['#293F52', '#6B8299', '#B0763A', '#26506B', '#93A7B8']
+
+function NoticeTypesCard({ clientId, area, period }: CardScope) {
+  const supabase = createClient()
+  const bounds = awstTimestampBounds(period)
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ['sla-ncn-types', clientId, area, ...periodKey(period)],
+    enabled: !!clientId && !period.unresolved,
+    queryFn: async () => {
+      // Area filter joins the notice's INTAKE booking — NCN has two booking
+      // FKs, so the FK is aliased explicitly (§21 trap).
+      let q = area
+        ? supabase
+            .from('non_conformance_notice')
+            .select('reason, orig:booking!non_conformance_notice_booking_id_fkey!inner(collection_area_id)')
+            .eq('client_id', clientId)
+            .eq('orig.collection_area_id', area)
+        : supabase.from('non_conformance_notice').select('reason').eq('client_id', clientId)
+      if (bounds.gte) q = q.gte('reported_at', bounds.gte)
+      if (bounds.lt) q = q.lt('reported_at', bounds.lt)
+      const rows = orThrow(await q)
+      return computeNoticeReasons((rows ?? []).map((r) => ({ reason: (r.reason as string | null) ?? null })))
+    },
+  })
+  const slices = data ?? []
+  return (
+    <div className="flex flex-col rounded-xl bg-white p-5 shadow-sm">
+      <CardLabel text="NCN Types" />
+      <div className="flex flex-1 items-center py-3">
+        {period.unresolved ? (
+          <p className="text-[11px] text-gray-500">Period unavailable.</p>
+        ) : isError ? (
+          <p className="font-[family-name:var(--font-heading)] text-sm font-bold text-amber-600">
+            Couldn&apos;t load
+          </p>
+        ) : isLoading ? (
+          <p className="text-[11px] text-gray-500">Loading…</p>
+        ) : slices.length === 0 ? (
+          <p className="text-[11px] text-gray-500">No notices in this period.</p>
+        ) : (
+          <DonutChart
+            svgClassName="h-36 w-36"
+            ariaLabel="NCN types"
+            segments={slices.map((s, i) => ({
+              label: s.label,
+              value: s.value,
+              color: REASON_COLORS[i % REASON_COLORS.length]!,
+            }))}
+          />
+        )}
+      </div>
+      <div className="mt-auto">
+        <ProvenanceStamp text={`${liveStamp(period)} · by reported date`} />
       </div>
     </div>
   )

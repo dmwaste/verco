@@ -36,13 +36,13 @@ export const METRIC_AUDIENCE = {
   'property-penetration': 'contractor-only',
   'self-service-rate': 'contractor-only',
   'notification-delivery': 'contractor-only',
-  // M2 delta cards (VER-294)
+  // M2 delta cards (VER-294; 'collections-trend' renders as the Total
+  // Collections top-line card since batch 5)
   'collections-trend': 'council-visible',
   'open-notices': 'council-visible',
-  // Summary cards ('ncn-count'/'np-count' were retired for the three-way
-  // 'open-notices' split card, VER-294)
-  'total-bookings': 'council-visible',
-  'bookings-by-status': 'council-visible',
+  'notice-types': 'council-visible',
+  // Summary cards ('ncn-count'/'np-count' → the 'open-notices' split card,
+  // VER-294; 'total-bookings'/'bookings-by-status' retired in batches 3–5)
   'open-tickets': 'council-visible',
 } as const satisfies Record<string, MetricAudience>
 

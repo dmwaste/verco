@@ -163,6 +163,13 @@ function happyTable(q: RecordedQuery): MockResult {
       // BC miss query embeds the intake booking (select carries fy_id) — 2 of
       // the 40 eligible have contractor-fault NCNs → 38/40 = 95.0% clean.
       if (q.select.includes('fy_id')) return rows([{ booking_id: 'b0' }, { booking_id: 'b1' }])
+      // NCN Types donut: reasons only.
+      if (q.select.startsWith('reason'))
+        return rows([
+          { reason: 'Building Waste' },
+          { reason: 'Building Waste' },
+          { reason: 'Oversized Items' },
+        ])
       // Open-notices split: 1 contractor fault + 1 under investigation.
       return rows([
         { status: 'Issued', contractor_fault: true },
@@ -189,10 +196,10 @@ function happyTable(q: RecordedQuery): MockResult {
       // overall 0/6 — distinct values prove each card folds ITS OWN key.
       return rows([
         ...Array.from({ length: 3 }, () => ({
-          responses: { booking_rating: 5, collection_rating: 4, overall_rating: 3 },
+          responses: { booking_rating: 5, collection_rating: 4, overall_rating: 3, prefer_service: 'Yes' },
         })),
         ...Array.from({ length: 3 }, () => ({
-          responses: { booking_rating: 4, collection_rating: 2, overall_rating: 3 },
+          responses: { booking_rating: 4, collection_rating: 2, overall_rating: 3, prefer_service: 'No' },
         })),
       ])
     case 'collection_area':
@@ -284,7 +291,7 @@ describe('VER-179 SLA scorecard regression guard (contractor viewer)', () => {
 
     // Wait for the slowest composition seams to settle.
     await screen.findByText('95.0%') // BC: 38/40 clean
-    await screen.findByText('Total Bookings') // summary stats settled
+    await screen.findByText('Open Tickets') // summary stats settled
 
     // The full VER-179 card set — a missing label here means the M2 page
     // extension broke the existing scorecard (the IRON RULE this test guards).
@@ -301,11 +308,12 @@ describe('VER-179 SLA scorecard regression guard (contractor viewer)', () => {
       'Service Rating',
       'Overall Rating',
       'Service Breakdown',
-      'Total Bookings',
+      'Total Collections',
       'Open Tickets',
+      'NCN Types',
+      'Prefer This Service',
       // M2 additions (VER-294/297)
       'Open Notices',
-      'Collections per Period',
     ]) {
       expect(screen.getByText(label)).toBeInTheDocument()
     }
@@ -327,8 +335,8 @@ describe('VER-179 SLA scorecard regression guard (contractor viewer)', () => {
     expect(await card('Booking Rating').findByText('100.0%')).toBeInTheDocument()
     expect(card('Service Rating').getByText('50.0%')).toBeInTheDocument()
     expect(card('Overall Rating').getByText('0.0%')).toBeInTheDocument()
-    expect(await screen.findByText('123')).toBeInTheDocument() // collections trend total
-    expect(await card('Total Bookings').findByText('25')).toBeInTheDocument()
+    expect(await card('Total Collections').findByText('123')).toBeInTheDocument()
+    expect(await screen.findByText('Building Waste')).toBeInTheDocument() // NCN types donut legend
     expect(card('Open Tickets').getByText('3')).toBeInTheDocument()
     // Refund cards were removed from this page (design 02/07) — money never
     // renders here for ANY viewer.
@@ -339,7 +347,7 @@ describe('VER-179 SLA scorecard regression guard (contractor viewer)', () => {
 
     // Sparklines (design 02/07): count + rate tails render from the shared
     // get_reports_monthly fetch.
-    expect(await screen.findByText('Bookings per month · last 12 months')).toBeInTheDocument()
+    expect(await screen.findByText('Tickets per month · last 12 months')).toBeInTheDocument()
     expect(await screen.findByText('Clean collection % · last 12 months')).toBeInTheDocument()
     expect(
       await screen.findByText('Rectified ≤ 2 working days % · last 12 months'),
@@ -363,12 +371,14 @@ describe('zero-data council view (client-admin)', () => {
     expect(await screen.findByText('No rectifications')).toBeInTheDocument()
     expect(await screen.findByText('Tracking starts soon')).toBeInTheDocument()
     expect(await screen.findByText('No resolved tickets')).toBeInTheDocument()
-    // One 'No responses yet' per satisfaction card (booking/service/overall).
-    expect(await screen.findAllByText('No responses yet')).toHaveLength(3)
+    // One 'No responses yet' per satisfaction card (booking/service/overall)
+    // plus the service-preference donut panel.
+    expect(await screen.findAllByText('No responses yet')).toHaveLength(4)
+    expect(await screen.findByText('No notices in this period.')).toBeInTheDocument()
     expect(await card('Open Notices').findByText('No open notices')).toBeInTheDocument()
     expect(await screen.findByText('No collections match these filters.')).toBeInTheDocument()
-    await screen.findByText('Total Bookings')
-    expect(card('Total Bookings').getByText('0')).toBeInTheDocument()
+    await screen.findByText('Total Collections')
+    expect(await card('Total Collections').findByText('0')).toBeInTheDocument()
     expect(screen.queryByText(/Couldn.t load/)).toBeNull()
 
     // VER-288 structural gating: contractor-only cards are not mounted…
@@ -392,7 +402,7 @@ describe('zero-data council view (client-admin)', () => {
 describe('query failure states', () => {
   it('a failed RPC or table query renders an explicit error, not a blank/zero', async () => {
     h.respondTable = (q) =>
-      q.table === 'booking' && q.head
+      q.table === 'service_ticket' && q.head
         ? { data: null, error: { message: 'boom' } }
         : happyTable(q)
     h.respondRpc = (r) =>
@@ -402,8 +412,7 @@ describe('query failure states', () => {
     // Failed stats query → the amber banner, and the summary never renders.
     // Failed stats query → the top-line count cards show explicit error
     // states (the old page-level banner was retired with the summary block).
-    await screen.findByText('Total Bookings')
-    expect(await card('Total Bookings').findByText(/Couldn.t load/)).toBeInTheDocument()
+    await screen.findByText('Open Tickets')
     expect(await card('Open Tickets').findByText(/Couldn.t load/)).toBeInTheDocument()
 
     // Failed RPC → that card shows an explicit error state…

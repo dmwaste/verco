@@ -12,7 +12,7 @@ import { metricVisible } from '@/lib/reports/audience'
 import { countPoints } from '@/lib/reports/monthly-series'
 import { PeriodSelector } from './period-selector'
 import { SlaCard } from './sla-card'
-import { OpenNoticesCard, SlaDashboard } from './sla-dashboard'
+import { CollectionsTrendCard, OpenNoticesCard, SlaDashboard } from './sla-dashboard'
 import { Sparkline, type TrendPoint } from './sparkline'
 import { useReportsMonthly } from './use-reports-monthly'
 
@@ -68,49 +68,18 @@ export function ReportsClient({
     ],
     enabled: !period.unresolved,
     queryFn: async () => {
-      // Total bookings — SERVICE-period anchor (review 02/07): fy presets →
-      // fy_id, range presets → item collection_date inside the window
-      // (created_at surfaced legacy-imported bookings under Last FY/Last
-      // month). Count-only HEAD request: PostgREST's exact count is immune to
-      // the max_rows=1000 row cap and no rows are needed since the status
-      // chart was removed (design batch 3).
-      let bookingQuery = period.kind === 'fy'
-        ? supabase
-            .from('booking')
-            .select('id', { count: 'exact', head: true })
-            .eq('fy_id', period.fyId!)
-        : (() => {
-            let q = supabase
-              .from('booking')
-              .select('id, booking_item!inner(collection_date!inner(date))', {
-                count: 'exact',
-                head: true,
-              })
-            if (period.from) q = q.gte('booking_item.collection_date.date', period.from)
-            if (period.to) q = q.lte('booking_item.collection_date.date', period.to)
-            return q
-          })()
-      if (clientId) bookingQuery = bookingQuery.eq('client_id', clientId)
-      if (selectedArea) bookingQuery = bookingQuery.eq('collection_area_id', selectedArea)
-
-      // Open tickets — snapshot (open is open regardless of period).
+      // Open tickets — snapshot (open is open regardless of period). A failed
+      // fetch throws (isError) — never reads as zero tickets. (Total Bookings
+      // was replaced by Total Collections, batch 5 — its query went with it.)
       let ticketQuery = supabase
         .from('service_ticket')
         .select('id', { count: 'exact', head: true })
         .in('status', ['open', 'in_progress'])
       if (clientId) ticketQuery = ticketQuery.eq('client_id', clientId)
+      const ticketRes = await ticketQuery
+      if (ticketRes.error) throw new Error(ticketRes.error.message)
 
-      // Independent queries — no waterfall; any failure throws (isError) —
-      // a failed fetch must never read as zero bookings/tickets.
-      const [bookingRes, ticketRes] = await Promise.all([bookingQuery, ticketQuery])
-      for (const res of [bookingRes, ticketRes]) {
-        if (res?.error) throw new Error(res.error.message)
-      }
-
-      return {
-        totalBookings: bookingRes.count ?? 0,
-        openTickets: ticketRes.count ?? 0,
-      }
+      return { openTickets: ticketRes.count ?? 0 }
     },
   })
 
@@ -184,16 +153,8 @@ export function ReportsClient({
             entirely (02/07) — money and status workload live on their own
             admin pages. */}
         <div className="mb-6 grid gap-4 md:grid-cols-3">
-          {show('total-bookings') && (
-            <SlaCard
-              label="Total Bookings"
-              isLoading={isLoading && !period.unresolved}
-              isError={statsError}
-              value={period.unresolved ? '—' : String(stats?.totalBookings ?? 0)}
-              sub={period.unresolved ? 'Period unavailable' : undefined}
-              provenance={`${stamp} · by service date`}
-              footer={countSpark('bookings', 'Bookings per month · last 12 months')}
-            />
+          {show('collections-trend') && (
+            <CollectionsTrendCard clientId={clientId} area={selectedArea} period={period} />
           )}
           {show('open-notices') && (
             <OpenNoticesCard clientId={clientId} area={selectedArea} period={period} />
