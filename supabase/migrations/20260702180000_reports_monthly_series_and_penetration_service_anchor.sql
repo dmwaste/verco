@@ -50,7 +50,11 @@
 --      SECURITY DEFINER report RPCs (get_rect_sla, get_collections_trend,
 --      get_on_time_monthly, get_notices_monthly) below — closing the class
 --      in one release. Bodies are byte-identical to the deployed definitions
---      (pg_get_functiondef, 02/07) apart from the gate.
+--      (pg_get_functiondef, 02/07) apart from the gate. service_role BYPASSES
+--      the gate (and the tenant gate — it has no user_roles row): server-side
+--      aggregation (the client_kpi_monthly lane) must not silently read empty
+--      through its own GRANT (red team 02/07). v_contractor stays role-based,
+--      so a service-role caller of get_reports_monthly gets ALL series.
 --
 --   3. get_property_penetration — the booked half moves from created_at to
 --      the SERVICE window (any item collection_date inside p_from..p_to).
@@ -85,19 +89,22 @@ CREATE OR REPLACE FUNCTION public.get_reports_monthly(
  SET search_path TO 'public', 'pg_temp'
 AS $function$
 DECLARE
+  v_service    boolean := coalesce(current_setting('request.jwt.claims', true)::jsonb ->> 'role', '') = 'service_role';
   v_contractor boolean;
 BEGIN
-  IF (p_client_id IN (SELECT accessible_client_ids())) IS NOT TRUE THEN
-    RETURN;
-  END IF;
-  -- Staff-role gate (review 02/07): resident/strata/field/ranger tokens
-  -- carry a client_id in user_roles, so the tenant gate alone is not enough.
-  IF (current_user_role() IN ('contractor-admin','contractor-staff','client-admin','client-staff')) IS NOT TRUE THEN
+  -- Tenant gate + staff-role gate (review 02/07): resident/strata/field/
+  -- ranger tokens carry a client_id in user_roles, so the tenant gate alone
+  -- is not enough. service_role bypasses both (no user_roles row — a future
+  -- server-side aggregator must not silently read empty).
+  IF ((p_client_id IN (SELECT accessible_client_ids())) IS NOT TRUE
+      OR (current_user_role() IN ('contractor-admin','contractor-staff','client-admin','client-staff')) IS NOT TRUE)
+     AND NOT v_service THEN
     RETURN;
   END IF;
   -- Contractor-only series filter (decision 8A): council staff never receive
   -- the D&M ops-health series, on the shared fetch OR a direct /rpc/ call.
-  v_contractor := (current_user_role() IN ('contractor-admin','contractor-staff')) IS TRUE;
+  -- service_role sees everything (server-side aggregation).
+  v_contractor := (current_user_role() IN ('contractor-admin','contractor-staff')) IS TRUE OR v_service;
 
   RETURN QUERY
   WITH allowed_area AS (
@@ -341,8 +348,9 @@ BEGIN
   -- Staff-role gate (review 02/07): aggregates are staff-only — end-user
   -- roles carry a client_id in user_roles, so the tenant gate alone is not
   -- sufficient. NULL-safe per §21.
-  IF (p_client_id IN (SELECT accessible_client_ids())) IS NOT TRUE
-     OR (current_user_role() IN ('contractor-admin','contractor-staff','client-admin','client-staff')) IS NOT TRUE THEN
+  IF ((p_client_id IN (SELECT accessible_client_ids())) IS NOT TRUE
+      OR (current_user_role() IN ('contractor-admin','contractor-staff','client-admin','client-staff')) IS NOT TRUE)
+     AND coalesce(current_setting('request.jwt.claims', true)::jsonb ->> 'role', '') <> 'service_role' THEN
     RETURN QUERY SELECT 0::bigint, 0::bigint, NULL::numeric;
     RETURN;
   END IF;
@@ -416,8 +424,9 @@ CREATE OR REPLACE FUNCTION public.get_collections_trend(p_client_id uuid, p_area
 AS $function$
 BEGIN
   -- Tenant guard + staff-role gate (review 02/07) — see get_rect_sla note.
-  IF (p_client_id IN (SELECT accessible_client_ids())) IS NOT TRUE
-     OR (current_user_role() IN ('contractor-admin','contractor-staff','client-admin','client-staff')) IS NOT TRUE THEN
+  IF ((p_client_id IN (SELECT accessible_client_ids())) IS NOT TRUE
+      OR (current_user_role() IN ('contractor-admin','contractor-staff','client-admin','client-staff')) IS NOT TRUE)
+     AND coalesce(current_setting('request.jwt.claims', true)::jsonb ->> 'role', '') <> 'service_role' THEN
     RETURN;
   END IF;
 
@@ -465,8 +474,9 @@ CREATE OR REPLACE FUNCTION public.get_on_time_monthly(p_client_id uuid, p_area_i
 AS $function$
 BEGIN
   -- Tenant guard + staff-role gate (review 02/07) — see get_rect_sla note.
-  IF (p_client_id IN (SELECT accessible_client_ids())) IS NOT TRUE
-     OR (current_user_role() IN ('contractor-admin','contractor-staff','client-admin','client-staff')) IS NOT TRUE THEN
+  IF ((p_client_id IN (SELECT accessible_client_ids())) IS NOT TRUE
+      OR (current_user_role() IN ('contractor-admin','contractor-staff','client-admin','client-staff')) IS NOT TRUE)
+     AND coalesce(current_setting('request.jwt.claims', true)::jsonb ->> 'role', '') <> 'service_role' THEN
     RETURN;
   END IF;
 
@@ -502,8 +512,9 @@ CREATE OR REPLACE FUNCTION public.get_notices_monthly(p_client_id uuid, p_area_i
 AS $function$
 BEGIN
   -- Tenant guard + staff-role gate (review 02/07) — see get_rect_sla note.
-  IF (p_client_id IN (SELECT accessible_client_ids())) IS NOT TRUE
-     OR (current_user_role() IN ('contractor-admin','contractor-staff','client-admin','client-staff')) IS NOT TRUE THEN
+  IF ((p_client_id IN (SELECT accessible_client_ids())) IS NOT TRUE
+      OR (current_user_role() IN ('contractor-admin','contractor-staff','client-admin','client-staff')) IS NOT TRUE)
+     AND coalesce(current_setting('request.jwt.claims', true)::jsonb ->> 'role', '') <> 'service_role' THEN
     RETURN;
   END IF;
 

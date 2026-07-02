@@ -66,17 +66,19 @@ export function ReportsClient({
       period.to,
       period.unresolved,
     ],
-    enabled: !period.unresolved,
+    // clientId gate + unconditional tenant filter (red team 02/07): with a
+    // null-resolved tenant, a contractor session would otherwise count
+    // tickets ACROSS tenants under a tenantless page.
+    enabled: !!clientId && !period.unresolved,
     queryFn: async () => {
       // Open tickets — snapshot (open is open regardless of period). A failed
       // fetch throws (isError) — never reads as zero tickets. (Total Bookings
       // was replaced by Total Collections, batch 5 — its query went with it.)
-      let ticketQuery = supabase
+      const ticketRes = await supabase
         .from('service_ticket')
         .select('id', { count: 'exact', head: true })
         .in('status', ['open', 'in_progress'])
-      if (clientId) ticketQuery = ticketQuery.eq('client_id', clientId)
-      const ticketRes = await ticketQuery
+        .eq('client_id', clientId)
       if (ticketRes.error) throw new Error(ticketRes.error.message)
 
       return { openTickets: ticketRes.count ?? 0 }
@@ -87,9 +89,12 @@ export function ReportsClient({
   // own cards internally.
   const show = (metric: string) => metricVisible(metric, viewerRole)
 
-  // Rolling-12 volume sparklines (design 02/07) — shared fetch with every
-  // dashboard card via the common queryKey.
-  const monthly = useReportsMonthly(clientId, selectedArea)
+  // Rolling-12 tail for Open Tickets. AREA-AGNOSTIC (red team 02/07): the
+  // headline snapshot has no area dimension, so its tail must not change
+  // under the area filter either. With no area selected this shares the
+  // dashboard's fetch (identical queryKey); with one selected it is the lone
+  // extra request.
+  const monthly = useReportsMonthly(clientId, '')
   const countSpark = (series: string, caption: string) => {
     // Zero-filled tails only render off a SUCCESSFUL fetch — an errored one
     // would draw a misleading flat-zero year.

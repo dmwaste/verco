@@ -37,7 +37,12 @@ export function computeNoticeReasons(
     other += top[genuineOther]!.value
     top.splice(genuineOther, 1)
     const next = sorted[topN]
-    if (next && next.label !== 'Other') top.push(next)
+    if (next && next.label !== 'Other') {
+      top.push(next)
+      // The promoted slice was already summed into the aggregate — remove it
+      // or it double-counts (red team 02/07: 34 notices rendered as 37).
+      other -= next.value
+    }
   }
   return [...top, { label: 'Other', value: other }]
 }

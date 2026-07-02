@@ -17,10 +17,10 @@
  *
  * EXCEPTION — the shared monthly-series fetch (get_reports_monthly): council-
  * visible cards subscribe to it, so "the query never fires" cannot hold there.
- * Its contractor-only series (self_*/notif_*) are instead ROLE-FILTERED
- * INSIDE the RPC (migration 20260702180000) — a new series added to that RPC
- * for a contractor-only metric MUST carry its own v_contractor filter; this
- * map does not gate it.
+ * Its contractor-only series (the self-service and notification ones) are
+ * instead ROLE-FILTERED INSIDE the RPC (migration 20260702180000) — a new
+ * series added to that RPC for a contractor-only metric MUST carry its own
+ * v_contractor filter; this map does not gate it.
  */
 
 export type MetricAudience = 'council-visible' | 'contractor-only'

@@ -163,7 +163,7 @@ function useMonthlyTrend(
   name: string,
   clientId: string,
   area: string,
-  call: (anchor: string) => PromiseLike<{
+  call: (anchor: string, upTo: string) => PromiseLike<{
     data: RpcRow[] | null
     error: { message: string } | null
   }>,
@@ -171,12 +171,15 @@ function useMonthlyTrend(
 ) {
   const now = new Date()
   const anchor = rolling12From(now)
+  // Clamp at the AWST today (red team 02/07): pre-scheduled future stops/
+  // dates would otherwise mint a phantom future bucket as the "latest" point.
+  const upTo = awstDateFromUtc(now)
   return useQuery({
     queryKey: [name, clientId, area, anchor],
     enabled: !!clientId,
     ...MONTHLY_QUERY_OPTIONS,
     queryFn: async () => {
-      const rows = orThrow(await call(anchor))
+      const rows = orThrow(await call(anchor, upTo))
       const observed = (rows ?? []).map((r) => ({
         month: String(r.month),
         value: mapRow(r),
@@ -195,20 +198,22 @@ function useMonthlyPercentTrend(
   name: string,
   clientId: string,
   area: string,
-  call: (anchor: string) => PromiseLike<{
+  call: (anchor: string, upTo: string) => PromiseLike<{
     data: RpcRow[] | null
     error: { message: string } | null
   }>,
   numKey: string,
   denKey: string,
 ) {
-  const anchor = rolling12From(new Date())
+  const now = new Date()
+  const anchor = rolling12From(now)
+  const upTo = awstDateFromUtc(now)
   return useQuery({
     queryKey: [name, clientId, area, anchor],
     enabled: !!clientId,
     ...MONTHLY_QUERY_OPTIONS,
     queryFn: async () => {
-      const rows = orThrow(await call(anchor)) ?? []
+      const rows = orThrow(await call(anchor, upTo)) ?? []
       return rows
         .filter((r) => Number(r[denKey] ?? 0) > 0)
         .map((r) => ({
@@ -410,11 +415,12 @@ function OnTimeCard({ clientId, area, period }: CardScope) {
     'sla-ontime-trend-pct',
     clientId,
     area,
-    (anchor) =>
+    (anchor, upTo) =>
       supabase.rpc('get_on_time_monthly', {
         p_client_id: clientId,
         p_area_id: area || undefined,
         p_from: anchor,
+        p_to: upTo,
       }),
     'on_time',
     'completed',
@@ -918,11 +924,12 @@ export function OpenNoticesCard({ clientId, area }: CardScope) {
     'sla-notices-trend',
     clientId,
     area,
-    (anchor) =>
+    (anchor, upTo) =>
       supabase.rpc('get_notices_monthly', {
         p_client_id: clientId,
         p_area_id: area || undefined,
         p_from: anchor,
+        p_to: upTo,
       }),
     (r) =>
       Number(r.ncn_contractor ?? 0) + Number(r.ncn_other ?? 0) +
@@ -982,11 +989,12 @@ export function CollectionsTrendCard({ clientId, area, period }: CardScope) {
     'sla-trend-bars',
     clientId,
     area,
-    (anchor) =>
+    (anchor, upTo) =>
       supabase.rpc('get_collections_trend', {
         p_client_id: clientId,
         p_area_id: area || undefined,
         p_from: anchor,
+        p_to: upTo,
       }),
     (r) => Number(r.collections ?? 0),
   )

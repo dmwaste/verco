@@ -41,3 +41,22 @@ describe('computeNoticeReasons (NCN types donut)', () => {
     expect(computeNoticeReasons([])).toEqual([])
   })
 })
+
+describe('genuine "Other" reason collision (red team 02/07)', () => {
+  it('folds a real Other into the aggregate without double-counting the promoted slice', () => {
+    const rows = [
+      ...Array.from({ length: 10 }, () => ({ reason: 'Building Waste' })),
+      ...Array.from({ length: 8 }, () => ({ reason: 'Other' })), // genuine reason
+      ...Array.from({ length: 6 }, () => ({ reason: 'Oversized Items' })),
+      ...Array.from({ length: 5 }, () => ({ reason: 'Hazardous Materials' })),
+      ...Array.from({ length: 3 }, () => ({ reason: 'Car Parts' })), // promoted
+      ...Array.from({ length: 2 }, () => ({ reason: 'Commercial Waste' })),
+    ]
+    const slices = computeNoticeReasons(rows)
+    // No duplicate labels, and the slice total equals the row count exactly.
+    expect(new Set(slices.map((s) => s.label)).size).toBe(slices.length)
+    expect(slices.reduce((sum, s) => sum + s.value, 0)).toBe(rows.length)
+    expect(slices.find((s) => s.label === 'Other')!.value).toBe(8 + 2) // genuine + tail
+    expect(slices.find((s) => s.label === 'Car Parts')!.value).toBe(3)
+  })
+})
