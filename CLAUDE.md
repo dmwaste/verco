@@ -289,7 +289,7 @@ These are explicitly out of scope for v2. If a task seems to require one of thes
 
 | Out of scope | Why |
 |---|---|
-| OptimoRoute Driver app usage / status feedback to OptimoRoute | OR is **plan-only** (decision 10/06/2026): Verco pushes orders at T-3 hard close, ops plan in OR web, Verco pulls sequences back. Crews work in Verco's field UI; closeout never flows back to OR. (`booking.optimo_stop_id` is a dead placeholder — stops use `collection_stop.external_order_ref`.) |
+| OptimoRoute Driver app usage / status feedback to OptimoRoute | OR is **plan-only** (decision 10/06/2026): Verco pushes orders at T-3 hard close, ops plan in OR web, Verco pulls sequences back. Crews work in Verco's field UI; closeout never flows back to OR. (Stops carry their OR reference on `collection_stop.external_order_ref`; the old `booking.optimo_stop_id` placeholder was dropped 02/07/2026.) |
 | Stripe Connect | Future — `client_id` on payments is prep only |
 | Cross-client benchmarking in reports | Explicitly excluded — tenant data only |
 | Email template management UI | Templates are code-defined in Edge Functions |
