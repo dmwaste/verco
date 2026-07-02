@@ -49,11 +49,14 @@ export function PeriodSelector({
             type="button"
             aria-pressed={preset === id}
             onClick={() => onPresetChange(id)}
-            className={`rounded-md px-2.5 py-1 text-[12px] font-semibold transition-colors ${
+            className={`rounded-md px-2.5 py-1 text-xs font-semibold transition-colors ${
               preset === id
                 ? 'bg-[#293F52] text-white'
                 : 'text-gray-600 hover:bg-gray-50'
             }`}
+            // §21: text-white can silently fail under Tailwind v4 + Turbopack —
+            // inline fallback so the selected pill's label can never vanish.
+            style={preset === id ? { color: '#FFFFFF' } : undefined}
           >
             {PRESET_LABEL[id]}
           </button>

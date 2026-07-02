@@ -170,6 +170,7 @@ export function ReportsClient({
           <select
             value={selectedArea}
             onChange={(e) => setSelectedArea(e.target.value)}
+            aria-label="Collection area"
             className="rounded-lg border-[1.5px] border-gray-100 bg-white px-3 py-[7px] text-body-sm text-gray-700"
           >
             <option value="">All Areas</option>
@@ -203,7 +204,7 @@ export function ReportsClient({
             Couldn&apos;t load the booking summary — reload the page or try again shortly.
           </p>
         ) : isLoading && !period.unresolved ? (
-          <p className="text-sm text-gray-400">Loading reports...</p>
+          <p className="text-sm text-gray-500">Loading reports…</p>
         ) : stats ? (
           <div className="space-y-6">
             {/* Summary cards — NCN/NP counts were retired for the three-way
@@ -257,7 +258,8 @@ export function ReportsClient({
                         {status}
                       </span>
                       <div className="flex-1">
-                        <div className="h-2 overflow-hidden rounded-full bg-gray-100">
+                        {/* Adjacent badge + count carry the data — bar is decorative. */}
+                        <div aria-hidden="true" className="h-2 overflow-hidden rounded-full bg-gray-100">
                           <div
                             className="h-full rounded-full bg-[#293F52]"
                             style={{ width: `${Math.max(2, (count / stats.totalBookings) * 100)}%` }}
@@ -269,7 +271,7 @@ export function ReportsClient({
                   ))}
               </div>
               {stats.statusRowsCapped && (
-                <p className="mt-3 text-[11px] text-amber-600">
+                <p className="mt-3 text-[11px] text-amber-700">
                   Breakdown reflects the first 1,000 bookings of {stats.totalBookings} in this period.
                 </p>
               )}
