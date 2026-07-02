@@ -1,17 +1,28 @@
 'use client'
 
 /**
- * Presentational SLA card for the VER-179 dashboard (spec §5.6).
+ * Presentational KPI card for /admin/reports (VER-179 spec §5.6, uniform
+ * anatomy per design review 02/07 — Draxlr-style reference).
  *
- * Pure renderer — every metric card (scorecard or insight) computes its own
- * value/sub/tone from a tested pure fn and hands the display strings here. Card
- * chrome matches the existing admin summary cards exactly (reports-client.tsx):
- * `rounded-xl bg-white p-5 shadow-sm`, an uppercase gray label, and a navy
- * heading-font numeral.
+ * Pure renderer — every metric card computes its own value/sub/tone from a
+ * tested pure fn and hands display strings here. ONE anatomy, fixed order,
+ * for every card on the reports surface:
  *
- * Colour rule (spec §5.6): a pass/fail tone is only ever green (at/above target)
- * or amber (below) — NEVER error-red pre-go-live. Insight cards, empty cards and
- * low-`n` cards use the neutral navy tone (no pass/fail signal).
+ *   LABEL          top-left, uppercase 11px
+ *   VALUE          centred, dominant (text-4xl), tone-coloured
+ *   PERIOD         centred under the value (the VER-290 provenance line)
+ *   SUB            centred context (denominator / empty-state message)
+ *   TARGET         centred reference line
+ *   FOOTER         pinned to the card bottom (rolling-12 <Sparkline>)
+ *
+ * Empty states live in SUB (muted, small) under an em-dash VALUE — never in
+ * the value slot, where a long phrase renders louder than real data.
+ *
+ * Colour rule (spec §5.6): pass/fail tone is only ever green (at/above
+ * target) or amber (below) — NEVER error-red pre-go-live. Insight, empty and
+ * low-`n` cards use the neutral navy tone. Metadata text is gray-500, not
+ * gray-400 — the stamp is load-bearing (live vs month-stale must read
+ * differently) and 10px gray-400 fails WCAG AA (~2.8:1).
  */
 
 export type SlaTone = 'pass' | 'below' | 'neutral'
@@ -25,11 +36,11 @@ const TONE_CLASS: Record<SlaTone, string> = {
 export interface SlaCardProps {
   /** Uppercase card label, e.g. "Clean Collection". */
   label: string
-  /** Headline value: a percentage, a raw fraction, or an empty-state notice. */
+  /** Headline value — short: a %, fraction, count or currency. Empty-state text belongs in `sub`. */
   value: string
   /** Loading flag — shows a skeleton dash while the query runs. */
   isLoading?: boolean
-  /** Secondary context line (denominator, "Building data", footnote). */
+  /** Secondary context line (denominator, empty-state message, footnote). */
   sub?: string
   /** Colour tone — defaults to neutral (insight / empty / low-n). */
   tone?: SlaTone
@@ -37,11 +48,11 @@ export interface SlaCardProps {
   target?: string
   /**
    * Freshness + period stamp (VER-290), e.g. "Live · This month" or
-   * "Data as at Jun 2026". Rendered as the card's last line so live and
+   * "Data as at Jun 2026" — rendered directly under the value so live and
    * month-stale figures are never read as the same thing.
    */
   provenance?: string
-  /** Optional footer slot — e.g. a rolling-12 <TrendBars> strip (VER-297). */
+  /** Optional bottom slot — e.g. a rolling-12 <Sparkline> strip (VER-297). */
   footer?: React.ReactNode
   /**
    * Query failure flag. A failed fetch must NEVER read as an authoritative
@@ -64,49 +75,61 @@ export function SlaCard({
 }: SlaCardProps) {
   if (isError) {
     return (
-      <div className="rounded-xl bg-white p-5 shadow-sm">
-        <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">
-          {label}
-        </p>
-        <p className="mt-1 font-[family-name:var(--font-heading)] text-2xl font-bold text-amber-600">
-          Couldn&apos;t load
-        </p>
-        <p className="mt-0.5 text-[11px] text-gray-500">
-          Data failed to refresh — reload the page or try again shortly.
-        </p>
-        {provenance && <ProvenanceStamp text={provenance} />}
+      <div className="flex min-h-[164px] flex-col rounded-xl bg-white p-5 shadow-sm">
+        <CardLabel text={label} />
+        <div className="flex flex-1 flex-col items-center justify-center py-2 text-center">
+          <p className="font-[family-name:var(--font-heading)] text-xl font-bold text-amber-600">
+            Couldn&apos;t load
+          </p>
+          <p className="mt-1 text-[11px] text-gray-500">
+            Data failed to refresh — reload the page or try again shortly.
+          </p>
+          {provenance && <p className="mt-1 text-[11px] text-gray-500">{provenance}</p>}
+        </div>
       </div>
     )
   }
   return (
-    <div className="rounded-xl bg-white p-5 shadow-sm">
-      <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">
-        {label}
-      </p>
-      <p
-        className={`mt-1 font-[family-name:var(--font-heading)] text-2xl font-bold ${TONE_CLASS[tone]}`}
-      >
-        {isLoading ? '—' : value}
-      </p>
-      {sub && !isLoading && <p className="mt-0.5 text-[11px] text-gray-500">{sub}</p>}
-      {target && !isLoading && (
-        <p className="mt-1 text-[11px] font-medium text-gray-400">{target}</p>
-      )}
-      {footer && !isLoading && <div className="mt-2">{footer}</div>}
-      {provenance && <ProvenanceStamp text={provenance} />}
+    <div className="flex min-h-[164px] flex-col rounded-xl bg-white p-5 shadow-sm">
+      <CardLabel text={label} />
+      <div className="flex flex-1 flex-col items-center justify-center py-2 text-center">
+        <p
+          className={`font-[family-name:var(--font-heading)] text-4xl font-bold leading-tight ${TONE_CLASS[tone]}`}
+        >
+          {isLoading ? '—' : value}
+        </p>
+        {provenance && (
+          <p className="mt-1.5 text-[10px] font-medium uppercase tracking-wide text-gray-500">
+            {provenance}
+          </p>
+        )}
+        {sub && !isLoading && <p className="mt-1 text-[11px] text-gray-500">{sub}</p>}
+        {target && !isLoading && (
+          <p className="mt-0.5 text-[11px] font-medium text-gray-500">{target}</p>
+        )}
+      </div>
+      {footer && !isLoading && <div className="mt-auto pt-2">{footer}</div>}
     </div>
   )
 }
 
+/** Uppercase card label — shared with the chart panels so the level reads the same everywhere. */
+export function CardLabel({ text }: { text: string }) {
+  return (
+    <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">{text}</p>
+  )
+}
+
 /**
- * VER-290 freshness/period stamp — the single source of the stamp's markup.
- * gray-400 (not lighter): the stamp is load-bearing ("live vs month-stale
- * figures are never read as the same thing"), so it must clear readable
- * contrast, matching the established card-label grey.
+ * VER-290 freshness/period stamp for CHART panels (Service Breakdown, NCN
+ * Types, Prefer This Service — anything hand-rolled with its own body). KPI
+ * cards render the stamp inside <SlaCard> under the value instead. gray-500:
+ * the stamp is load-bearing and must clear readable contrast (gray-400 at
+ * 10px fails WCAG AA).
  */
 export function ProvenanceStamp({ text }: { text: string }) {
   return (
-    <p className="mt-1.5 text-[10px] font-medium uppercase tracking-wide text-gray-400">
+    <p className="mt-1.5 text-[10px] font-medium uppercase tracking-wide text-gray-500">
       {text}
     </p>
   )

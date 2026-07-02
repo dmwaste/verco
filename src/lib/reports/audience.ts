@@ -8,11 +8,19 @@
  *
  * Council-visible set v1 (Dan, 02/07/2026): the contract/service KPIs and the
  * council's own operational counts. Contractor-only: D&M ops-health metrics
- * (notification delivery, self-service rate, property penetration) and
- * anything monetary (refunds — councils never see revenue/cost).
+ * (notification delivery, self-service rate, property penetration). Anything
+ * monetary stays OFF this page entirely (refund cards removed 02/07 —
+ * councils never see revenue/cost, and D&M has the Refunds admin page).
  *
  * Gating must be STRUCTURAL: a contractor-only card's component is not
  * mounted and its query never fires for council viewers — never CSS-hidden.
+ *
+ * EXCEPTION — the shared monthly-series fetch (get_reports_monthly): council-
+ * visible cards subscribe to it, so "the query never fires" cannot hold there.
+ * Its contractor-only series (the self-service and notification ones) are
+ * instead ROLE-FILTERED INSIDE the RPC (migration 20260702180000) — a new
+ * series added to that RPC for a contractor-only metric MUST carry its own
+ * v_contractor filter; this map does not gate it.
  */
 
 export type MetricAudience = 'council-visible' | 'contractor-only'
@@ -27,22 +35,22 @@ export const METRIC_AUDIENCE = {
   'rectification': 'council-visible',
   'ticket-first-response': 'council-visible',
   'ticket-resolution': 'council-visible',
-  'resident-satisfaction': 'council-visible',
+  // Customer Satisfaction section (booking/service/overall rating trio —
+  // replaced the single 'resident-satisfaction' card, design 02/07)
+  'customer-satisfaction': 'council-visible',
   'service-breakdown': 'council-visible',
   // SLA dashboard — D&M ops-health (decision 8A: contractor-only)
   'property-penetration': 'contractor-only',
   'self-service-rate': 'contractor-only',
   'notification-delivery': 'contractor-only',
-  // M2 delta cards (VER-294)
+  // M2 delta cards (VER-294; 'collections-trend' renders as the Total
+  // Collections top-line card since batch 5)
   'collections-trend': 'council-visible',
   'open-notices': 'council-visible',
-  // Summary cards ('ncn-count'/'np-count' were retired for the three-way
-  // 'open-notices' split card, VER-294)
-  'total-bookings': 'council-visible',
-  'bookings-by-status': 'council-visible',
+  'notice-types': 'council-visible',
+  // Summary cards ('ncn-count'/'np-count' → the 'open-notices' split card,
+  // VER-294; 'total-bookings'/'bookings-by-status' retired in batches 3–5)
   'open-tickets': 'council-visible',
-  // Monetary — councils never see revenue/cost (booking_payment rule)
-  'refunds': 'contractor-only',
 } as const satisfies Record<string, MetricAudience>
 
 export type MetricKey = keyof typeof METRIC_AUDIENCE

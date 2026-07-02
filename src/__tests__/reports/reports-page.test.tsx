@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
 /**
@@ -106,6 +106,7 @@ vi.mock('@/lib/supabase/client', () => {
 
 import { ReportsClient } from '@/app/(admin)/admin/reports/reports-client'
 import type { PeriodFyRow } from '@/lib/reports/periods'
+import { csatSeries, SERIES } from '@/lib/reports/monthly-series'
 
 // ── Fixtures ─────────────────────────────────────────────────────────────────
 
@@ -140,6 +141,9 @@ const rows = (data: unknown[]): MockResult => ({ data, error: null, count: data.
 function happyTable(q: RecordedQuery): MockResult {
   switch (q.table) {
     case 'booking':
+      // Summary stats: count-only HEAD request (status chart removed 02/07).
+      // Must be checked FIRST — its select ('id, …') collides with BC's.
+      if (q.head) return { data: null, error: null, count: 25 }
       // BC eligible set: 40 bookings (≥ CLEAN_LOW_N 20).
       if (q.select === 'id') return rows(Array.from({ length: 40 }, (_, i) => ({ id: `b${i}` })))
       if (q.select.startsWith('created_via'))
@@ -155,17 +159,18 @@ function happyTable(q: RecordedQuery): MockResult {
             ],
           },
         ])
-      // Summary stats: 25 bookings by status, exact count matches rows (uncapped).
-      if (q.select === 'status')
-        return rows([
-          ...Array.from({ length: 20 }, () => ({ status: 'Confirmed' })),
-          ...Array.from({ length: 5 }, () => ({ status: 'Completed' })),
-        ])
       return rows([])
     case 'non_conformance_notice':
       // BC miss query embeds the intake booking (select carries fy_id) — 2 of
       // the 40 eligible have contractor-fault NCNs → 38/40 = 95.0% clean.
       if (q.select.includes('fy_id')) return rows([{ booking_id: 'b0' }, { booking_id: 'b1' }])
+      // NCN Types donut: reasons only.
+      if (q.select.startsWith('reason'))
+        return rows([
+          { reason: 'Building Waste' },
+          { reason: 'Building Waste' },
+          { reason: 'Oversized Items' },
+        ])
       // Open-notices split: 1 contractor fault + 1 under investigation.
       return rows([
         { status: 'Issued', contractor_fault: true },
@@ -188,11 +193,15 @@ function happyTable(q: RecordedQuery): MockResult {
     case 'notification_log':
       return rows(Array.from({ length: 25 }, () => ({ delivery_status: 'delivered' })))
     case 'booking_survey':
-      return rows([])
-    case 'refund_request':
+      // 6 submitted surveys (≥ RS_LOW_N 5): booking 6/6 good, service 3/6,
+      // overall 0/6 — distinct values prove each card folds ITS OWN key.
       return rows([
-        { amount_cents: 5000, status: 'pending' },
-        { amount_cents: 2500, status: 'processed' },
+        ...Array.from({ length: 3 }, () => ({
+          responses: { booking_rating: 5, collection_rating: 4, overall_rating: 3, prefer_service: 'Yes' },
+        })),
+        ...Array.from({ length: 3 }, () => ({
+          responses: { booking_rating: 4, collection_rating: 2, overall_rating: 3, prefer_service: 'No' },
+        })),
       ])
     case 'collection_area':
       return rows([{ id: 'area-1', code: 'KWN-1', name: 'Area 1' }])
@@ -214,6 +223,31 @@ function happyRpc(r: RecordedRpc): MockResult {
       return { data: [{ month, collections: 123 }], error: null }
     case 'get_on_time_monthly':
       return { data: [{ month, completed: 20, on_time: 19 }], error: null }
+    case 'get_reports_monthly':
+      // One row per sparkline series (current month) — enough to prove each
+      // card folds its own series into a rendered sparkline.
+      return {
+        data: [
+          { month, series: SERIES.bookings, value: 25 },
+          { month, series: SERIES.tickets, value: 3 },
+          { month, series: SERIES.bcEligible, value: 40 },
+          { month, series: SERIES.bcMiss, value: 2 },
+          { month, series: SERIES.selfScope, value: 30 },
+          { month, series: SERIES.selfServed, value: 30 },
+          { month, series: SERIES.notifTracked, value: 25 },
+          { month, series: SERIES.notifDelivered, value: 25 },
+          { month, series: csatSeries('booking', 'n'), value: 6 },
+          { month, series: csatSeries('booking', 'good'), value: 6 },
+          { month, series: csatSeries('service', 'n'), value: 6 },
+          { month, series: csatSeries('service', 'good'), value: 3 },
+          { month, series: csatSeries('overall', 'n'), value: 6 },
+          { month, series: SERIES.rectDen, value: 10 },
+          { month, series: SERIES.rectNum, value: 8 },
+          { month, series: SERIES.respDen, value: 4 },
+          { month, series: SERIES.respNum, value: 3 },
+        ],
+        error: null,
+      }
     case 'get_notices_monthly':
       return { data: [{ month, ncn_contractor: 1, ncn_other: 2, np_contractor: 0, np_other: 1 }], error: null }
     default:
@@ -258,7 +292,7 @@ describe('VER-179 SLA scorecard regression guard (contractor viewer)', () => {
 
     // Wait for the slowest composition seams to settle.
     await screen.findByText('95.0%') // BC: 38/40 clean
-    await screen.findByText('Total Bookings') // summary stats settled
+    await screen.findByText('Open Tickets') // summary stats settled
 
     // The full VER-179 card set — a missing label here means the M2 page
     // extension broke the existing scorecard (the IRON RULE this test guards).
@@ -271,16 +305,16 @@ describe('VER-179 SLA scorecard regression guard (contractor viewer)', () => {
       'Self-Service Rate',
       'Notification Delivery',
       'Property Penetration',
-      'Resident Satisfaction',
+      'Booking Rating',
+      'Service Rating',
+      'Overall Rating',
       'Service Breakdown',
-      'Total Bookings',
+      'Total Collections',
       'Open Tickets',
-      'Bookings by Status',
-      'Refunds Pending',
-      'Refunds Processed',
+      'NCN Types',
+      'Prefer This Service',
       // M2 additions (VER-294/297)
       'Open Notices',
-      'Collections per Period',
     ]) {
       expect(screen.getByText(label)).toBeInTheDocument()
     }
@@ -296,13 +330,29 @@ describe('VER-179 SLA scorecard regression guard (contractor viewer)', () => {
     expect(
       card('Open Notices').getByText('1 contractor fault · 1 under investigation · 1 resident (incl. presumed)'),
     ).toBeInTheDocument()
-    expect(await screen.findByText('123')).toBeInTheDocument() // collections trend total
-    expect(card('Total Bookings').getByText('25')).toBeInTheDocument()
+    // Customer Satisfaction: each card folds ITS OWN responses key
+    // (seeded: booking 6/6, service 3/6, overall 0/6).
+    expect(screen.getByText('Customer Satisfaction')).toBeInTheDocument()
+    expect(await card('Booking Rating').findByText('100.0%')).toBeInTheDocument()
+    expect(card('Service Rating').getByText('50.0%')).toBeInTheDocument()
+    expect(card('Overall Rating').getByText('0.0%')).toBeInTheDocument()
+    expect(await card('Total Collections').findByText('123')).toBeInTheDocument()
+    expect(await screen.findByText('Building Waste')).toBeInTheDocument() // NCN types donut legend
     expect(card('Open Tickets').getByText('3')).toBeInTheDocument()
-    expect(await screen.findByText('$50.00')).toBeInTheDocument() // refunds pending
-    expect(screen.getByText('$25.00')).toBeInTheDocument() // refunds processed
-    expect(screen.getByText('Confirmed')).toBeInTheDocument() // status breakdown bar
-    expect(await screen.findByText('Bulk Waste')).toBeInTheDocument() // volmix bar
+    // Refund cards were removed from this page (design 02/07) — money never
+    // renders here for ANY viewer.
+    expect(screen.queryByText(/Refunds/)).toBeNull()
+    // Status chart removed (design batch 3) — its title must not come back.
+    expect(screen.queryByText('Bookings by Status')).toBeNull()
+    expect(await screen.findByText('Bulk Waste')).toBeInTheDocument() // breakdown donut legend
+
+    // Sparklines (design 02/07): count + rate tails render from the shared
+    // get_reports_monthly fetch.
+    expect(await screen.findByText('Tickets per month · last 12 months')).toBeInTheDocument()
+    expect(await screen.findByText('Clean collection % · last 12 months')).toBeInTheDocument()
+    expect(
+      await screen.findByText('Rectified ≤ 2 working days % · last 12 months'),
+    ).toBeInTheDocument()
 
     // Nothing errored, and the uncapped summary shows no truncation notice.
     expect(screen.queryByText(/Couldn.t load/)).toBeNull()
@@ -322,11 +372,14 @@ describe('zero-data council view (client-admin)', () => {
     expect(await screen.findByText('No rectifications')).toBeInTheDocument()
     expect(await screen.findByText('Tracking starts soon')).toBeInTheDocument()
     expect(await screen.findByText('No resolved tickets')).toBeInTheDocument()
-    expect(await screen.findByText('No responses yet')).toBeInTheDocument()
+    // One 'No responses yet' per satisfaction card (booking/service/overall)
+    // plus the service-preference donut panel.
+    expect(await screen.findAllByText('No responses yet')).toHaveLength(4)
+    expect(await screen.findByText('No notices in this period.')).toBeInTheDocument()
     expect(await card('Open Notices').findByText('No open notices')).toBeInTheDocument()
     expect(await screen.findByText('No collections match these filters.')).toBeInTheDocument()
-    await screen.findByText('Total Bookings')
-    expect(card('Total Bookings').getByText('0')).toBeInTheDocument()
+    await screen.findByText('Total Collections')
+    expect(await card('Total Collections').findByText('0')).toBeInTheDocument()
     expect(screen.queryByText(/Couldn.t load/)).toBeNull()
 
     // VER-288 structural gating: contractor-only cards are not mounted…
@@ -334,8 +387,6 @@ describe('zero-data council view (client-admin)', () => {
       'Property Penetration',
       'Self-Service Rate',
       'Notification Delivery',
-      'Refunds Pending',
-      'Refunds Processed',
     ]) {
       expect(screen.queryByText(label)).toBeNull()
     }
@@ -352,7 +403,7 @@ describe('zero-data council view (client-admin)', () => {
 describe('query failure states', () => {
   it('a failed RPC or table query renders an explicit error, not a blank/zero', async () => {
     h.respondTable = (q) =>
-      q.table === 'booking' && q.select === 'status'
+      q.table === 'service_ticket' && q.head
         ? { data: null, error: { message: 'boom' } }
         : happyTable(q)
     h.respondRpc = (r) =>
@@ -360,13 +411,63 @@ describe('query failure states', () => {
     renderPage('contractor-admin')
 
     // Failed stats query → the amber banner, and the summary never renders.
-    expect(await screen.findByText(/Couldn.t load the booking summary/)).toBeInTheDocument()
-    expect(screen.queryByText('Total Bookings')).toBeNull()
+    // Failed stats query → the top-line count cards show explicit error
+    // states (the old page-level banner was retired with the summary block).
+    await screen.findByText('Open Tickets')
+    expect(await card('Open Tickets').findByText(/Couldn.t load/)).toBeInTheDocument()
 
     // Failed RPC → that card shows an explicit error state…
     expect(await card('Rectification ≤ 2 Days').findByText(/Couldn.t load/)).toBeInTheDocument()
     // …while unaffected cards still render their values.
     expect(await screen.findByText('95.0%')).toBeInTheDocument()
+  })
+})
+
+describe('query failure states — trend + monthly RPCs (review 02/07)', () => {
+  it('failed get_collections_trend shows an explicit error on Total Collections', async () => {
+    h.respondTable = happyTable
+    h.respondRpc = (r) =>
+      r.name === 'get_collections_trend' ? { data: null, error: { message: 'boom' } } : happyRpc(r)
+    renderPage('contractor-admin')
+    await screen.findByText('Total Collections')
+    expect(await card('Total Collections').findByText(/Couldn.t load/)).toBeInTheDocument()
+  })
+
+  it('failed get_reports_monthly renders no sparkline tails — never flat-zero ones', async () => {
+    h.respondTable = happyTable
+    h.respondRpc = (r) =>
+      r.name === 'get_reports_monthly' ? { data: null, error: { message: 'boom' } } : happyRpc(r)
+    renderPage('contractor-admin')
+    await screen.findByText('95.0%')
+    // Count tail (isSuccess-gated) and rate tails both stay absent.
+    expect(screen.queryByText('Tickets per month · last 12 months')).toBeNull()
+    expect(screen.queryByText('Clean collection % · last 12 months')).toBeNull()
+    // The cards themselves are unaffected by a sparkline-fetch failure.
+    expect(await card('Open Tickets').findByText('3')).toBeInTheDocument()
+  })
+})
+
+// ── Range presets anchor on SERVICE dates (review 02/07) ────────────────────
+
+describe('range-preset service-date anchoring', () => {
+  it('Last month filters bookings by item collection_date, never created_at', async () => {
+    h.respondTable = happyTable
+    h.respondRpc = happyRpc
+    renderPage('contractor-admin')
+    await screen.findByText('95.0%')
+    fireEvent.click(screen.getByRole('button', { name: 'Last month' }))
+    await waitFor(() => {
+      const ranged = h.executed.filter(
+        (q) => q.table === 'booking' && q.select.includes('collection_date!inner'),
+      )
+      expect(ranged.length).toBeGreaterThan(0)
+      for (const q of ranged) {
+        expect(
+          q.filters.some(([m, col]) => m === 'gte' && col === 'booking_item.collection_date.date'),
+        ).toBe(true)
+        expect(q.filters.some(([, col]) => col === 'created_at')).toBe(false)
+      }
+    })
   })
 })
 
@@ -378,9 +479,9 @@ describe('tenant scoping (VER-296 isolation, app layer)', () => {
     h.respondRpc = happyRpc
     renderPage('contractor-admin')
 
-    // Settle the whole surface (headline cards, refunds, trend RPCs).
+    // Settle the whole surface (headline cards, donut legends, trend RPCs).
     await screen.findByText('95.0%')
-    await screen.findByText('$50.00')
+    await screen.findByText('Bulk Waste')
     await screen.findByText('123')
     await waitFor(() =>
       expect(h.rpcs.map((r) => r.name)).toEqual(

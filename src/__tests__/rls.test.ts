@@ -1995,4 +1995,222 @@ if (!haveDb) {
       }
     }, 20_000)
   })
+
+  // ---------------------------------------------------------------------------
+  // VER-298 — get_reports_monthly (one long-format monthly RPC feeding every
+  // card sparkline) + get_property_penetration service-window anchor
+  // (migration 20260702180000).
+  //
+  // UNRELEASED at authoring time — the migration is applied TRANSIENTLY inside
+  // the rolled-back transaction. Safe to keep post-release: the file is pure
+  // CREATE OR REPLACE with unchanged signatures (the DROP+CREATE replay hazard
+  // that retired the older transient applies does not exist here).
+  //
+  // Behaviour was also verified against live prod via a rolled-back DO block
+  // (02/07): authorised caller got 6 distinct series; cross-tenant caller got
+  // zero rows; penetration booked for the FY26 service window dropped 635 → 0.
+  // ---------------------------------------------------------------------------
+  describe('get_reports_monthly guards (VER-298)', () => {
+    const VV_CLIENT_ID = '5215645f-ca8f-4cff-8b7d-d5a8f7991ec7'
+    const COT_SUB_CLIENT_ID = '43c4f0e0-20d7-4152-9dc4-2b48e8dc6949'
+    const VV_ALL_USER = 'aaaaaaaa-0010-4000-8000-000000000010' // VER-216 fixture
+    const NO_ROLE_USER = 'aaaaaaaa-0097-4000-8000-000000000097'
+
+    const MONTHLY_MIGRATION_SQL = readFileSync(
+      resolve(
+        __dirname,
+        '../../supabase/migrations/20260702180000_reports_monthly_series_and_penetration_service_anchor.sql',
+      ),
+      'utf-8',
+    )
+
+    async function impersonate(userId: string) {
+      await pg.query('SET LOCAL ROLE authenticated')
+      await pg.query(`SELECT set_config('request.jwt.claims', $1, true)`, [
+        JSON.stringify({ sub: userId, role: 'authenticated' }),
+      ])
+    }
+
+    async function resetToSetupRole() {
+      await pg.query('RESET ROLE')
+      await pg.query(`SELECT set_config('request.jwt.claims', '{}', true)`)
+    }
+
+    it('cross-tenant and NULL-role callers get zero rows', async () => {
+      await pg.query('BEGIN')
+      try {
+        await pg.query(MONTHLY_MIGRATION_SQL)
+        // Kwinana-scoped client-admin asking for Verge Valet's series.
+        await impersonate(USERS['client-admin'])
+        const cross = await pg.query(`SELECT * FROM get_reports_monthly($1)`, [VV_CLIENT_ID])
+        expect(cross.rows.length).toBe(0)
+        await resetToSetupRole()
+
+        await impersonate(NO_ROLE_USER)
+        const noRole = await pg.query(`SELECT * FROM get_reports_monthly($1)`, [VV_CLIENT_ID])
+        expect(noRole.rows.length).toBe(0)
+      } finally {
+        await pg.query('ROLLBACK')
+      }
+    })
+
+    it('penetration booked-half windows on SERVICE dates, not created_at', async () => {
+      await pg.query('BEGIN')
+      try {
+        await pg.query(MONTHLY_MIGRATION_SQL)
+        const cot = await pg.query<{ id: string; area_id: string; prop_id: string }>(
+          `SELECT cd.id, cd.collection_area_id AS area_id,
+                  (SELECT ep.id FROM eligible_properties ep
+                    WHERE ep.collection_area_id = cd.collection_area_id LIMIT 1) AS prop_id
+             FROM collection_date cd
+             JOIN collection_area ca ON ca.id = cd.collection_area_id
+            WHERE ca.sub_client_id = $1 AND cd.date >= '2026-07-01' LIMIT 1`,
+          [COT_SUB_CLIENT_ID],
+        )
+        const fy = await pg.query<{ id: string }>(
+          `SELECT id FROM financial_year WHERE is_current LIMIT 1`,
+        )
+        expect(cot.rows[0]?.prop_id, 'fixture missing: COT FY27 date + property').toBeTruthy()
+        if (!cot.rows[0]?.prop_id || !fy.rows[0]) return
+
+        await impersonate(USERS['contractor-admin'])
+        const before = await pg.query<{ booked: string }>(
+          `SELECT booked FROM get_property_penetration($1, NULL, '2025-07-01', '2026-06-30')`,
+          [VV_CLIENT_ID],
+        )
+        await resetToSetupRole()
+
+        // Booking CREATED inside FY26 whose only SERVICE date is FY27: the
+        // old created_at anchor would count it in the FY26 window; the
+        // service anchor must not (design 02/07 — legacy-import bug class).
+        await pg.query(
+          `INSERT INTO public.booking (id, ref, type, status, collection_area_id, client_id, contractor_id, fy_id, property_id, created_at)
+           VALUES ('ffffffff-0298-4000-8000-000000000001', 'V298-PEN', 'Residential', 'Confirmed', $1, $2, $3, $4, $5, '2026-05-01T04:00:00Z')`,
+          [cot.rows[0].area_id, VV_CLIENT_ID, CONTRACTOR_ID, fy.rows[0].id, cot.rows[0].prop_id],
+        )
+        await pg.query(
+          `INSERT INTO public.booking_item (booking_id, service_id, collection_date_id, no_services, unit_price_cents)
+           SELECT 'ffffffff-0298-4000-8000-000000000001', s.id, $1, 1, 0 FROM service s LIMIT 1`,
+          [cot.rows[0].id],
+        )
+
+        await impersonate(USERS['contractor-admin'])
+        const after = await pg.query<{ booked: string }>(
+          `SELECT booked FROM get_property_penetration($1, NULL, '2025-07-01', '2026-06-30')`,
+          [VV_CLIENT_ID],
+        )
+        const unwindowed = await pg.query<{ booked: string }>(
+          `SELECT booked FROM get_property_penetration($1)`,
+          [VV_CLIENT_ID],
+        )
+        await resetToSetupRole()
+        // Service anchor: the FY26-created booking adds NOTHING to the FY26
+        // window (its service date is FY27) — but it does exist unwindowed.
+        expect(Number(after.rows[0]!.booked)).toBe(Number(before.rows[0]!.booked))
+        expect(Number(unwindowed.rows[0]!.booked)).toBeGreaterThan(0)
+      } finally {
+        await pg.query('ROLLBACK')
+      }
+    }, 20_000)
+
+    it('staff-role gate: a resident caller gets zero rows from every report RPC', async () => {
+      await pg.query('BEGIN')
+      try {
+        await pg.query(MONTHLY_MIGRATION_SQL)
+        // KWN resident (suite fixture) asking for their OWN tenant — the
+        // tenant gate alone would pass; the staff gate must not (review 02/07).
+        await impersonate(USERS.resident)
+        const monthly = await pg.query(`SELECT * FROM get_reports_monthly($1)`, [CLIENT_ID])
+        expect(monthly.rows.length).toBe(0)
+        const trend = await pg.query(`SELECT * FROM get_collections_trend($1)`, [CLIENT_ID])
+        expect(trend.rows.length).toBe(0)
+        const onTime = await pg.query(`SELECT * FROM get_on_time_monthly($1)`, [CLIENT_ID])
+        expect(onTime.rows.length).toBe(0)
+        const notices = await pg.query(`SELECT * FROM get_notices_monthly($1)`, [CLIENT_ID])
+        expect(notices.rows.length).toBe(0)
+        const rect = await pg.query<{ denominator: string }>(
+          `SELECT * FROM get_rect_sla($1)`,
+          [CLIENT_ID],
+        )
+        expect(Number(rect.rows[0]!.denominator)).toBe(0)
+      } finally {
+        await pg.query('ROLLBACK')
+      }
+    })
+
+    it('council staff never receive the contractor-only series (8A)', async () => {
+      await pg.query('BEGIN')
+      try {
+        await pg.query(MONTHLY_MIGRATION_SQL)
+        await impersonate(USERS['client-admin'])
+        const council = await pg.query<{ series: string }>(
+          `SELECT DISTINCT series FROM get_reports_monthly($1)`,
+          [CLIENT_ID],
+        )
+        await resetToSetupRole()
+        const councilSeries = council.rows.map((r) => r.series)
+        for (const banned of ['self_scope', 'self_served', 'notif_tracked', 'notif_delivered']) {
+          expect(councilSeries, `council received ${banned}`).not.toContain(banned)
+        }
+
+        await impersonate(USERS['contractor-admin'])
+        const contractor = await pg.query<{ series: string }>(
+          `SELECT DISTINCT series FROM get_reports_monthly($1)`,
+          [CLIENT_ID],
+        )
+        await resetToSetupRole()
+        // Contractor sees the ops-health series whenever the data exists;
+        // at minimum the RPC must not error and must return ≥ council's set.
+        expect(contractor.rows.length).toBeGreaterThanOrEqual(council.rows.length)
+      } finally {
+        await pg.query('ROLLBACK')
+      }
+    })
+
+    it('authorised caller gets a positive bookings series (seeded delta)', async () => {
+      await pg.query('BEGIN')
+      try {
+        await pg.query(MONTHLY_MIGRATION_SQL)
+        const cotDate = await pg.query<{ id: string; area_id: string }>(
+          `SELECT cd.id, cd.collection_area_id AS area_id
+             FROM collection_date cd JOIN collection_area ca ON ca.id = cd.collection_area_id
+            WHERE ca.sub_client_id = $1 LIMIT 1`,
+          [COT_SUB_CLIENT_ID],
+        )
+        const svc = await pg.query<{ id: string }>(`SELECT id FROM service LIMIT 1`)
+        const fy = await pg.query<{ id: string }>(
+          `SELECT id FROM financial_year WHERE is_current LIMIT 1`,
+        )
+        expect(cotDate.rows[0], 'fixture missing: COT collection_date').toBeTruthy()
+        if (!cotDate.rows[0] || !svc.rows[0] || !fy.rows[0]) return
+
+        const totalAs = async (userId: string) => {
+          await impersonate(userId)
+          const r = await pg.query<{ value: string }>(
+            `SELECT COALESCE(sum(value), 0) AS value FROM get_reports_monthly($1) WHERE series = 'bookings'`,
+            [VV_CLIENT_ID],
+          )
+          await resetToSetupRole()
+          return Number(r.rows[0]!.value)
+        }
+        const before = await totalAs(VV_ALL_USER)
+        await pg.query(
+          `INSERT INTO public.booking (id, ref, type, status, collection_area_id, client_id, contractor_id, fy_id)
+           VALUES ('ffffffff-0298-4000-8000-000000000002', 'V298-POS', 'Residential', 'Confirmed', $1, $2, $3, $4)`,
+          [cotDate.rows[0].area_id, VV_CLIENT_ID, CONTRACTOR_ID, fy.rows[0].id],
+        )
+        await pg.query(
+          `INSERT INTO public.booking_item (booking_id, service_id, collection_date_id, no_services, unit_price_cents)
+           VALUES ('ffffffff-0298-4000-8000-000000000002', $1, $2, 1, 0)`,
+          [svc.rows[0].id, cotDate.rows[0].id],
+        )
+        const after = await totalAs(VV_ALL_USER)
+        // A denied-case-only suite is vacuous if the fn fails closed — the
+        // positive path must move (testing specialist, review 02/07).
+        expect(after).toBe(before + 1)
+      } finally {
+        await pg.query('ROLLBACK')
+      }
+    }, 20_000)
+  })
 })

@@ -23,17 +23,21 @@
  * Period semantics (VER-297) — the period changes WHICH rows are counted,
  * never HOW a metric is measured. `period.unresolved` (no matching FY row /
  * empty Custom) DISABLES every query — running with null bounds would
- * silently widen to all-time under the selected-period stamp. Per card:
- *   BC        fy presets → booking.fy_id; range presets → booking.created_at
- *             (a booking can be created before its service FY starts, so the
- *             two anchors are deliberately different)
+ * silently widen to all-time under the selected-period stamp.
+ *
+ * BOOKING-OBJECT cards anchor on the SERVICE period, never created_at
+ * (review 02/07): legacy-imported and pre-season bookings are created long
+ * before their service window, so created_at made "Last FY / Last month"
+ * report activity that never happened. EVENT cards keep their event anchor —
+ * an email sent in June IS June activity. Per card:
+ *   BC        fy presets → booking.fy_id (the service FY); range presets →
+ *             item collection_date.date inside the window
  *   ONTIME    scheduled collection_date.date
  *   RECT      notice reported_at (RPC p_from/p_to)
- *   SR/SELFSVC/NOTIF  created_at (NOTIF also ignores the area filter by
- *             design — notification_log has no area)
+ *   SR/SELFSVC/NOTIF  event created_at (NOTIF also ignores the area filter
+ *             by design — notification_log has no area)
  *   RS        survey submitted_at
- *   VOLMIX    booking created_at (booked-in-period; item service dates would
- *             need a per-item date join — documented divergence)
+ *   VOLMIX    fy presets → fy_id; range presets → item collection_date.date
  *   TREND     booking service date = MIN item collection_date.date (RPC)
  *   NOTICES   snapshot of OPEN notices — deliberately period-INDEPENDENT
  *             (an open notice is open regardless of the selected period);
@@ -63,8 +67,18 @@ import {
   NP_TERMINAL_STATUSES,
   type NoticeRow,
 } from '@/lib/reports/notice-split'
-import { SlaCard, ProvenanceStamp, scorecardTone } from './sla-card'
-import { TrendBars, type TrendPoint } from './trend-bars'
+import { CardLabel, ProvenanceStamp, SlaCard, scorecardTone } from './sla-card'
+import { Sparkline, type TrendPoint } from './sparkline'
+import { DonutChart } from './donut-chart'
+import { MONTHLY_QUERY_OPTIONS, useReportsMonthly } from './use-reports-monthly'
+import {
+  cleanCollectionPoints,
+  csatSeries,
+  pct1Value,
+  percentPoints,
+  SERIES,
+  type MonthlyPoint,
+} from '@/lib/reports/monthly-series'
 import {
   computeCleanCollection,
   CLEAN_TARGET_PCT,
@@ -83,9 +97,13 @@ import { computeSelfServiceRate } from '@/lib/reports/self-service'
 import { computeVolumeMix } from '@/lib/reports/volume-mix'
 import { computePenetration } from '@/lib/reports/penetration'
 import {
-  computeResidentSatisfaction,
+  computeServicePreference,
+  computeSurveyRating,
   RS_TARGET_PCT,
+  type ResidentSatisfactionResult,
+  type ServicePreferenceResult,
 } from '@/lib/reports/resident-satisfaction'
+import { computeNoticeReasons } from '@/lib/reports/notice-types'
 
 /** Booking statuses that "reached the field" this FY (BC denominator, spec §3.1). */
 const BC_ELIGIBLE_STATUSES = [
@@ -145,7 +163,7 @@ function useMonthlyTrend(
   name: string,
   clientId: string,
   area: string,
-  call: (anchor: string) => PromiseLike<{
+  call: (anchor: string, upTo: string) => PromiseLike<{
     data: RpcRow[] | null
     error: { message: string } | null
   }>,
@@ -153,11 +171,15 @@ function useMonthlyTrend(
 ) {
   const now = new Date()
   const anchor = rolling12From(now)
+  // Clamp at the AWST today (red team 02/07): pre-scheduled future stops/
+  // dates would otherwise mint a phantom future bucket as the "latest" point.
+  const upTo = awstDateFromUtc(now)
   return useQuery({
     queryKey: [name, clientId, area, anchor],
     enabled: !!clientId,
+    ...MONTHLY_QUERY_OPTIONS,
     queryFn: async () => {
-      const rows = orThrow(await call(anchor))
+      const rows = orThrow(await call(anchor, upTo))
       const observed = (rows ?? []).map((r) => ({
         month: String(r.month),
         value: mapRow(r),
@@ -165,6 +187,46 @@ function useMonthlyTrend(
       return zeroFillMonths(observed, anchor, now) as TrendPoint[]
     },
   })
+}
+
+/**
+ * % variant of useMonthlyTrend for the dedicated monthly RPCs: observed
+ * months only — a month with no denominator is "no data", never 0%
+ * (zero-filling a rate would draw fake 0% cliffs).
+ */
+function useMonthlyPercentTrend(
+  name: string,
+  clientId: string,
+  area: string,
+  call: (anchor: string, upTo: string) => PromiseLike<{
+    data: RpcRow[] | null
+    error: { message: string } | null
+  }>,
+  numKey: string,
+  denKey: string,
+) {
+  const now = new Date()
+  const anchor = rolling12From(now)
+  const upTo = awstDateFromUtc(now)
+  return useQuery({
+    queryKey: [name, clientId, area, anchor],
+    enabled: !!clientId,
+    ...MONTHLY_QUERY_OPTIONS,
+    queryFn: async () => {
+      const rows = orThrow(await call(anchor, upTo)) ?? []
+      return rows
+        .filter((r) => Number(r[denKey] ?? 0) > 0)
+        .map((r) => ({
+          month: String(r.month),
+          value: pct1Value(Number(r[numKey] ?? 0), Number(r[denKey])),
+        })) as TrendPoint[]
+    },
+  })
+}
+
+/** Footer slot for a rate sparkline — omitted until there are observed months. */
+function pctSpark(points: readonly MonthlyPoint[] | undefined, caption: string) {
+  return points && points.length > 0 ? <Sparkline points={points} caption={caption} /> : undefined
 }
 
 export function SlaDashboard({ clientId, selectedArea, period, viewerRole }: {
@@ -185,14 +247,26 @@ export function SlaDashboard({ clientId, selectedArea, period, viewerRole }: {
         <h2 className="mb-3 font-[family-name:var(--font-heading)] text-sm font-bold text-[#293F52]">
           Insights
         </h2>
-        <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-          {show('property-penetration') && <PenetrationCard {...scope} />}
-          {show('resident-satisfaction') && <ResidentSatisfactionCard {...scope} />}
-          {show('open-notices') && <OpenNoticesCard {...scope} />}
+        {/* Side by side (design feedback 02/07) — auto-fit so a lone card
+            (audience-gated sibling) still fills the row. Total Collections
+            moved to the page top line (batch 5); Open Notices too (batch 3);
+            Penetration lives in the Service Level grid. */}
+        <div className="grid grid-cols-[repeat(auto-fit,minmax(min(320px,100%),1fr))] gap-4">
+          {show('service-breakdown') && <VolumeMixCard {...scope} />}
+          {show('notice-types') && <NoticeTypesCard {...scope} />}
         </div>
-        {show('collections-trend') && <CollectionsTrendCard {...scope} />}
-        {show('service-breakdown') && <VolumeMixCard {...scope} />}
       </section>
+
+      {show('customer-satisfaction') && (
+        <section>
+          <h2 className="mb-3 font-[family-name:var(--font-heading)] text-sm font-bold text-[#293F52]">
+            Customer Satisfaction
+          </h2>
+          <div className="grid grid-cols-[repeat(auto-fit,minmax(min(230px,100%),1fr))] gap-4">
+            <CustomerSatisfactionCards {...scope} />
+          </div>
+        </section>
+      )}
 
       <section>
         <h2 className="mb-3 font-[family-name:var(--font-heading)] text-sm font-bold text-[#293F52]">
@@ -205,6 +279,8 @@ export function SlaDashboard({ clientId, selectedArea, period, viewerRole }: {
           {(show('ticket-first-response') || show('ticket-resolution')) && <SrCards {...scope} />}
           {show('self-service-rate') && <SelfServiceCard {...scope} />}
           {show('notification-delivery') && <NotifCard {...scope} />}
+          {/* Quarter-width here per design batch 3 (was an Insights card). */}
+          {show('property-penetration') && <PenetrationCard {...scope} />}
         </div>
       </section>
     </div>
@@ -212,52 +288,65 @@ export function SlaDashboard({ clientId, selectedArea, period, viewerRole }: {
 }
 
 // ── BC — Clean Collection Rate (spec §3.1) ──────────────────────────────────
-// Period anchor: fy presets → booking.fy_id (the service FY — a booking can
-// be created before its FY starts); range presets → booking.created_at.
+// Period anchor: SERVICE period, never created_at (design review 02/07 —
+// legacy-imported and pre-season bookings made "Last FY / Last month" report
+// activity that never happened). fy presets → booking.fy_id (the service FY);
+// range presets → item collection_date.date inside the window.
 function BcCard({ clientId, area, period }: CardScope) {
   const supabase = createClient()
   const fyScoped = period.kind === 'fy'
-  const bounds = awstTimestampBounds(period)
+  const monthly = useReportsMonthly(clientId, area)
   const { data, isLoading, isError } = useQuery({
     queryKey: ['sla-bc', clientId, area, ...periodKey(period)],
     enabled: !!clientId && !period.unresolved,
     queryFn: async () => {
-      let elig = supabase
-        .from('booking')
-        .select('id')
+      let elig = fyScoped
+        ? supabase.from('booking').select('id').eq('fy_id', period.fyId!)
+        : (() => {
+            let q = supabase
+              .from('booking')
+              .select('id, booking_item!inner(collection_date!inner(date))')
+            if (period.from) q = q.gte('booking_item.collection_date.date', period.from)
+            if (period.to) q = q.lte('booking_item.collection_date.date', period.to)
+            return q
+          })()
+      elig = elig
         .eq('client_id', clientId)
         .is('deleted_at', null)
         .in('status', BC_ELIGIBLE_STATUSES)
-      if (fyScoped) {
-        elig = elig.eq('fy_id', period.fyId!)
-      } else {
-        if (bounds.gte) elig = elig.gte('created_at', bounds.gte)
-        if (bounds.lt) elig = elig.lt('created_at', bounds.lt)
-      }
       if (area) elig = elig.eq('collection_area_id', area)
 
       // Contractor-fault NCNs, scoped via the EXPLICIT booking FK (NCN has two
       // FKs to booking — the multi-FK embed trap; alias the intake FK).
-      let ncn = supabase
-        .from('non_conformance_notice')
-        .select(
-          'booking_id, orig:booking!non_conformance_notice_booking_id_fkey!inner(collection_area_id, fy_id, created_at, deleted_at)'
-        )
+      let ncn = fyScoped
+        ? supabase
+            .from('non_conformance_notice')
+            .select(
+              'booking_id, orig:booking!non_conformance_notice_booking_id_fkey!inner(collection_area_id, fy_id, deleted_at)'
+            )
+            .eq('orig.fy_id', period.fyId!)
+        : (() => {
+            let q = supabase
+              .from('non_conformance_notice')
+              .select(
+                'booking_id, orig:booking!non_conformance_notice_booking_id_fkey!inner(collection_area_id, deleted_at, booking_item!inner(collection_date!inner(date)))'
+              )
+            if (period.from) q = q.gte('orig.booking_item.collection_date.date', period.from)
+            if (period.to) q = q.lte('orig.booking_item.collection_date.date', period.to)
+            return q
+          })()
+      ncn = ncn
         .eq('client_id', clientId)
         .eq('contractor_fault', true)
         .is('orig.deleted_at', null)
-      if (fyScoped) {
-        ncn = ncn.eq('orig.fy_id', period.fyId!)
-      } else {
-        if (bounds.gte) ncn = ncn.gte('orig.created_at', bounds.gte)
-        if (bounds.lt) ncn = ncn.lt('orig.created_at', bounds.lt)
-      }
       if (area) ncn = ncn.eq('orig.collection_area_id', area)
 
       // Independent queries — no waterfall; either failure throws (isError).
+      // Explicit orThrow params: the fy/range branches select different embed
+      // shapes, and only these fields are read from either.
       const [eligRes, ncnRes] = await Promise.all([elig, ncn])
-      const eligRows = orThrow(eligRes)
-      const ncnRows = orThrow(ncnRes)
+      const eligRows = orThrow<{ id: string }[]>(eligRes)
+      const ncnRows = orThrow<{ booking_id: string }[]>(ncnRes)
       const eligibleBookingIds = new Set((eligRows ?? []).map((r) => r.id))
       const contractorFaultNcnBookingIds = new Set(
         (ncnRows ?? []).map((r) => r.booking_id)
@@ -271,10 +360,13 @@ function BcCard({ clientId, area, period }: CardScope) {
     return <SlaCard label="Service Delivery" value="—" sub="Period unavailable" provenance={liveStamp(period)} />
   }
   const r = data
-  const value = !r ? '—' : r.isEmpty ? 'No collections yet'
+  // Empty states render as muted SUB text under an em-dash value — a long
+  // phrase in the value slot shouts louder than real data (review F-003).
+  const value = !r || r.isEmpty ? '—'
     : r.isLowN ? `${r.eligible - r.miss} / ${r.eligible}`
     : pct1(r.pct!)
-  const sub = !r || r.isEmpty ? undefined
+  const sub = !r ? undefined
+    : r.isEmpty ? 'No collections yet'
     : r.isLowN ? 'Building data' : `${r.eligible - r.miss} / ${r.eligible} clean`
   return (
     <SlaCard
@@ -286,6 +378,7 @@ function BcCard({ clientId, area, period }: CardScope) {
       tone={r ? scorecardTone(r.pct, CLEAN_TARGET_PCT, r) : 'neutral'}
       target={`Target ≥ ${CLEAN_TARGET_PCT}%`}
       provenance={liveStamp(period)}
+      footer={pctSpark(cleanCollectionPoints(monthly.rows), 'Clean collection % · last 12 months')}
     />
   )
 }
@@ -317,26 +410,30 @@ function OnTimeCard({ clientId, area, period }: CardScope) {
     },
   })
 
-  const { data: trend } = useMonthlyTrend(
-    'sla-ontime-trend',
+  // Monthly % (design 02/07) — was completed-stop counts.
+  const { data: trend } = useMonthlyPercentTrend(
+    'sla-ontime-trend-pct',
     clientId,
     area,
-    (anchor) =>
+    (anchor, upTo) =>
       supabase.rpc('get_on_time_monthly', {
         p_client_id: clientId,
         p_area_id: area || undefined,
         p_from: anchor,
+        p_to: upTo,
       }),
-    (r) => Number(r.completed ?? 0),
+    'on_time',
+    'completed',
   )
 
   if (period.unresolved) {
     return <SlaCard label="On-Time Collection" value="—" sub="Period unavailable" provenance={liveStamp(period)} />
   }
   const r = data
-  const value = !r ? '—' : r.isEmpty ? 'No completed stops'
+  const value = !r || r.isEmpty ? '—'
     : r.isLowN ? `${r.onTime} / ${r.completed}` : pct1(r.pct!)
-  const sub = !r || r.isEmpty ? undefined
+  const sub = !r ? undefined
+    : r.isEmpty ? 'No completed stops'
     : r.isLowN ? 'Building data' : `${r.onTime} / ${r.completed} on time`
   return (
     <SlaCard
@@ -348,19 +445,18 @@ function OnTimeCard({ clientId, area, period }: CardScope) {
       tone={r ? scorecardTone(r.pct, ON_TIME_TARGET_PCT, r) : 'neutral'}
       target={`Target ≥ ${ON_TIME_TARGET_PCT}%`}
       provenance={liveStamp(period)}
-      footer={
-        trend && trend.length > 0 ? (
-          <TrendBars points={trend} caption="Completed stops · last 12 months" />
-        ) : undefined
-      }
+      footer={pctSpark(trend, 'On-time % · last 12 months')}
     />
   )
 }
 
 // ── RECT — Rectification ≤ 2 working days (spec §3.3, RPC) ───────────────────
 // Period anchor: notice reported_at (RPC p_from/p_to).
+const RECT_TARGET_PCT = 90
+
 function RectCard({ clientId, area, period }: CardScope) {
   const supabase = createClient()
+  const monthly = useReportsMonthly(clientId, area)
   const { data, isLoading, isError } = useQuery({
     queryKey: ['sla-rect', clientId, area, ...periodKey(period)],
     enabled: !!clientId && !period.unresolved,
@@ -383,9 +479,10 @@ function RectCard({ clientId, area, period }: CardScope) {
   const denom = r?.denominator ?? 0
   const isEmpty = denom === 0
   const isLowN = denom > 0 && denom < 5
-  const value = !r ? '—' : isEmpty ? 'No rectifications'
+  const value = !r || isEmpty ? '—'
     : isLowN ? `${r.numerator} / ${denom}` : pct1(Number(r.pct))
-  const sub = !r || isEmpty ? undefined
+  const sub = !r ? undefined
+    : isEmpty ? 'No rectifications'
     : isLowN ? 'Building data' : `${r.numerator} / ${denom} within 2 working days`
   return (
     <SlaCard
@@ -394,9 +491,13 @@ function RectCard({ clientId, area, period }: CardScope) {
       isError={isError}
       value={value}
       sub={sub}
-      tone={r ? scorecardTone(r.pct === null ? null : Number(r.pct), 90, { isEmpty, isLowN }) : 'neutral'}
-      target="Target ≥ 90%"
+      tone={r ? scorecardTone(r.pct === null ? null : Number(r.pct), RECT_TARGET_PCT, { isEmpty, isLowN }) : 'neutral'}
+      target={`Target ≥ ${RECT_TARGET_PCT}%`}
       provenance={liveStamp(period)}
+      footer={pctSpark(
+        percentPoints(monthly.rows, SERIES.rectNum, SERIES.rectDen),
+        'Rectified ≤ 2 working days % · last 12 months',
+      )}
     />
   )
 }
@@ -405,6 +506,7 @@ function RectCard({ clientId, area, period }: CardScope) {
 // Period anchor: ticket created_at.
 function SrCards({ clientId, area, period }: CardScope) {
   const supabase = createClient()
+  const monthly = useReportsMonthly(clientId, area)
   const bounds = awstTimestampBounds(period)
   const { data, isLoading, isError } = useQuery({
     queryKey: ['sla-sr', clientId, area, ...periodKey(period)],
@@ -449,25 +551,37 @@ function SrCards({ clientId, area, period }: CardScope) {
       <SlaCard
         label="Ticket First Response"
         isLoading={isLoading}
-      isError={isError}
+        isError={isError}
         value={
-          !resp ? '—' : resp.isEmpty ? 'Tracking starts soon'
+          !resp || resp.isEmpty ? '—'
             : resp.isLowN ? `${resp.withinTarget} / ${resp.n}` : pct1(resp.pct!)
         }
-        sub={!resp || resp.isEmpty ? undefined : resp.isLowN ? 'Building data' : `${resp.withinTarget} / ${resp.n} in time`}
+        sub={
+          !resp ? undefined
+            : resp.isEmpty ? 'Tracking starts soon'
+            : resp.isLowN ? 'Building data' : `${resp.withinTarget} / ${resp.n} in time`
+        }
         tone={resp ? scorecardTone(resp.pct, 100, resp) : 'neutral'}
         target={`Target ≤ ${RESPONSE_TARGET_WD} working days`}
         provenance={liveStamp(period)}
+        footer={pctSpark(
+          percentPoints(monthly.rows, SERIES.respNum, SERIES.respDen),
+          `Responded ≤ ${RESPONSE_TARGET_WD} working days % · last 12 months`,
+        )}
       />
       <SlaCard
         label="Ticket Resolution"
         isLoading={isLoading}
-      isError={isError}
+        isError={isError}
         value={
-          !res ? '—' : res.isEmpty ? 'No resolved tickets'
+          !res || res.isEmpty ? '—'
             : res.isLowN ? `${res.withinTarget} / ${res.n}` : pct1(res.pct!)
         }
-        sub={!res || res.isEmpty ? undefined : res.isLowN ? 'Building data' : `${res.withinTarget} / ${res.n} in time`}
+        sub={
+          !res ? undefined
+            : res.isEmpty ? 'No resolved tickets'
+            : res.isLowN ? 'Building data' : `${res.withinTarget} / ${res.n} in time`
+        }
         tone={res ? scorecardTone(res.pct, 100, res) : 'neutral'}
         target={`Target ≤ ${RESOLUTION_TARGET_DAYS} days`}
         provenance={liveStamp(period)}
@@ -478,8 +592,11 @@ function SrCards({ clientId, area, period }: CardScope) {
 
 // ── SELFSVC — Self-Service Rate (spec §3.6, contractor-only per 8A) ──────────
 // Period anchor: booking created_at.
+const SELF_SERVICE_TARGET_PCT = 80
+
 function SelfServiceCard({ clientId, area, period }: CardScope) {
   const supabase = createClient()
+  const monthly = useReportsMonthly(clientId, area)
   const bounds = awstTimestampBounds(period)
   const { data, isLoading, isError } = useQuery({
     queryKey: ['sla-selfsvc', clientId, area, ...periodKey(period)],
@@ -500,11 +617,14 @@ function SelfServiceCard({ clientId, area, period }: CardScope) {
     return <SlaCard label="Self-Service Rate" value="—" sub="Period unavailable" provenance={liveStamp(period)} />
   }
   const r = data
-  const value = !r ? '—' : r.isEmpty ? 'Tracking starts soon'
+  const value = !r || r.isEmpty ? '—'
     : r.isLowN ? `${r.selfServed} / ${r.inScope}` : pct1(r.pct!)
-  const sub = !r || r.isEmpty
-    ? r && r.excludedLegacy > 0 ? `${r.excludedLegacy} earlier bookings excluded` : undefined
-    : r.isLowN ? 'Building data' : `${r.selfServed} / ${r.inScope} resident-created`
+  const sub = !r ? undefined
+    : r.isEmpty
+      ? r.excludedLegacy > 0
+        ? `Tracking starts soon · ${r.excludedLegacy} earlier bookings excluded`
+        : 'Tracking starts soon'
+      : r.isLowN ? 'Building data' : `${r.selfServed} / ${r.inScope} resident-created`
   return (
     <SlaCard
       label="Self-Service Rate"
@@ -513,16 +633,23 @@ function SelfServiceCard({ clientId, area, period }: CardScope) {
       value={value}
       sub={sub}
       tone="neutral"
-      target="Target ≥ 80%"
+      target={`Target ≥ ${SELF_SERVICE_TARGET_PCT}%`}
       provenance={liveStamp(period)}
+      footer={pctSpark(
+        percentPoints(monthly.rows, SERIES.selfServed, SERIES.selfScope),
+        'Self-service % · last 12 months',
+      )}
     />
   )
 }
 
 // ── NOTIF — Notification Reliability (email only, no area filter, spec §3.7) ─
 // Period anchor: notification_log created_at. Contractor-only per 8A.
-function NotifCard({ clientId, period }: CardScope) {
+function NotifCard({ clientId, area, period }: CardScope) {
   const supabase = createClient()
+  // Same hook args as sibling cards so TanStack dedupes to one fetch; the
+  // notif series itself ignores the area filter (matches the card).
+  const monthly = useReportsMonthly(clientId, area)
   const bounds = awstTimestampBounds(period)
   const { data, isLoading, isError } = useQuery({
     queryKey: ['sla-notif', clientId, ...periodKey(period)],
@@ -544,9 +671,10 @@ function NotifCard({ clientId, period }: CardScope) {
     return <SlaCard label="Notification Delivery" value="—" sub="Period unavailable" provenance={liveStamp(period)} />
   }
   const r = data
-  const value = !r ? '—' : r.isEmpty ? 'No tracked email'
+  const value = !r || r.isEmpty ? '—'
     : r.isLowN ? `${r.positive} / ${r.tracked}` : pct1(r.pct!)
-  const sub = !r || r.isEmpty ? 'Email only'
+  const sub = !r ? 'Email only'
+    : r.isEmpty ? 'No tracked email · email only'
     : r.isLowN ? 'Building data' : `${r.positive} / ${r.tracked} delivered · email only`
   return (
     <SlaCard
@@ -558,13 +686,18 @@ function NotifCard({ clientId, period }: CardScope) {
       tone={r ? scorecardTone(r.pct, NOTIF_TARGET_PCT, r) : 'neutral'}
       target={`Target ≥ ${NOTIF_TARGET_PCT}%`}
       provenance={liveStamp(period)}
+      footer={pctSpark(
+        percentPoints(monthly.rows, SERIES.notifDelivered, SERIES.notifTracked),
+        'Delivered % · last 12 months',
+      )}
     />
   )
 }
 
 // ── PENETRATION — Property Penetration (insight, spec §3.9, RPC) ─────────────
-// Period anchor: booking created_at (booked-during-period); the eligible
-// denominator is point-in-time by design. Contractor-only per 8A.
+// Period anchor: item SERVICE dates (any collection_date in the window —
+// migration 20260702180000; created_at surfaced legacy-imported bookings);
+// the eligible denominator is point-in-time by design. Contractor-only per 8A.
 function PenetrationCard({ clientId, area, period }: CardScope) {
   const supabase = createClient()
   const { data, isLoading, isError } = useQuery({
@@ -600,13 +733,16 @@ function PenetrationCard({ clientId, area, period }: CardScope) {
   )
 }
 
-// ── RS — Resident Satisfaction (insight, spec §3.10) ────────────────────────
-// Period anchor: survey submitted_at.
-function ResidentSatisfactionCard({ clientId, area, period }: CardScope) {
+// ── Customer Satisfaction — booking / service / overall (design 02/07) ──────
+// Period anchor: survey submitted_at. ONE survey fetch feeds all three cards;
+// each folds its own `responses` key (booking_rating / collection_rating /
+// overall_rating — the exact keys the survey form writes).
+function CustomerSatisfactionCards({ clientId, area, period }: CardScope) {
   const supabase = createClient()
+  const monthly = useReportsMonthly(clientId, area)
   const bounds = awstTimestampBounds(period)
   const { data, isLoading, isError } = useQuery({
-    queryKey: ['sla-rs', clientId, area, ...periodKey(period)],
+    queryKey: ['sla-csat', clientId, area, ...periodKey(period)],
     enabled: !!clientId && !period.unresolved,
     queryFn: async () => {
       // For "All Areas" drop the embed (avoids multi-FK fragility); booking_survey
@@ -626,20 +762,109 @@ function ResidentSatisfactionCard({ clientId, area, period }: CardScope) {
       if (bounds.gte) q = q.gte('submitted_at', bounds.gte)
       if (bounds.lt) q = q.lt('submitted_at', bounds.lt)
       const rows = orThrow(await q)
-      return computeResidentSatisfaction((rows ?? []).map((r) => ({ responses: r.responses })))
+      const surveyRows = (rows ?? []).map((r) => ({ responses: r.responses }))
+      return {
+        booking: computeSurveyRating(surveyRows, 'booking_rating'),
+        service: computeSurveyRating(surveyRows, 'collection_rating'),
+        overall: computeSurveyRating(surveyRows, 'overall_rating'),
+        pref: computeServicePreference(surveyRows),
+      }
     },
   })
-  if (period.unresolved) {
-    return <SlaCard label="Resident Satisfaction" value="—" sub="Period unavailable" provenance={liveStamp(period)} />
+
+  const card = (
+    label: string,
+    r: ResidentSatisfactionResult | undefined,
+    seriesKey: 'booking' | 'service' | 'overall',
+    target?: string,
+  ) => {
+    if (period.unresolved) {
+      return <SlaCard key={label} label={label} value="—" sub="Period unavailable" provenance={liveStamp(period)} />
+    }
+    const value = !r || r.isEmpty ? '—'
+      : r.isLowN ? `${r.good} / ${r.n}` : pct1(r.pct!)
+    const sub = !r ? undefined
+      : r.isEmpty ? 'No responses yet'
+      : r.isLowN ? 'Building data' : `${r.good} / ${r.n} rated 4+`
+    return (
+      <SlaCard
+        key={label}
+        label={label}
+        isLoading={isLoading}
+        isError={isError}
+        value={value}
+        sub={sub}
+        tone="neutral"
+        target={target}
+        provenance={liveStamp(period)}
+        footer={pctSpark(
+          percentPoints(monthly.rows, csatSeries(seriesKey, 'good'), csatSeries(seriesKey, 'n')),
+          'Rated 4+ % · last 12 months',
+        )}
+      />
+    )
   }
-  const r = data
-  const value = !r ? '—' : r.isEmpty ? 'No responses yet'
-    : r.isLowN ? `${r.good} / ${r.n}` : pct1(r.pct!)
-  const sub = !r || r.isEmpty ? undefined
-    : r.isLowN ? 'Building data' : `${r.good} / ${r.n} rated good · target ≥ ${RS_TARGET_PCT}%`
+
   return (
-    <SlaCard label="Resident Satisfaction" isLoading={isLoading}
-      isError={isError} value={value} sub={sub} tone="neutral" provenance={liveStamp(period)} />
+    <>
+      {card('Booking Rating', data?.booking, 'booking')}
+      {card('Service Rating', data?.service, 'service')}
+      {card('Overall Rating', data?.overall, 'overall', `Reference ≥ ${RS_TARGET_PCT}%`)}
+      <PreferServicePanel
+        period={period}
+        isLoading={isLoading}
+        isError={isError}
+        pref={data?.pref}
+      />
+    </>
+  )
+}
+
+/**
+ * "Would you prefer this service over traditional bulk verge collection?" —
+ * Yes / No / Indifferent donut, 4th card of the Customer Satisfaction row
+ * (design 02/07 batch 5). Shares the section's single survey fetch.
+ */
+function PreferServicePanel({
+  period,
+  isLoading,
+  isError,
+  pref,
+}: {
+  period: PeriodRange
+  isLoading: boolean
+  isError: boolean
+  pref: ServicePreferenceResult | undefined
+}) {
+  return (
+    <div className="flex min-h-[164px] flex-col rounded-xl bg-white p-5 shadow-sm">
+      <CardLabel text="Prefer This Service" />
+      <div className="flex flex-1 items-center py-2">
+        {period.unresolved ? (
+          <p className="text-[11px] text-gray-500">Period unavailable.</p>
+        ) : isError ? (
+          <p className="font-[family-name:var(--font-heading)] text-sm font-bold text-amber-600">
+            Couldn&apos;t load
+          </p>
+        ) : isLoading ? (
+          <p className="text-[11px] text-gray-500">Loading…</p>
+        ) : !pref || pref.total === 0 ? (
+          <p className="text-[11px] text-gray-500">No responses yet</p>
+        ) : (
+          <DonutChart
+            ariaLabel="Prefer this service over traditional verge collection"
+            segments={[
+              { label: 'Yes', value: pref.yes, color: '#10B981' },
+              { label: 'No', value: pref.no, color: '#F59E0B' },
+              { label: 'Indifferent', value: pref.indifferent, color: '#8FA5B8' },
+            ]}
+          />
+        )}
+      </div>
+      <div className="mt-auto">
+        <ProvenanceStamp text={liveStamp(period)} />
+      </div>
+    </div>
   )
 }
 
@@ -652,7 +877,7 @@ function ResidentSatisfactionCard({ clientId, area, period }: CardScope) {
 // 12, via get_notices_monthly. Split semantics live in the tested pure fn
 // (lib/reports/notice-split.ts) and MUST match the council definitions doc
 // v1.0 §3 (resident-fault presumption + 14-day dispute window stated there).
-function OpenNoticesCard({ clientId, area }: CardScope) {
+export function OpenNoticesCard({ clientId, area }: CardScope) {
   const supabase = createClient()
   const { data, isLoading, isError } = useQuery({
     queryKey: ['sla-notices', clientId, area],
@@ -699,11 +924,12 @@ function OpenNoticesCard({ clientId, area }: CardScope) {
     'sla-notices-trend',
     clientId,
     area,
-    (anchor) =>
+    (anchor, upTo) =>
       supabase.rpc('get_notices_monthly', {
         p_client_id: clientId,
         p_area_id: area || undefined,
         p_from: anchor,
+        p_to: upTo,
       }),
     (r) =>
       Number(r.ncn_contractor ?? 0) + Number(r.ncn_other ?? 0) +
@@ -728,7 +954,7 @@ function OpenNoticesCard({ clientId, area }: CardScope) {
       provenance="Live · Current snapshot"
       footer={
         trend && trend.length > 0 ? (
-          <TrendBars points={trend} caption="Notices raised · last 12 months" />
+          <Sparkline points={trend} caption="Notices raised · last 12 months" />
         ) : undefined
       }
     />
@@ -740,10 +966,10 @@ function OpenNoticesCard({ clientId, area }: CardScope) {
 // service date — the definitions doc v1.0 §2 basis). Headline = selected
 // period total; bars = rolling last 12 months. History starts at platform
 // adoption (the go-live cliff) — the caption says so.
-function CollectionsTrendCard({ clientId, area, period }: CardScope) {
+export function CollectionsTrendCard({ clientId, area, period }: CardScope) {
   const supabase = createClient()
 
-  const { data: periodTotal, isLoading } = useQuery({
+  const { data: periodTotal, isLoading, isError } = useQuery({
     queryKey: ['sla-trend-total', clientId, area, ...periodKey(period)],
     enabled: !!clientId && !period.unresolved,
     queryFn: async () => {
@@ -763,48 +989,38 @@ function CollectionsTrendCard({ clientId, area, period }: CardScope) {
     'sla-trend-bars',
     clientId,
     area,
-    (anchor) =>
+    (anchor, upTo) =>
       supabase.rpc('get_collections_trend', {
         p_client_id: clientId,
         p_area_id: area || undefined,
         p_from: anchor,
+        p_to: upTo,
       }),
     (r) => Number(r.collections ?? 0),
   )
 
   return (
-    <div className="mt-4 rounded-xl bg-white p-5 shadow-sm">
-      <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">
-        Collections per Period
-      </p>
-      <p className="mt-1 font-[family-name:var(--font-heading)] text-2xl font-bold text-[#293F52]">
-        {period.unresolved ? '—' : isLoading || periodTotal === undefined ? '—' : periodTotal}
-        <span className="ml-1 text-[11px] font-medium text-gray-400">completed collections</span>
-      </p>
-      <p className="mt-0.5 text-[11px] text-gray-500">
-        {period.unresolved
-          ? 'Period unavailable'
-          : 'The current month grows as collections complete — compare closed months.'}
-      </p>
-      {trend && trend.length > 0 && (
-        <div className="mt-3">
-          <TrendBars
-            points={trend}
-            caption="Completed collections per month · last 12 months · history starts at platform adoption"
-          />
-        </div>
-      )}
-      <ProvenanceStamp text={liveStamp(period)} />
-    </div>
+    <SlaCard
+      label="Total Collections"
+      isError={isError}
+      isLoading={!period.unresolved && !isError && (isLoading || periodTotal === undefined)}
+      value={period.unresolved ? '—' : String(periodTotal ?? 0)}
+      sub={period.unresolved ? 'Period unavailable' : 'Completed collections'}
+      provenance={liveStamp(period)}
+      footer={
+        trend && trend.length > 0 ? (
+          <Sparkline points={trend} caption="Completed collections per month · last 12 months" />
+        ) : undefined
+      }
+    />
   )
 }
 
-// ── VOLMIX — Service Breakdown (insight, full-width, spec §3.8) ──────────────
-// Period anchor: booking created_at (booked-in-period; per-item service dates
-// would need an item-level date join — documented divergence from TREND).
+// ── VOLMIX — Service Breakdown (insight, donut, spec §3.8) ───────────────────
+// Period anchor: service date (fy_id / item collection_date) — see header.
 
 /**
- * Fixed per-service bar colours, matching the admin dashboard's convention
+ * Fixed per-service segment colours, matching the admin dashboard's convention
  * (bulk/green split + ANC_COLORS in admin/page.tsx). Keyed by display name; an
  * unmapped or renamed service falls back to a palette colour rather than
  * vanishing. The fallback is positional (indexed by qty rank), so it is stable
@@ -823,19 +1039,33 @@ const SERVICE_COLOR_FALLBACK = ['#6B8299', '#B0763A', '#26506B', '#93A7B8']
 
 function VolumeMixCard({ clientId, area, period }: CardScope) {
   const supabase = createClient()
-  const bounds = awstTimestampBounds(period)
+  const fyScoped = period.kind === 'fy'
   const { data, isLoading, isError } = useQuery({
     queryKey: ['sla-volmix', clientId, area, ...periodKey(period)],
     enabled: !!clientId && !period.unresolved,
     queryFn: async () => {
-      let q = supabase
-        .from('booking')
-        .select('booking_item(no_services, actual_services, is_extra, service!inner(name, waste_stream))')
+      // Service-date anchor (review 02/07): fy presets → fy_id, range presets
+      // → item collection_date inside the window — never created_at, which
+      // surfaced legacy-imported bookings under Last FY / Last month.
+      let q = fyScoped
+        ? supabase
+            .from('booking')
+            .select('booking_item(no_services, actual_services, is_extra, service!inner(name, waste_stream))')
+            .eq('fy_id', period.fyId!)
+        : (() => {
+            let ranged = supabase
+              .from('booking')
+              .select(
+                'booking_item!inner(no_services, actual_services, is_extra, service!inner(name, waste_stream), collection_date!inner(date))'
+              )
+            if (period.from) ranged = ranged.gte('booking_item.collection_date.date', period.from)
+            if (period.to) ranged = ranged.lte('booking_item.collection_date.date', period.to)
+            return ranged
+          })()
+      q = q
         .eq('client_id', clientId)
         .not('status', 'in', '("Cancelled","Pending Payment")')
       if (area) q = q.eq('collection_area_id', area)
-      if (bounds.gte) q = q.gte('created_at', bounds.gte)
-      if (bounds.lt) q = q.lt('created_at', bounds.lt)
       const rows = orThrow(await q)
       const flat = (rows ?? []).flatMap((b) => {
         const items = (b.booking_item ?? []) as Array<{
@@ -859,49 +1089,107 @@ function VolumeMixCard({ clientId, area, period }: CardScope) {
     },
   })
   const r = data
+  const hasData = !!r && !r.isEmpty && !period.unresolved && !isError
+  // Chart panel, not a KPI card (design batch 3): no headline number — the
+  // donut IS the content, with the provenance stamp as the panel footer.
   return (
-    <div className="mt-4 rounded-xl bg-white p-5 shadow-sm">
-      <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Service Breakdown</p>
-      {period.unresolved ? (
-        <p className="mt-1 text-body-sm text-gray-400">Period unavailable.</p>
-      ) : isLoading || !r ? (
-        <p className="mt-1 text-body-sm text-gray-400">Loading…</p>
-      ) : r.isEmpty ? (
-        <p className="mt-1 text-body-sm text-gray-400">No collections match these filters.</p>
-      ) : (
-        <>
-          <p className="mt-1 font-[family-name:var(--font-heading)] text-2xl font-bold text-[#293F52]">
-            {r.totalCollections}
-            <span className="ml-1 text-[11px] font-medium text-gray-400">collections (booked)</span>
+    <div className="flex flex-col rounded-xl bg-white p-5 shadow-sm">
+      <CardLabel text="Service Breakdown" />
+      <div className="flex flex-1 items-center py-3">
+        {period.unresolved ? (
+          <p className="text-[11px] text-gray-500">Period unavailable.</p>
+        ) : isError ? (
+          <p className="font-[family-name:var(--font-heading)] text-sm font-bold text-amber-600">
+            Couldn&apos;t load
           </p>
-          <p className="mt-0.5 text-[11px] text-gray-500">
-            {r.freeUnits} included · {r.extraUnits} extra
-          </p>
-          {!r.isLowN && (
-            <div className="mt-3 space-y-1">
-              {r.byService.map((s, i) => (
-                <div key={s.name} className="flex items-center gap-3">
-                  <span className="w-40 truncate text-body-sm text-gray-600">{s.name}</span>
-                  <div className="h-2 flex-1 overflow-hidden rounded-full bg-gray-100">
-                    <div
-                      className="h-full rounded-full"
-                      style={{
-                        width: `${Math.max(2, (s.qty / r.totalCollections) * 100)}%`,
-                        backgroundColor:
-                          SERVICE_COLORS[s.name] ??
-                          SERVICE_COLOR_FALLBACK[i % SERVICE_COLOR_FALLBACK.length],
-                      }}
-                    />
-                  </div>
-                  <span className="w-10 text-right text-body-sm font-semibold text-gray-700">{s.qty}</span>
-                </div>
-              ))}
-            </div>
-          )}
-          {r.isLowN && <p className="mt-2 text-[11px] text-gray-400">Building data</p>}
-        </>
+        ) : isLoading || !r ? (
+          <p className="text-[11px] text-gray-500">Loading…</p>
+        ) : r.isEmpty ? (
+          <p className="text-[11px] text-gray-500">No collections match these filters.</p>
+        ) : (
+          <DonutChart
+            svgClassName="h-36 w-36"
+            ariaLabel="Service breakdown"
+            segments={r.byService.map((s, i) => ({
+              label: s.name,
+              value: s.qty,
+              color:
+                SERVICE_COLORS[s.name] ??
+                SERVICE_COLOR_FALLBACK[i % SERVICE_COLOR_FALLBACK.length],
+            }))}
+          />
+        )}
+      </div>
+      {hasData && (
+        <p className="text-[11px] text-gray-500">
+          {r.freeUnits} included · {r.extraUnits} extra
+          {r.isLowN ? ' · building data' : ''}
+        </p>
       )}
-      <ProvenanceStamp text={`${liveStamp(period)} · booked in period`} />
+      <div className="mt-auto">
+        <ProvenanceStamp text={`${liveStamp(period)} · by service date`} />
+      </div>
+    </div>
+  )
+}
+
+// ── NCN Types — reasons donut, top 4 + Other (design 02/07 batch 5) ──────────
+// Period anchor: notice reported_at (the rect convention). NCN only — NP has
+// no reason taxonomy.
+const REASON_COLORS = ['#293F52', '#6B8299', '#B0763A', '#26506B', '#93A7B8']
+
+function NoticeTypesCard({ clientId, area, period }: CardScope) {
+  const supabase = createClient()
+  const bounds = awstTimestampBounds(period)
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ['sla-ncn-types', clientId, area, ...periodKey(period)],
+    enabled: !!clientId && !period.unresolved,
+    queryFn: async () => {
+      // Area filter joins the notice's INTAKE booking — NCN has two booking
+      // FKs, so the FK is aliased explicitly (§21 trap).
+      let q = area
+        ? supabase
+            .from('non_conformance_notice')
+            .select('reason, orig:booking!non_conformance_notice_booking_id_fkey!inner(collection_area_id)')
+            .eq('client_id', clientId)
+            .eq('orig.collection_area_id', area)
+        : supabase.from('non_conformance_notice').select('reason').eq('client_id', clientId)
+      if (bounds.gte) q = q.gte('reported_at', bounds.gte)
+      if (bounds.lt) q = q.lt('reported_at', bounds.lt)
+      const rows = orThrow(await q)
+      return computeNoticeReasons((rows ?? []).map((r) => ({ reason: (r.reason as string | null) ?? null })))
+    },
+  })
+  const slices = data ?? []
+  return (
+    <div className="flex flex-col rounded-xl bg-white p-5 shadow-sm">
+      <CardLabel text="NCN Types" />
+      <div className="flex flex-1 items-center py-3">
+        {period.unresolved ? (
+          <p className="text-[11px] text-gray-500">Period unavailable.</p>
+        ) : isError ? (
+          <p className="font-[family-name:var(--font-heading)] text-sm font-bold text-amber-600">
+            Couldn&apos;t load
+          </p>
+        ) : isLoading ? (
+          <p className="text-[11px] text-gray-500">Loading…</p>
+        ) : slices.length === 0 ? (
+          <p className="text-[11px] text-gray-500">No notices in this period.</p>
+        ) : (
+          <DonutChart
+            svgClassName="h-36 w-36"
+            ariaLabel="NCN types"
+            segments={slices.map((s, i) => ({
+              label: s.label,
+              value: s.value,
+              color: REASON_COLORS[i % REASON_COLORS.length]!,
+            }))}
+          />
+        )}
+      </div>
+      <div className="mt-auto">
+        <ProvenanceStamp text={`${liveStamp(period)} · by reported date`} />
+      </div>
     </div>
   )
 }
