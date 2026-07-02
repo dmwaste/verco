@@ -121,10 +121,11 @@ export function CardLabel({ text }: { text: string }) {
 }
 
 /**
- * VER-290 freshness/period stamp for CHART panels (Bookings by Status,
- * anything hand-rolled with its own body). KPI cards render the stamp inside
- * <SlaCard> under the value instead. gray-500: the stamp is load-bearing and
- * must clear readable contrast (gray-400 at 10px fails WCAG AA).
+ * VER-290 freshness/period stamp for CHART panels (Service Breakdown, NCN
+ * Types, Prefer This Service — anything hand-rolled with its own body). KPI
+ * cards render the stamp inside <SlaCard> under the value instead. gray-500:
+ * the stamp is load-bearing and must clear readable contrast (gray-400 at
+ * 10px fails WCAG AA).
  */
 export function ProvenanceStamp({ text }: { text: string }) {
   return (

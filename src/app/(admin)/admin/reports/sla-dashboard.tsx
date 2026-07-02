@@ -70,10 +70,13 @@ import {
 import { CardLabel, ProvenanceStamp, SlaCard, scorecardTone } from './sla-card'
 import { Sparkline, type TrendPoint } from './sparkline'
 import { DonutChart } from './donut-chart'
-import { useReportsMonthly } from './use-reports-monthly'
+import { MONTHLY_QUERY_OPTIONS, useReportsMonthly } from './use-reports-monthly'
 import {
   cleanCollectionPoints,
+  csatSeries,
+  pct1Value,
   percentPoints,
+  SERIES,
   type MonthlyPoint,
 } from '@/lib/reports/monthly-series'
 import {
@@ -171,9 +174,7 @@ function useMonthlyTrend(
   return useQuery({
     queryKey: [name, clientId, area, anchor],
     enabled: !!clientId,
-    retry: 1,
-    staleTime: 10 * 60_000,
-    refetchOnWindowFocus: false,
+    ...MONTHLY_QUERY_OPTIONS,
     queryFn: async () => {
       const rows = orThrow(await call(anchor))
       const observed = (rows ?? []).map((r) => ({
@@ -205,16 +206,14 @@ function useMonthlyPercentTrend(
   return useQuery({
     queryKey: [name, clientId, area, anchor],
     enabled: !!clientId,
-    retry: 1,
-    staleTime: 10 * 60_000,
-    refetchOnWindowFocus: false,
+    ...MONTHLY_QUERY_OPTIONS,
     queryFn: async () => {
       const rows = orThrow(await call(anchor)) ?? []
       return rows
         .filter((r) => Number(r[denKey] ?? 0) > 0)
         .map((r) => ({
           month: String(r.month),
-          value: Math.round((Number(r[numKey] ?? 0) / Number(r[denKey])) * 1000) / 10,
+          value: pct1Value(Number(r[numKey] ?? 0), Number(r[denKey])),
         })) as TrendPoint[]
     },
   })
@@ -222,9 +221,7 @@ function useMonthlyPercentTrend(
 
 /** Footer slot for a rate sparkline — omitted until there are observed months. */
 function pctSpark(points: readonly MonthlyPoint[] | undefined, caption: string) {
-  return points && points.length > 0 ? (
-    <Sparkline points={points as TrendPoint[]} caption={caption} />
-  ) : undefined
+  return points && points.length > 0 ? <Sparkline points={points} caption={caption} /> : undefined
 }
 
 export function SlaDashboard({ clientId, selectedArea, period, viewerRole }: {
@@ -492,7 +489,7 @@ function RectCard({ clientId, area, period }: CardScope) {
       target={`Target ≥ ${RECT_TARGET_PCT}%`}
       provenance={liveStamp(period)}
       footer={pctSpark(
-        percentPoints(monthly.rows, 'rect_num', 'rect_den'),
+        percentPoints(monthly.rows, SERIES.rectNum, SERIES.rectDen),
         'Rectified ≤ 2 working days % · last 12 months',
       )}
     />
@@ -562,7 +559,7 @@ function SrCards({ clientId, area, period }: CardScope) {
         target={`Target ≤ ${RESPONSE_TARGET_WD} working days`}
         provenance={liveStamp(period)}
         footer={pctSpark(
-          percentPoints(monthly.rows, 'resp_num', 'resp_den'),
+          percentPoints(monthly.rows, SERIES.respNum, SERIES.respDen),
           `Responded ≤ ${RESPONSE_TARGET_WD} working days % · last 12 months`,
         )}
       />
@@ -633,7 +630,7 @@ function SelfServiceCard({ clientId, area, period }: CardScope) {
       target={`Target ≥ ${SELF_SERVICE_TARGET_PCT}%`}
       provenance={liveStamp(period)}
       footer={pctSpark(
-        percentPoints(monthly.rows, 'self_served', 'self_scope'),
+        percentPoints(monthly.rows, SERIES.selfServed, SERIES.selfScope),
         'Self-service % · last 12 months',
       )}
     />
@@ -684,7 +681,7 @@ function NotifCard({ clientId, area, period }: CardScope) {
       target={`Target ≥ ${NOTIF_TARGET_PCT}%`}
       provenance={liveStamp(period)}
       footer={pctSpark(
-        percentPoints(monthly.rows, 'notif_delivered', 'notif_tracked'),
+        percentPoints(monthly.rows, SERIES.notifDelivered, SERIES.notifTracked),
         'Delivered % · last 12 months',
       )}
     />
@@ -692,8 +689,9 @@ function NotifCard({ clientId, area, period }: CardScope) {
 }
 
 // ── PENETRATION — Property Penetration (insight, spec §3.9, RPC) ─────────────
-// Period anchor: booking created_at (booked-during-period); the eligible
-// denominator is point-in-time by design. Contractor-only per 8A.
+// Period anchor: item SERVICE dates (any collection_date in the window —
+// migration 20260702180000; created_at surfaced legacy-imported bookings);
+// the eligible denominator is point-in-time by design. Contractor-only per 8A.
 function PenetrationCard({ clientId, area, period }: CardScope) {
   const supabase = createClient()
   const { data, isLoading, isError } = useQuery({
@@ -794,7 +792,7 @@ function CustomerSatisfactionCards({ clientId, area, period }: CardScope) {
         target={target}
         provenance={liveStamp(period)}
         footer={pctSpark(
-          percentPoints(monthly.rows, `csat_${seriesKey}_good`, `csat_${seriesKey}_n`),
+          percentPoints(monthly.rows, csatSeries(seriesKey, 'good'), csatSeries(seriesKey, 'n')),
           'Rated 4+ % · last 12 months',
         )}
       />
@@ -964,7 +962,7 @@ export function OpenNoticesCard({ clientId, area }: CardScope) {
 export function CollectionsTrendCard({ clientId, area, period }: CardScope) {
   const supabase = createClient()
 
-  const { data: periodTotal, isLoading } = useQuery({
+  const { data: periodTotal, isLoading, isError } = useQuery({
     queryKey: ['sla-trend-total', clientId, area, ...periodKey(period)],
     enabled: !!clientId && !period.unresolved,
     queryFn: async () => {
@@ -996,7 +994,8 @@ export function CollectionsTrendCard({ clientId, area, period }: CardScope) {
   return (
     <SlaCard
       label="Total Collections"
-      isLoading={!period.unresolved && (isLoading || periodTotal === undefined)}
+      isError={isError}
+      isLoading={!period.unresolved && !isError && (isLoading || periodTotal === undefined)}
       value={period.unresolved ? '—' : String(periodTotal ?? 0)}
       sub={period.unresolved ? 'Period unavailable' : 'Completed collections'}
       provenance={liveStamp(period)}

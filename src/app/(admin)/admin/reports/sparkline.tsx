@@ -43,7 +43,8 @@ export function Sparkline({
   points,
   caption,
 }: {
-  points: TrendPoint[]
+  /** Accepts any {month, value} series (MonthlyPoint is structurally identical). */
+  points: readonly TrendPoint[]
   /** e.g. "Completed stops · last 12 months". */
   caption?: string
 }) {

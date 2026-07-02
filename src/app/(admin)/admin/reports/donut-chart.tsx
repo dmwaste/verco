@@ -2,7 +2,7 @@
 
 /**
  * Donut chart + legend for the reports surface (design feedback 02/07:
- * Service Breakdown and Bookings by Status render as donuts).
+ * Service Breakdown, NCN Types and the Prefer This Service panel).
  *
  * Pure renderer: callers pass pre-aggregated segments with resolved colours.
  * Zero-total series render nothing — the caller owns the empty state.
@@ -37,13 +37,17 @@ export function DonutChart({
   const total = visible.reduce((sum, s) => sum + s.value, 0)
   if (total === 0) return null
 
-  let offset = 0
-  const arcs = visible.map((s) => {
-    const len = (s.value / total) * CIRC
-    const arc = { ...s, len, offset }
-    offset += len
-    return arc
-  })
+  // Scan (not map-with-mutation — react-hooks/immutability): each arc starts
+  // where the previous one ended.
+  const arcs = visible.reduce<Array<DonutSegment & { len: number; offset: number }>>(
+    (acc, s) => {
+      const prev = acc[acc.length - 1]
+      const offset = prev ? prev.offset + prev.len : 0
+      acc.push({ ...s, len: (s.value / total) * CIRC, offset })
+      return acc
+    },
+    [],
+  )
   const summary = `${ariaLabel} — ${visible
     .map((s) => `${s.label}: ${s.value}`)
     .join('; ')}`
@@ -59,9 +63,9 @@ export function DonutChart({
         <title>{summary}</title>
         {/* Track ring — visible when a single tiny segment would look lost. */}
         <circle cx="50" cy="50" r={R} fill="none" stroke="#F3F4F6" strokeWidth="15" />
-        {arcs.map((a) => (
+        {arcs.map((a, i) => (
           <circle
-            key={a.label}
+            key={`${a.label}-${i}`}
             cx="50"
             cy="50"
             r={R}
@@ -75,8 +79,8 @@ export function DonutChart({
         ))}
       </svg>
       <ul className="min-w-0 flex-1 space-y-1.5">
-        {visible.map((s) => (
-          <li key={s.label} className="flex items-center gap-2 text-body-sm">
+        {visible.map((s, i) => (
+          <li key={`${s.label}-${i}`} className="flex items-center gap-2 text-body-sm">
             <span
               aria-hidden="true"
               className="h-2.5 w-2.5 shrink-0 rounded-full"

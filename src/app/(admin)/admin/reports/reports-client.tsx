@@ -9,11 +9,11 @@ import {
   type PeriodPreset,
 } from '@/lib/reports/periods'
 import { metricVisible } from '@/lib/reports/audience'
-import { countPoints } from '@/lib/reports/monthly-series'
+import { countPoints, SERIES } from '@/lib/reports/monthly-series'
 import { PeriodSelector } from './period-selector'
 import { SlaCard } from './sla-card'
 import { CollectionsTrendCard, OpenNoticesCard, SlaDashboard } from './sla-dashboard'
-import { Sparkline, type TrendPoint } from './sparkline'
+import { Sparkline } from './sparkline'
 import { useReportsMonthly } from './use-reports-monthly'
 
 export function ReportsClient({
@@ -95,12 +95,8 @@ export function ReportsClient({
     // would draw a misleading flat-zero year.
     if (!monthly.isSuccess) return undefined
     const points = countPoints(monthly.rows, series, monthly.anchor, monthly.now)
-    return points.length > 0 ? (
-      <Sparkline points={points as TrendPoint[]} caption={caption} />
-    ) : undefined
+    return points.length > 0 ? <Sparkline points={points} caption={caption} /> : undefined
   }
-
-  const stamp = `Live · ${period.label}`
 
   return (
     <>
@@ -167,7 +163,7 @@ export function ReportsClient({
               value={period.unresolved ? '—' : String(stats?.openTickets ?? 0)}
               sub={period.unresolved ? 'Period unavailable' : undefined}
               provenance="Live · Current snapshot"
-              footer={countSpark('tickets', 'Tickets per month · last 12 months')}
+              footer={countSpark(SERIES.tickets, 'Tickets per month · last 12 months')}
             />
           )}
         </div>

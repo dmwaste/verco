@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
 /**
@@ -106,6 +106,7 @@ vi.mock('@/lib/supabase/client', () => {
 
 import { ReportsClient } from '@/app/(admin)/admin/reports/reports-client'
 import type { PeriodFyRow } from '@/lib/reports/periods'
+import { csatSeries, SERIES } from '@/lib/reports/monthly-series'
 
 // ── Fixtures ─────────────────────────────────────────────────────────────────
 
@@ -227,23 +228,23 @@ function happyRpc(r: RecordedRpc): MockResult {
       // card folds its own series into a rendered sparkline.
       return {
         data: [
-          { month, series: 'bookings', value: 25 },
-          { month, series: 'tickets', value: 3 },
-          { month, series: 'bc_eligible', value: 40 },
-          { month, series: 'bc_miss', value: 2 },
-          { month, series: 'self_scope', value: 30 },
-          { month, series: 'self_served', value: 30 },
-          { month, series: 'notif_tracked', value: 25 },
-          { month, series: 'notif_delivered', value: 25 },
-          { month, series: 'csat_booking_n', value: 6 },
-          { month, series: 'csat_booking_good', value: 6 },
-          { month, series: 'csat_service_n', value: 6 },
-          { month, series: 'csat_service_good', value: 3 },
-          { month, series: 'csat_overall_n', value: 6 },
-          { month, series: 'rect_den', value: 10 },
-          { month, series: 'rect_num', value: 8 },
-          { month, series: 'resp_den', value: 4 },
-          { month, series: 'resp_num', value: 3 },
+          { month, series: SERIES.bookings, value: 25 },
+          { month, series: SERIES.tickets, value: 3 },
+          { month, series: SERIES.bcEligible, value: 40 },
+          { month, series: SERIES.bcMiss, value: 2 },
+          { month, series: SERIES.selfScope, value: 30 },
+          { month, series: SERIES.selfServed, value: 30 },
+          { month, series: SERIES.notifTracked, value: 25 },
+          { month, series: SERIES.notifDelivered, value: 25 },
+          { month, series: csatSeries('booking', 'n'), value: 6 },
+          { month, series: csatSeries('booking', 'good'), value: 6 },
+          { month, series: csatSeries('service', 'n'), value: 6 },
+          { month, series: csatSeries('service', 'good'), value: 3 },
+          { month, series: csatSeries('overall', 'n'), value: 6 },
+          { month, series: SERIES.rectDen, value: 10 },
+          { month, series: SERIES.rectNum, value: 8 },
+          { month, series: SERIES.respDen, value: 4 },
+          { month, series: SERIES.respNum, value: 3 },
         ],
         error: null,
       }
@@ -419,6 +420,54 @@ describe('query failure states', () => {
     expect(await card('Rectification ≤ 2 Days').findByText(/Couldn.t load/)).toBeInTheDocument()
     // …while unaffected cards still render their values.
     expect(await screen.findByText('95.0%')).toBeInTheDocument()
+  })
+})
+
+describe('query failure states — trend + monthly RPCs (review 02/07)', () => {
+  it('failed get_collections_trend shows an explicit error on Total Collections', async () => {
+    h.respondTable = happyTable
+    h.respondRpc = (r) =>
+      r.name === 'get_collections_trend' ? { data: null, error: { message: 'boom' } } : happyRpc(r)
+    renderPage('contractor-admin')
+    await screen.findByText('Total Collections')
+    expect(await card('Total Collections').findByText(/Couldn.t load/)).toBeInTheDocument()
+  })
+
+  it('failed get_reports_monthly renders no sparkline tails — never flat-zero ones', async () => {
+    h.respondTable = happyTable
+    h.respondRpc = (r) =>
+      r.name === 'get_reports_monthly' ? { data: null, error: { message: 'boom' } } : happyRpc(r)
+    renderPage('contractor-admin')
+    await screen.findByText('95.0%')
+    // Count tail (isSuccess-gated) and rate tails both stay absent.
+    expect(screen.queryByText('Tickets per month · last 12 months')).toBeNull()
+    expect(screen.queryByText('Clean collection % · last 12 months')).toBeNull()
+    // The cards themselves are unaffected by a sparkline-fetch failure.
+    expect(await card('Open Tickets').findByText('3')).toBeInTheDocument()
+  })
+})
+
+// ── Range presets anchor on SERVICE dates (review 02/07) ────────────────────
+
+describe('range-preset service-date anchoring', () => {
+  it('Last month filters bookings by item collection_date, never created_at', async () => {
+    h.respondTable = happyTable
+    h.respondRpc = happyRpc
+    renderPage('contractor-admin')
+    await screen.findByText('95.0%')
+    fireEvent.click(screen.getByRole('button', { name: 'Last month' }))
+    await waitFor(() => {
+      const ranged = h.executed.filter(
+        (q) => q.table === 'booking' && q.select.includes('collection_date!inner'),
+      )
+      expect(ranged.length).toBeGreaterThan(0)
+      for (const q of ranged) {
+        expect(
+          q.filters.some(([m, col]) => m === 'gte' && col === 'booking_item.collection_date.date'),
+        ).toBe(true)
+        expect(q.filters.some(([, col]) => col === 'created_at')).toBe(false)
+      }
+    })
   })
 })
 

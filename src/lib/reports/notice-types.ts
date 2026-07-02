@@ -28,6 +28,16 @@ export function computeNoticeReasons(
 
   if (sorted.length <= topN) return sorted
   const top = sorted.slice(0, topN)
-  const other = sorted.slice(topN).reduce((sum, s) => sum + s.value, 0)
+  let other = sorted.slice(topN).reduce((sum, s) => sum + s.value, 0)
+  // A GENUINE reason literally named 'Other' inside the top-N would collide
+  // with the synthetic bucket (duplicate labels → duplicate donut slices);
+  // fold it into the aggregate instead.
+  const genuineOther = top.findIndex((s) => s.label === 'Other')
+  if (genuineOther !== -1) {
+    other += top[genuineOther]!.value
+    top.splice(genuineOther, 1)
+    const next = sorted[topN]
+    if (next && next.label !== 'Other') top.push(next)
+  }
   return [...top, { label: 'Other', value: other }]
 }

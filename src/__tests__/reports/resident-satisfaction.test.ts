@@ -4,6 +4,7 @@ import {
   RS_TARGET_PCT,
   RS_LOW_N,
   type ResidentSatisfactionRow,
+  computeServicePreference,
 } from '@/lib/reports/resident-satisfaction'
 
 /**
@@ -245,7 +246,6 @@ describe('computeResidentSatisfaction', () => {
 })
 
 // ── Service preference donut (design 02/07 batch 5) ─────────────────────────
-import { computeServicePreference } from '@/lib/reports/resident-satisfaction'
 
 describe('computeServicePreference', () => {
   it('counts Yes / No / Indifferent case- and space-insensitively', () => {

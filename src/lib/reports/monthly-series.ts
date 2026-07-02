@@ -16,6 +16,33 @@
 
 import { zeroFillMonths } from '@/lib/reports/periods'
 
+/**
+ * The TS half of the get_reports_monthly series contract — ONE definition for
+ * the names the migration SQL emits. A typo'd bare string fails silently
+ * (percentPoints filters to zero rows → the sparkline just doesn't render),
+ * so cards and test fixtures must reference these, never literals.
+ */
+export const SERIES = {
+  bookings: 'bookings',
+  bcEligible: 'bc_eligible',
+  bcMiss: 'bc_miss',
+  /** Contractor-only (8A) — the RPC only emits these to contractor roles. */
+  selfScope: 'self_scope',
+  selfServed: 'self_served',
+  /** Contractor-only (8A). */
+  notifTracked: 'notif_tracked',
+  notifDelivered: 'notif_delivered',
+  tickets: 'tickets',
+  rectNum: 'rect_num',
+  rectDen: 'rect_den',
+  respNum: 'resp_num',
+  respDen: 'resp_den',
+} as const
+
+export function csatSeries(key: 'booking' | 'service' | 'overall', kind: 'n' | 'good'): string {
+  return `csat_${key}_${kind}`
+}
+
 export interface MonthlySeriesRow {
   /** `YYYY-MM-DD` month start (Postgres date). */
   month: string
@@ -28,8 +55,9 @@ export interface MonthlyPoint {
   value: number
 }
 
-/** Round to 1 dp — matches the cards' pct1 display precision. */
-function pct1Value(num: number, den: number): number {
+/** Round to 1 dp — matches the cards' pct1 display precision. Shared with the
+ * dedicated monthly hooks so sparkline precision has ONE definition. */
+export function pct1Value(num: number, den: number): number {
   return Math.round((num / den) * 1000) / 10
 }
 
@@ -75,10 +103,10 @@ export function percentPoints(
 export function cleanCollectionPoints(rows: readonly MonthlySeriesRow[]): MonthlyPoint[] {
   const miss = new Map<string, number>()
   for (const r of rows) {
-    if (r.series === 'bc_miss') miss.set(String(r.month).slice(0, 10), Number(r.value))
+    if (r.series === SERIES.bcMiss) miss.set(String(r.month).slice(0, 10), Number(r.value))
   }
   return rows
-    .filter((r) => r.series === 'bc_eligible' && Number(r.value) > 0)
+    .filter((r) => r.series === SERIES.bcEligible && Number(r.value) > 0)
     .map((r) => {
       const month = String(r.month).slice(0, 10)
       const eligible = Number(r.value)
