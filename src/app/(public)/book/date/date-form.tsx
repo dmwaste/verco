@@ -88,7 +88,8 @@ export function DateForm() {
         .select('*')
         .eq('collection_area_id', collectionAreaId)
         .eq('is_open', true)
-        .eq('for_mud', false)
+        // for_mud dates are bookable by residents alongside MUDs — the flag
+        // enables MUD bookings on that date, it does not exclude residents.
         .gte('date', new Date().toISOString().split('T')[0])
         .order('date', { ascending: true })
 

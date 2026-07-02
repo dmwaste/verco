@@ -1,10 +1,11 @@
 import { createClient } from '@/lib/supabase/server'
-import { format, startOfWeek, endOfWeek, formatDistanceToNow } from 'date-fns'
+import { format, formatDistanceToNow } from 'date-fns'
 import { BookingStatusBadge } from '@/components/booking/booking-status-badge'
 import Link from 'next/link'
 import { effectiveCapacity, indexPoolDates } from '@/lib/capacity/effective-capacity'
 import { getCurrentAdminClient } from '@/lib/admin/current-client'
 import { getTenantMudPropertyIds } from '@/lib/admin/mud-tenant-scope'
+import { awstWeekRange } from '@/lib/date/awst-week'
 
 export default async function AdminDashboardPage() {
   const supabase = await createClient()
@@ -18,8 +19,11 @@ export default async function AdminDashboardPage() {
   const clientId = currentClient?.id ?? ''
 
   const now = new Date()
-  const weekStart = startOfWeek(now, { weekStartsOn: 1 }).toISOString()
-  const weekEnd = endOfWeek(now, { weekStartsOn: 1 }).toISOString()
+  // "This week" = the current AWST week (Mon–Sun) as calendar-date strings. Used
+  // to scope the two "this week" widgets to collections whose collection_date
+  // falls in this week — NOT booking.created_at. TZ-safe on the UTC prod
+  // container (see awstWeekRange; the old startOfWeek(now) computed the UTC week).
+  const { monday: weekMonday, sunday: weekSunday } = awstWeekRange(now)
 
   // Get current FY + the current tenant's MUD property ids in parallel. The MUD
   // reminder view (v_mud_next_expected) reads public-SELECT eligible_properties
@@ -40,11 +44,6 @@ export default async function AdminDashboardPage() {
   // admin sees every tenant's counts merged. collection_date is public-SELECT so
   // it is explicitly filtered by clientId via its area. Each .eq is guarded by
   // `if (clientId)` so the no-client fallback keeps the historical behaviour.
-  const weekBookingsQuery = supabase
-    .from('booking')
-    .select('id', { count: 'exact', head: true })
-    .gte('created_at', weekStart)
-    .lte('created_at', weekEnd)
   const completedQuery = supabase
     .from('booking')
     .select('id', { count: 'exact', head: true })
@@ -61,75 +60,66 @@ export default async function AdminDashboardPage() {
     .from('service_ticket')
     .select('id', { count: 'exact', head: true })
     .in('status', ['open', 'in_progress'])
-  const weeklySubmittedQuery = supabase.from('booking').select('id', { count: 'exact', head: true }).eq('status', 'Submitted').gte('created_at', weekStart).lte('created_at', weekEnd)
-  const weeklyConfirmedQuery = supabase.from('booking').select('id', { count: 'exact', head: true }).eq('status', 'Confirmed').gte('created_at', weekStart).lte('created_at', weekEnd)
-  const weeklyCompletedQuery = supabase.from('booking').select('id', { count: 'exact', head: true }).eq('status', 'Completed').gte('created_at', weekStart).lte('created_at', weekEnd)
-  const weeklyCancelledQuery = supabase.from('booking').select('id', { count: 'exact', head: true }).eq('status', 'Cancelled').gte('created_at', weekStart).lte('created_at', weekEnd)
-  const weeklyNcnQuery = supabase.from('booking').select('id', { count: 'exact', head: true }).eq('status', 'Non-conformance').gte('created_at', weekStart).lte('created_at', weekEnd)
-  const weeklyNpQuery = supabase.from('booking').select('id', { count: 'exact', head: true }).eq('status', 'Nothing Presented').gte('created_at', weekStart).lte('created_at', weekEnd)
   const openTicketsQuery = supabase
     .from('service_ticket')
     .select('id, display_id, subject, status, priority, created_at, contact!inner(full_name)')
     .in('status', ['open', 'in_progress'])
     .order('created_at', { ascending: false })
     .limit(5)
+  // Collection dates whose date falls in the current AWST week, scoped to the
+  // active tenant's areas (collection_date is public-SELECT — RLS won't scope it).
+  // These ids drive the two "this week" widgets via their bookings' items.
+  const weekDatesQuery = supabase
+    .from('collection_date')
+    .select('id, collection_area!inner(client_id)')
+    .gte('date', weekMonday)
+    .lte('date', weekSunday)
+    .eq('collection_area.client_id', clientId)
   if (clientId) {
-    weekBookingsQuery.eq('client_id', clientId)
     completedQuery.eq('client_id', clientId)
     ncnQuery.eq('client_id', clientId)
     npQuery.eq('client_id', clientId)
     ticketsQuery.eq('client_id', clientId)
-    weeklySubmittedQuery.eq('client_id', clientId)
-    weeklyConfirmedQuery.eq('client_id', clientId)
-    weeklyCompletedQuery.eq('client_id', clientId)
-    weeklyCancelledQuery.eq('client_id', clientId)
-    weeklyNcnQuery.eq('client_id', clientId)
-    weeklyNpQuery.eq('client_id', clientId)
     openTicketsQuery.eq('client_id', clientId)
   }
 
   const [
-    weekBookingsResult,
     completedResult,
     ncnResult,
     npResult,
     ticketsResult,
     upcomingDatesResult,
-    weeklySubmitted,
-    weeklyConfirmed,
-    weeklyCompleted,
-    weeklyCancelled,
-    weeklyNcn,
-    weeklyNp,
     openTicketsResult,
+    weekDatesResult,
+    ancServicesResult,
     mudRemindersResult,
   ] = await Promise.all([
-    weekBookingsQuery,
     completedQuery,
     ncnQuery,
     npQuery,
     ticketsQuery,
+    // Upcoming collection dates — ALL future dates (open AND closed) so staff can
+    // spot closures at a glance, chronological. Rendered as a compact scrollable
+    // list; a generous cap keeps the DOM sane, with "View all" for the full page.
     supabase
       .from('collection_date')
       .select(
-        `id, date,
+        `id, date, is_open,
          bulk_capacity_limit, bulk_units_booked, bulk_is_closed,
          anc_capacity_limit, anc_units_booked, anc_is_closed,
          id_capacity_limit, id_units_booked, id_is_closed,
          collection_area!inner(name, code, capacity_pool_id, client_id)`
       )
-      .eq('is_open', true)
       .eq('collection_area.client_id', clientId)
       .gte('date', now.toISOString().split('T')[0])
       .order('date', { ascending: true })
-      .limit(5),
-    weeklySubmittedQuery,
-    weeklyConfirmedQuery,
-    weeklyCompletedQuery,
-    weeklyCancelledQuery,
-    weeklyNcnQuery,
-    weeklyNpQuery,
+      .limit(60),
     openTicketsQuery,
+    weekDatesQuery,
+    // Ancillary service names (category "anc") — drives the allocation legend so it
+    // always reflects the real current services and never silently zeroes on a
+    // rename (service is public-SELECT / global; not tenant-specific).
+    supabase.from('service').select('name, category!inner(code)').eq('category.code', 'anc'),
     // MUD reminders: Registered MUDs with next_expected_date <= 14 days from today
     // (or NULL — for new MUDs that haven't had a booking yet, surfacing them
     // gives admins a chance to schedule the first one).
@@ -143,13 +133,47 @@ export default async function AdminDashboardPage() {
 
   const openExceptions = (ncnResult.count ?? 0) + (npResult.count ?? 0)
 
-  // FY allocation consumption — aggregate booking items by service type. Scope to
-  // the active client via the booking embed so a contractor admin's consumption
-  // bars reflect only the selected tenant (booking_item has no client_id of its own).
+  // ── "This week" widgets — bookings whose collection_date is in this AWST week ──
+  // A booking has no date column; it is dated through booking_item.collection_date_id.
+  // One booking can have several items, so dedupe to one status per booking.
+  const weekDateIds = (weekDatesResult.data ?? []).map((d) => d.id)
+  const weekBookingStatus = new Map<string, string>()
+  if (weekDateIds.length) {
+    const weekItemsQuery = supabase
+      .from('booking_item')
+      .select('booking_id, booking!inner(status, client_id)')
+      .in('collection_date_id', weekDateIds)
+    if (clientId) weekItemsQuery.eq('booking.client_id', clientId)
+    const { data: weekItems } = await weekItemsQuery
+    for (const it of weekItems ?? []) {
+      const b = it.booking as unknown as { status: string }
+      weekBookingStatus.set(it.booking_id, b.status)
+    }
+  }
+  // Headline "Bookings This Week" excludes not-going-ahead bookings; the summary
+  // breaks the same set out by outcome status.
+  let bookingsThisWeek = 0
+  let weekCompleted = 0
+  let weekCancelled = 0
+  let weekNcn = 0
+  let weekNp = 0
+  for (const status of weekBookingStatus.values()) {
+    if (status !== 'Cancelled' && status !== 'Pending Payment') bookingsThisWeek++
+    if (status === 'Completed') weekCompleted++
+    else if (status === 'Cancelled') weekCancelled++
+    else if (status === 'Non-conformance') weekNcn++
+    else if (status === 'Nothing Presented') weekNp++
+  }
+
+  // FY collection totals — aggregate booking items for the current FY. Scope to the
+  // active client via the booking embed (booking_item has no client_id). Keyed off
+  // category.code + service.waste_stream (stable) rather than display names, which
+  // drift on rename — e.g. "General"/"Green" → "Bulk Waste"/"Green Waste" silently
+  // zeroed the old bar.
   let fyItemsQuery = fy
     ? supabase
         .from('booking_item')
-        .select('no_services, service!inner(name, category!inner(name, code)), booking!inner(fy_id, status, client_id)')
+        .select('no_services, service!inner(name, waste_stream, category!inner(code)), booking!inner(fy_id, status, client_id)')
         .eq('booking.fy_id', fy.id)
         .not('booking.status', 'in', '("Cancelled","Pending Payment")')
     : null
@@ -158,42 +182,45 @@ export default async function AdminDashboardPage() {
   }
   const { data: fyItems } = fyItemsQuery ? await fyItemsQuery : { data: null }
 
-  // Sum by service type name
-  const serviceUsage = new Map<string, number>()
-  if (fyItems) {
-    for (const item of fyItems) {
-      const st = item.service as unknown as { name: string; category: { name: string; code: string } }
-      serviceUsage.set(st.name, (serviceUsage.get(st.name) ?? 0) + item.no_services)
+  // Collection (category "bulk"): split Bulk (general stream) vs Green.
+  // Ancillary (category "anc"): split by service name (the 3 types share a stream).
+  let bulkWasteCount = 0
+  let greenWasteCount = 0
+  const ancByService = new Map<string, number>()
+  for (const item of fyItems ?? []) {
+    const s = item.service as unknown as {
+      name: string
+      waste_stream: string
+      category: { code: string }
+    }
+    const n = item.no_services
+    if (s.category.code === 'bulk') {
+      if (s.waste_stream === 'green') greenWasteCount += n
+      else bulkWasteCount += n
+    } else if (s.category.code === 'anc') {
+      ancByService.set(s.name, (ancByService.get(s.name) ?? 0) + n)
     }
   }
+  const collectionTotal = bulkWasteCount + greenWasteCount
+  const ancTotal = [...ancByService.values()].reduce((sum, n) => sum + n, 0)
 
-  const generalCount = serviceUsage.get('General') ?? 0
-  const greenCount = serviceUsage.get('Green') ?? 0
-  const mattressCount = serviceUsage.get('Mattress') ?? 0
-  const ewasteCount = serviceUsage.get('E-Waste') ?? 0
-  const whitegoodsCount = serviceUsage.get('Whitegoods') ?? 0
-  const bulkTotal = generalCount + greenCount
-  const ancTotal = mattressCount + ewasteCount + whitegoodsCount
-
-  // Get total allocation maximums from allocation rules. allocation_rules is
-  // public-SELECT (RLS USING(true)) — scope to the active client via its area,
-  // else the Max denominator sums other tenants' rules and skews consumption %.
-  const { data: allocRules } = await supabase
-    .from('allocation_rules')
-    .select('max_collections, category!inner(code), collection_area!inner(client_id)')
-    .eq('collection_area.client_id', clientId)
-
-  let bulkMax = 0
-  let ancMax = 0
-  if (allocRules) {
-    for (const rule of allocRules) {
-      const cat = rule.category as unknown as { code: string }
-      if (cat.code === 'bulk') bulkMax += rule.max_collections
-      else if (cat.code === 'anc') ancMax += rule.max_collections
-    }
+  // Legend for the Ancillary card: the real current anc services (alphabetical),
+  // each with its FY count. Fixed colours for the known three; a stable fallback
+  // palette keeps any newly-added service visible.
+  const ANC_COLORS: Record<string, string> = {
+    Mattress: '#8FA5B8',
+    'E-Waste': '#FF8C42',
+    Whitegoods: '#3A5A73',
   }
-  if (bulkMax === 0) bulkMax = 1
-  if (ancMax === 0) ancMax = 1
+  const ANC_FALLBACK = ['#6B8299', '#B0763A', '#26506B', '#93A7B8']
+  const ancServices = (ancServicesResult.data ?? [])
+    .map((s) => s.name)
+    .sort()
+    .map((name, i) => ({
+      name,
+      count: ancByService.get(name) ?? 0,
+      color: ANC_COLORS[name] ?? ANC_FALLBACK[i % ANC_FALLBACK.length],
+    }))
 
   const upcomingDates = upcomingDatesResult.data ?? []
   const openTickets = openTicketsResult.data ?? []
@@ -298,7 +325,7 @@ export default async function AdminDashboardPage() {
           </div>
           <div className="mb-2 text-xs font-medium text-gray-500">Bookings This Week</div>
           <div className="font-[family-name:var(--font-heading)] text-display font-bold text-[#293F52]">
-            {weekBookingsResult.count ?? 0}
+            {bookingsThisWeek}
           </div>
         </div>
 
@@ -339,59 +366,65 @@ export default async function AdminDashboardPage() {
 
       {/* Two-column grid */}
       <div className="grid grid-cols-2 gap-4 px-7 py-5">
-        {/* Upcoming collection dates */}
+        {/* Upcoming collection dates — all future dates (open + closed), compact */}
         <div className="rounded-xl bg-white p-5 shadow-sm">
-          <div className="mb-3.5 flex items-center justify-between font-[family-name:var(--font-heading)] text-sm font-semibold text-[#293F52]">
+          <div className="mb-3 flex items-center justify-between font-[family-name:var(--font-heading)] text-sm font-semibold text-[#293F52]">
             Upcoming Collection Dates
             <Link href="/admin/collection-dates" className="text-xs font-medium text-[#00B864]">View all &rarr;</Link>
           </div>
-          {upcomingDates.map((d: UpcomingDate) => {
-            const area = d.collection_area as unknown as { name: string; code: string; capacity_pool_id: string | null }
-            const pool = area.capacity_pool_id
-              ? poolDateByKey.get(`${area.capacity_pool_id}|${d.date}`) ?? null
-              : null
-            const cap = effectiveCapacity(d, area.capacity_pool_id, pool ? indexPoolDates([pool]) : new Map())
-            const pctBulk = cap.bulk_capacity_limit > 0 ? (cap.bulk_units_booked / cap.bulk_capacity_limit) * 100 : 0
-            return (
-              <div key={d.id} className="flex items-center justify-between border-b border-gray-100 py-2.5 last:border-b-0 last:pb-0">
-                <div>
-                  <div className="text-body-sm font-medium text-[#293F52]">
-                    {format(new Date(d.date + 'T00:00:00'), 'EEE d MMMM yyyy')}
+          <div className="-mr-1 max-h-80 space-y-0.5 overflow-y-auto pr-1">
+            {upcomingDates.map((d: UpcomingDate) => {
+              const area = d.collection_area as unknown as { name: string; code: string; capacity_pool_id: string | null }
+              const pool = area.capacity_pool_id
+                ? poolDateByKey.get(`${area.capacity_pool_id}|${d.date}`) ?? null
+                : null
+              const cap = effectiveCapacity(d, area.capacity_pool_id, pool ? indexPoolDates([pool]) : new Map())
+              const pctBulk = cap.bulk_capacity_limit > 0 ? (cap.bulk_units_booked / cap.bulk_capacity_limit) * 100 : 0
+              return (
+                <div key={d.id} className="flex items-center justify-between gap-3 rounded-md px-2 py-1.5 hover:bg-gray-50">
+                  <div className="flex min-w-0 items-baseline gap-2">
+                    <span className="shrink-0 text-[12px] font-semibold tabular-nums text-[#293F52]">
+                      {format(new Date(d.date + 'T00:00:00'), 'EEE d MMM')}
+                    </span>
+                    <span className="truncate text-[11px] text-gray-500">{area.name}</span>
                   </div>
-                  <div className="text-[11px] text-gray-500">{area.name}</div>
+                  {d.is_open ? (
+                    <div className="flex shrink-0 items-center gap-1.5">
+                      <div className="h-1.5 w-12 overflow-hidden rounded-full bg-gray-100">
+                        <div
+                          className={`h-full rounded-full ${getCapacityColor(cap.bulk_units_booked, cap.bulk_capacity_limit)}`}
+                          style={{ width: `${Math.min(pctBulk, 100)}%` }}
+                        />
+                      </div>
+                      <span className="w-10 text-right text-[11px] tabular-nums text-gray-500">
+                        {cap.bulk_units_booked}/{cap.bulk_capacity_limit}
+                      </span>
+                    </div>
+                  ) : (
+                    <span className="shrink-0 rounded bg-[#FFF0F0] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#E53E3E]">
+                      Closed
+                    </span>
+                  )}
                 </div>
-                <div className="flex items-center gap-2">
-                  <div className="h-1.5 w-20 overflow-hidden rounded-full bg-gray-100">
-                    <div
-                      className={`h-full rounded-full ${getCapacityColor(cap.bulk_units_booked, cap.bulk_capacity_limit)}`}
-                      style={{ width: `${Math.min(pctBulk, 100)}%` }}
-                    />
-                  </div>
-                  <span className="text-xs text-gray-500">
-                    {cap.bulk_units_booked}/{cap.bulk_capacity_limit}
-                  </span>
-                </div>
-              </div>
-            )
-          })}
-          {upcomingDates.length === 0 && (
-            <p className="py-4 text-center text-sm text-gray-400">No upcoming dates</p>
-          )}
+              )
+            })}
+            {upcomingDates.length === 0 && (
+              <p className="py-4 text-center text-sm text-gray-400">No upcoming dates</p>
+            )}
+          </div>
         </div>
 
-        {/* Weekly summary */}
+        {/* Weekly summary — collections scheduled this week, by outcome */}
         <div className="rounded-xl bg-white p-5 shadow-sm">
           <div className="mb-3.5 font-[family-name:var(--font-heading)] text-sm font-semibold text-[#293F52]">
             This Week&apos;s Summary
           </div>
           <div className="grid grid-cols-2 gap-2.5">
             {[
-              { label: 'Submitted', value: weeklySubmitted.count ?? 0 },
-              { label: 'Confirmed', value: weeklyConfirmed.count ?? 0, color: 'text-[#00B864]' },
-              { label: 'Completed', value: weeklyCompleted.count ?? 0, color: 'text-[#00B864]' },
-              { label: 'Cancelled', value: weeklyCancelled.count ?? 0, color: 'text-[#FF8C42]' },
-              { label: 'Non-Conformance', value: weeklyNcn.count ?? 0, color: 'text-[#E53E3E]' },
-              { label: 'Nothing Presented', value: weeklyNp.count ?? 0, color: 'text-[#FF8C42]' },
+              { label: 'Completed', value: weekCompleted, color: 'text-[#00B864]' },
+              { label: 'Cancelled', value: weekCancelled, color: 'text-[#FF8C42]' },
+              { label: 'Non-Conformance', value: weekNcn, color: 'text-[#E53E3E]' },
+              { label: 'Nothing Presented', value: weekNp, color: 'text-[#FF8C42]' },
             ].map((stat) => (
               <div key={stat.label} className="rounded-lg bg-gray-50 px-3.5 py-3">
                 <div className="mb-1 text-[11px] text-gray-500">{stat.label}</div>
@@ -537,67 +570,63 @@ export default async function AdminDashboardPage() {
           )}
         </div>
 
-        {/* FY allocation consumption */}
+        {/* FY collection totals */}
         <div className="rounded-xl bg-white p-5 shadow-sm">
           <div className="mb-3.5 font-[family-name:var(--font-heading)] text-sm font-semibold text-[#293F52]">
-            {fy?.label ?? 'FY'} Allocation Consumption
+            {fy?.label ?? 'FY'} Collections
+            <span className="ml-2 text-[11px] font-normal text-gray-400">FY to date</span>
           </div>
           <div className="flex flex-col gap-5">
-            {/* Bulk */}
+            {/* Collection — Bulk + Green */}
             <div>
               <div className="mb-2 flex items-baseline justify-between">
-                <span className="text-body-sm font-semibold text-[#293F52]">Bulk</span>
-                <span className="text-[11px] text-gray-500">{bulkTotal} / {bulkMax} used</span>
+                <span className="text-body-sm font-semibold text-[#293F52]">Collection</span>
+                <span className="text-[11px] text-gray-500">{collectionTotal} collections</span>
               </div>
               <div className="flex h-3.5 overflow-hidden rounded-full bg-gray-100">
-                <div className="h-full bg-[#00E47C]" style={{ width: `${(generalCount / bulkMax) * 100}%` }} title={`General: ${generalCount}`} />
-                <div className="h-full bg-[#00B864]" style={{ width: `${(greenCount / bulkMax) * 100}%` }} title={`Green: ${greenCount}`} />
+                <div className="h-full bg-[#00E47C]" style={{ width: `${collectionTotal > 0 ? (bulkWasteCount / collectionTotal) * 100 : 0}%` }} title={`Bulk: ${bulkWasteCount}`} />
+                <div className="h-full bg-[#00B864]" style={{ width: `${collectionTotal > 0 ? (greenWasteCount / collectionTotal) * 100 : 0}%` }} title={`Green: ${greenWasteCount}`} />
               </div>
               <div className="mt-2 flex gap-4">
                 <div className="flex items-center gap-1.5">
                   <div className="size-2.5 shrink-0 rounded-sm bg-[#00E47C]" />
-                  <span className="text-[11px] text-gray-700">General</span>
-                  <span className="text-[11px] text-gray-500">{generalCount}</span>
+                  <span className="text-[11px] text-gray-700">Bulk</span>
+                  <span className="text-[11px] text-gray-500">{bulkWasteCount}</span>
                 </div>
                 <div className="flex items-center gap-1.5">
                   <div className="size-2.5 shrink-0 rounded-sm bg-[#00B864]" />
                   <span className="text-[11px] text-gray-700">Green</span>
-                  <span className="text-[11px] text-gray-500">{greenCount}</span>
+                  <span className="text-[11px] text-gray-500">{greenWasteCount}</span>
                 </div>
-                <span className="ml-auto text-[11px] text-gray-400">Max {bulkMax}</span>
               </div>
             </div>
 
             <div className="h-px bg-gray-100" />
 
-            {/* Ancillary */}
+            {/* Ancillary — service-type breakdown */}
             <div>
               <div className="mb-2 flex items-baseline justify-between">
                 <span className="text-body-sm font-semibold text-[#293F52]">Ancillary</span>
-                <span className="text-[11px] text-gray-500">{ancTotal} / {ancMax} used</span>
+                <span className="text-[11px] text-gray-500">{ancTotal} collections</span>
               </div>
               <div className="flex h-3.5 overflow-hidden rounded-full bg-gray-100">
-                <div className="h-full bg-[#8FA5B8]" style={{ width: `${(mattressCount / ancMax) * 100}%` }} title={`Mattress: ${mattressCount}`} />
-                <div className="h-full bg-[#FF8C42]" style={{ width: `${(ewasteCount / ancMax) * 100}%` }} title={`E-Waste: ${ewasteCount}`} />
-                <div className="h-full bg-[#3A5A73]" style={{ width: `${(whitegoodsCount / ancMax) * 100}%` }} title={`Whitegoods: ${whitegoodsCount}`} />
+                {ancServices.map((s) => (
+                  <div
+                    key={s.name}
+                    className="h-full"
+                    style={{ width: `${ancTotal > 0 ? (s.count / ancTotal) * 100 : 0}%`, backgroundColor: s.color }}
+                    title={`${s.name}: ${s.count}`}
+                  />
+                ))}
               </div>
-              <div className="mt-2 flex gap-4">
-                <div className="flex items-center gap-1.5">
-                  <div className="size-2.5 shrink-0 rounded-sm bg-[#8FA5B8]" />
-                  <span className="text-[11px] text-gray-700">Mattress</span>
-                  <span className="text-[11px] text-gray-500">{mattressCount}</span>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <div className="size-2.5 shrink-0 rounded-sm bg-[#FF8C42]" />
-                  <span className="text-[11px] text-gray-700">E-Waste</span>
-                  <span className="text-[11px] text-gray-500">{ewasteCount}</span>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <div className="size-2.5 shrink-0 rounded-sm bg-[#3A5A73]" />
-                  <span className="text-[11px] text-gray-700">Whitegoods</span>
-                  <span className="text-[11px] text-gray-500">{whitegoodsCount}</span>
-                </div>
-                <span className="ml-auto text-[11px] text-gray-400">Max {ancMax}</span>
+              <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1.5">
+                {ancServices.map((s) => (
+                  <div key={s.name} className="flex items-center gap-1.5">
+                    <div className="size-2.5 shrink-0 rounded-sm" style={{ backgroundColor: s.color }} />
+                    <span className="text-[11px] text-gray-700">{s.name}</span>
+                    <span className="text-[11px] text-gray-500">{s.count}</span>
+                  </div>
+                ))}
               </div>
             </div>
           </div>
