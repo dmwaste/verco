@@ -3,19 +3,25 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
+import { metricVisible } from '@/lib/reports/audience'
 import { SlaDashboard } from './sla-dashboard'
 
 export function ReportsClient({
   clientId,
   currentFyId,
+  viewerRole,
 }: {
   clientId: string
   currentFyId: string | null
+  viewerRole: string | null
 }) {
   const supabase = createClient()
   const [selectedArea, setSelectedArea] = useState('')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
+  // VER-288 (8A): refunds are monetary — contractor-only. Structural gate:
+  // the refund query never runs for council viewers, not just hidden.
+  const showRefunds = metricVisible('refunds', viewerRole)
 
   const { data: areas } = useQuery({
     queryKey: ['report-areas', clientId],
@@ -32,7 +38,7 @@ export function ReportsClient({
   })
 
   const { data: stats, isLoading } = useQuery({
-    queryKey: ['report-stats', selectedArea, clientId, dateFrom, dateTo],
+    queryKey: ['report-stats', selectedArea, clientId, dateFrom, dateTo, showRefunds],
     queryFn: async () => {
       // Bookings by status
       let bookingQuery = supabase
@@ -59,12 +65,17 @@ export function ReportsClient({
       if (clientId) npQuery = npQuery.eq('client_id', clientId)
       const { count: npCount } = await npQuery
 
-      // Refund totals
-      let refundQuery = supabase.from('refund_request').select('amount_cents, status')
-      if (clientId) refundQuery = refundQuery.eq('client_id', clientId)
-      const { data: refunds } = await refundQuery
-      const refundPending = (refunds ?? []).filter((r) => r.status === 'pending').reduce((sum, r) => sum + r.amount_cents, 0)
-      const refundProcessed = (refunds ?? []).filter((r) => r.status === 'processed').reduce((sum, r) => sum + r.amount_cents, 0)
+      // Refund totals — contractor-only (VER-288): skip the query entirely
+      // for council viewers.
+      let refundPending = 0
+      let refundProcessed = 0
+      if (showRefunds) {
+        let refundQuery = supabase.from('refund_request').select('amount_cents, status')
+        if (clientId) refundQuery = refundQuery.eq('client_id', clientId)
+        const { data: refunds } = await refundQuery
+        refundPending = (refunds ?? []).filter((r) => r.status === 'pending').reduce((sum, r) => sum + r.amount_cents, 0)
+        refundProcessed = (refunds ?? []).filter((r) => r.status === 'processed').reduce((sum, r) => sum + r.amount_cents, 0)
+      }
 
       // Open tickets
       let ticketQuery = supabase
@@ -151,7 +162,12 @@ export function ReportsClient({
       <div className="px-7 py-6">
         {/* VER-179 SLA dashboard — reuses the area filter above; FY-scoped BC. */}
         <div className="mb-6">
-          <SlaDashboard clientId={clientId} currentFyId={currentFyId} selectedArea={selectedArea} />
+          <SlaDashboard
+            clientId={clientId}
+            currentFyId={currentFyId}
+            selectedArea={selectedArea}
+            viewerRole={viewerRole}
+          />
         </div>
 
         {isLoading ? (
@@ -203,21 +219,23 @@ export function ReportsClient({
               </div>
             </div>
 
-            {/* Refund summary */}
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-              <div className="rounded-xl bg-white p-5 shadow-sm">
-                <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Refunds Pending</p>
-                <p className="mt-1 font-[family-name:var(--font-heading)] text-2xl font-bold text-amber-600">
-                  ${(stats.refundPending / 100).toFixed(2)}
-                </p>
+            {/* Refund summary — contractor-only (VER-288) */}
+            {showRefunds && (
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <div className="rounded-xl bg-white p-5 shadow-sm">
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Refunds Pending</p>
+                  <p className="mt-1 font-[family-name:var(--font-heading)] text-2xl font-bold text-amber-600">
+                    ${(stats.refundPending / 100).toFixed(2)}
+                  </p>
+                </div>
+                <div className="rounded-xl bg-white p-5 shadow-sm">
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Refunds Processed</p>
+                  <p className="mt-1 font-[family-name:var(--font-heading)] text-2xl font-bold text-emerald-600">
+                    ${(stats.refundProcessed / 100).toFixed(2)}
+                  </p>
+                </div>
               </div>
-              <div className="rounded-xl bg-white p-5 shadow-sm">
-                <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Refunds Processed</p>
-                <p className="mt-1 font-[family-name:var(--font-heading)] text-2xl font-bold text-emerald-600">
-                  ${(stats.refundProcessed / 100).toFixed(2)}
-                </p>
-              </div>
-            </div>
+            )}
           </div>
         ) : null}
       </div>

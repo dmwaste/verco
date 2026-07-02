@@ -16,6 +16,11 @@
  * area filter by design (notification_log has no area, and OTP rows have no
  * booking).
  *
+ * Audience gating (VER-288, decision 8A): every card has an audience declared
+ * in `lib/reports/audience.ts` — contractor-only cards (penetration,
+ * self-service, notification delivery) are never mounted for council viewers,
+ * so their queries never fire. New cards default contractor-only.
+ *
  * ⚠️ TYPE-GATED (PR-B): three seams reference schema that only lands when PR-A
  * (#226) reaches prod and `types.ts` is regenerated — the `get_rect_sla` and
  * `get_property_penetration` RPCs and `booking.created_via`. Until then `tsc`
@@ -25,6 +30,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
 import { awstDateFromUtc } from '@/lib/booking/schedule-transition'
+import { metricVisible } from '@/lib/reports/audience'
 import { SlaCard, scorecardTone } from './sla-card'
 import {
   computeCleanCollection,
@@ -70,12 +76,17 @@ interface CardScope {
   currentFyId: string | null
 }
 
-export function SlaDashboard({ clientId, currentFyId, selectedArea }: {
+export function SlaDashboard({ clientId, currentFyId, selectedArea, viewerRole }: {
   clientId: string
   currentFyId: string | null
   selectedArea: string
+  viewerRole: string | null
 }) {
   const scope: CardScope = { clientId, area: selectedArea, currentFyId }
+  // VER-288 (8A): per-metric audience gating. Contractor-only cards are not
+  // MOUNTED for council viewers — their queries never fire (structural, not
+  // CSS-hidden). New cards default contractor-only in lib/reports/audience.ts.
+  const show = (metric: string) => metricVisible(metric, viewerRole)
 
   return (
     <div className="space-y-6">
@@ -84,10 +95,10 @@ export function SlaDashboard({ clientId, currentFyId, selectedArea }: {
           Insights
         </h2>
         <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-          <PenetrationCard {...scope} />
-          <ResidentSatisfactionCard {...scope} />
+          {show('property-penetration') && <PenetrationCard {...scope} />}
+          {show('resident-satisfaction') && <ResidentSatisfactionCard {...scope} />}
         </div>
-        <VolumeMixCard {...scope} />
+        {show('service-breakdown') && <VolumeMixCard {...scope} />}
       </section>
 
       <section>
@@ -95,12 +106,12 @@ export function SlaDashboard({ clientId, currentFyId, selectedArea }: {
           Service Level
         </h2>
         <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-          <BcCard {...scope} />
-          <OnTimeCard {...scope} />
-          <RectCard {...scope} />
-          <SrCards {...scope} />
-          <SelfServiceCard {...scope} />
-          <NotifCard {...scope} />
+          {show('service-delivery') && <BcCard {...scope} />}
+          {show('on-time-collection') && <OnTimeCard {...scope} />}
+          {show('rectification') && <RectCard {...scope} />}
+          {(show('ticket-first-response') || show('ticket-resolution')) && <SrCards {...scope} />}
+          {show('self-service-rate') && <SelfServiceCard {...scope} />}
+          {show('notification-delivery') && <NotifCard {...scope} />}
         </div>
       </section>
     </div>
