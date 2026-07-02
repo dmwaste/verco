@@ -1549,12 +1549,13 @@ if (!haveDb) {
   // user_sub_client_allows_area() inside both; 20260702140000 re-keys the
   // penetration guard per area (per-row keying measured ~20s/call on prod).
   //
-  // The migrations are applied TRANSIENTLY inside each rolled-back test
-  // transaction (same technique as the admin-id-intake prod verification):
-  // pre-release these tests exercise the NEW bodies against the remote DB
-  // without deploying them; post-release the transient apply is an
-  // idempotent no-op. CREATE OR REPLACE holds an exclusive lock on the
-  // function row until ROLLBACK, so each test keeps its transaction short.
+  // These originally transient-applied the migration files pre-release. All
+  // report-RPC migrations are LIVE in prod (releases #248/#249), and
+  // 20260702160000 re-created rect/penetration under 4-arg signatures — so
+  // replaying the old 2-arg CREATE OR REPLACE would now add an overload that
+  // makes the 1-arg test calls ambiguous (42725). The suites therefore run
+  // against the DEPLOYED definitions — the guarantee that matters
+  // post-release; fresh-replay of migration files stays CI's job (VER-296).
   // ---------------------------------------------------------------------------
   describe('Aggregate RPC sub-client guards (VER-287)', () => {
     const VV_CLIENT_ID = '5215645f-ca8f-4cff-8b7d-d5a8f7991ec7'
@@ -1565,13 +1566,6 @@ if (!haveDb) {
     // Never seeded in user_roles — current_user_role()/accessible_client_ids()
     // resolve NULL/empty for this caller (the NULL-role rejection case).
     const NO_ROLE_USER = 'aaaaaaaa-0097-4000-8000-000000000097'
-
-    const MIGRATION_SQL = [
-      '20260702130000_sub_client_guard_report_rpcs.sql',
-      '20260702140000_ver287_penetration_guard_per_area.sql',
-    ]
-      .map((f) => readFileSync(resolve(__dirname, `../../supabase/migrations/${f}`), 'utf-8'))
-      .join('\n')
 
     async function impersonate(userId: string) {
       await pg.query('SET LOCAL ROLE authenticated')
@@ -1615,7 +1609,6 @@ if (!haveDb) {
     it('get_rect_sla: cross-tenant caller gets the empty row', async () => {
       await pg.query('BEGIN')
       try {
-        await pg.query(MIGRATION_SQL)
         // Kwinana-scoped client-admin asking for Verge Valet aggregates.
         const r = await rectAs(USERS['client-admin'], VV_CLIENT_ID)
         expect(r).toEqual({ numerator: 0, denominator: 0, pct: null })
@@ -1627,7 +1620,6 @@ if (!haveDb) {
     it('get_rect_sla + get_property_penetration: NULL-role caller gets zeros', async () => {
       await pg.query('BEGIN')
       try {
-        await pg.query(MIGRATION_SQL)
         const rect = await rectAs(NO_ROLE_USER, VV_CLIENT_ID)
         expect(rect).toEqual({ numerator: 0, denominator: 0, pct: null })
         const pen = await penetrationAs(NO_ROLE_USER, VV_CLIENT_ID)
@@ -1640,7 +1632,6 @@ if (!haveDb) {
     it('get_property_penetration: cross-tenant caller gets zeros', async () => {
       await pg.query('BEGIN')
       try {
-        await pg.query(MIGRATION_SQL)
         const pen = await penetrationAs(USERS['client-admin'], VV_CLIENT_ID)
         expect(pen).toEqual({ booked: 0, eligible: 0 })
       } finally {
@@ -1651,7 +1642,6 @@ if (!haveDb) {
     it('get_rect_sla: sub-client-scoped caller is narrowed (COT sees COT, not MOS)', async () => {
       await pg.query('BEGIN')
       try {
-        await pg.query(MIGRATION_SQL)
 
         const cotArea = await pg.query<{ id: string }>(
           `SELECT id FROM collection_area WHERE sub_client_id = $1 LIMIT 1`,
@@ -1705,7 +1695,6 @@ if (!haveDb) {
     it('get_property_penetration: sub-client-scoped caller gets a narrowed denominator', async () => {
       await pg.query('BEGIN')
       try {
-        await pg.query(MIGRATION_SQL)
 
         const cotArea = await pg.query<{ id: string }>(
           `SELECT id FROM collection_area WHERE sub_client_id = $1 LIMIT 1`,
@@ -1742,7 +1731,6 @@ if (!haveDb) {
     it('contractor-admin (unscoped) is not over-blocked by the new guards', async () => {
       await pg.query('BEGIN')
       try {
-        await pg.query(MIGRATION_SQL)
         const pen = await penetrationAs(USERS['contractor-admin'], VV_CLIENT_ID)
         expect(pen.eligible).toBeGreaterThanOrEqual(1)
         const rect = await rectAs(USERS['contractor-admin'], VV_CLIENT_ID)
@@ -1758,9 +1746,9 @@ if (!haveDb) {
   //
   // New SECURITY DEFINER aggregate following the get_rect_sla template:
   // accessible_client_ids() tenant gate + user_sub_client_allows_area()
-  // sub-client refinement (decision 7A). Same transient-apply technique as the
-  // VER-287 suite above: migration 20260702150000 is applied inside each
-  // rolled-back transaction, green pre- and post-release.
+  // sub-client refinement (decision 7A). Live in prod since release #249
+  // (20260702150000 + the 160000 Completed-only narrowing) — tested against
+  // the deployed definitions; see the VER-287 block note above.
   // ---------------------------------------------------------------------------
   describe('get_collections_trend guards (VER-294)', () => {
     const VV_CLIENT_ID = '5215645f-ca8f-4cff-8b7d-d5a8f7991ec7'
@@ -1769,24 +1757,6 @@ if (!haveDb) {
     const VV_COT_USER = 'aaaaaaaa-0008-4000-8000-000000000008' // VER-216 fixture
     const VV_ALL_USER = 'aaaaaaaa-0010-4000-8000-000000000010' // VER-216 fixture
     const NO_ROLE_USER = 'aaaaaaaa-0097-4000-8000-000000000097'
-
-    const TREND_MIGRATION_SQL = readFileSync(
-      resolve(
-        __dirname,
-        '../../supabase/migrations/20260702150000_ver294_get_collections_trend_rpc.sql',
-      ),
-      'utf-8',
-    )
-    // 20260702160000 narrows the trend to Completed-only (Dan 02/07) and adds
-    // the monthly RPCs — apply on top of 150000 so the guards are tested
-    // against the FINAL fn definition, exactly as prod applies them in order.
-    const M2_MIGRATION_SQL = readFileSync(
-      resolve(
-        __dirname,
-        '../../supabase/migrations/20260702160000_m2_monthly_rpcs_and_period_params.sql',
-      ),
-      'utf-8',
-    )
 
     async function impersonate(userId: string) {
       await pg.query('SET LOCAL ROLE authenticated')
@@ -1814,8 +1784,6 @@ if (!haveDb) {
     it('cross-tenant and NULL-role callers get zero rows', async () => {
       await pg.query('BEGIN')
       try {
-        await pg.query(TREND_MIGRATION_SQL)
-        await pg.query(M2_MIGRATION_SQL)
         // Kwinana-scoped client-admin asking for Verge Valet's trend.
         await impersonate(USERS['client-admin'])
         const cross = await pg.query(`SELECT * FROM get_collections_trend($1)`, [VV_CLIENT_ID])
@@ -1833,8 +1801,6 @@ if (!haveDb) {
     it('sub-client-scoped caller gets a narrowed trend (COT sees COT, not MOS)', async () => {
       await pg.query('BEGIN')
       try {
-        await pg.query(TREND_MIGRATION_SQL)
-        await pg.query(M2_MIGRATION_SQL)
 
         const cotDate = await pg.query<{ id: string; area_id: string }>(
           `SELECT cd.id, cd.collection_area_id AS area_id
@@ -1887,8 +1853,6 @@ if (!haveDb) {
     it('returns gap-filled, ascending months for an unscoped caller', async () => {
       await pg.query('BEGIN')
       try {
-        await pg.query(TREND_MIGRATION_SQL)
-        await pg.query(M2_MIGRATION_SQL)
         await impersonate(VV_ALL_USER)
         // to_char in SQL — node-postgres parses DATE into a JS Date whose
         // local→UTC conversion can roll a month boundary backwards.
@@ -1909,5 +1873,344 @@ if (!haveDb) {
         await pg.query('ROLLBACK')
       }
     })
+  })
+
+  // ---------------------------------------------------------------------------
+  // VER-296 — monthly trendline RPC guards (get_on_time_monthly /
+  // get_notices_monthly, migration 20260702160000, live since release #249)
+  //
+  // Both share the sibling RPCs' NULL-safe tenant gate + 7A sub-client
+  // narrowing but shipped without guard tests. Zero-row rejection is asserted
+  // for both; narrowing is signal-tested on get_notices_monthly (cheap NCN
+  // fixture — a booking + notice insert, everything rolls back).
+  // get_on_time_monthly's narrowing is the identical per-AREA guard SQL as
+  // get_collections_trend (proven above); seeding a completed collection_stop
+  // needs the full denormalised stop shape, so that one narrowing case is
+  // deliberately not re-proven here.
+  // ---------------------------------------------------------------------------
+  describe('monthly report RPC guards (VER-296)', () => {
+    const VV_CLIENT_ID = '5215645f-ca8f-4cff-8b7d-d5a8f7991ec7'
+    const COT_SUB_CLIENT_ID = '43c4f0e0-20d7-4152-9dc4-2b48e8dc6949'
+    const MOS_SUB_CLIENT_ID = 'd870be20-f507-4d65-b2af-5644990dbf82'
+    const VV_COT_USER = 'aaaaaaaa-0008-4000-8000-000000000008' // VER-216 fixture
+    const VV_ALL_USER = 'aaaaaaaa-0010-4000-8000-000000000010' // VER-216 fixture
+    const NO_ROLE_USER = 'aaaaaaaa-0097-4000-8000-000000000097'
+
+    async function impersonate(userId: string) {
+      await pg.query('SET LOCAL ROLE authenticated')
+      await pg.query(`SELECT set_config('request.jwt.claims', $1, true)`, [
+        JSON.stringify({ sub: userId, role: 'authenticated' }),
+      ])
+    }
+
+    async function resetToSetupRole() {
+      await pg.query('RESET ROLE')
+      await pg.query(`SELECT set_config('request.jwt.claims', '{}', true)`)
+    }
+
+    /** Total notices across every bucket and all four split columns. */
+    async function noticesTotalAs(userId: string, clientId: string): Promise<number> {
+      await impersonate(userId)
+      const r = await pg.query<{
+        ncn_contractor: string
+        ncn_other: string
+        np_contractor: string
+        np_other: string
+      }>(`SELECT * FROM get_notices_monthly($1)`, [clientId])
+      await resetToSetupRole()
+      return r.rows.reduce(
+        (sum, row) =>
+          sum +
+          Number(row.ncn_contractor) +
+          Number(row.ncn_other) +
+          Number(row.np_contractor) +
+          Number(row.np_other),
+        0,
+      )
+    }
+
+    it('cross-tenant and NULL-role callers get zero rows from both monthly RPCs', async () => {
+      await pg.query('BEGIN')
+      try {
+        // Kwinana-scoped client-admin, then a role-less caller, both asking
+        // for Verge Valet's monthly aggregates.
+        for (const caller of [USERS['client-admin'], NO_ROLE_USER]) {
+          await impersonate(caller)
+          const onTime = await pg.query(`SELECT * FROM get_on_time_monthly($1)`, [VV_CLIENT_ID])
+          expect(onTime.rows.length).toBe(0)
+          const notices = await pg.query(`SELECT * FROM get_notices_monthly($1)`, [VV_CLIENT_ID])
+          expect(notices.rows.length).toBe(0)
+          await resetToSetupRole()
+        }
+      } finally {
+        await pg.query('ROLLBACK')
+      }
+    })
+
+    it('get_notices_monthly: sub-client-scoped caller gets a narrowed count', async () => {
+      await pg.query('BEGIN')
+      try {
+        const cotArea = await pg.query<{ id: string }>(
+          `SELECT id FROM collection_area WHERE sub_client_id = $1 LIMIT 1`,
+          [COT_SUB_CLIENT_ID],
+        )
+        const mosArea = await pg.query<{ id: string }>(
+          `SELECT id FROM collection_area WHERE sub_client_id = $1 LIMIT 1`,
+          [MOS_SUB_CLIENT_ID],
+        )
+        const fy = await pg.query<{ id: string }>(
+          `SELECT id FROM financial_year WHERE is_current LIMIT 1`,
+        )
+        expect(cotArea.rows[0], 'fixture missing: no COT collection_area').toBeTruthy()
+        expect(mosArea.rows[0], 'fixture missing: no MOS collection_area').toBeTruthy()
+        if (!cotArea.rows[0] || !mosArea.rows[0] || !fy.rows[0]) return
+
+        const all0 = await noticesTotalAs(VV_ALL_USER, VV_CLIENT_ID)
+        const cot0 = await noticesTotalAs(VV_COT_USER, VV_CLIENT_ID)
+
+        // One notice per sub-client (reported_at defaults to now — lands in
+        // the current bucket). Direct INSERT bypasses RLS as the setup role.
+        await pg.query(
+          `INSERT INTO public.booking (id, ref, type, status, collection_area_id, client_id, contractor_id, fy_id)
+           VALUES
+             ('ffffffff-0001-4000-8000-000000000001', 'V296-COT', 'Residential', 'Confirmed', $1, $3, $4, $5),
+             ('ffffffff-0002-4000-8000-000000000002', 'V296-MOS', 'Residential', 'Confirmed', $2, $3, $4, $5)`,
+          [cotArea.rows[0].id, mosArea.rows[0].id, VV_CLIENT_ID, CONTRACTOR_ID, fy.rows[0].id],
+        )
+        await pg.query(
+          `INSERT INTO public.non_conformance_notice (booking_id, client_id, reason)
+           VALUES
+             ('ffffffff-0001-4000-8000-000000000001', $1, 'Building Waste'),
+             ('ffffffff-0002-4000-8000-000000000002', $1, 'Building Waste')`,
+          [VV_CLIENT_ID],
+        )
+
+        // Unscoped user counts both new notices; COT-scoped counts only COT's.
+        const all1 = await noticesTotalAs(VV_ALL_USER, VV_CLIENT_ID)
+        const cot1 = await noticesTotalAs(VV_COT_USER, VV_CLIENT_ID)
+        expect(all1).toBe(all0 + 2)
+        expect(cot1).toBe(cot0 + 1)
+      } finally {
+        await pg.query('ROLLBACK')
+      }
+    }, 20_000)
+  })
+
+  // ---------------------------------------------------------------------------
+  // VER-298 — get_reports_monthly (one long-format monthly RPC feeding every
+  // card sparkline) + get_property_penetration service-window anchor
+  // (migration 20260702180000).
+  //
+  // UNRELEASED at authoring time — the migration is applied TRANSIENTLY inside
+  // the rolled-back transaction. Safe to keep post-release: the file is pure
+  // CREATE OR REPLACE with unchanged signatures (the DROP+CREATE replay hazard
+  // that retired the older transient applies does not exist here).
+  //
+  // Behaviour was also verified against live prod via a rolled-back DO block
+  // (02/07): authorised caller got 6 distinct series; cross-tenant caller got
+  // zero rows; penetration booked for the FY26 service window dropped 635 → 0.
+  // ---------------------------------------------------------------------------
+  describe('get_reports_monthly guards (VER-298)', () => {
+    const VV_CLIENT_ID = '5215645f-ca8f-4cff-8b7d-d5a8f7991ec7'
+    const COT_SUB_CLIENT_ID = '43c4f0e0-20d7-4152-9dc4-2b48e8dc6949'
+    const VV_ALL_USER = 'aaaaaaaa-0010-4000-8000-000000000010' // VER-216 fixture
+    const NO_ROLE_USER = 'aaaaaaaa-0097-4000-8000-000000000097'
+
+    const MONTHLY_MIGRATION_SQL = readFileSync(
+      resolve(
+        __dirname,
+        '../../supabase/migrations/20260702180000_reports_monthly_series_and_penetration_service_anchor.sql',
+      ),
+      'utf-8',
+    )
+
+    async function impersonate(userId: string) {
+      await pg.query('SET LOCAL ROLE authenticated')
+      await pg.query(`SELECT set_config('request.jwt.claims', $1, true)`, [
+        JSON.stringify({ sub: userId, role: 'authenticated' }),
+      ])
+    }
+
+    async function resetToSetupRole() {
+      await pg.query('RESET ROLE')
+      await pg.query(`SELECT set_config('request.jwt.claims', '{}', true)`)
+    }
+
+    it('cross-tenant and NULL-role callers get zero rows', async () => {
+      await pg.query('BEGIN')
+      try {
+        await pg.query(MONTHLY_MIGRATION_SQL)
+        // Kwinana-scoped client-admin asking for Verge Valet's series.
+        await impersonate(USERS['client-admin'])
+        const cross = await pg.query(`SELECT * FROM get_reports_monthly($1)`, [VV_CLIENT_ID])
+        expect(cross.rows.length).toBe(0)
+        await resetToSetupRole()
+
+        await impersonate(NO_ROLE_USER)
+        const noRole = await pg.query(`SELECT * FROM get_reports_monthly($1)`, [VV_CLIENT_ID])
+        expect(noRole.rows.length).toBe(0)
+      } finally {
+        await pg.query('ROLLBACK')
+      }
+    })
+
+    it('penetration booked-half windows on SERVICE dates, not created_at', async () => {
+      await pg.query('BEGIN')
+      try {
+        await pg.query(MONTHLY_MIGRATION_SQL)
+        const cot = await pg.query<{ id: string; area_id: string; prop_id: string }>(
+          `SELECT cd.id, cd.collection_area_id AS area_id,
+                  (SELECT ep.id FROM eligible_properties ep
+                    WHERE ep.collection_area_id = cd.collection_area_id LIMIT 1) AS prop_id
+             FROM collection_date cd
+             JOIN collection_area ca ON ca.id = cd.collection_area_id
+            WHERE ca.sub_client_id = $1 AND cd.date >= '2026-07-01' LIMIT 1`,
+          [COT_SUB_CLIENT_ID],
+        )
+        const fy = await pg.query<{ id: string }>(
+          `SELECT id FROM financial_year WHERE is_current LIMIT 1`,
+        )
+        expect(cot.rows[0]?.prop_id, 'fixture missing: COT FY27 date + property').toBeTruthy()
+        if (!cot.rows[0]?.prop_id || !fy.rows[0]) return
+
+        await impersonate(USERS['contractor-admin'])
+        const before = await pg.query<{ booked: string }>(
+          `SELECT booked FROM get_property_penetration($1, NULL, '2025-07-01', '2026-06-30')`,
+          [VV_CLIENT_ID],
+        )
+        await resetToSetupRole()
+
+        // Booking CREATED inside FY26 whose only SERVICE date is FY27: the
+        // old created_at anchor would count it in the FY26 window; the
+        // service anchor must not (design 02/07 — legacy-import bug class).
+        await pg.query(
+          `INSERT INTO public.booking (id, ref, type, status, collection_area_id, client_id, contractor_id, fy_id, property_id, created_at)
+           VALUES ('ffffffff-0298-4000-8000-000000000001', 'V298-PEN', 'Residential', 'Confirmed', $1, $2, $3, $4, $5, '2026-05-01T04:00:00Z')`,
+          [cot.rows[0].area_id, VV_CLIENT_ID, CONTRACTOR_ID, fy.rows[0].id, cot.rows[0].prop_id],
+        )
+        await pg.query(
+          `INSERT INTO public.booking_item (booking_id, service_id, collection_date_id, no_services, unit_price_cents)
+           SELECT 'ffffffff-0298-4000-8000-000000000001', s.id, $1, 1, 0 FROM service s LIMIT 1`,
+          [cot.rows[0].id],
+        )
+
+        await impersonate(USERS['contractor-admin'])
+        const after = await pg.query<{ booked: string }>(
+          `SELECT booked FROM get_property_penetration($1, NULL, '2025-07-01', '2026-06-30')`,
+          [VV_CLIENT_ID],
+        )
+        const unwindowed = await pg.query<{ booked: string }>(
+          `SELECT booked FROM get_property_penetration($1)`,
+          [VV_CLIENT_ID],
+        )
+        await resetToSetupRole()
+        // Service anchor: the FY26-created booking adds NOTHING to the FY26
+        // window (its service date is FY27) — but it does exist unwindowed.
+        expect(Number(after.rows[0]!.booked)).toBe(Number(before.rows[0]!.booked))
+        expect(Number(unwindowed.rows[0]!.booked)).toBeGreaterThan(0)
+      } finally {
+        await pg.query('ROLLBACK')
+      }
+    }, 20_000)
+
+    it('staff-role gate: a resident caller gets zero rows from every report RPC', async () => {
+      await pg.query('BEGIN')
+      try {
+        await pg.query(MONTHLY_MIGRATION_SQL)
+        // KWN resident (suite fixture) asking for their OWN tenant — the
+        // tenant gate alone would pass; the staff gate must not (review 02/07).
+        await impersonate(USERS.resident)
+        const monthly = await pg.query(`SELECT * FROM get_reports_monthly($1)`, [CLIENT_ID])
+        expect(monthly.rows.length).toBe(0)
+        const trend = await pg.query(`SELECT * FROM get_collections_trend($1)`, [CLIENT_ID])
+        expect(trend.rows.length).toBe(0)
+        const onTime = await pg.query(`SELECT * FROM get_on_time_monthly($1)`, [CLIENT_ID])
+        expect(onTime.rows.length).toBe(0)
+        const notices = await pg.query(`SELECT * FROM get_notices_monthly($1)`, [CLIENT_ID])
+        expect(notices.rows.length).toBe(0)
+        const rect = await pg.query<{ denominator: string }>(
+          `SELECT * FROM get_rect_sla($1)`,
+          [CLIENT_ID],
+        )
+        expect(Number(rect.rows[0]!.denominator)).toBe(0)
+      } finally {
+        await pg.query('ROLLBACK')
+      }
+    })
+
+    it('council staff never receive the contractor-only series (8A)', async () => {
+      await pg.query('BEGIN')
+      try {
+        await pg.query(MONTHLY_MIGRATION_SQL)
+        await impersonate(USERS['client-admin'])
+        const council = await pg.query<{ series: string }>(
+          `SELECT DISTINCT series FROM get_reports_monthly($1)`,
+          [CLIENT_ID],
+        )
+        await resetToSetupRole()
+        const councilSeries = council.rows.map((r) => r.series)
+        for (const banned of ['self_scope', 'self_served', 'notif_tracked', 'notif_delivered']) {
+          expect(councilSeries, `council received ${banned}`).not.toContain(banned)
+        }
+
+        await impersonate(USERS['contractor-admin'])
+        const contractor = await pg.query<{ series: string }>(
+          `SELECT DISTINCT series FROM get_reports_monthly($1)`,
+          [CLIENT_ID],
+        )
+        await resetToSetupRole()
+        // Contractor sees the ops-health series whenever the data exists;
+        // at minimum the RPC must not error and must return ≥ council's set.
+        expect(contractor.rows.length).toBeGreaterThanOrEqual(council.rows.length)
+      } finally {
+        await pg.query('ROLLBACK')
+      }
+    })
+
+    it('authorised caller gets a positive bookings series (seeded delta)', async () => {
+      await pg.query('BEGIN')
+      try {
+        await pg.query(MONTHLY_MIGRATION_SQL)
+        const cotDate = await pg.query<{ id: string; area_id: string }>(
+          `SELECT cd.id, cd.collection_area_id AS area_id
+             FROM collection_date cd JOIN collection_area ca ON ca.id = cd.collection_area_id
+            WHERE ca.sub_client_id = $1 LIMIT 1`,
+          [COT_SUB_CLIENT_ID],
+        )
+        const svc = await pg.query<{ id: string }>(`SELECT id FROM service LIMIT 1`)
+        const fy = await pg.query<{ id: string }>(
+          `SELECT id FROM financial_year WHERE is_current LIMIT 1`,
+        )
+        expect(cotDate.rows[0], 'fixture missing: COT collection_date').toBeTruthy()
+        if (!cotDate.rows[0] || !svc.rows[0] || !fy.rows[0]) return
+
+        const totalAs = async (userId: string) => {
+          await impersonate(userId)
+          const r = await pg.query<{ value: string }>(
+            `SELECT COALESCE(sum(value), 0) AS value FROM get_reports_monthly($1) WHERE series = 'bookings'`,
+            [VV_CLIENT_ID],
+          )
+          await resetToSetupRole()
+          return Number(r.rows[0]!.value)
+        }
+        const before = await totalAs(VV_ALL_USER)
+        await pg.query(
+          `INSERT INTO public.booking (id, ref, type, status, collection_area_id, client_id, contractor_id, fy_id)
+           VALUES ('ffffffff-0298-4000-8000-000000000002', 'V298-POS', 'Residential', 'Confirmed', $1, $2, $3, $4)`,
+          [cotDate.rows[0].area_id, VV_CLIENT_ID, CONTRACTOR_ID, fy.rows[0].id],
+        )
+        await pg.query(
+          `INSERT INTO public.booking_item (booking_id, service_id, collection_date_id, no_services, unit_price_cents)
+           VALUES ('ffffffff-0298-4000-8000-000000000002', $1, $2, 1, 0)`,
+          [svc.rows[0].id, cotDate.rows[0].id],
+        )
+        const after = await totalAs(VV_ALL_USER)
+        // A denied-case-only suite is vacuous if the fn fails closed — the
+        // positive path must move (testing specialist, review 02/07).
+        expect(after).toBe(before + 1)
+      } finally {
+        await pg.query('ROLLBACK')
+      }
+    }, 20_000)
   })
 })

@@ -52,11 +52,11 @@ export interface ResidentSatisfactionResult {
  * Defensive on every layer: the blob may be null / a primitive / an array /
  * missing the key, and the value may be any JSON type.
  */
-function extractRating(responses: unknown): number | null {
+function extractRating(responses: unknown, key: SurveyRatingKey): number | null {
   if (responses === null || typeof responses !== 'object' || Array.isArray(responses)) {
     return null
   }
-  const raw = (responses as Record<string, unknown>).overall_rating
+  const raw = (responses as Record<string, unknown>)[key]
   // Only a number or numeric string is a genuine rating. Excluding booleans is
   // deliberate: `Number(true) === 1` would otherwise smuggle `true` in as a
   // rating of 1. (The survey form writes a JSON number; a numeric string is
@@ -71,14 +71,23 @@ function extractRating(responses: unknown): number | null {
   return rating
 }
 
-export function computeResidentSatisfaction(
+/**
+ * The three ratings the survey form writes (survey-form.tsx): booking
+ * experience, the collection itself, and overall. The Customer Satisfaction
+ * section renders one card per key (design feedback 02/07).
+ */
+export type SurveyRatingKey = 'booking_rating' | 'collection_rating' | 'overall_rating'
+
+/** Fold one rating key across survey rows — same denominator rules per key. */
+export function computeSurveyRating(
   rows: ResidentSatisfactionRow[],
+  key: SurveyRatingKey,
 ): ResidentSatisfactionResult {
   let n = 0
   let good = 0
 
   for (const r of rows) {
-    const rating = extractRating(r?.responses)
+    const rating = extractRating(r?.responses, key)
     if (rating === null) continue
     n += 1
     if (rating >= 4) good += 1
@@ -95,4 +104,44 @@ export function computeResidentSatisfaction(
     isEmpty: false,
     isLowN: n < RS_LOW_N,
   }
+}
+
+/** Overall-rating fold — kept as the original single-metric entry point. */
+export function computeResidentSatisfaction(
+  rows: ResidentSatisfactionRow[],
+): ResidentSatisfactionResult {
+  return computeSurveyRating(rows, 'overall_rating')
+}
+
+export interface ServicePreferenceResult {
+  yes: number
+  no: number
+  indifferent: number
+  /** yes + no + indifferent — rows with a recognised answer. */
+  total: number
+}
+
+/**
+ * "Would you prefer this service over traditional bulk verge collection?"
+ * (survey `responses.prefer_service`, options Yes / No / Indifferent —
+ * design 02/07 batch 5 donut). Same defensive posture as the rating fold:
+ * only recognised answers count; case/whitespace tolerated.
+ */
+export function computeServicePreference(
+  rows: ResidentSatisfactionRow[],
+): ServicePreferenceResult {
+  let yes = 0
+  let no = 0
+  let indifferent = 0
+  for (const r of rows) {
+    const responses = r?.responses
+    if (responses === null || typeof responses !== 'object' || Array.isArray(responses)) continue
+    const raw = (responses as Record<string, unknown>).prefer_service
+    if (typeof raw !== 'string') continue
+    const answer = raw.trim().toLowerCase()
+    if (answer === 'yes') yes += 1
+    else if (answer === 'no') no += 1
+    else if (answer === 'indifferent') indifferent += 1
+  }
+  return { yes, no, indifferent, total: yes + no + indifferent }
 }

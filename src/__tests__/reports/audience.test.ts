@@ -24,12 +24,11 @@ describe('reports audience gating (VER-288 / decision 8A)', () => {
       'rectification',
       'ticket-first-response',
       'ticket-resolution',
-      'resident-satisfaction',
+      'customer-satisfaction',
       'service-breakdown',
-      'total-bookings',
-      'bookings-by-status',
-      'ncn-count',
-      'np-count',
+      'collections-trend',
+      'open-notices',
+      'notice-types',
       'open-tickets',
     ]
     for (const role of councilRoles) {
@@ -44,7 +43,6 @@ describe('reports audience gating (VER-288 / decision 8A)', () => {
       'property-penetration',
       'self-service-rate',
       'notification-delivery',
-      'refunds',
     ]
     for (const role of councilRoles) {
       for (const key of contractorOnly) {
@@ -62,7 +60,7 @@ describe('reports audience gating (VER-288 / decision 8A)', () => {
   it('missing/unknown roles are never treated as contractor', () => {
     for (const role of [null, undefined, '', 'resident', 'strata', 'field', 'ranger']) {
       expect(isContractorReportViewer(role)).toBe(false)
-      expect(metricVisible('refunds', role)).toBe(false)
+      expect(metricVisible('property-penetration', role)).toBe(false)
       // Role-less callers still only get the council-visible set — the page
       // route guard is the auth boundary; this is defence-in-depth.
       expect(metricVisible('service-delivery', role)).toBe(true)

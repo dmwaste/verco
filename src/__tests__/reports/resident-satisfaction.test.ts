@@ -4,6 +4,7 @@ import {
   RS_TARGET_PCT,
   RS_LOW_N,
   type ResidentSatisfactionRow,
+  computeServicePreference,
 } from '@/lib/reports/resident-satisfaction'
 
 /**
@@ -241,5 +242,30 @@ describe('computeResidentSatisfaction', () => {
       expect(result.n).toBe(1)
       expect(result.good).toBe(1)
     })
+  })
+})
+
+// ── Service preference donut (design 02/07 batch 5) ─────────────────────────
+
+describe('computeServicePreference', () => {
+  it('counts Yes / No / Indifferent case- and space-insensitively', () => {
+    const rows = [
+      { responses: { prefer_service: 'Yes' } },
+      { responses: { prefer_service: ' yes ' } },
+      { responses: { prefer_service: 'No' } },
+      { responses: { prefer_service: 'Indifferent' } },
+    ]
+    expect(computeServicePreference(rows)).toEqual({ yes: 2, no: 1, indifferent: 1, total: 4 })
+  })
+
+  it('skips unanswered, unrecognised and malformed blobs', () => {
+    const rows = [
+      { responses: { prefer_service: 'maybe' } },
+      { responses: {} },
+      { responses: null },
+      { responses: 'junk' },
+      { responses: { prefer_service: 3 } },
+    ]
+    expect(computeServicePreference(rows)).toEqual({ yes: 0, no: 0, indifferent: 0, total: 0 })
   })
 })
