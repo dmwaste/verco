@@ -25,10 +25,13 @@ const CIRC = 2 * Math.PI * R
 export function DonutChart({
   segments,
   ariaLabel,
+  svgClassName = 'h-28 w-28',
 }: {
   segments: DonutSegment[]
   /** e.g. "Service breakdown". Segment values are appended automatically. */
   ariaLabel: string
+  /** Ring size override — chart panels run larger than card footers. */
+  svgClassName?: string
 }) {
   const visible = segments.filter((s) => s.value > 0)
   const total = visible.reduce((sum, s) => sum + s.value, 0)
@@ -49,7 +52,7 @@ export function DonutChart({
     <div className="flex items-center gap-6">
       <svg
         viewBox="0 0 100 100"
-        className="h-28 w-28 shrink-0"
+        className={`${svgClassName} shrink-0`}
         role="img"
         aria-label={summary}
       >

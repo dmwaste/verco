@@ -8,10 +8,10 @@ import {
   type PeriodFyRow,
   type PeriodPreset,
 } from '@/lib/reports/periods'
-import { DonutChart } from './donut-chart'
+import { metricVisible } from '@/lib/reports/audience'
 import { PeriodSelector } from './period-selector'
-import { CardLabel, ProvenanceStamp, SlaCard } from './sla-card'
-import { SlaDashboard } from './sla-dashboard'
+import { SlaCard } from './sla-card'
+import { OpenNoticesCard, SlaDashboard } from './sla-dashboard'
 
 export function ReportsClient({
   clientId,
@@ -65,20 +65,23 @@ export function ReportsClient({
     ],
     enabled: !period.unresolved,
     queryFn: async () => {
-      // Bookings by status — SERVICE-period anchor (review 02/07): fy presets
-      // → fy_id, range presets → item collection_date inside the window.
-      // created_at surfaced legacy-imported bookings under Last FY/Last month.
+      // Total bookings — SERVICE-period anchor (review 02/07): fy presets →
+      // fy_id, range presets → item collection_date inside the window
+      // (created_at surfaced legacy-imported bookings under Last FY/Last
+      // month). Count-only HEAD request: PostgREST's exact count is immune to
+      // the max_rows=1000 row cap and no rows are needed since the status
+      // chart was removed (design batch 3).
       let bookingQuery = period.kind === 'fy'
         ? supabase
             .from('booking')
-            .select('status', { count: 'exact', head: false })
+            .select('id', { count: 'exact', head: true })
             .eq('fy_id', period.fyId!)
         : (() => {
             let q = supabase
               .from('booking')
-              .select('status, booking_item!inner(collection_date!inner(date))', {
+              .select('id, booking_item!inner(collection_date!inner(date))', {
                 count: 'exact',
-                head: false,
+                head: true,
               })
             if (period.from) q = q.gte('booking_item.collection_date.date', period.from)
             if (period.to) q = q.lte('booking_item.collection_date.date', period.to)
@@ -101,36 +104,16 @@ export function ReportsClient({
         if (res?.error) throw new Error(res.error.message)
       }
 
-      const statusCounts: Record<string, number> = {}
-      for (const b of bookingRes.data ?? []) {
-        statusCounts[b.status] = (statusCounts[b.status] ?? 0) + 1
-      }
-
       return {
-        statusCounts,
-        // Exact count from PostgREST — immune to the max_rows=1000 row cap.
-        // The status BREAKDOWN still reflects at most 1,000 rows; converting
-        // it to an in-DB GROUP BY RPC is tracked follow-up work.
-        totalBookings: bookingRes.count ?? bookingRes.data?.length ?? 0,
-        statusRowsCapped: (bookingRes.count ?? 0) > (bookingRes.data?.length ?? 0),
+        totalBookings: bookingRes.count ?? 0,
         openTickets: ticketRes.count ?? 0,
       }
     },
   })
 
-  // Donut segment colours — same hue semantics as the status pills used
-  // across the admin (emerald confirmed, purple scheduled, amber NP, …).
-  const STATUS_DONUT_COLORS: Record<string, string> = {
-    Submitted: '#3B82F6',
-    Confirmed: '#10B981',
-    Scheduled: '#8B5CF6',
-    Completed: '#293F52',
-    Cancelled: '#D1D5DB',
-    'Non-conformance': '#F87171',
-    'Nothing Presented': '#F59E0B',
-    Rebooked: '#60A5FA',
-  }
-  const STATUS_DONUT_FALLBACK = '#9CA3AF'
+  // VER-288 (8A) gating for the page-level cards; the SLA dashboard gates its
+  // own cards internally.
+  const show = (metric: string) => metricVisible(metric, viewerRole)
 
   const stamp = `Live · ${period.label}`
 
@@ -179,71 +162,44 @@ export function ReportsClient({
               : 'No matching financial year for this period — cards are paused rather than showing all-time data.'}
           </p>
         )}
-        {/* VER-179 SLA dashboard + M2 delta cards — share the period + area scope. */}
-        <div className="mb-6">
-          <SlaDashboard
-            clientId={clientId}
-            selectedArea={selectedArea}
-            period={period}
-            viewerRole={viewerRole}
-          />
+        {/* Top line (design batch 3): the three at-a-glance counts, 1/3 wide.
+            NCN/NP raw counts were retired for the three-way Open Notices
+            split (VER-294); refunds and the status chart were removed
+            entirely (02/07) — money and status workload live on their own
+            admin pages. */}
+        <div className="mb-6 grid gap-4 md:grid-cols-3">
+          {show('total-bookings') && (
+            <SlaCard
+              label="Total Bookings"
+              isLoading={isLoading && !period.unresolved}
+              isError={statsError}
+              value={period.unresolved ? '—' : String(stats?.totalBookings ?? 0)}
+              sub={period.unresolved ? 'Period unavailable' : undefined}
+              provenance={`${stamp} · by service date`}
+            />
+          )}
+          {show('open-notices') && (
+            <OpenNoticesCard clientId={clientId} area={selectedArea} period={period} />
+          )}
+          {show('open-tickets') && (
+            <SlaCard
+              label="Open Tickets"
+              isLoading={isLoading && !period.unresolved}
+              isError={statsError}
+              value={period.unresolved ? '—' : String(stats?.openTickets ?? 0)}
+              sub={period.unresolved ? 'Period unavailable' : undefined}
+              provenance="Live · Current snapshot"
+            />
+          )}
         </div>
 
-        {statsError ? (
-          <p className="rounded-lg border border-amber-100 bg-amber-50 px-4 py-2 text-body-sm text-amber-800">
-            Couldn&apos;t load the booking summary — reload the page or try again shortly.
-          </p>
-        ) : isLoading && !period.unresolved ? (
-          <p className="text-sm text-gray-500">Loading reports…</p>
-        ) : stats ? (
-          <div className="space-y-6">
-            {/* Summary cards — NCN/NP counts were retired for the three-way
-                Open Notices split card (VER-294); refund cards removed
-                entirely (design feedback 02/07 — refunds live on their own
-                admin page, not the council-facing report). */}
-            <div className="grid grid-cols-[repeat(auto-fit,minmax(min(230px,100%),1fr))] gap-4">
-              <SlaCard
-                label="Total Bookings"
-                value={String(stats.totalBookings)}
-                provenance={`${stamp} · by service date`}
-              />
-              <SlaCard
-                label="Open Tickets"
-                value={String(stats.openTickets)}
-                provenance="Live · Current snapshot"
-              />
-            </div>
-
-            {/* Bookings by status — a chart panel, but its title sits at the
-                CARD level, not the page-section level (CardLabel, not h2). */}
-            <div className="rounded-xl bg-white p-5 shadow-sm">
-              <div className="mb-4">
-                <CardLabel text="Bookings by Status" />
-              </div>
-              {Object.keys(stats.statusCounts).length === 0 ? (
-                <p className="text-[11px] text-gray-500">No bookings in this period.</p>
-              ) : (
-                <DonutChart
-                  ariaLabel="Bookings by status"
-                  segments={Object.entries(stats.statusCounts)
-                    .sort(([, a], [, b]) => b - a)
-                    .map(([status, count]) => ({
-                      label: status,
-                      value: count,
-                      color: STATUS_DONUT_COLORS[status] ?? STATUS_DONUT_FALLBACK,
-                    }))}
-                />
-              )}
-              {stats.statusRowsCapped && (
-                <p className="mt-3 text-[11px] text-amber-700">
-                  Breakdown reflects the first 1,000 bookings of {stats.totalBookings} in this period.
-                </p>
-              )}
-              <ProvenanceStamp text={`${stamp} · by service date`} />
-            </div>
-
-          </div>
-        ) : null}
+        {/* VER-179 SLA dashboard + M2 delta cards — share the period + area scope. */}
+        <SlaDashboard
+          clientId={clientId}
+          selectedArea={selectedArea}
+          period={period}
+          viewerRole={viewerRole}
+        />
       </div>
     </>
   )

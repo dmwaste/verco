@@ -140,6 +140,9 @@ const rows = (data: unknown[]): MockResult => ({ data, error: null, count: data.
 function happyTable(q: RecordedQuery): MockResult {
   switch (q.table) {
     case 'booking':
+      // Summary stats: count-only HEAD request (status chart removed 02/07).
+      // Must be checked FIRST — its select ('id, …') collides with BC's.
+      if (q.head) return { data: null, error: null, count: 25 }
       // BC eligible set: 40 bookings (≥ CLEAN_LOW_N 20).
       if (q.select === 'id') return rows(Array.from({ length: 40 }, (_, i) => ({ id: `b${i}` })))
       if (q.select.startsWith('created_via'))
@@ -154,12 +157,6 @@ function happyTable(q: RecordedQuery): MockResult {
               { no_services: 25, actual_services: null, is_extra: false, service: { name: 'Bulk Waste', waste_stream: 'general' } },
             ],
           },
-        ])
-      // Summary stats: 25 bookings by status, exact count matches rows (uncapped).
-      if (q.select === 'status')
-        return rows([
-          ...Array.from({ length: 20 }, () => ({ status: 'Confirmed' })),
-          ...Array.from({ length: 5 }, () => ({ status: 'Completed' })),
         ])
       return rows([])
     case 'non_conformance_notice':
@@ -281,7 +278,6 @@ describe('VER-179 SLA scorecard regression guard (contractor viewer)', () => {
       'Service Breakdown',
       'Total Bookings',
       'Open Tickets',
-      'Bookings by Status',
       // M2 additions (VER-294/297)
       'Open Notices',
       'Collections per Period',
@@ -307,12 +303,13 @@ describe('VER-179 SLA scorecard regression guard (contractor viewer)', () => {
     expect(card('Service Rating').getByText('50.0%')).toBeInTheDocument()
     expect(card('Overall Rating').getByText('0.0%')).toBeInTheDocument()
     expect(await screen.findByText('123')).toBeInTheDocument() // collections trend total
-    expect(card('Total Bookings').getByText('25')).toBeInTheDocument()
+    expect(await card('Total Bookings').findByText('25')).toBeInTheDocument()
     expect(card('Open Tickets').getByText('3')).toBeInTheDocument()
     // Refund cards were removed from this page (design 02/07) — money never
     // renders here for ANY viewer.
     expect(screen.queryByText(/Refunds/)).toBeNull()
-    expect(screen.getByText('Confirmed')).toBeInTheDocument() // status donut legend
+    // Status chart removed (design batch 3) — its title must not come back.
+    expect(screen.queryByText('Bookings by Status')).toBeNull()
     expect(await screen.findByText('Bulk Waste')).toBeInTheDocument() // breakdown donut legend
 
     // Nothing errored, and the uncapped summary shows no truncation notice.
@@ -362,7 +359,7 @@ describe('zero-data council view (client-admin)', () => {
 describe('query failure states', () => {
   it('a failed RPC or table query renders an explicit error, not a blank/zero', async () => {
     h.respondTable = (q) =>
-      q.table === 'booking' && q.select === 'status'
+      q.table === 'booking' && q.head
         ? { data: null, error: { message: 'boom' } }
         : happyTable(q)
     h.respondRpc = (r) =>
@@ -370,8 +367,11 @@ describe('query failure states', () => {
     renderPage('contractor-admin')
 
     // Failed stats query → the amber banner, and the summary never renders.
-    expect(await screen.findByText(/Couldn.t load the booking summary/)).toBeInTheDocument()
-    expect(screen.queryByText('Total Bookings')).toBeNull()
+    // Failed stats query → the top-line count cards show explicit error
+    // states (the old page-level banner was retired with the summary block).
+    await screen.findByText('Total Bookings')
+    expect(await card('Total Bookings').findByText(/Couldn.t load/)).toBeInTheDocument()
+    expect(await card('Open Tickets').findByText(/Couldn.t load/)).toBeInTheDocument()
 
     // Failed RPC → that card shows an explicit error state…
     expect(await card('Rectification ≤ 2 Days').findByText(/Couldn.t load/)).toBeInTheDocument()

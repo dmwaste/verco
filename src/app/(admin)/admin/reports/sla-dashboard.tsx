@@ -67,7 +67,7 @@ import {
   NP_TERMINAL_STATUSES,
   type NoticeRow,
 } from '@/lib/reports/notice-split'
-import { SlaCard, scorecardTone } from './sla-card'
+import { CardLabel, ProvenanceStamp, SlaCard, scorecardTone } from './sla-card'
 import { Sparkline, type TrendPoint } from './sparkline'
 import { DonutChart } from './donut-chart'
 import {
@@ -191,16 +191,11 @@ export function SlaDashboard({ clientId, selectedArea, period, viewerRole }: {
         <h2 className="mb-3 font-[family-name:var(--font-heading)] text-sm font-bold text-[#293F52]">
           Insights
         </h2>
-        {/* Auto-fit: the card count varies by audience (penetration is
-            contractor-only), so columns derive from content — the row always
-            fills with no orphan slots (design review 02/07 F-005). */}
-        <div className="grid grid-cols-[repeat(auto-fit,minmax(min(230px,100%),1fr))] gap-4">
-          {show('property-penetration') && <PenetrationCard {...scope} />}
-          {show('open-notices') && <OpenNoticesCard {...scope} />}
-        </div>
         {/* Side by side (design feedback 02/07) — auto-fit so a lone card
-            (audience-gated sibling) still fills the row. */}
-        <div className="mt-4 grid grid-cols-[repeat(auto-fit,minmax(min(320px,100%),1fr))] gap-4">
+            (audience-gated sibling) still fills the row. Open Notices moved
+            to the page top line (reports-client); Penetration lives in the
+            Service Level grid (batch 3). */}
+        <div className="grid grid-cols-[repeat(auto-fit,minmax(min(320px,100%),1fr))] gap-4">
           {show('collections-trend') && <CollectionsTrendCard {...scope} />}
           {show('service-breakdown') && <VolumeMixCard {...scope} />}
         </div>
@@ -228,6 +223,8 @@ export function SlaDashboard({ clientId, selectedArea, period, viewerRole }: {
           {(show('ticket-first-response') || show('ticket-resolution')) && <SrCards {...scope} />}
           {show('self-service-rate') && <SelfServiceCard {...scope} />}
           {show('notification-delivery') && <NotifCard {...scope} />}
+          {/* Quarter-width here per design batch 3 (was an Insights card). */}
+          {show('property-penetration') && <PenetrationCard {...scope} />}
         </div>
       </section>
     </div>
@@ -735,7 +732,7 @@ function CustomerSatisfactionCards({ clientId, area, period }: CardScope) {
 // 12, via get_notices_monthly. Split semantics live in the tested pure fn
 // (lib/reports/notice-split.ts) and MUST match the council definitions doc
 // v1.0 §3 (resident-fault presumption + 14-day dispute window stated there).
-function OpenNoticesCard({ clientId, area }: CardScope) {
+export function OpenNoticesCard({ clientId, area }: CardScope) {
   const supabase = createClient()
   const { data, isLoading, isError } = useQuery({
     queryKey: ['sla-notices', clientId, area],
@@ -951,39 +948,47 @@ function VolumeMixCard({ clientId, area, period }: CardScope) {
     },
   })
   const r = data
-  const donut =
-    r && !r.isEmpty && !r.isLowN && !period.unresolved ? (
-      <DonutChart
-        ariaLabel="Service breakdown"
-        segments={r.byService.map((s, i) => ({
-          label: s.name,
-          value: s.qty,
-          color:
-            SERVICE_COLORS[s.name] ??
-            SERVICE_COLOR_FALLBACK[i % SERVICE_COLOR_FALLBACK.length],
-        }))}
-      />
-    ) : undefined
+  const hasData = !!r && !r.isEmpty && !period.unresolved && !isError
+  // Chart panel, not a KPI card (design batch 3): no headline number — the
+  // donut IS the content, with the provenance stamp as the panel footer.
   return (
-    <SlaCard
-      label="Service Breakdown"
-      isLoading={!period.unresolved && (isLoading || !r)}
-      isError={isError}
-      value={period.unresolved || !r || r.isEmpty ? '—' : String(r.totalCollections)}
-      sub={
-        period.unresolved
-          ? 'Period unavailable'
-          : !r
-            ? undefined
-            : r.isEmpty
-              ? 'No collections match these filters.'
-              : r.isLowN
-                ? 'Building data'
-                : `${r.freeUnits} included · ${r.extraUnits} extra`
-      }
-      provenance={`${liveStamp(period)} · by service date`}
-      footer={donut}
-    />
+    <div className="flex flex-col rounded-xl bg-white p-5 shadow-sm">
+      <CardLabel text="Service Breakdown" />
+      <div className="flex flex-1 items-center py-3">
+        {period.unresolved ? (
+          <p className="text-[11px] text-gray-500">Period unavailable.</p>
+        ) : isError ? (
+          <p className="font-[family-name:var(--font-heading)] text-sm font-bold text-amber-600">
+            Couldn&apos;t load
+          </p>
+        ) : isLoading || !r ? (
+          <p className="text-[11px] text-gray-500">Loading…</p>
+        ) : r.isEmpty ? (
+          <p className="text-[11px] text-gray-500">No collections match these filters.</p>
+        ) : (
+          <DonutChart
+            svgClassName="h-36 w-36"
+            ariaLabel="Service breakdown"
+            segments={r.byService.map((s, i) => ({
+              label: s.name,
+              value: s.qty,
+              color:
+                SERVICE_COLORS[s.name] ??
+                SERVICE_COLOR_FALLBACK[i % SERVICE_COLOR_FALLBACK.length],
+            }))}
+          />
+        )}
+      </div>
+      {hasData && (
+        <p className="text-[11px] text-gray-500">
+          {r.freeUnits} included · {r.extraUnits} extra
+          {r.isLowN ? ' · building data' : ''}
+        </p>
+      )}
+      <div className="mt-auto">
+        <ProvenanceStamp text={`${liveStamp(period)} · by service date`} />
+      </div>
+    </div>
   )
 }
 
