@@ -9,6 +9,7 @@ import {
   type PeriodFyRow,
   type PeriodPreset,
 } from '@/lib/reports/periods'
+import { DonutChart } from './donut-chart'
 import { PeriodSelector } from './period-selector'
 import { CardLabel, ProvenanceStamp, SlaCard } from './sla-card'
 import { SlaDashboard } from './sla-dashboard'
@@ -140,16 +141,19 @@ export function ReportsClient({
     },
   })
 
-  const STATUS_COLORS: Record<string, string> = {
-    Submitted: 'bg-blue-100 text-blue-700',
-    Confirmed: 'bg-emerald-100 text-emerald-700',
-    Scheduled: 'bg-purple-100 text-purple-700',
-    Completed: 'bg-gray-100 text-gray-700',
-    Cancelled: 'bg-gray-100 text-gray-500',
-    'Non-conformance': 'bg-red-100 text-red-700',
-    'Nothing Presented': 'bg-amber-100 text-amber-700',
-    Rebooked: 'bg-blue-100 text-blue-700',
+  // Donut segment colours — same hue semantics as the status pills used
+  // across the admin (emerald confirmed, purple scheduled, amber NP, …).
+  const STATUS_DONUT_COLORS: Record<string, string> = {
+    Submitted: '#3B82F6',
+    Confirmed: '#10B981',
+    Scheduled: '#8B5CF6',
+    Completed: '#293F52',
+    Cancelled: '#D1D5DB',
+    'Non-conformance': '#F87171',
+    'Nothing Presented': '#F59E0B',
+    Rebooked: '#60A5FA',
   }
+  const STATUS_DONUT_FALLBACK = '#9CA3AF'
 
   const stamp = `Live · ${period.label}`
 
@@ -258,27 +262,20 @@ export function ReportsClient({
               <div className="mb-4">
                 <CardLabel text="Bookings by Status" />
               </div>
-              <div className="space-y-2">
-                {Object.entries(stats.statusCounts)
-                  .sort(([, a], [, b]) => b - a)
-                  .map(([status, count]) => (
-                    <div key={status} className="flex items-center gap-3">
-                      <span className={`inline-flex w-36 items-center justify-center rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${STATUS_COLORS[status] ?? 'bg-gray-100 text-gray-600'}`}>
-                        {status}
-                      </span>
-                      <div className="flex-1">
-                        {/* Adjacent badge + count carry the data — bar is decorative. */}
-                        <div aria-hidden="true" className="h-2 overflow-hidden rounded-full bg-gray-100">
-                          <div
-                            className="h-full rounded-full bg-[#293F52]"
-                            style={{ width: `${Math.max(2, (count / stats.totalBookings) * 100)}%` }}
-                          />
-                        </div>
-                      </div>
-                      <span className="w-12 text-right text-body-sm font-semibold text-gray-700">{count}</span>
-                    </div>
-                  ))}
-              </div>
+              {Object.keys(stats.statusCounts).length === 0 ? (
+                <p className="text-[11px] text-gray-500">No bookings in this period.</p>
+              ) : (
+                <DonutChart
+                  ariaLabel="Bookings by status"
+                  segments={Object.entries(stats.statusCounts)
+                    .sort(([, a], [, b]) => b - a)
+                    .map(([status, count]) => ({
+                      label: status,
+                      value: count,
+                      color: STATUS_DONUT_COLORS[status] ?? STATUS_DONUT_FALLBACK,
+                    }))}
+                />
+              )}
               {stats.statusRowsCapped && (
                 <p className="mt-3 text-[11px] text-amber-700">
                   Breakdown reflects the first 1,000 bookings of {stats.totalBookings} in this period.
