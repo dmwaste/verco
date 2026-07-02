@@ -3,7 +3,7 @@
 /**
  * SLA Dashboard — VER-179 Phase 3 consumer (spec §3, §5).
  *
- * Ten cards (7 SLA scorecards + 3 insight cards) rendered on the admin Reports
+ * Nine cards (6 SLA scorecards + 3 insight cards) rendered on the admin Reports
  * screen. Each card is a thin renderer: it runs its own RLS-scoped PostgREST
  * query (or one of the two server RPCs), folds the rows through a tested pure fn
  * from `src/lib/reports/*`, and hands the display strings to <SlaCard>. Nothing
@@ -37,7 +37,6 @@ import {
   RESPONSE_TARGET_WD,
   RESOLUTION_TARGET_DAYS,
 } from '@/lib/reports/service-ticket-sla'
-import { recoveryRate, RECOVERY_TARGET_PCT } from '@/lib/ncn/recovery-rate'
 import {
   computeNotificationReliability,
   NOTIF_TARGET_PCT,
@@ -83,21 +82,6 @@ export function SlaDashboard({ clientId, currentFyId, selectedArea }: {
     <div className="space-y-6">
       <section>
         <h2 className="mb-3 font-[family-name:var(--font-heading)] text-sm font-bold text-[#293F52]">
-          Service Level
-        </h2>
-        <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-          <BcCard {...scope} />
-          <OnTimeCard {...scope} />
-          <RectCard {...scope} />
-          <RecoveryCard {...scope} />
-          <SrCards {...scope} />
-          <SelfServiceCard {...scope} />
-          <NotifCard {...scope} />
-        </div>
-      </section>
-
-      <section>
-        <h2 className="mb-3 font-[family-name:var(--font-heading)] text-sm font-bold text-[#293F52]">
           Insights
         </h2>
         <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
@@ -105,6 +89,20 @@ export function SlaDashboard({ clientId, currentFyId, selectedArea }: {
           <ResidentSatisfactionCard {...scope} />
         </div>
         <VolumeMixCard {...scope} />
+      </section>
+
+      <section>
+        <h2 className="mb-3 font-[family-name:var(--font-heading)] text-sm font-bold text-[#293F52]">
+          Service Level
+        </h2>
+        <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+          <BcCard {...scope} />
+          <OnTimeCard {...scope} />
+          <RectCard {...scope} />
+          <SrCards {...scope} />
+          <SelfServiceCard {...scope} />
+          <NotifCard {...scope} />
+        </div>
       </section>
     </div>
   )
@@ -151,7 +149,7 @@ function BcCard({ clientId, area, currentFyId }: CardScope) {
   })
 
   if (!currentFyId) {
-    return <SlaCard label="Clean Collection" value="—" sub="No current financial year" />
+    return <SlaCard label="Service Delivery" value="—" sub="No current financial year" />
   }
   const r = data
   const value = !r ? '—' : r.isEmpty ? 'No collections yet'
@@ -161,7 +159,7 @@ function BcCard({ clientId, area, currentFyId }: CardScope) {
     : r.isLowN ? 'Building data' : `${r.eligible - r.miss} / ${r.eligible} clean`
   return (
     <SlaCard
-      label="Clean Collection"
+      label="Service Delivery"
       isLoading={isLoading}
       value={value}
       sub={sub}
@@ -242,66 +240,6 @@ function RectCard({ clientId, area }: CardScope) {
       sub={sub}
       tone={r ? scorecardTone(r.pct === null ? null : Number(r.pct), 90, { isEmpty, isLowN }) : 'neutral'}
       target="Target ≥ 90%"
-    />
-  )
-}
-
-// ── RECOVERY — Recovery Rate (spec §3.5, split-query) ────────────────────────
-function RecoveryCard({ clientId, area }: CardScope) {
-  const supabase = createClient()
-  const { data, isLoading } = useQuery({
-    queryKey: ['sla-recovery', clientId, area],
-    enabled: !!clientId,
-    queryFn: async () => {
-      // NCN + NP each have two FKs to booking — split-query + stitch, explicit FK
-      // on the ORIGINAL booking (never embed the rebooked booking).
-      const { data: ncn } = await supabase
-        .from('non_conformance_notice')
-        .select('rescheduled_booking_id, orig:booking!non_conformance_notice_booking_id_fkey(collection_area_id)')
-        .eq('client_id', clientId)
-      const { data: np } = await supabase
-        .from('nothing_presented')
-        .select('rescheduled_booking_id, orig:booking!nothing_presented_booking_id_fkey(collection_area_id)')
-        .eq('client_id', clientId)
-
-      const rows = [...(ncn ?? []), ...(np ?? [])].filter((n) => {
-        if (!area) return true
-        const o = Array.isArray(n.orig) ? n.orig[0] : n.orig
-        return o?.collection_area_id === area
-      })
-
-      const rescheduledIds = rows
-        .map((n) => n.rescheduled_booking_id)
-        .filter((id): id is string => !!id)
-
-      const statusById = new Map<string, string>()
-      if (rescheduledIds.length > 0) {
-        const { data: rebooked } = await supabase
-          .from('booking')
-          .select('id, status')
-          .in('id', rescheduledIds)
-        for (const b of rebooked ?? []) statusById.set(b.id, b.status)
-      }
-
-      return recoveryRate(
-        rows.map((n) => ({ rescheduledBookingId: n.rescheduled_booking_id })),
-        statusById
-      )
-    },
-  })
-  const r = data
-  const value = !r ? '—' : r.isEmpty ? 'No notices'
-    : r.isLowN ? `${r.recovered} / ${r.recoverable}` : pct1(r.rate!)
-  const sub = !r || r.isEmpty ? undefined
-    : r.isLowN ? 'Building data' : `${r.recovered} / ${r.recoverable} recovered`
-  return (
-    <SlaCard
-      label="Recovery Rate"
-      isLoading={isLoading}
-      value={value}
-      sub={sub}
-      tone={r ? scorecardTone(r.rate, RECOVERY_TARGET_PCT, r) : 'neutral'}
-      target={`Target ≥ ${RECOVERY_TARGET_PCT}%`}
     />
   )
 }
@@ -498,7 +436,22 @@ function ResidentSatisfactionCard({ clientId, area }: CardScope) {
   )
 }
 
-// ── VOLMIX — Volume & Mix (insight, full-width, spec §3.8) ───────────────────
+// ── VOLMIX — Service Breakdown (insight, full-width, spec §3.8) ──────────────
+
+/**
+ * Fixed per-service bar colours, matching the admin dashboard's convention
+ * (bulk/green split + ANC_COLORS in admin/page.tsx). Keyed by display name, so
+ * a renamed service degrades to a stable fallback colour rather than vanishing.
+ */
+const SERVICE_COLORS: Record<string, string> = {
+  'Bulk Waste': '#00E47C',
+  'Green Waste': '#00B864',
+  Mattress: '#8FA5B8',
+  'E-Waste': '#FF8C42',
+  Whitegoods: '#3A5A73',
+}
+const SERVICE_COLOR_FALLBACK = ['#6B8299', '#B0763A', '#26506B', '#93A7B8']
+
 function VolumeMixCard({ clientId, area }: CardScope) {
   const supabase = createClient()
   const { data, isLoading } = useQuery({
@@ -536,7 +489,7 @@ function VolumeMixCard({ clientId, area }: CardScope) {
   const r = data
   return (
     <div className="mt-4 rounded-xl bg-white p-5 shadow-sm">
-      <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Volume &amp; Mix</p>
+      <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Service Breakdown</p>
       {isLoading || !r ? (
         <p className="mt-1 text-body-sm text-gray-400">Loading…</p>
       ) : r.isEmpty ? (
@@ -552,13 +505,18 @@ function VolumeMixCard({ clientId, area }: CardScope) {
           </p>
           {!r.isLowN && (
             <div className="mt-3 space-y-1">
-              {r.byService.map((s) => (
+              {r.byService.map((s, i) => (
                 <div key={s.name} className="flex items-center gap-3">
                   <span className="w-40 truncate text-body-sm text-gray-600">{s.name}</span>
                   <div className="h-2 flex-1 overflow-hidden rounded-full bg-gray-100">
                     <div
-                      className="h-full rounded-full bg-[#293F52]"
-                      style={{ width: `${Math.max(2, (s.qty / r.totalCollections) * 100)}%` }}
+                      className="h-full rounded-full"
+                      style={{
+                        width: `${Math.max(2, (s.qty / r.totalCollections) * 100)}%`,
+                        backgroundColor:
+                          SERVICE_COLORS[s.name] ??
+                          SERVICE_COLOR_FALLBACK[i % SERVICE_COLOR_FALLBACK.length],
+                      }}
                     />
                   </div>
                   <span className="w-10 text-right text-body-sm font-semibold text-gray-700">{s.qty}</span>
