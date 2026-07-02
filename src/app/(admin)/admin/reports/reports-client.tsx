@@ -58,7 +58,7 @@ export function ReportsClient({
   })
 
   const bounds = awstTimestampBounds(period)
-  const { data: stats, isLoading } = useQuery({
+  const { data: stats, isLoading, isError: statsError } = useQuery({
     queryKey: [
       'report-stats',
       selectedArea,
@@ -97,12 +97,16 @@ export function ReportsClient({
         .in('status', ['open', 'in_progress'])
       if (clientId) ticketQuery = ticketQuery.eq('client_id', clientId)
 
-      // Independent queries — no waterfall.
+      // Independent queries — no waterfall; any failure throws (isError) —
+      // a failed fetch must never read as zero bookings/tickets.
       const [bookingRes, refundRes, ticketRes] = await Promise.all([
         bookingQuery,
         refundQuery,
         ticketQuery,
       ])
+      for (const res of [bookingRes, refundRes, ticketRes]) {
+        if (res?.error) throw new Error(res.error.message)
+      }
 
       const statusCounts: Record<string, number> = {}
       for (const b of bookingRes.data ?? []) {
@@ -194,7 +198,11 @@ export function ReportsClient({
           />
         </div>
 
-        {isLoading && !period.unresolved ? (
+        {statsError ? (
+          <p className="rounded-lg border border-amber-100 bg-amber-50 px-4 py-2 text-body-sm text-amber-800">
+            Couldn&apos;t load the booking summary — reload the page or try again shortly.
+          </p>
+        ) : isLoading && !period.unresolved ? (
           <p className="text-sm text-gray-400">Loading reports...</p>
         ) : stats ? (
           <div className="space-y-6">

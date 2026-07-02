@@ -101,3 +101,15 @@ describe('SlaCard provenance and footer', () => {
     expect(container.querySelectorAll('p')).toHaveLength(2) // label + value only
   })
 })
+
+describe('SlaCard error state', () => {
+  it('renders "Couldn\'t load" instead of an authoritative-looking value', () => {
+    render(
+      <SlaCard label="On-Time Collection" value="0.0%" isError provenance="Live · This month" />,
+    )
+    expect(screen.getByText("Couldn't load")).toBeInTheDocument()
+    expect(screen.queryByText('0.0%')).not.toBeInTheDocument()
+    // Provenance still renders so the card states which period failed.
+    expect(screen.getByText('Live · This month')).toBeInTheDocument()
+  })
+})

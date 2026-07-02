@@ -150,6 +150,16 @@ function rpcUntyped(
 }
 
 /**
+ * Throws on PostgREST errors so TanStack surfaces isError and the card
+ * renders "Couldn't load" — a failed fetch must never read as an
+ * authoritative zero on a council-facing SLA card (review 02/07).
+ */
+function orThrow<T>(res: { data: T | null; error: { message: string } | null }): T | null {
+  if (res.error) throw new Error(res.error.message)
+  return res.data
+}
+
+/**
  * Shared rolling-12 trendline query (VER-297): one place owns the window
  * anchor (computed per render and INCLUDED in the queryKey so a month
  * rollover in a long-lived tab re-keys the cache instead of silently mixing
@@ -236,7 +246,7 @@ function BcCard({ clientId, area, period }: CardScope) {
   const supabase = createClient()
   const fyScoped = period.kind === 'fy'
   const bounds = awstTimestampBounds(period)
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError } = useQuery({
     queryKey: ['sla-bc', clientId, area, ...periodKey(period)],
     enabled: !!clientId && !period.unresolved,
     queryFn: async () => {
@@ -272,8 +282,10 @@ function BcCard({ clientId, area, period }: CardScope) {
       }
       if (area) ncn = ncn.eq('orig.collection_area_id', area)
 
-      // Independent queries — no waterfall.
-      const [{ data: eligRows }, { data: ncnRows }] = await Promise.all([elig, ncn])
+      // Independent queries — no waterfall; either failure throws (isError).
+      const [eligRes, ncnRes] = await Promise.all([elig, ncn])
+      const eligRows = orThrow(eligRes)
+      const ncnRows = orThrow(ncnRes)
       const eligibleBookingIds = new Set((eligRows ?? []).map((r) => r.id))
       const contractorFaultNcnBookingIds = new Set(
         (ncnRows ?? []).map((r) => r.booking_id)
@@ -296,6 +308,7 @@ function BcCard({ clientId, area, period }: CardScope) {
     <SlaCard
       label="Service Delivery"
       isLoading={isLoading}
+      isError={isError}
       value={value}
       sub={sub}
       tone={r ? scorecardTone(r.pct, CLEAN_TARGET_PCT, r) : 'neutral'}
@@ -310,7 +323,7 @@ function BcCard({ clientId, area, period }: CardScope) {
 // (in-DB month buckets; history starts at the June-2026 stops model).
 function OnTimeCard({ clientId, area, period }: CardScope) {
   const supabase = createClient()
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError } = useQuery({
     queryKey: ['sla-ontime', clientId, area, ...periodKey(period)],
     enabled: !!clientId && !period.unresolved,
     queryFn: async () => {
@@ -323,7 +336,7 @@ function OnTimeCard({ clientId, area, period }: CardScope) {
       if (area) q = q.eq('collection_date.collection_area_id', area)
       if (period.from) q = q.gte('collection_date.date', period.from)
       if (period.to) q = q.lte('collection_date.date', period.to)
-      const { data: rows } = await q
+      const rows = orThrow(await q)
       const stops = (rows ?? []).map((row) => {
         const cd = Array.isArray(row.collection_date) ? row.collection_date[0] : row.collection_date
         return { completed_at: row.completed_at as string, scheduledDate: cd?.date as string }
@@ -352,6 +365,7 @@ function OnTimeCard({ clientId, area, period }: CardScope) {
     <SlaCard
       label="On-Time Collection"
       isLoading={isLoading}
+      isError={isError}
       value={value}
       sub={sub}
       tone={r ? scorecardTone(r.pct, ON_TIME_TARGET_PCT, r) : 'neutral'}
@@ -370,7 +384,7 @@ function OnTimeCard({ clientId, area, period }: CardScope) {
 // Period anchor: notice reported_at (RPC p_from/p_to).
 function RectCard({ clientId, area, period }: CardScope) {
   const supabase = createClient()
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError } = useQuery({
     queryKey: ['sla-rect', clientId, area, ...periodKey(period)],
     enabled: !!clientId && !period.unresolved,
     queryFn: async () => {
@@ -401,6 +415,7 @@ function RectCard({ clientId, area, period }: CardScope) {
     <SlaCard
       label="Rectification ≤ 2 Days"
       isLoading={isLoading}
+      isError={isError}
       value={value}
       sub={sub}
       tone={r ? scorecardTone(r.pct === null ? null : Number(r.pct), 90, { isEmpty, isLowN }) : 'neutral'}
@@ -415,7 +430,7 @@ function RectCard({ clientId, area, period }: CardScope) {
 function SrCards({ clientId, area, period }: CardScope) {
   const supabase = createClient()
   const bounds = awstTimestampBounds(period)
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError } = useQuery({
     queryKey: ['sla-sr', clientId, area, ...periodKey(period)],
     enabled: !!clientId && !period.unresolved,
     queryFn: async () => {
@@ -432,7 +447,8 @@ function SrCards({ clientId, area, period }: CardScope) {
       if (bounds.gte) q = q.gte('created_at', bounds.gte)
       if (bounds.lt) q = q.lt('created_at', bounds.lt)
       // Holidays are independent of the ticket rows — no waterfall.
-      const [waHolidays, { data: rows }] = await Promise.all([fetchWaHolidays(supabase), q])
+      const [waHolidays, ticketRes] = await Promise.all([fetchWaHolidays(supabase), q])
+      const rows = orThrow(ticketRes)
       const tickets = (rows ?? []).map((t) => ({
         createdAtAwst: awstDateFromUtc(new Date(t.created_at)),
         firstResponseAtAwst: t.first_response_at ? awstDateFromUtc(new Date(t.first_response_at)) : null,
@@ -457,6 +473,7 @@ function SrCards({ clientId, area, period }: CardScope) {
       <SlaCard
         label="Ticket First Response"
         isLoading={isLoading}
+      isError={isError}
         value={
           !resp ? '—' : resp.isEmpty ? 'Tracking starts soon'
             : resp.isLowN ? `${resp.withinTarget} / ${resp.n}` : pct1(resp.pct!)
@@ -469,6 +486,7 @@ function SrCards({ clientId, area, period }: CardScope) {
       <SlaCard
         label="Ticket Resolution"
         isLoading={isLoading}
+      isError={isError}
         value={
           !res ? '—' : res.isEmpty ? 'No resolved tickets'
             : res.isLowN ? `${res.withinTarget} / ${res.n}` : pct1(res.pct!)
@@ -487,7 +505,7 @@ function SrCards({ clientId, area, period }: CardScope) {
 function SelfServiceCard({ clientId, area, period }: CardScope) {
   const supabase = createClient()
   const bounds = awstTimestampBounds(period)
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError } = useQuery({
     queryKey: ['sla-selfsvc', clientId, area, ...periodKey(period)],
     enabled: !!clientId && !period.unresolved,
     queryFn: async () => {
@@ -498,7 +516,7 @@ function SelfServiceCard({ clientId, area, period }: CardScope) {
       if (area) q = q.eq('collection_area_id', area)
       if (bounds.gte) q = q.gte('created_at', bounds.gte)
       if (bounds.lt) q = q.lt('created_at', bounds.lt)
-      const { data: rows } = await q
+      const rows = orThrow(await q)
       return computeSelfServiceRate(rows ?? [])
     },
   })
@@ -515,6 +533,7 @@ function SelfServiceCard({ clientId, area, period }: CardScope) {
     <SlaCard
       label="Self-Service Rate"
       isLoading={isLoading}
+      isError={isError}
       value={value}
       sub={sub}
       tone="neutral"
@@ -529,7 +548,7 @@ function SelfServiceCard({ clientId, area, period }: CardScope) {
 function NotifCard({ clientId, period }: CardScope) {
   const supabase = createClient()
   const bounds = awstTimestampBounds(period)
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError } = useQuery({
     queryKey: ['sla-notif', clientId, ...periodKey(period)],
     enabled: !!clientId && !period.unresolved,
     queryFn: async () => {
@@ -541,7 +560,7 @@ function NotifCard({ clientId, period }: CardScope) {
         .not('delivery_status', 'is', null)
       if (bounds.gte) q = q.gte('created_at', bounds.gte)
       if (bounds.lt) q = q.lt('created_at', bounds.lt)
-      const { data: rows } = await q
+      const rows = orThrow(await q)
       return computeNotificationReliability((rows ?? []).map((r) => r.delivery_status))
     },
   })
@@ -557,6 +576,7 @@ function NotifCard({ clientId, period }: CardScope) {
     <SlaCard
       label="Notification Delivery"
       isLoading={isLoading}
+      isError={isError}
       value={value}
       sub={sub}
       tone={r ? scorecardTone(r.pct, NOTIF_TARGET_PCT, r) : 'neutral'}
@@ -571,7 +591,7 @@ function NotifCard({ clientId, period }: CardScope) {
 // denominator is point-in-time by design. Contractor-only per 8A.
 function PenetrationCard({ clientId, area, period }: CardScope) {
   const supabase = createClient()
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError } = useQuery({
     queryKey: ['sla-penetration', clientId, area, ...periodKey(period)],
     enabled: !!clientId && !period.unresolved,
     queryFn: async () => {
@@ -596,6 +616,7 @@ function PenetrationCard({ clientId, area, period }: CardScope) {
     <SlaCard
       label="Property Penetration"
       isLoading={isLoading}
+      isError={isError}
       value={!r ? '—' : r.display}
       sub={!r || r.isEmpty ? undefined : r.isLowN ? 'Building data' : 'of eligible properties'}
       tone="neutral"
@@ -609,7 +630,7 @@ function PenetrationCard({ clientId, area, period }: CardScope) {
 function ResidentSatisfactionCard({ clientId, area, period }: CardScope) {
   const supabase = createClient()
   const bounds = awstTimestampBounds(period)
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError } = useQuery({
     queryKey: ['sla-rs', clientId, area, ...periodKey(period)],
     enabled: !!clientId && !period.unresolved,
     queryFn: async () => {
@@ -629,7 +650,7 @@ function ResidentSatisfactionCard({ clientId, area, period }: CardScope) {
             .eq('client_id', clientId)
       if (bounds.gte) q = q.gte('submitted_at', bounds.gte)
       if (bounds.lt) q = q.lt('submitted_at', bounds.lt)
-      const { data: rows } = await q
+      const rows = orThrow(await q)
       return computeResidentSatisfaction((rows ?? []).map((r) => ({ responses: r.responses })))
     },
   })
@@ -642,7 +663,8 @@ function ResidentSatisfactionCard({ clientId, area, period }: CardScope) {
   const sub = !r || r.isEmpty ? undefined
     : r.isLowN ? 'Building data' : `${r.good} / ${r.n} rated good · target ≥ ${RS_TARGET_PCT}%`
   return (
-    <SlaCard label="Resident Satisfaction" isLoading={isLoading} value={value} sub={sub} tone="neutral" provenance={liveStamp(period)} />
+    <SlaCard label="Resident Satisfaction" isLoading={isLoading}
+      isError={isError} value={value} sub={sub} tone="neutral" provenance={liveStamp(period)} />
   )
 }
 
@@ -657,7 +679,7 @@ function ResidentSatisfactionCard({ clientId, area, period }: CardScope) {
 // v1.0 §3 (resident-fault presumption + 14-day dispute window stated there).
 function OpenNoticesCard({ clientId, area }: CardScope) {
   const supabase = createClient()
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError } = useQuery({
     queryKey: ['sla-notices', clientId, area],
     enabled: !!clientId,
     queryFn: async () => {
@@ -685,7 +707,9 @@ function OpenNoticesCard({ clientId, area }: CardScope) {
             .select('status, contractor_fault')
             .eq('client_id', clientId)
       np = np.not('status', 'in', NP_TERMINAL_IN)
-      const [{ data: ncnRows }, { data: npRows }] = await Promise.all([ncn, np])
+      const [ncnRes, npRes] = await Promise.all([ncn, np])
+      const ncnRows = orThrow(ncnRes)
+      const npRows = orThrow(npRes)
       const rows: NoticeRow[] = [
         ...(ncnRows ?? []).map((r) => ({ table: 'ncn' as const, status: String(r.status), contractor_fault: !!r.contractor_fault })),
         ...(npRows ?? []).map((r) => ({ table: 'np' as const, status: String(r.status), contractor_fault: !!r.contractor_fault })),
@@ -711,6 +735,7 @@ function OpenNoticesCard({ clientId, area }: CardScope) {
     <SlaCard
       label="Open Notices"
       isLoading={isLoading}
+      isError={isError}
       value={s ? String(s.open) : '—'}
       sub={
         s && s.open > 0
@@ -742,12 +767,14 @@ function CollectionsTrendCard({ clientId, area, period }: CardScope) {
     queryKey: ['sla-trend-total', clientId, area, ...periodKey(period)],
     enabled: !!clientId && !period.unresolved,
     queryFn: async () => {
-      const { data: rows } = await supabase.rpc('get_collections_trend', {
-        p_client_id: clientId,
-        p_area_id: area || undefined,
-        p_from: period.from ?? undefined,
-        p_to: period.to ?? undefined,
-      })
+      const rows = orThrow(
+        await supabase.rpc('get_collections_trend', {
+          p_client_id: clientId,
+          p_area_id: area || undefined,
+          p_from: period.from ?? undefined,
+          p_to: period.to ?? undefined,
+        }),
+      )
       return (rows ?? []).reduce((sum, r) => sum + Number(r.collections ?? 0), 0)
     },
   })
@@ -812,7 +839,7 @@ const SERVICE_COLOR_FALLBACK = ['#6B8299', '#B0763A', '#26506B', '#93A7B8']
 function VolumeMixCard({ clientId, area, period }: CardScope) {
   const supabase = createClient()
   const bounds = awstTimestampBounds(period)
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError } = useQuery({
     queryKey: ['sla-volmix', clientId, area, ...periodKey(period)],
     enabled: !!clientId && !period.unresolved,
     queryFn: async () => {
@@ -824,7 +851,7 @@ function VolumeMixCard({ clientId, area, period }: CardScope) {
       if (area) q = q.eq('collection_area_id', area)
       if (bounds.gte) q = q.gte('created_at', bounds.gte)
       if (bounds.lt) q = q.lt('created_at', bounds.lt)
-      const { data: rows } = await q
+      const rows = orThrow(await q)
       const flat = (rows ?? []).flatMap((b) => {
         const items = (b.booking_item ?? []) as Array<{
           no_services: number

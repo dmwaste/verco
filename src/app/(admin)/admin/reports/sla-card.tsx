@@ -43,6 +43,12 @@ export interface SlaCardProps {
   provenance?: string
   /** Optional footer slot — e.g. a rolling-12 <TrendBars> strip (VER-297). */
   footer?: React.ReactNode
+  /**
+   * Query failure flag. A failed fetch must NEVER read as an authoritative
+   * zero/empty on a council-facing SLA card — it renders an explicit
+   * "Couldn't load" state instead (review 02/07, adversarial finding 3).
+   */
+  isError?: boolean
 }
 
 export function SlaCard({
@@ -54,7 +60,24 @@ export function SlaCard({
   target,
   provenance,
   footer,
+  isError = false,
 }: SlaCardProps) {
+  if (isError) {
+    return (
+      <div className="rounded-xl bg-white p-5 shadow-sm">
+        <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">
+          {label}
+        </p>
+        <p className="mt-1 font-[family-name:var(--font-heading)] text-2xl font-bold text-amber-600">
+          Couldn&apos;t load
+        </p>
+        <p className="mt-0.5 text-[11px] text-gray-500">
+          Data failed to refresh — reload the page or try again shortly.
+        </p>
+        {provenance && <ProvenanceStamp text={provenance} />}
+      </div>
+    )
+  }
   return (
     <div className="rounded-xl bg-white p-5 shadow-sm">
       <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">
