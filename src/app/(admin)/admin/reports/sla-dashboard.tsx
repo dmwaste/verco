@@ -69,6 +69,7 @@ import {
 } from '@/lib/reports/notice-split'
 import { SlaCard, scorecardTone } from './sla-card'
 import { Sparkline, type TrendPoint } from './sparkline'
+import { DonutChart } from './donut-chart'
 import {
   computeCleanCollection,
   CLEAN_TARGET_PCT,
@@ -197,8 +198,12 @@ export function SlaDashboard({ clientId, selectedArea, period, viewerRole }: {
           {show('resident-satisfaction') && <ResidentSatisfactionCard {...scope} />}
           {show('open-notices') && <OpenNoticesCard {...scope} />}
         </div>
-        {show('collections-trend') && <CollectionsTrendCard {...scope} />}
-        {show('service-breakdown') && <VolumeMixCard {...scope} />}
+        {/* Side by side (design feedback 02/07) — auto-fit so a lone card
+            (audience-gated sibling) still fills the row. */}
+        <div className="mt-4 grid grid-cols-[repeat(auto-fit,minmax(min(320px,100%),1fr))] gap-4">
+          {show('collections-trend') && <CollectionsTrendCard {...scope} />}
+          {show('service-breakdown') && <VolumeMixCard {...scope} />}
+        </div>
       </section>
 
       <section>
@@ -814,36 +819,33 @@ function CollectionsTrendCard({ clientId, area, period }: CardScope) {
   )
 
   return (
-    <div className="mt-4">
-      <SlaCard
-        label="Collections per Period"
-        isLoading={!period.unresolved && (isLoading || periodTotal === undefined)}
-        value={period.unresolved ? '—' : String(periodTotal ?? 0)}
-        sub={
-          period.unresolved
-            ? 'Period unavailable'
-            : 'Completed collections — the current month grows as collections complete'
-        }
-        provenance={liveStamp(period)}
-        footer={
-          trend && trend.length > 0 ? (
-            <Sparkline
-              points={trend}
-              caption="Completed collections per month · last 12 months · history starts at platform adoption"
-            />
-          ) : undefined
-        }
-      />
-    </div>
+    <SlaCard
+      label="Collections per Period"
+      isLoading={!period.unresolved && (isLoading || periodTotal === undefined)}
+      value={period.unresolved ? '—' : String(periodTotal ?? 0)}
+      sub={
+        period.unresolved
+          ? 'Period unavailable'
+          : 'Completed collections — the current month grows as collections complete'
+      }
+      provenance={liveStamp(period)}
+      footer={
+        trend && trend.length > 0 ? (
+          <Sparkline
+            points={trend}
+            caption="Completed collections per month · last 12 months · history starts at platform adoption"
+          />
+        ) : undefined
+      }
+    />
   )
 }
 
-// ── VOLMIX — Service Breakdown (insight, full-width, spec §3.8) ──────────────
-// Period anchor: booking created_at (booked-in-period; per-item service dates
-// would need an item-level date join — documented divergence from TREND).
+// ── VOLMIX — Service Breakdown (insight, donut, spec §3.8) ───────────────────
+// Period anchor: service date (fy_id / item collection_date) — see header.
 
 /**
- * Fixed per-service bar colours, matching the admin dashboard's convention
+ * Fixed per-service segment colours, matching the admin dashboard's convention
  * (bulk/green split + ANC_COLORS in admin/page.tsx). Keyed by display name; an
  * unmapped or renamed service falls back to a palette colour rather than
  * vanishing. The fallback is positional (indexed by qty rank), so it is stable
@@ -912,51 +914,39 @@ function VolumeMixCard({ clientId, area, period }: CardScope) {
     },
   })
   const r = data
-  const bars =
+  const donut =
     r && !r.isEmpty && !r.isLowN && !period.unresolved ? (
-      <div className="space-y-1">
-        {r.byService.map((s, i) => (
-          <div key={s.name} className="flex items-center gap-3">
-            <span className="w-40 truncate text-body-sm text-gray-600">{s.name}</span>
-            {/* Adjacent text carries name + count — the bar is decorative. */}
-            <div aria-hidden="true" className="h-2 flex-1 overflow-hidden rounded-full bg-gray-100">
-              <div
-                className="h-full rounded-full"
-                style={{
-                  width: `${Math.max(2, (s.qty / r.totalCollections) * 100)}%`,
-                  backgroundColor:
-                    SERVICE_COLORS[s.name] ??
-                    SERVICE_COLOR_FALLBACK[i % SERVICE_COLOR_FALLBACK.length],
-                }}
-              />
-            </div>
-            <span className="w-12 text-right text-body-sm font-semibold text-gray-700">{s.qty}</span>
-          </div>
-        ))}
-      </div>
+      <DonutChart
+        ariaLabel="Service breakdown"
+        segments={r.byService.map((s, i) => ({
+          label: s.name,
+          value: s.qty,
+          color:
+            SERVICE_COLORS[s.name] ??
+            SERVICE_COLOR_FALLBACK[i % SERVICE_COLOR_FALLBACK.length],
+        }))}
+      />
     ) : undefined
   return (
-    <div className="mt-4">
-      <SlaCard
-        label="Service Breakdown"
-        isLoading={!period.unresolved && (isLoading || !r)}
-        isError={isError}
-        value={period.unresolved || !r || r.isEmpty ? '—' : String(r.totalCollections)}
-        sub={
-          period.unresolved
-            ? 'Period unavailable'
-            : !r
-              ? undefined
-              : r.isEmpty
-                ? 'No collections match these filters.'
-                : r.isLowN
-                  ? 'Building data'
-                  : `${r.freeUnits} included · ${r.extraUnits} extra`
-        }
-        provenance={`${liveStamp(period)} · by service date`}
-        footer={bars}
-      />
-    </div>
+    <SlaCard
+      label="Service Breakdown"
+      isLoading={!period.unresolved && (isLoading || !r)}
+      isError={isError}
+      value={period.unresolved || !r || r.isEmpty ? '—' : String(r.totalCollections)}
+      sub={
+        period.unresolved
+          ? 'Period unavailable'
+          : !r
+            ? undefined
+            : r.isEmpty
+              ? 'No collections match these filters.'
+              : r.isLowN
+                ? 'Building data'
+                : `${r.freeUnits} included · ${r.extraUnits} extra`
+      }
+      provenance={`${liveStamp(period)} · by service date`}
+      footer={donut}
+    />
   )
 }
 
