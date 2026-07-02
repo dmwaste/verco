@@ -1,46 +1,57 @@
 -- ============================================================================
--- M2 PR-A — trend/monthly report RPCs + period params (VER-294 / VER-297)
+-- M2 PR-A (part 2) — monthly RPCs + period params (VER-297 / VER-294)
 -- ============================================================================
--- Database layer for the M2 dashboard build (cards + period slicers +
--- rolling-12 trendlines). Ships ahead of the UI per the split-PR rule: the
+-- Completes the M2 database layer alongside 20260702150000 (PR #246, which
+-- owns get_collections_trend). Ships ahead of the UI per the split-PR rule:
 -- Types-Freshness CI gens from prod, so these must be RELEASED before the
 -- consumer PR can pass CI.
 --
--- Contents (get_collections_trend deliberately NOT here — it ships in
--- 20260702150000 / PR #246, which owns the trend at booking-grain; this
--- migration carries the rest of the M2 database layer):
---   1. get_on_time_monthly     — completed + on-time stop counts per AWST
---      month (SQL mirror of src/lib/reports/on-time.ts: on-time when the
---      AWST date of completed_at equals collection_date.date). History
---      necessarily starts at the stops model — UI carries the go-live label.
---   2. get_notices_monthly     — NCN + NP raised per AWST month of
---      reported_at, split contractor_fault vs other, per table.
+-- Contents:
+--   1. get_on_time_monthly  — completed + on-time stop counts per AWST month
+--      (SQL mirror of src/lib/reports/on-time.ts: on-time when the AWST date
+--      of completed_at equals collection_date.date). History necessarily
+--      starts at the June-2026 stops model — UI carries the go-live label.
+--   2. get_notices_monthly  — NCN + NP raised per AWST month of reported_at,
+--      split contractor_fault vs other, per table (VER-294 split card's
+--      trendline source).
 --   3. get_rect_sla / get_property_penetration — optional p_from/p_to period
---      params (VER-297 slicers). DROP + CREATE (new signature would otherwise
---      OVERLOAD and make PostgREST rpc calls ambiguous); named-arg callers on
---      the old 2-arg shape still resolve via the DEFAULTs, so the deployed UI
---      keeps working. DROP discards ACLs — grants re-applied below.
---      Period semantics: rect filters on notice reported_at (AWST date);
---      penetration filters the BOOKED half on booking created_at (AWST date)
+--      params (VER-297 slicers). DROP + CREATE (a new signature via OR
+--      REPLACE would OVERLOAD and make PostgREST rpc calls ambiguous);
+--      named-arg callers on the old 2-arg shape still resolve via the
+--      DEFAULTs, so the deployed UI keeps working. DROP discards ACLs —
+--      grants re-applied below. Penetration's body BUILDS ON 20260702140000
+--      (per-area guard keying — do not regress it to per-row).
+--      Period semantics: rect windows notice reported_at (AWST date);
+--      penetration windows the BOOKED half on booking created_at (AWST date)
 --      — "properties that booked during the period"; the eligible denominator
 --      stays point-in-time by design.
 --
--- All functions: NULL-safe tenant guard ((… IN (SELECT accessible_client_ids()))
--- IS NOT TRUE), sub-client narrowing via user_sub_client_allows_area() (7A),
--- search_path re-declared, REVOKE PUBLIC/anon + GRANT authenticated/service_role.
--- Rolling window = current AWST month back 11 (now() is fine in STABLE fns).
--- No table locks taken; idempotent (OR REPLACE / DROP IF EXISTS).
+-- Conventions (uniform with 20260702150000's trend fn):
+--   * signature (p_client_id, p_area_id, p_from, p_to); NULL = unbounded —
+--     the card computes AWST preset boundaries (VER-297) and passes them;
+--     the rolling-12 trendline passes p_from = 12 months back.
+--   * NULL-safe tenant guard: (… IN (SELECT accessible_client_ids())) IS NOT TRUE
+--   * sub-client narrowing (7A) keyed on collection_area.id so the planner
+--     applies it at the AREA scan, never per fact row — the 20260702140000
+--     lesson (per-row keying on a large scan measured ~20s/call on prod).
+--     get_notices_monthly guards per booking row deliberately: its scan is
+--     notices (low hundreds), the same class as penetration's booked half.
+--   * search_path re-declared; REVOKE PUBLIC/anon + GRANT authenticated/
+--     service_role in the same migration. No table locks → no lock_timeout.
 -- ============================================================================
 
 -- 1 ── On-time by month (trendline source; mirrors on-time.ts) ───────────────
-CREATE OR REPLACE FUNCTION public.get_on_time_monthly(p_client_id uuid, p_area_id uuid DEFAULT NULL::uuid)
+CREATE OR REPLACE FUNCTION public.get_on_time_monthly(
+  p_client_id uuid,
+  p_area_id   uuid DEFAULT NULL::uuid,
+  p_from      date DEFAULT NULL::date,
+  p_to        date DEFAULT NULL::date
+)
  RETURNS TABLE(month date, completed bigint, on_time bigint)
  LANGUAGE plpgsql
  STABLE SECURITY DEFINER
  SET search_path TO 'public', 'pg_temp'
 AS $function$
-DECLARE
-  v_month_start date := date_trunc('month', (now() AT TIME ZONE 'Australia/Perth'))::date;
 BEGIN
   IF (p_client_id IN (SELECT accessible_client_ids())) IS NOT TRUE THEN
     RETURN;
@@ -55,30 +66,36 @@ BEGIN
     )::bigint AS on_time
   FROM collection_stop cs
   JOIN collection_date cd ON cd.id = cs.collection_date_id
+  JOIN collection_area ca ON ca.id = cd.collection_area_id
   WHERE cs.client_id = p_client_id
     AND cs.status = 'Completed'
     AND cs.completed_at IS NOT NULL
     AND (p_area_id IS NULL OR cd.collection_area_id = p_area_id)
-    AND user_sub_client_allows_area(cd.collection_area_id)
-    AND cd.date >= (v_month_start - interval '11 months')::date
-    AND cd.date <  (v_month_start + interval '1 month')::date
+    -- 7A sub-client narrowing, keyed per AREA (evaluated at the ca scan,
+    -- ~10 rows) — never per stop row (20260702140000 lesson).
+    AND user_sub_client_allows_area(ca.id)
+    AND (p_from IS NULL OR cd.date >= p_from)
+    AND (p_to   IS NULL OR cd.date <= p_to)
   GROUP BY 1
   ORDER BY 1;
 END;
 $function$;
 
-REVOKE EXECUTE ON FUNCTION public.get_on_time_monthly(uuid, uuid) FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.get_on_time_monthly(uuid, uuid) TO authenticated, service_role;
+REVOKE EXECUTE ON FUNCTION public.get_on_time_monthly(uuid, uuid, date, date) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.get_on_time_monthly(uuid, uuid, date, date) TO authenticated, service_role;
 
 -- 2 ── Notices raised by month, contractor-fault split (NCN + NP) ────────────
-CREATE OR REPLACE FUNCTION public.get_notices_monthly(p_client_id uuid, p_area_id uuid DEFAULT NULL::uuid)
+CREATE OR REPLACE FUNCTION public.get_notices_monthly(
+  p_client_id uuid,
+  p_area_id   uuid DEFAULT NULL::uuid,
+  p_from      date DEFAULT NULL::date,
+  p_to        date DEFAULT NULL::date
+)
  RETURNS TABLE(month date, ncn_contractor bigint, ncn_other bigint, np_contractor bigint, np_other bigint)
  LANGUAGE plpgsql
  STABLE SECURITY DEFINER
  SET search_path TO 'public', 'pg_temp'
 AS $function$
-DECLARE
-  v_month_start date := date_trunc('month', (now() AT TIME ZONE 'Australia/Perth'))::date;
 BEGIN
   IF (p_client_id IN (SELECT accessible_client_ids())) IS NOT TRUE THEN
     RETURN;
@@ -86,6 +103,9 @@ BEGIN
 
   RETURN QUERY
   WITH raised AS (
+    -- Per-booking-row guard is deliberate here: the scan is notices (low
+    -- hundreds), the same small-cardinality class as penetration's booked
+    -- half — not the ~90k-row case the per-area keying exists for.
     SELECT
       date_trunc('month', (n.reported_at AT TIME ZONE 'Australia/Perth'))::date AS mo,
       'ncn'::text AS src,
@@ -113,15 +133,15 @@ BEGIN
     count(*) FILTER (WHERE r.src = 'np'  AND r.contractor_fault)::bigint     AS np_contractor,
     count(*) FILTER (WHERE r.src = 'np'  AND NOT r.contractor_fault)::bigint AS np_other
   FROM raised r
-  WHERE r.mo >= (v_month_start - interval '11 months')::date
-    AND r.mo <  (v_month_start + interval '1 month')::date
+  WHERE (p_from IS NULL OR r.mo >= date_trunc('month', p_from)::date)
+    AND (p_to   IS NULL OR r.mo <= p_to)
   GROUP BY 1
   ORDER BY 1;
 END;
 $function$;
 
-REVOKE EXECUTE ON FUNCTION public.get_notices_monthly(uuid, uuid) FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.get_notices_monthly(uuid, uuid) TO authenticated, service_role;
+REVOKE EXECUTE ON FUNCTION public.get_notices_monthly(uuid, uuid, date, date) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.get_notices_monthly(uuid, uuid, date, date) TO authenticated, service_role;
 
 -- 3a ── get_rect_sla: + p_from/p_to (reported_at window, AWST dates) ─────────
 DROP FUNCTION IF EXISTS public.get_rect_sla(uuid, uuid);
@@ -174,6 +194,7 @@ BEGIN
      AND rb.deleted_at IS NULL
      AND (p_area_id IS NULL OR rb.collection_area_id = p_area_id)
      -- VER-287: sub-client narrowing — aggregates match the caller's scope.
+     -- Per-booking-row keying is fine here (rebooked-notice scan, small).
      AND user_sub_client_allows_area(rb.collection_area_id)
   ),
   scored AS (
@@ -207,7 +228,9 @@ $function$;
 REVOKE EXECUTE ON FUNCTION public.get_rect_sla(uuid, uuid, date, date) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.get_rect_sla(uuid, uuid, date, date) TO authenticated, service_role;
 
--- 3b ── get_property_penetration: + p_from/p_to (booked-during-period) ───────
+-- 3b ── get_property_penetration: + p_from/p_to on the booked half ───────────
+-- Body carried forward from 20260702140000 (per-AREA guard keying on ca.id —
+-- the ~20s → 261ms fix). Only the p_from/p_to predicates are new.
 DROP FUNCTION IF EXISTS public.get_property_penetration(uuid, uuid);
 
 CREATE FUNCTION public.get_property_penetration(
@@ -240,13 +263,14 @@ AS $function$
        JOIN collection_area ca ON ca.id = ep.collection_area_id
       WHERE ca.client_id = p_client_id
         AND ca.client_id IN (SELECT accessible_client_ids())
-        AND (p_area_id IS NULL OR ep.collection_area_id = p_area_id)
         -- VER-287: eligible_properties/collection_area are public-SELECT
-        -- (USING(true)) — RLS does not narrow this half, so without this a
-        -- sub-client-scoped caller got a narrowed numerator over a
-        -- whole-client denominator. The denominator is point-in-time
-        -- eligibility by design — the period params filter bookings only.
-        AND user_sub_client_allows_area(ep.collection_area_id));
+        -- (USING(true)) — RLS does not narrow this half. Keyed on ca.id so
+        -- the guard is evaluated per collection area, never per eligible row
+        -- (per-row keying measured at ~20s/call on prod — 20260702140000).
+        AND user_sub_client_allows_area(ca.id)
+        -- Eligible denominator is point-in-time by design — the period
+        -- params window bookings only.
+        AND (p_area_id IS NULL OR ep.collection_area_id = p_area_id));
 $function$;
 
 REVOKE EXECUTE ON FUNCTION public.get_property_penetration(uuid, uuid, date, date) FROM PUBLIC, anon;
