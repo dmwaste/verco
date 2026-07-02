@@ -83,6 +83,17 @@ export function SlaDashboard({ clientId, currentFyId, selectedArea }: {
     <div className="space-y-6">
       <section>
         <h2 className="mb-3 font-[family-name:var(--font-heading)] text-sm font-bold text-[#293F52]">
+          Insights
+        </h2>
+        <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+          <PenetrationCard {...scope} />
+          <ResidentSatisfactionCard {...scope} />
+        </div>
+        <VolumeMixCard {...scope} />
+      </section>
+
+      <section>
+        <h2 className="mb-3 font-[family-name:var(--font-heading)] text-sm font-bold text-[#293F52]">
           Service Level
         </h2>
         <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
@@ -94,17 +105,6 @@ export function SlaDashboard({ clientId, currentFyId, selectedArea }: {
           <SelfServiceCard {...scope} />
           <NotifCard {...scope} />
         </div>
-      </section>
-
-      <section>
-        <h2 className="mb-3 font-[family-name:var(--font-heading)] text-sm font-bold text-[#293F52]">
-          Insights
-        </h2>
-        <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-          <PenetrationCard {...scope} />
-          <ResidentSatisfactionCard {...scope} />
-        </div>
-        <VolumeMixCard {...scope} />
       </section>
     </div>
   )
