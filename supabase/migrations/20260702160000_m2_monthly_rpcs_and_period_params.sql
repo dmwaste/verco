@@ -275,3 +275,72 @@ $function$;
 
 REVOKE EXECUTE ON FUNCTION public.get_property_penetration(uuid, uuid, date, date) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.get_property_penetration(uuid, uuid, date, date) TO authenticated, service_role;
+
+-- 4 ── get_collections_trend: narrow to DELIVERED (Completed) bookings ───────
+-- Dan's call (02/07) resolving the two parallel PR-A definitions: the
+-- released reached-the-field set (incl. Scheduled) presented the fully-booked
+-- July season as delivered work on day 2 of the first season, and NP/Missed
+-- mean "nothing collected" per the council definitions doc §3. Rebooked-then-
+-- completed collections count in the month the rebooked booking completes.
+-- Forward migration (NOT an edit to 20260702150000 — that version was applied
+-- to prod in release #248; editing an applied file only diverges fresh
+-- replays). Body otherwise identical to 20260702150000. Mirror:
+-- src/lib/reports/collections-trend.ts (caller-filtered; canonical set here).
+
+CREATE OR REPLACE FUNCTION public.get_collections_trend(
+  p_client_id uuid,
+  p_area_id   uuid DEFAULT NULL,
+  p_from      date DEFAULT NULL,
+  p_to        date DEFAULT NULL
+)
+RETURNS TABLE(month date, collections bigint)
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+BEGIN
+  -- Tenant guard (SECURITY DEFINER bypasses RLS): unknown/other-tenant/
+  -- NULL-role → zero rows (empty trend).
+  IF (p_client_id IN (SELECT accessible_client_ids())) IS NOT TRUE THEN
+    RETURN;
+  END IF;
+
+  RETURN QUERY
+  WITH booking_dates AS (
+    SELECT min(cd.date) AS service_date
+      FROM booking b
+      JOIN booking_item bi ON bi.booking_id = b.id
+      JOIN collection_date cd ON cd.id = bi.collection_date_id
+     WHERE b.client_id = p_client_id
+       AND b.deleted_at IS NULL
+       AND b.status = 'Completed'::booking_status
+       AND (p_area_id IS NULL OR b.collection_area_id = p_area_id)
+       -- Sub-client refinement (decision 7A): narrowed admins get a narrowed
+       -- trend; unscoped callers (sub_client_id IS NULL) are unaffected.
+       AND user_sub_client_allows_area(b.collection_area_id)
+     GROUP BY b.id
+    -- Period scope (VER-297) applies to the booking's SERVICE DATE (its MIN
+    -- item date), so a booking is in or out of a period as a whole.
+    HAVING (p_from IS NULL OR min(cd.date) >= p_from)
+       AND (p_to   IS NULL OR min(cd.date) <= p_to)
+  ),
+  bucketed AS (
+    SELECT date_trunc('month', bd.service_date)::date AS m, count(*)::bigint AS c
+      FROM booking_dates bd
+     GROUP BY 1
+  )
+  SELECT gs.m::date AS month, COALESCE(bk.c, 0)::bigint AS collections
+    FROM generate_series(
+           (SELECT min(bt.m) FROM bucketed bt),
+           (SELECT max(bt.m) FROM bucketed bt),
+           interval '1 month') AS gs(m)
+    LEFT JOIN bucketed bk ON bk.m = gs.m::date
+   ORDER BY 1;
+  -- generate_series(NULL, NULL, ...) yields no rows, so a client with zero
+  -- eligible bookings gets an empty set (the card's empty state), not an error.
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.get_collections_trend(uuid, uuid, date, date) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.get_collections_trend(uuid, uuid, date, date) TO authenticated, service_role;

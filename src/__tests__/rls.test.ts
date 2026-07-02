@@ -1777,6 +1777,16 @@ if (!haveDb) {
       ),
       'utf-8',
     )
+    // 20260702160000 narrows the trend to Completed-only (Dan 02/07) and adds
+    // the monthly RPCs — apply on top of 150000 so the guards are tested
+    // against the FINAL fn definition, exactly as prod applies them in order.
+    const M2_MIGRATION_SQL = readFileSync(
+      resolve(
+        __dirname,
+        '../../supabase/migrations/20260702160000_m2_monthly_rpcs_and_period_params.sql',
+      ),
+      'utf-8',
+    )
 
     async function impersonate(userId: string) {
       await pg.query('SET LOCAL ROLE authenticated')
@@ -1805,6 +1815,7 @@ if (!haveDb) {
       await pg.query('BEGIN')
       try {
         await pg.query(TREND_MIGRATION_SQL)
+        await pg.query(M2_MIGRATION_SQL)
         // Kwinana-scoped client-admin asking for Verge Valet's trend.
         await impersonate(USERS['client-admin'])
         const cross = await pg.query(`SELECT * FROM get_collections_trend($1)`, [VV_CLIENT_ID])
@@ -1823,6 +1834,7 @@ if (!haveDb) {
       await pg.query('BEGIN')
       try {
         await pg.query(TREND_MIGRATION_SQL)
+        await pg.query(M2_MIGRATION_SQL)
 
         const cotDate = await pg.query<{ id: string; area_id: string }>(
           `SELECT cd.id, cd.collection_area_id AS area_id
@@ -1876,6 +1888,7 @@ if (!haveDb) {
       await pg.query('BEGIN')
       try {
         await pg.query(TREND_MIGRATION_SQL)
+        await pg.query(M2_MIGRATION_SQL)
         await impersonate(VV_ALL_USER)
         // to_char in SQL — node-postgres parses DATE into a JS Date whose
         // local→UTC conversion can roll a month boundary backwards.

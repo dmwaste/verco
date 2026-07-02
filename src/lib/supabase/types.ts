@@ -2731,6 +2731,18 @@ export type Database = {
       }
       current_user_sub_client_id: { Args: never; Returns: string }
       generate_booking_ref: { Args: { p_area_code: string }; Returns: string }
+      get_collections_trend: {
+        Args: {
+          p_area_id?: string
+          p_client_id: string
+          p_from?: string
+          p_to?: string
+        }
+        Returns: {
+          collections: number
+          month: string
+        }[]
+      }
       get_property_penetration: {
         Args: { p_area_id?: string; p_client_id: string }
         Returns: {

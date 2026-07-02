@@ -7,13 +7,9 @@
 --
 -- Metric (mirrors the tested pure fn src/lib/reports/collections-trend.ts
 -- EXACTLY — keep in sync):
---   * a "collection" = a booking DELIVERED (status = Completed), not
---     soft-deleted. (Dan, 02/07 — narrowed pre-release from the BC
---     reached-the-field set: on day 2 of the first season the whole booked
---     July was already Scheduled, so the wider set presented planned work as
---     delivered; and NP/Missed mean "nothing collected" per the council
---     definitions doc §3. Rebooked-then-completed collections count when the
---     rebooked booking completes.)
+--   * a "collection" = a booking that reached the field, using the
+--     dashboard's established BC status set (Completed / Non-conformance /
+--     Nothing Presented / Scheduled / Missed Collection), not soft-deleted
 --   * each booking counts ONCE, in the month of its service date =
 --     MIN(collection_date.date) across its booking_items (the schema allows
 --     per-item dates; real carts share one — MIN is the deterministic tiebreak)
@@ -70,7 +66,13 @@ BEGIN
       JOIN collection_date cd ON cd.id = bi.collection_date_id
      WHERE b.client_id = p_client_id
        AND b.deleted_at IS NULL
-       AND b.status = 'Completed'::booking_status
+       AND b.status IN (
+             'Completed'::booking_status,
+             'Non-conformance'::booking_status,
+             'Nothing Presented'::booking_status,
+             'Scheduled'::booking_status,
+             'Missed Collection'::booking_status
+           )
        AND (p_area_id IS NULL OR b.collection_area_id = p_area_id)
        -- Sub-client refinement (decision 7A): narrowed admins get a narrowed
        -- trend; unscoped callers (sub_client_id IS NULL) are unaffected.
