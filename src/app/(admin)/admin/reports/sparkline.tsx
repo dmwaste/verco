@@ -53,11 +53,19 @@ export function Sparkline({
   const peak = points.reduce((a, b) => (b.value > a.value ? b : a))
   const summary = `${caption ?? 'Monthly trend'} — latest ${monthLabel(latest.month.slice(0, 7))}: ${latest.value}; peak ${monthLabel(peak.month.slice(0, 7))}: ${peak.value}`
 
-  const xy = points.map((p, i) => {
-    const x = points.length === 1 ? W : (i / (points.length - 1)) * W
-    const y = BASE - (p.value / max) * (BASE - TOP)
-    return `${x.toFixed(2)},${y.toFixed(2)}`
-  })
+  // A single observed month draws a flat full-width segment (a one-coordinate
+  // polyline renders nothing).
+  const xy =
+    points.length === 1
+      ? (() => {
+          const y = (BASE - (points[0]!.value / max) * (BASE - TOP)).toFixed(2)
+          return [`0,${y}`, `${W},${y}`]
+        })()
+      : points.map((p, i) => {
+          const x = (i / (points.length - 1)) * W
+          const y = BASE - (p.value / max) * (BASE - TOP)
+          return `${x.toFixed(2)},${y.toFixed(2)}`
+        })
   const line = xy.join(' ')
   const area = `0,${BASE} ${line} ${W},${BASE}`
 

@@ -215,6 +215,31 @@ function happyRpc(r: RecordedRpc): MockResult {
       return { data: [{ month, collections: 123 }], error: null }
     case 'get_on_time_monthly':
       return { data: [{ month, completed: 20, on_time: 19 }], error: null }
+    case 'get_reports_monthly':
+      // One row per sparkline series (current month) — enough to prove each
+      // card folds its own series into a rendered sparkline.
+      return {
+        data: [
+          { month, series: 'bookings', value: 25 },
+          { month, series: 'tickets', value: 3 },
+          { month, series: 'bc_eligible', value: 40 },
+          { month, series: 'bc_miss', value: 2 },
+          { month, series: 'self_scope', value: 30 },
+          { month, series: 'self_served', value: 30 },
+          { month, series: 'notif_tracked', value: 25 },
+          { month, series: 'notif_delivered', value: 25 },
+          { month, series: 'csat_booking_n', value: 6 },
+          { month, series: 'csat_booking_good', value: 6 },
+          { month, series: 'csat_service_n', value: 6 },
+          { month, series: 'csat_service_good', value: 3 },
+          { month, series: 'csat_overall_n', value: 6 },
+          { month, series: 'rect_den', value: 10 },
+          { month, series: 'rect_num', value: 8 },
+          { month, series: 'resp_den', value: 4 },
+          { month, series: 'resp_num', value: 3 },
+        ],
+        error: null,
+      }
     case 'get_notices_monthly':
       return { data: [{ month, ncn_contractor: 1, ncn_other: 2, np_contractor: 0, np_other: 1 }], error: null }
     default:
@@ -311,6 +336,14 @@ describe('VER-179 SLA scorecard regression guard (contractor viewer)', () => {
     // Status chart removed (design batch 3) — its title must not come back.
     expect(screen.queryByText('Bookings by Status')).toBeNull()
     expect(await screen.findByText('Bulk Waste')).toBeInTheDocument() // breakdown donut legend
+
+    // Sparklines (design 02/07): count + rate tails render from the shared
+    // get_reports_monthly fetch.
+    expect(await screen.findByText('Bookings per month · last 12 months')).toBeInTheDocument()
+    expect(await screen.findByText('Clean collection % · last 12 months')).toBeInTheDocument()
+    expect(
+      await screen.findByText('Rectified ≤ 2 working days % · last 12 months'),
+    ).toBeInTheDocument()
 
     // Nothing errored, and the uncapped summary shows no truncation notice.
     expect(screen.queryByText(/Couldn.t load/)).toBeNull()

@@ -70,6 +70,12 @@ import {
 import { CardLabel, ProvenanceStamp, SlaCard, scorecardTone } from './sla-card'
 import { Sparkline, type TrendPoint } from './sparkline'
 import { DonutChart } from './donut-chart'
+import { useReportsMonthly } from './use-reports-monthly'
+import {
+  cleanCollectionPoints,
+  percentPoints,
+  type MonthlyPoint,
+} from '@/lib/reports/monthly-series'
 import {
   computeCleanCollection,
   CLEAN_TARGET_PCT,
@@ -173,6 +179,45 @@ function useMonthlyTrend(
   })
 }
 
+/**
+ * % variant of useMonthlyTrend for the dedicated monthly RPCs: observed
+ * months only — a month with no denominator is "no data", never 0%
+ * (zero-filling a rate would draw fake 0% cliffs).
+ */
+function useMonthlyPercentTrend(
+  name: string,
+  clientId: string,
+  area: string,
+  call: (anchor: string) => PromiseLike<{
+    data: RpcRow[] | null
+    error: { message: string } | null
+  }>,
+  numKey: string,
+  denKey: string,
+) {
+  const anchor = rolling12From(new Date())
+  return useQuery({
+    queryKey: [name, clientId, area, anchor],
+    enabled: !!clientId,
+    queryFn: async () => {
+      const rows = orThrow(await call(anchor)) ?? []
+      return rows
+        .filter((r) => Number(r[denKey] ?? 0) > 0)
+        .map((r) => ({
+          month: String(r.month),
+          value: Math.round((Number(r[numKey] ?? 0) / Number(r[denKey])) * 1000) / 10,
+        })) as TrendPoint[]
+    },
+  })
+}
+
+/** Footer slot for a rate sparkline — omitted until there are observed months. */
+function pctSpark(points: readonly MonthlyPoint[] | undefined, caption: string) {
+  return points && points.length > 0 ? (
+    <Sparkline points={points as TrendPoint[]} caption={caption} />
+  ) : undefined
+}
+
 export function SlaDashboard({ clientId, selectedArea, period, viewerRole }: {
   clientId: string
   selectedArea: string
@@ -239,6 +284,7 @@ export function SlaDashboard({ clientId, selectedArea, period, viewerRole }: {
 function BcCard({ clientId, area, period }: CardScope) {
   const supabase = createClient()
   const fyScoped = period.kind === 'fy'
+  const monthly = useReportsMonthly(clientId, area)
   const { data, isLoading, isError } = useQuery({
     queryKey: ['sla-bc', clientId, area, ...periodKey(period)],
     enabled: !!clientId && !period.unresolved,
@@ -321,6 +367,7 @@ function BcCard({ clientId, area, period }: CardScope) {
       tone={r ? scorecardTone(r.pct, CLEAN_TARGET_PCT, r) : 'neutral'}
       target={`Target ≥ ${CLEAN_TARGET_PCT}%`}
       provenance={liveStamp(period)}
+      footer={pctSpark(cleanCollectionPoints(monthly.rows), 'Clean collection % · last 12 months')}
     />
   )
 }
@@ -352,8 +399,9 @@ function OnTimeCard({ clientId, area, period }: CardScope) {
     },
   })
 
-  const { data: trend } = useMonthlyTrend(
-    'sla-ontime-trend',
+  // Monthly % (design 02/07) — was completed-stop counts.
+  const { data: trend } = useMonthlyPercentTrend(
+    'sla-ontime-trend-pct',
     clientId,
     area,
     (anchor) =>
@@ -362,7 +410,8 @@ function OnTimeCard({ clientId, area, period }: CardScope) {
         p_area_id: area || undefined,
         p_from: anchor,
       }),
-    (r) => Number(r.completed ?? 0),
+    'on_time',
+    'completed',
   )
 
   if (period.unresolved) {
@@ -384,11 +433,7 @@ function OnTimeCard({ clientId, area, period }: CardScope) {
       tone={r ? scorecardTone(r.pct, ON_TIME_TARGET_PCT, r) : 'neutral'}
       target={`Target ≥ ${ON_TIME_TARGET_PCT}%`}
       provenance={liveStamp(period)}
-      footer={
-        trend && trend.length > 0 ? (
-          <Sparkline points={trend} caption="Completed stops · last 12 months" />
-        ) : undefined
-      }
+      footer={pctSpark(trend, 'On-time % · last 12 months')}
     />
   )
 }
@@ -399,6 +444,7 @@ const RECT_TARGET_PCT = 90
 
 function RectCard({ clientId, area, period }: CardScope) {
   const supabase = createClient()
+  const monthly = useReportsMonthly(clientId, area)
   const { data, isLoading, isError } = useQuery({
     queryKey: ['sla-rect', clientId, area, ...periodKey(period)],
     enabled: !!clientId && !period.unresolved,
@@ -436,6 +482,10 @@ function RectCard({ clientId, area, period }: CardScope) {
       tone={r ? scorecardTone(r.pct === null ? null : Number(r.pct), RECT_TARGET_PCT, { isEmpty, isLowN }) : 'neutral'}
       target={`Target ≥ ${RECT_TARGET_PCT}%`}
       provenance={liveStamp(period)}
+      footer={pctSpark(
+        percentPoints(monthly.rows, 'rect_num', 'rect_den'),
+        'Rectified ≤ 2 working days % · last 12 months',
+      )}
     />
   )
 }
@@ -444,6 +494,7 @@ function RectCard({ clientId, area, period }: CardScope) {
 // Period anchor: ticket created_at.
 function SrCards({ clientId, area, period }: CardScope) {
   const supabase = createClient()
+  const monthly = useReportsMonthly(clientId, area)
   const bounds = awstTimestampBounds(period)
   const { data, isLoading, isError } = useQuery({
     queryKey: ['sla-sr', clientId, area, ...periodKey(period)],
@@ -501,6 +552,10 @@ function SrCards({ clientId, area, period }: CardScope) {
         tone={resp ? scorecardTone(resp.pct, 100, resp) : 'neutral'}
         target={`Target ≤ ${RESPONSE_TARGET_WD} working days`}
         provenance={liveStamp(period)}
+        footer={pctSpark(
+          percentPoints(monthly.rows, 'resp_num', 'resp_den'),
+          `Responded ≤ ${RESPONSE_TARGET_WD} working days % · last 12 months`,
+        )}
       />
       <SlaCard
         label="Ticket Resolution"
@@ -529,6 +584,7 @@ const SELF_SERVICE_TARGET_PCT = 80
 
 function SelfServiceCard({ clientId, area, period }: CardScope) {
   const supabase = createClient()
+  const monthly = useReportsMonthly(clientId, area)
   const bounds = awstTimestampBounds(period)
   const { data, isLoading, isError } = useQuery({
     queryKey: ['sla-selfsvc', clientId, area, ...periodKey(period)],
@@ -567,14 +623,21 @@ function SelfServiceCard({ clientId, area, period }: CardScope) {
       tone="neutral"
       target={`Target ≥ ${SELF_SERVICE_TARGET_PCT}%`}
       provenance={liveStamp(period)}
+      footer={pctSpark(
+        percentPoints(monthly.rows, 'self_served', 'self_scope'),
+        'Self-service % · last 12 months',
+      )}
     />
   )
 }
 
 // ── NOTIF — Notification Reliability (email only, no area filter, spec §3.7) ─
 // Period anchor: notification_log created_at. Contractor-only per 8A.
-function NotifCard({ clientId, period }: CardScope) {
+function NotifCard({ clientId, area, period }: CardScope) {
   const supabase = createClient()
+  // Same hook args as sibling cards so TanStack dedupes to one fetch; the
+  // notif series itself ignores the area filter (matches the card).
+  const monthly = useReportsMonthly(clientId, area)
   const bounds = awstTimestampBounds(period)
   const { data, isLoading, isError } = useQuery({
     queryKey: ['sla-notif', clientId, ...periodKey(period)],
@@ -611,6 +674,10 @@ function NotifCard({ clientId, period }: CardScope) {
       tone={r ? scorecardTone(r.pct, NOTIF_TARGET_PCT, r) : 'neutral'}
       target={`Target ≥ ${NOTIF_TARGET_PCT}%`}
       provenance={liveStamp(period)}
+      footer={pctSpark(
+        percentPoints(monthly.rows, 'notif_delivered', 'notif_tracked'),
+        'Delivered % · last 12 months',
+      )}
     />
   )
 }
@@ -659,6 +726,7 @@ function PenetrationCard({ clientId, area, period }: CardScope) {
 // overall_rating — the exact keys the survey form writes).
 function CustomerSatisfactionCards({ clientId, area, period }: CardScope) {
   const supabase = createClient()
+  const monthly = useReportsMonthly(clientId, area)
   const bounds = awstTimestampBounds(period)
   const { data, isLoading, isError } = useQuery({
     queryKey: ['sla-csat', clientId, area, ...periodKey(period)],
@@ -690,7 +758,12 @@ function CustomerSatisfactionCards({ clientId, area, period }: CardScope) {
     },
   })
 
-  const card = (label: string, r: ResidentSatisfactionResult | undefined, target?: string) => {
+  const card = (
+    label: string,
+    r: ResidentSatisfactionResult | undefined,
+    seriesKey: 'booking' | 'service' | 'overall',
+    target?: string,
+  ) => {
     if (period.unresolved) {
       return <SlaCard key={label} label={label} value="—" sub="Period unavailable" provenance={liveStamp(period)} />
     }
@@ -710,15 +783,19 @@ function CustomerSatisfactionCards({ clientId, area, period }: CardScope) {
         tone="neutral"
         target={target}
         provenance={liveStamp(period)}
+        footer={pctSpark(
+          percentPoints(monthly.rows, `csat_${seriesKey}_good`, `csat_${seriesKey}_n`),
+          'Rated 4+ % · last 12 months',
+        )}
       />
     )
   }
 
   return (
     <>
-      {card('Booking Rating', data?.booking)}
-      {card('Service Rating', data?.service)}
-      {card('Overall Rating', data?.overall, `Reference ≥ ${RS_TARGET_PCT}%`)}
+      {card('Booking Rating', data?.booking, 'booking')}
+      {card('Service Rating', data?.service, 'service')}
+      {card('Overall Rating', data?.overall, 'overall', `Reference ≥ ${RS_TARGET_PCT}%`)}
     </>
   )
 }

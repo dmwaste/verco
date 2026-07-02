@@ -24,9 +24,16 @@
 --                            compare — resident-satisfaction.ts); good=4..5;
 --                            by AWST submitted_at month
 --        tickets             service_ticket raised per AWST created_at month
---                            (volume trend for the two ticket SLA cards)
---      NOT here (documented gap, stays on VER-298): rect monthly (working-day
---      window maths) and a penetration monthly (stock metric, not a flow).
+--                            (volume trend for the Ticket Resolution card)
+--        rect_num/rect_den   rectification monthly inputs — the get_rect_sla
+--                            body bucketed by reported_at month (same
+--                            audit-log completion lookup + working-day count)
+--        resp_num/resp_den   ticket first-response monthly inputs — responded
+--                            tickets by created_at month; num = first response
+--                            within 3 WORKING days ((start,end] weekdays minus
+--                            WA holidays — service-ticket-sla.ts semantics)
+--      NOT here (documented gap, stays on VER-298): a penetration monthly
+--      series (stock metric, not a flow).
 --
 --   2. get_property_penetration — the booked half moves from created_at to
 --      the SERVICE window (any item collection_date inside p_from..p_to).
@@ -83,6 +90,83 @@ BEGIN
     SELECT * FROM svc
      WHERE (p_from IS NULL OR svc.svc_month >= date_trunc('month', p_from)::date)
        AND (p_to   IS NULL OR svc.svc_month <= p_to)
+  ),
+  -- Rectification monthly: the get_rect_sla body bucketed by reported_at
+  -- month (rebooked-and-Completed notices; completion instant from audit_log;
+  -- ≤ 2 working days, weekdays minus WA holidays over (reported, completed]).
+  rect_notices AS (
+    SELECT n.rescheduled_booking_id, n.reported_at
+      FROM non_conformance_notice n
+     WHERE n.client_id = p_client_id
+       AND n.rescheduled_booking_id IS NOT NULL
+       AND (p_from IS NULL OR (n.reported_at AT TIME ZONE 'Australia/Perth')::date >= p_from)
+       AND (p_to   IS NULL OR (n.reported_at AT TIME ZONE 'Australia/Perth')::date <= p_to)
+    UNION ALL
+    SELECT np.rescheduled_booking_id, np.reported_at
+      FROM nothing_presented np
+     WHERE np.client_id = p_client_id
+       AND np.rescheduled_booking_id IS NOT NULL
+       AND (p_from IS NULL OR (np.reported_at AT TIME ZONE 'Australia/Perth')::date >= p_from)
+       AND (p_to   IS NULL OR (np.reported_at AT TIME ZONE 'Australia/Perth')::date <= p_to)
+  ),
+  rect_scored AS (
+    SELECT
+      date_trunc('month', (nt.reported_at AT TIME ZONE 'Australia/Perth'))::date AS rmonth,
+      CASE
+        WHEN c.completed_at IS NOT NULL
+         AND (c.completed_at AT TIME ZONE 'Australia/Perth')::date
+             >= (nt.reported_at AT TIME ZONE 'Australia/Perth')::date
+         AND (
+           SELECT count(*)
+             FROM generate_series(
+                    (nt.reported_at  AT TIME ZONE 'Australia/Perth')::date + 1,
+                    (c.completed_at AT TIME ZONE 'Australia/Perth')::date,
+                    interval '1 day') AS g(day)
+            WHERE extract(isodow FROM g.day) < 6
+              AND g.day::date NOT IN (SELECT date FROM public_holiday WHERE jurisdiction = 'WA')
+         ) <= 2
+        THEN 1 ELSE 0
+      END AS rect_on_time
+    FROM rect_notices nt
+    JOIN booking rb ON rb.id = nt.rescheduled_booking_id
+    CROSS JOIN LATERAL (
+      SELECT (SELECT min(al.created_at)
+                FROM audit_log al
+               WHERE al.table_name = 'booking'
+                 AND al.record_id  = rb.id
+                 AND al.new_data->>'status' = 'Completed') AS completed_at
+    ) c
+   WHERE rb.status = 'Completed'::booking_status
+     AND rb.deleted_at IS NULL
+     AND (p_area_id IS NULL OR rb.collection_area_id = p_area_id)
+     AND user_sub_client_allows_area(rb.collection_area_id)
+  ),
+  -- First-response monthly: responded tickets by created_at month; within =
+  -- first response inside 3 WORKING days (service-ticket-sla.ts semantics —
+  -- same (start, end] weekday-minus-holiday count as rect).
+  resp_scored AS (
+    SELECT
+      date_trunc('month', (st.created_at AT TIME ZONE 'Australia/Perth'))::date AS rmonth,
+      CASE
+        WHEN (
+          SELECT count(*)
+            FROM generate_series(
+                   (st.created_at        AT TIME ZONE 'Australia/Perth')::date + 1,
+                   (st.first_response_at AT TIME ZONE 'Australia/Perth')::date,
+                   interval '1 day') AS g(day)
+           WHERE extract(isodow FROM g.day) < 6
+             AND g.day::date NOT IN (SELECT date FROM public_holiday WHERE jurisdiction = 'WA')
+        ) <= 3
+        THEN 1 ELSE 0
+      END AS resp_within
+    FROM service_ticket st
+    LEFT JOIN booking b ON b.id = st.booking_id
+   WHERE st.client_id = p_client_id
+     AND st.first_response_at IS NOT NULL
+     AND (p_area_id IS NULL OR b.collection_area_id = p_area_id)
+     AND (b.id IS NULL OR user_sub_client_allows_area(b.collection_area_id))
+     AND (p_from IS NULL OR (st.created_at AT TIME ZONE 'Australia/Perth')::date >= p_from)
+     AND (p_to   IS NULL OR (st.created_at AT TIME ZONE 'Australia/Perth')::date <= p_to)
   )
 
   -- Total bookings by service month (non-cancelled)
@@ -170,7 +254,7 @@ BEGIN
    GROUP BY 1, 2
 
   UNION ALL
-  -- Ticket volume per month (the two ticket SLA cards trend on workload).
+  -- Ticket volume per month (Open Tickets / Ticket Resolution workload trend).
   SELECT date_trunc('month', (st.created_at AT TIME ZONE 'Australia/Perth'))::date,
          'tickets'::text,
          count(*)::bigint
@@ -182,6 +266,20 @@ BEGIN
      AND (p_from IS NULL OR (st.created_at AT TIME ZONE 'Australia/Perth')::date >= p_from)
      AND (p_to   IS NULL OR (st.created_at AT TIME ZONE 'Australia/Perth')::date <= p_to)
    GROUP BY 1
+
+  UNION ALL
+  SELECT rs.rmonth, 'rect_den'::text, count(*)::bigint
+    FROM rect_scored rs GROUP BY 1
+  UNION ALL
+  SELECT rs.rmonth, 'rect_num'::text, COALESCE(sum(rs.rect_on_time), 0)::bigint
+    FROM rect_scored rs GROUP BY 1
+
+  UNION ALL
+  SELECT ps.rmonth, 'resp_den'::text, count(*)::bigint
+    FROM resp_scored ps GROUP BY 1
+  UNION ALL
+  SELECT ps.rmonth, 'resp_num'::text, COALESCE(sum(ps.resp_within), 0)::bigint
+    FROM resp_scored ps GROUP BY 1
 
   ORDER BY 1, 2;
 END;

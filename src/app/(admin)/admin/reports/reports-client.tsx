@@ -9,9 +9,12 @@ import {
   type PeriodPreset,
 } from '@/lib/reports/periods'
 import { metricVisible } from '@/lib/reports/audience'
+import { countPoints } from '@/lib/reports/monthly-series'
 import { PeriodSelector } from './period-selector'
 import { SlaCard } from './sla-card'
 import { OpenNoticesCard, SlaDashboard } from './sla-dashboard'
+import { Sparkline, type TrendPoint } from './sparkline'
+import { useReportsMonthly } from './use-reports-monthly'
 
 export function ReportsClient({
   clientId,
@@ -115,6 +118,16 @@ export function ReportsClient({
   // own cards internally.
   const show = (metric: string) => metricVisible(metric, viewerRole)
 
+  // Rolling-12 volume sparklines (design 02/07) — shared fetch with every
+  // dashboard card via the common queryKey.
+  const monthly = useReportsMonthly(clientId, selectedArea)
+  const countSpark = (series: string, caption: string) => {
+    const points = countPoints(monthly.rows, series, monthly.anchor, monthly.now)
+    return points.length > 0 ? (
+      <Sparkline points={points as TrendPoint[]} caption={caption} />
+    ) : undefined
+  }
+
   const stamp = `Live · ${period.label}`
 
   return (
@@ -176,6 +189,7 @@ export function ReportsClient({
               value={period.unresolved ? '—' : String(stats?.totalBookings ?? 0)}
               sub={period.unresolved ? 'Period unavailable' : undefined}
               provenance={`${stamp} · by service date`}
+              footer={countSpark('bookings', 'Bookings per month · last 12 months')}
             />
           )}
           {show('open-notices') && (
@@ -189,6 +203,7 @@ export function ReportsClient({
               value={period.unresolved ? '—' : String(stats?.openTickets ?? 0)}
               sub={period.unresolved ? 'Period unavailable' : undefined}
               provenance="Live · Current snapshot"
+              footer={countSpark('tickets', 'Tickets per month · last 12 months')}
             />
           )}
         </div>

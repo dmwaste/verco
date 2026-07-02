@@ -66,3 +66,14 @@ describe('Sparkline', () => {
     expect(screen.getByText('last 12 months')).toBeInTheDocument()
   })
 })
+
+describe('Sparkline single observed month', () => {
+  it('draws a flat full-width segment (a one-point polyline renders nothing)', () => {
+    const { container } = render(
+      <Sparkline points={[{ month: '2026-06-01', value: 10 }]} />,
+    )
+    expect(container.querySelector('polyline')!.getAttribute('points')).toBe(
+      '0,2.00 100,2.00',
+    )
+  })
+})
