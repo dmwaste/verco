@@ -9,11 +9,17 @@
 -- Three buckets:
 --
 -- 1. Privileged staff RPCs → revoke PUBLIC + anon, keep authenticated +
---    service_role (their explicit grants already exist). All are internally
---    staff/tenant-gated except retry_notification_log, which gains the
---    NULL-safe gate below. client_has_terms / collection_area_is_active are
---    only referenced by booking INSERT policies — inserting roles are always
---    authenticated (guest flow OTPs first), so anon never evaluates them.
+--    service_role (their explicit grants already exist). All carry an internal
+--    role gate; retry_notification_log additionally gains the NULL-safe gate
+--    below. NOTE: retry_notification_log and resolve_actor_names are role-gated
+--    only (NOT tenant-gated) as of this migration — a later migration
+--    (20260702100000) adds their accessible_client_ids() tenant scope; the
+--    other five are either tenant-gated (get_rect_sla, assignable_ticket_staff,
+--    upsert_strata_contact_and_link) or leak nothing (client_has_terms /
+--    collection_area_is_active are boolean predicates). client_has_terms /
+--    collection_area_is_active are only referenced by booking INSERT policies —
+--    inserting roles are always authenticated (guest flow OTPs first), so anon
+--    never evaluates them.
 --
 -- 2. Trigger-only functions → revoke PUBLIC + anon + authenticated. Postgres
 --    checks EXECUTE on trigger functions at CREATE TRIGGER time (as the
