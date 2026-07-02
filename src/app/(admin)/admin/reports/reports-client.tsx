@@ -3,11 +3,6 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
-import {
-  countByWasteStream,
-  WASTE_STREAM_LABELS,
-  WASTE_STREAM_ORDER,
-} from '@/lib/reports/waste-stream'
 import { SlaDashboard } from './sla-dashboard'
 
 export function ReportsClient({
@@ -54,29 +49,6 @@ export function ReportsClient({
         statusCounts[b.status] = (statusCounts[b.status] ?? 0) + 1
       }
 
-      // Collections by waste stream (booking_item -> service.waste_stream), same filters.
-      let wasteQuery = supabase
-        .from('booking_item')
-        .select(
-          'no_services, service!inner(waste_stream), booking!inner(client_id, collection_area_id, status, created_at)'
-        )
-        .not('booking.status', 'in', '("Cancelled","Pending Payment")')
-      if (clientId) wasteQuery = wasteQuery.eq('booking.client_id', clientId)
-      if (selectedArea) wasteQuery = wasteQuery.eq('booking.collection_area_id', selectedArea)
-      if (dateFrom) wasteQuery = wasteQuery.gte('booking.created_at', `${dateFrom}T00:00:00+08:00`)
-      if (dateTo) wasteQuery = wasteQuery.lte('booking.created_at', `${dateTo}T23:59:59+08:00`)
-      const { data: wasteItems } = await wasteQuery
-      // Count by units booked (no_services), not rows — matches the rest of the app.
-      const wasteCounts = countByWasteStream(
-        ((wasteItems ?? []) as unknown as Array<{
-          no_services: number
-          service: { waste_stream: string | null } | { waste_stream: string | null }[] | null
-        }>).map((it) => {
-          const svc = Array.isArray(it.service) ? it.service[0] : it.service
-          return { stream: svc?.waste_stream ?? null, quantity: it.no_services ?? 0 }
-        })
-      )
-
       // NCN count
       let ncnQuery = supabase.from('non_conformance_notice').select('id', { count: 'exact', head: true })
       if (clientId) ncnQuery = ncnQuery.eq('client_id', clientId)
@@ -110,7 +82,6 @@ export function ReportsClient({
         refundPending,
         refundProcessed,
         openTickets: openTickets ?? 0,
-        wasteCounts,
       }
     },
   })
@@ -230,24 +201,6 @@ export function ReportsClient({
                     </div>
                   ))}
               </div>
-            </div>
-
-            {/* Collections by waste type */}
-            <div className="rounded-xl bg-white p-5 shadow-sm">
-              <h2 className="mb-1 font-[family-name:var(--font-heading)] text-sm font-bold text-[#293F52]">Collections by Waste Type</h2>
-              <p className="mb-4 text-[11px] text-gray-400">Units booked per stream — excludes cancelled and unpaid bookings.</p>
-              {WASTE_STREAM_ORDER.filter((ws) => (stats.wasteCounts[ws] ?? 0) > 0).length === 0 ? (
-                <p className="text-body-sm text-gray-400">No collections match these filters.</p>
-              ) : (
-                <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-                  {WASTE_STREAM_ORDER.filter((ws) => (stats.wasteCounts[ws] ?? 0) > 0).map((ws) => (
-                    <div key={ws} className="rounded-lg border border-gray-100 p-4">
-                      <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">{WASTE_STREAM_LABELS[ws]}</p>
-                      <p className="mt-1 font-[family-name:var(--font-heading)] text-2xl font-bold text-[#293F52]">{stats.wasteCounts[ws] ?? 0}</p>
-                    </div>
-                  ))}
-                </div>
-              )}
             </div>
 
             {/* Refund summary */}
