@@ -35,6 +35,20 @@ export interface SlaCardProps {
   tone?: SlaTone
   /** Optional reference line, e.g. "Target ≥ 98%". */
   target?: string
+  /**
+   * Freshness + period stamp (VER-290), e.g. "Live · This month" or
+   * "Data as at Jun 2026". Rendered as the card's last line so live and
+   * month-stale figures are never read as the same thing.
+   */
+  provenance?: string
+  /** Optional footer slot — e.g. a rolling-12 <TrendBars> strip (VER-297). */
+  footer?: React.ReactNode
+  /**
+   * Query failure flag. A failed fetch must NEVER read as an authoritative
+   * zero/empty on a council-facing SLA card — it renders an explicit
+   * "Couldn't load" state instead (review 02/07, adversarial finding 3).
+   */
+  isError?: boolean
 }
 
 export function SlaCard({
@@ -44,7 +58,26 @@ export function SlaCard({
   sub,
   tone = 'neutral',
   target,
+  provenance,
+  footer,
+  isError = false,
 }: SlaCardProps) {
+  if (isError) {
+    return (
+      <div className="rounded-xl bg-white p-5 shadow-sm">
+        <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">
+          {label}
+        </p>
+        <p className="mt-1 font-[family-name:var(--font-heading)] text-2xl font-bold text-amber-600">
+          Couldn&apos;t load
+        </p>
+        <p className="mt-0.5 text-[11px] text-gray-500">
+          Data failed to refresh — reload the page or try again shortly.
+        </p>
+        {provenance && <ProvenanceStamp text={provenance} />}
+      </div>
+    )
+  }
   return (
     <div className="rounded-xl bg-white p-5 shadow-sm">
       <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">
@@ -59,7 +92,23 @@ export function SlaCard({
       {target && !isLoading && (
         <p className="mt-1 text-[11px] font-medium text-gray-400">{target}</p>
       )}
+      {footer && !isLoading && <div className="mt-2">{footer}</div>}
+      {provenance && <ProvenanceStamp text={provenance} />}
     </div>
+  )
+}
+
+/**
+ * VER-290 freshness/period stamp — the single source of the stamp's markup.
+ * gray-400 (not lighter): the stamp is load-bearing ("live vs month-stale
+ * figures are never read as the same thing"), so it must clear readable
+ * contrast, matching the established card-label grey.
+ */
+export function ProvenanceStamp({ text }: { text: string }) {
+  return (
+    <p className="mt-1.5 text-[10px] font-medium uppercase tracking-wide text-gray-400">
+      {text}
+    </p>
   )
 }
 
