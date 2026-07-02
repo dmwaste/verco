@@ -1995,4 +1995,79 @@ if (!haveDb) {
       }
     }, 20_000)
   })
+
+  // ---------------------------------------------------------------------------
+  // VER-298 — get_reports_monthly (one long-format monthly RPC feeding every
+  // card sparkline) + get_property_penetration service-window anchor
+  // (migration 20260702180000).
+  //
+  // UNRELEASED at authoring time — the migration is applied TRANSIENTLY inside
+  // the rolled-back transaction. Safe to keep post-release: the file is pure
+  // CREATE OR REPLACE with unchanged signatures (the DROP+CREATE replay hazard
+  // that retired the older transient applies does not exist here).
+  //
+  // Behaviour was also verified against live prod via a rolled-back DO block
+  // (02/07): authorised caller got 6 distinct series; cross-tenant caller got
+  // zero rows; penetration booked for the FY26 service window dropped 635 → 0.
+  // ---------------------------------------------------------------------------
+  describe('get_reports_monthly guards (VER-298)', () => {
+    const VV_CLIENT_ID = '5215645f-ca8f-4cff-8b7d-d5a8f7991ec7'
+    const NO_ROLE_USER = 'aaaaaaaa-0097-4000-8000-000000000097'
+
+    const MONTHLY_MIGRATION_SQL = readFileSync(
+      resolve(
+        __dirname,
+        '../../supabase/migrations/20260702180000_reports_monthly_series_and_penetration_service_anchor.sql',
+      ),
+      'utf-8',
+    )
+
+    async function impersonate(userId: string) {
+      await pg.query('SET LOCAL ROLE authenticated')
+      await pg.query(`SELECT set_config('request.jwt.claims', $1, true)`, [
+        JSON.stringify({ sub: userId, role: 'authenticated' }),
+      ])
+    }
+
+    async function resetToSetupRole() {
+      await pg.query('RESET ROLE')
+      await pg.query(`SELECT set_config('request.jwt.claims', '{}', true)`)
+    }
+
+    it('cross-tenant and NULL-role callers get zero rows', async () => {
+      await pg.query('BEGIN')
+      try {
+        await pg.query(MONTHLY_MIGRATION_SQL)
+        // Kwinana-scoped client-admin asking for Verge Valet's series.
+        await impersonate(USERS['client-admin'])
+        const cross = await pg.query(`SELECT * FROM get_reports_monthly($1)`, [VV_CLIENT_ID])
+        expect(cross.rows.length).toBe(0)
+        await resetToSetupRole()
+
+        await impersonate(NO_ROLE_USER)
+        const noRole = await pg.query(`SELECT * FROM get_reports_monthly($1)`, [VV_CLIENT_ID])
+        expect(noRole.rows.length).toBe(0)
+      } finally {
+        await pg.query('ROLLBACK')
+      }
+    })
+
+    it('penetration booked-half windows on SERVICE dates, not created_at', async () => {
+      await pg.query('BEGIN')
+      try {
+        await pg.query(MONTHLY_MIGRATION_SQL)
+        // FY26 service window: legacy-imported bookings were CREATED then but
+        // serve FY27 — the booked count must not include them (design 02/07).
+        await impersonate(USERS['contractor-admin'])
+        const fy26 = await pg.query<{ booked: string }>(
+          `SELECT booked FROM get_property_penetration($1, NULL, '2025-07-01', '2026-06-30')`,
+          [VV_CLIENT_ID],
+        )
+        await resetToSetupRole()
+        expect(Number(fy26.rows[0]!.booked)).toBe(0)
+      } finally {
+        await pg.query('ROLLBACK')
+      }
+    })
+  })
 })
