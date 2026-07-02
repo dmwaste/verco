@@ -47,5 +47,7 @@ export function useReportsMonthly(clientId: string, area: string) {
       }))
     },
   })
-  return { rows: query.data ?? [], anchor, now }
+  // isSuccess matters for ZERO-FILLED consumers: a failed fetch must render
+  // NO tail, never a flat-zero one (phantom "no bookings all year").
+  return { rows: query.data ?? [], isSuccess: query.isSuccess, anchor, now }
 }

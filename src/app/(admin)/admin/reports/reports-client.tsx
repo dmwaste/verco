@@ -122,6 +122,9 @@ export function ReportsClient({
   // dashboard card via the common queryKey.
   const monthly = useReportsMonthly(clientId, selectedArea)
   const countSpark = (series: string, caption: string) => {
+    // Zero-filled tails only render off a SUCCESSFUL fetch — an errored one
+    // would draw a misleading flat-zero year.
+    if (!monthly.isSuccess) return undefined
     const points = countPoints(monthly.rows, series, monthly.anchor, monthly.now)
     return points.length > 0 ? (
       <Sparkline points={points as TrendPoint[]} caption={caption} />
