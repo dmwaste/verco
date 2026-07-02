@@ -198,11 +198,6 @@ function happyTable(q: RecordedQuery): MockResult {
           responses: { booking_rating: 4, collection_rating: 2, overall_rating: 3 },
         })),
       ])
-    case 'refund_request':
-      return rows([
-        { amount_cents: 5000, status: 'pending' },
-        { amount_cents: 2500, status: 'processed' },
-      ])
     case 'collection_area':
       return rows([{ id: 'area-1', code: 'KWN-1', name: 'Area 1' }])
     case 'public_holiday':
@@ -287,8 +282,6 @@ describe('VER-179 SLA scorecard regression guard (contractor viewer)', () => {
       'Total Bookings',
       'Open Tickets',
       'Bookings by Status',
-      'Refunds Pending',
-      'Refunds Processed',
       // M2 additions (VER-294/297)
       'Open Notices',
       'Collections per Period',
@@ -316,10 +309,11 @@ describe('VER-179 SLA scorecard regression guard (contractor viewer)', () => {
     expect(await screen.findByText('123')).toBeInTheDocument() // collections trend total
     expect(card('Total Bookings').getByText('25')).toBeInTheDocument()
     expect(card('Open Tickets').getByText('3')).toBeInTheDocument()
-    expect(await screen.findByText('$50.00')).toBeInTheDocument() // refunds pending
-    expect(screen.getByText('$25.00')).toBeInTheDocument() // refunds processed
-    expect(screen.getByText('Confirmed')).toBeInTheDocument() // status breakdown bar
-    expect(await screen.findByText('Bulk Waste')).toBeInTheDocument() // volmix bar
+    // Refund cards were removed from this page (design 02/07) — money never
+    // renders here for ANY viewer.
+    expect(screen.queryByText(/Refunds/)).toBeNull()
+    expect(screen.getByText('Confirmed')).toBeInTheDocument() // status donut legend
+    expect(await screen.findByText('Bulk Waste')).toBeInTheDocument() // breakdown donut legend
 
     // Nothing errored, and the uncapped summary shows no truncation notice.
     expect(screen.queryByText(/Couldn.t load/)).toBeNull()
@@ -352,8 +346,6 @@ describe('zero-data council view (client-admin)', () => {
       'Property Penetration',
       'Self-Service Rate',
       'Notification Delivery',
-      'Refunds Pending',
-      'Refunds Processed',
     ]) {
       expect(screen.queryByText(label)).toBeNull()
     }
@@ -396,9 +388,9 @@ describe('tenant scoping (VER-296 isolation, app layer)', () => {
     h.respondRpc = happyRpc
     renderPage('contractor-admin')
 
-    // Settle the whole surface (headline cards, refunds, trend RPCs).
+    // Settle the whole surface (headline cards, donut legends, trend RPCs).
     await screen.findByText('95.0%')
-    await screen.findByText('$50.00')
+    await screen.findByText('Bulk Waste')
     await screen.findByText('123')
     await waitFor(() =>
       expect(h.rpcs.map((r) => r.name)).toEqual(

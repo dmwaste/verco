@@ -8,8 +8,9 @@
  *
  * Council-visible set v1 (Dan, 02/07/2026): the contract/service KPIs and the
  * council's own operational counts. Contractor-only: D&M ops-health metrics
- * (notification delivery, self-service rate, property penetration) and
- * anything monetary (refunds — councils never see revenue/cost).
+ * (notification delivery, self-service rate, property penetration). Anything
+ * monetary stays OFF this page entirely (refund cards removed 02/07 —
+ * councils never see revenue/cost, and D&M has the Refunds admin page).
  *
  * Gating must be STRUCTURAL: a contractor-only card's component is not
  * mounted and its query never fires for council viewers — never CSS-hidden.
@@ -43,8 +44,6 @@ export const METRIC_AUDIENCE = {
   'total-bookings': 'council-visible',
   'bookings-by-status': 'council-visible',
   'open-tickets': 'council-visible',
-  // Monetary — councils never see revenue/cost (booking_payment rule)
-  'refunds': 'contractor-only',
 } as const satisfies Record<string, MetricAudience>
 
 export type MetricKey = keyof typeof METRIC_AUDIENCE

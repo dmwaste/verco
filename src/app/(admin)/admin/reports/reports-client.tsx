@@ -3,7 +3,6 @@
 import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
-import { metricVisible } from '@/lib/reports/audience'
 import {
   resolvePeriod,
   type PeriodFyRow,
@@ -30,10 +29,6 @@ export function ReportsClient({
   const [preset, setPreset] = useState<PeriodPreset>('this-fy')
   const [customFrom, setCustomFrom] = useState('')
   const [customTo, setCustomTo] = useState('')
-  // VER-288 (8A): refunds are monetary — contractor-only. Structural gate:
-  // the refund query never runs for council viewers, not just hidden.
-  const showRefunds = metricVisible('refunds', viewerRole)
-
   const period = useMemo(
     () =>
       resolvePeriod(preset, new Date(), fyRows, {
@@ -67,7 +62,6 @@ export function ReportsClient({
       period.from,
       period.to,
       period.unresolved,
-      showRefunds,
     ],
     enabled: !period.unresolved,
     queryFn: async () => {
@@ -93,13 +87,6 @@ export function ReportsClient({
       if (clientId) bookingQuery = bookingQuery.eq('client_id', clientId)
       if (selectedArea) bookingQuery = bookingQuery.eq('collection_area_id', selectedArea)
 
-      // Refund totals — contractor-only (VER-288): skip the query entirely
-      // for council viewers. Period anchor: none — refunds stay all-time
-      // (money reconciliation, not a period KPI).
-      const refundQuery = showRefunds
-        ? supabase.from('refund_request').select('amount_cents, status').eq('client_id', clientId)
-        : null
-
       // Open tickets — snapshot (open is open regardless of period).
       let ticketQuery = supabase
         .from('service_ticket')
@@ -109,12 +96,8 @@ export function ReportsClient({
 
       // Independent queries — no waterfall; any failure throws (isError) —
       // a failed fetch must never read as zero bookings/tickets.
-      const [bookingRes, refundRes, ticketRes] = await Promise.all([
-        bookingQuery,
-        refundQuery,
-        ticketQuery,
-      ])
-      for (const res of [bookingRes, refundRes, ticketRes]) {
+      const [bookingRes, ticketRes] = await Promise.all([bookingQuery, ticketQuery])
+      for (const res of [bookingRes, ticketRes]) {
         if (res?.error) throw new Error(res.error.message)
       }
 
@@ -123,10 +106,6 @@ export function ReportsClient({
         statusCounts[b.status] = (statusCounts[b.status] ?? 0) + 1
       }
 
-      const refunds = refundRes?.data ?? []
-      const refundPending = refunds.filter((r) => r.status === 'pending').reduce((sum, r) => sum + r.amount_cents, 0)
-      const refundProcessed = refunds.filter((r) => r.status === 'processed').reduce((sum, r) => sum + r.amount_cents, 0)
-
       return {
         statusCounts,
         // Exact count from PostgREST — immune to the max_rows=1000 row cap.
@@ -134,8 +113,6 @@ export function ReportsClient({
         // it to an in-DB GROUP BY RPC is tracked follow-up work.
         totalBookings: bookingRes.count ?? bookingRes.data?.length ?? 0,
         statusRowsCapped: (bookingRes.count ?? 0) > (bookingRes.data?.length ?? 0),
-        refundPending,
-        refundProcessed,
         openTickets: ticketRes.count ?? 0,
       }
     },
@@ -221,10 +198,9 @@ export function ReportsClient({
         ) : stats ? (
           <div className="space-y-6">
             {/* Summary cards — NCN/NP counts were retired for the three-way
-                Open Notices split card in the dashboard above (VER-294).
-                One auto-fit grid: the card count varies by audience (refunds
-                are contractor-only), so columns derive from content — no
-                orphan slots for any viewer (design review 02/07 F-005). */}
+                Open Notices split card (VER-294); refund cards removed
+                entirely (design feedback 02/07 — refunds live on their own
+                admin page, not the council-facing report). */}
             <div className="grid grid-cols-[repeat(auto-fit,minmax(min(230px,100%),1fr))] gap-4">
               <SlaCard
                 label="Total Bookings"
@@ -236,24 +212,6 @@ export function ReportsClient({
                 value={String(stats.openTickets)}
                 provenance="Live · Current snapshot"
               />
-              {/* Refund summary — contractor-only (VER-288). Amber = money
-                  waiting on action, green = settled (matches the SLA tones). */}
-              {showRefunds && (
-                <SlaCard
-                  label="Refunds Pending"
-                  value={`$${(stats.refundPending / 100).toFixed(2)}`}
-                  tone="below"
-                  provenance="Live · All time"
-                />
-              )}
-              {showRefunds && (
-                <SlaCard
-                  label="Refunds Processed"
-                  value={`$${(stats.refundProcessed / 100).toFixed(2)}`}
-                  tone="pass"
-                  provenance="Live · All time"
-                />
-              )}
             </div>
 
             {/* Bookings by status — a chart panel, but its title sits at the
