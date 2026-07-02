@@ -440,8 +440,11 @@ function ResidentSatisfactionCard({ clientId, area }: CardScope) {
 
 /**
  * Fixed per-service bar colours, matching the admin dashboard's convention
- * (bulk/green split + ANC_COLORS in admin/page.tsx). Keyed by display name, so
- * a renamed service degrades to a stable fallback colour rather than vanishing.
+ * (bulk/green split + ANC_COLORS in admin/page.tsx). Keyed by display name; an
+ * unmapped or renamed service falls back to a palette colour rather than
+ * vanishing. The fallback is positional (indexed by qty rank), so it is stable
+ * per-render, not stable per-service — map every live service explicitly to
+ * pin its colour. Covers all six current waste streams incl. Illegal Dumping.
  */
 const SERVICE_COLORS: Record<string, string> = {
   'Bulk Waste': '#00E47C',
@@ -449,6 +452,7 @@ const SERVICE_COLORS: Record<string, string> = {
   Mattress: '#8FA5B8',
   'E-Waste': '#FF8C42',
   Whitegoods: '#3A5A73',
+  'Illegal Dumping': '#7E6BA6',
 }
 const SERVICE_COLOR_FALLBACK = ['#6B8299', '#B0763A', '#26506B', '#93A7B8']
 
