@@ -88,8 +88,9 @@ import { computeSelfServiceRate } from '@/lib/reports/self-service'
 import { computeVolumeMix } from '@/lib/reports/volume-mix'
 import { computePenetration } from '@/lib/reports/penetration'
 import {
-  computeResidentSatisfaction,
+  computeSurveyRating,
   RS_TARGET_PCT,
+  type ResidentSatisfactionResult,
 } from '@/lib/reports/resident-satisfaction'
 
 /** Booking statuses that "reached the field" this FY (BC denominator, spec §3.1). */
@@ -195,7 +196,6 @@ export function SlaDashboard({ clientId, selectedArea, period, viewerRole }: {
             fills with no orphan slots (design review 02/07 F-005). */}
         <div className="grid grid-cols-[repeat(auto-fit,minmax(min(230px,100%),1fr))] gap-4">
           {show('property-penetration') && <PenetrationCard {...scope} />}
-          {show('resident-satisfaction') && <ResidentSatisfactionCard {...scope} />}
           {show('open-notices') && <OpenNoticesCard {...scope} />}
         </div>
         {/* Side by side (design feedback 02/07) — auto-fit so a lone card
@@ -205,6 +205,17 @@ export function SlaDashboard({ clientId, selectedArea, period, viewerRole }: {
           {show('service-breakdown') && <VolumeMixCard {...scope} />}
         </div>
       </section>
+
+      {show('customer-satisfaction') && (
+        <section>
+          <h2 className="mb-3 font-[family-name:var(--font-heading)] text-sm font-bold text-[#293F52]">
+            Customer Satisfaction
+          </h2>
+          <div className="grid grid-cols-[repeat(auto-fit,minmax(min(230px,100%),1fr))] gap-4">
+            <CustomerSatisfactionCards {...scope} />
+          </div>
+        </section>
+      )}
 
       <section>
         <h2 className="mb-3 font-[family-name:var(--font-heading)] text-sm font-bold text-[#293F52]">
@@ -645,13 +656,15 @@ function PenetrationCard({ clientId, area, period }: CardScope) {
   )
 }
 
-// ── RS — Resident Satisfaction (insight, spec §3.10) ────────────────────────
-// Period anchor: survey submitted_at.
-function ResidentSatisfactionCard({ clientId, area, period }: CardScope) {
+// ── Customer Satisfaction — booking / service / overall (design 02/07) ──────
+// Period anchor: survey submitted_at. ONE survey fetch feeds all three cards;
+// each folds its own `responses` key (booking_rating / collection_rating /
+// overall_rating — the exact keys the survey form writes).
+function CustomerSatisfactionCards({ clientId, area, period }: CardScope) {
   const supabase = createClient()
   const bounds = awstTimestampBounds(period)
   const { data, isLoading, isError } = useQuery({
-    queryKey: ['sla-rs', clientId, area, ...periodKey(period)],
+    queryKey: ['sla-csat', clientId, area, ...periodKey(period)],
     enabled: !!clientId && !period.unresolved,
     queryFn: async () => {
       // For "All Areas" drop the embed (avoids multi-FK fragility); booking_survey
@@ -671,21 +684,45 @@ function ResidentSatisfactionCard({ clientId, area, period }: CardScope) {
       if (bounds.gte) q = q.gte('submitted_at', bounds.gte)
       if (bounds.lt) q = q.lt('submitted_at', bounds.lt)
       const rows = orThrow(await q)
-      return computeResidentSatisfaction((rows ?? []).map((r) => ({ responses: r.responses })))
+      const surveyRows = (rows ?? []).map((r) => ({ responses: r.responses }))
+      return {
+        booking: computeSurveyRating(surveyRows, 'booking_rating'),
+        service: computeSurveyRating(surveyRows, 'collection_rating'),
+        overall: computeSurveyRating(surveyRows, 'overall_rating'),
+      }
     },
   })
-  if (period.unresolved) {
-    return <SlaCard label="Resident Satisfaction" value="—" sub="Period unavailable" provenance={liveStamp(period)} />
+
+  const card = (label: string, r: ResidentSatisfactionResult | undefined, target?: string) => {
+    if (period.unresolved) {
+      return <SlaCard key={label} label={label} value="—" sub="Period unavailable" provenance={liveStamp(period)} />
+    }
+    const value = !r || r.isEmpty ? '—'
+      : r.isLowN ? `${r.good} / ${r.n}` : pct1(r.pct!)
+    const sub = !r ? undefined
+      : r.isEmpty ? 'No responses yet'
+      : r.isLowN ? 'Building data' : `${r.good} / ${r.n} rated 4+`
+    return (
+      <SlaCard
+        key={label}
+        label={label}
+        isLoading={isLoading}
+        isError={isError}
+        value={value}
+        sub={sub}
+        tone="neutral"
+        target={target}
+        provenance={liveStamp(period)}
+      />
+    )
   }
-  const r = data
-  const value = !r || r.isEmpty ? '—'
-    : r.isLowN ? `${r.good} / ${r.n}` : pct1(r.pct!)
-  const sub = !r ? undefined
-    : r.isEmpty ? 'No responses yet'
-    : r.isLowN ? 'Building data' : `${r.good} / ${r.n} rated good · target ≥ ${RS_TARGET_PCT}%`
+
   return (
-    <SlaCard label="Resident Satisfaction" isLoading={isLoading}
-      isError={isError} value={value} sub={sub} tone="neutral" provenance={liveStamp(period)} />
+    <>
+      {card('Booking Rating', data?.booking)}
+      {card('Service Rating', data?.service)}
+      {card('Overall Rating', data?.overall, `Reference ≥ ${RS_TARGET_PCT}%`)}
+    </>
   )
 }
 

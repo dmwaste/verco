@@ -188,7 +188,16 @@ function happyTable(q: RecordedQuery): MockResult {
     case 'notification_log':
       return rows(Array.from({ length: 25 }, () => ({ delivery_status: 'delivered' })))
     case 'booking_survey':
-      return rows([])
+      // 6 submitted surveys (≥ RS_LOW_N 5): booking 6/6 good, service 3/6,
+      // overall 0/6 — distinct values prove each card folds ITS OWN key.
+      return rows([
+        ...Array.from({ length: 3 }, () => ({
+          responses: { booking_rating: 5, collection_rating: 4, overall_rating: 3 },
+        })),
+        ...Array.from({ length: 3 }, () => ({
+          responses: { booking_rating: 4, collection_rating: 2, overall_rating: 3 },
+        })),
+      ])
     case 'refund_request':
       return rows([
         { amount_cents: 5000, status: 'pending' },
@@ -271,7 +280,9 @@ describe('VER-179 SLA scorecard regression guard (contractor viewer)', () => {
       'Self-Service Rate',
       'Notification Delivery',
       'Property Penetration',
-      'Resident Satisfaction',
+      'Booking Rating',
+      'Service Rating',
+      'Overall Rating',
       'Service Breakdown',
       'Total Bookings',
       'Open Tickets',
@@ -296,6 +307,12 @@ describe('VER-179 SLA scorecard regression guard (contractor viewer)', () => {
     expect(
       card('Open Notices').getByText('1 contractor fault · 1 under investigation · 1 resident (incl. presumed)'),
     ).toBeInTheDocument()
+    // Customer Satisfaction: each card folds ITS OWN responses key
+    // (seeded: booking 6/6, service 3/6, overall 0/6).
+    expect(screen.getByText('Customer Satisfaction')).toBeInTheDocument()
+    expect(await card('Booking Rating').findByText('100.0%')).toBeInTheDocument()
+    expect(card('Service Rating').getByText('50.0%')).toBeInTheDocument()
+    expect(card('Overall Rating').getByText('0.0%')).toBeInTheDocument()
     expect(await screen.findByText('123')).toBeInTheDocument() // collections trend total
     expect(card('Total Bookings').getByText('25')).toBeInTheDocument()
     expect(card('Open Tickets').getByText('3')).toBeInTheDocument()
@@ -322,7 +339,8 @@ describe('zero-data council view (client-admin)', () => {
     expect(await screen.findByText('No rectifications')).toBeInTheDocument()
     expect(await screen.findByText('Tracking starts soon')).toBeInTheDocument()
     expect(await screen.findByText('No resolved tickets')).toBeInTheDocument()
-    expect(await screen.findByText('No responses yet')).toBeInTheDocument()
+    // One 'No responses yet' per satisfaction card (booking/service/overall).
+    expect(await screen.findAllByText('No responses yet')).toHaveLength(3)
     expect(await card('Open Notices').findByText('No open notices')).toBeInTheDocument()
     expect(await screen.findByText('No collections match these filters.')).toBeInTheDocument()
     await screen.findByText('Total Bookings')

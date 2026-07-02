@@ -24,7 +24,7 @@ describe('reports audience gating (VER-288 / decision 8A)', () => {
       'rectification',
       'ticket-first-response',
       'ticket-resolution',
-      'resident-satisfaction',
+      'customer-satisfaction',
       'service-breakdown',
       'collections-trend',
       'open-notices',

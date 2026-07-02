@@ -27,7 +27,9 @@ export const METRIC_AUDIENCE = {
   'rectification': 'council-visible',
   'ticket-first-response': 'council-visible',
   'ticket-resolution': 'council-visible',
-  'resident-satisfaction': 'council-visible',
+  // Customer Satisfaction section (booking/service/overall rating trio —
+  // replaced the single 'resident-satisfaction' card, design 02/07)
+  'customer-satisfaction': 'council-visible',
   'service-breakdown': 'council-visible',
   // SLA dashboard — D&M ops-health (decision 8A: contractor-only)
   'property-penetration': 'contractor-only',
