@@ -16,6 +16,10 @@
  * gap-filled with 0 so the card renders a continuous axis. The series is NOT
  * extended to the current wall-clock month (no wall-clock reads here — that,
  * and the go-live-cliff label, are render concerns for the card).
+ *
+ * Optional `from`/`to` bound the SERVICE DATE inclusively — the VER-297
+ * standard period scope. A booking is in or out of a period as a whole (its
+ * MIN item date decides), so a preset's count is simply the sum over buckets.
  */
 
 /** One booking_item row: the booking it belongs to + its collection date. */
@@ -34,14 +38,22 @@ export interface CollectionsTrendBucket {
 
 const DATE_RE = /^(\d{4})-(\d{2})-(\d{2})$/
 
+/** Inclusive service-date bounds (`YYYY-MM-DD`) — the VER-297 period scope. */
+export interface CollectionsTrendRange {
+  from?: string
+  to?: string
+}
+
 /**
  * Buckets bookings into monthly collection counts, gap-filled min→max month.
  *
- * Rows with a malformed date are skipped (the RPC's `date` column can never
- * produce one — this guards the pure path only). Returns [] for no input.
+ * Rows with a malformed date are skipped, as is a malformed range bound (the
+ * RPC's `date` params/column can never produce one — this guards the pure
+ * path only). Returns [] for no input.
  */
 export function computeCollectionsTrend(
   rows: readonly CollectionsTrendRow[],
+  range: CollectionsTrendRange = {},
 ): CollectionsTrendBucket[] {
   // Service date per booking = MIN item date (string compare is safe for
   // zero-padded YYYY-MM-DD).
@@ -53,13 +65,20 @@ export function computeCollectionsTrend(
       serviceDateByBooking.set(row.bookingId, row.collectionDateIso)
     }
   }
-  if (serviceDateByBooking.size === 0) return []
+
+  // Period scope applies to the booking's SERVICE DATE, so a booking is in or
+  // out of a period as a whole — mirrors the RPC's HAVING on min(cd.date).
+  const from = range.from !== undefined && DATE_RE.test(range.from) ? range.from : undefined
+  const to = range.to !== undefined && DATE_RE.test(range.to) ? range.to : undefined
 
   const countByMonth = new Map<string, number>()
   for (const serviceDate of serviceDateByBooking.values()) {
+    if (from !== undefined && serviceDate < from) continue
+    if (to !== undefined && serviceDate > to) continue
     const month = serviceDate.slice(0, 7)
     countByMonth.set(month, (countByMonth.get(month) ?? 0) + 1)
   }
+  if (countByMonth.size === 0) return []
 
   const months = [...countByMonth.keys()].sort()
   const first = months[0]!

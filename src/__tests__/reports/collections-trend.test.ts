@@ -111,4 +111,46 @@ describe('computeCollectionsTrend', () => {
     const rows = [row('b1', 'aaaa-bb-cc'), row('b1', '2026-06-15')]
     expect(computeCollectionsTrend(rows)).toEqual([{ month: '2026-06', collections: 1 }])
   })
+
+  // ── Period scope (VER-297) ───────────────────────────────────────────────
+  const periodRows = [
+    row('b1', '2026-04-10'),
+    row('b2', '2026-05-04'),
+    row('b3', '2026-06-29'),
+  ]
+
+  it('bounds the series by an inclusive from/to range', () => {
+    expect(
+      computeCollectionsTrend(periodRows, { from: '2026-05-04', to: '2026-06-29' }),
+    ).toEqual([
+      { month: '2026-05', collections: 1 },
+      { month: '2026-06', collections: 1 },
+    ])
+  })
+
+  it('applies from-only and to-only bounds independently', () => {
+    expect(computeCollectionsTrend(periodRows, { from: '2026-06-01' })).toEqual([
+      { month: '2026-06', collections: 1 },
+    ])
+    expect(computeCollectionsTrend(periodRows, { to: '2026-04-30' })).toEqual([
+      { month: '2026-04', collections: 1 },
+    ])
+  })
+
+  it('scopes by the SERVICE DATE — a booking is in or out as a whole', () => {
+    // b1's service date (MIN item) is 2026-05-30; its June item does not pull
+    // it into a June-only window. Mirrors the RPC's HAVING on min(cd.date).
+    const rows = [row('b1', '2026-05-30'), row('b1', '2026-06-02')]
+    expect(computeCollectionsTrend(rows, { from: '2026-06-01', to: '2026-06-30' })).toEqual([])
+  })
+
+  it('returns [] when the range excludes everything', () => {
+    expect(computeCollectionsTrend(periodRows, { from: '2027-01-01' })).toEqual([])
+  })
+
+  it('ignores malformed range bounds (RPC date params can never produce one)', () => {
+    expect(computeCollectionsTrend(periodRows, { from: 'garbage', to: '2026-5-1' })).toEqual(
+      computeCollectionsTrend(periodRows),
+    )
+  })
 })

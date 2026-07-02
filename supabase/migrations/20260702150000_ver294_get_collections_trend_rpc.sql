@@ -18,6 +18,10 @@
 --     the go-live-cliff label — history starts at platform adoption)
 --   * bookings with no booking_item rows have no service date and are
 --     excluded (unreachable via the booking flows — every path writes items)
+--   * optional p_from/p_to bound the SERVICE DATE (inclusive) — the VER-297
+--     standard period scope. A preset (week/month/FY, AWST boundaries
+--     computed by the card) passes its bounds and sums the buckets; the
+--     rolling-12 trendline passes p_from = 12 months back. NULL = unbounded.
 --
 -- Statuses are matched by enum value, not display name (§21 / PR #228 lesson:
 -- booking_status enum values are code keys, service display names are not).
@@ -37,7 +41,9 @@
 
 CREATE OR REPLACE FUNCTION public.get_collections_trend(
   p_client_id uuid,
-  p_area_id   uuid DEFAULT NULL
+  p_area_id   uuid DEFAULT NULL,
+  p_from      date DEFAULT NULL,
+  p_to        date DEFAULT NULL
 )
 RETURNS TABLE(month date, collections bigint)
 LANGUAGE plpgsql
@@ -72,6 +78,10 @@ BEGIN
        -- trend; unscoped callers (sub_client_id IS NULL) are unaffected.
        AND user_sub_client_allows_area(b.collection_area_id)
      GROUP BY b.id
+    -- Period scope (VER-297) applies to the booking's SERVICE DATE (its MIN
+    -- item date), so a booking is in or out of a period as a whole.
+    HAVING (p_from IS NULL OR min(cd.date) >= p_from)
+       AND (p_to   IS NULL OR min(cd.date) <= p_to)
   ),
   bucketed AS (
     SELECT date_trunc('month', bd.service_date)::date AS m, count(*)::bigint AS c
@@ -92,5 +102,5 @@ $$;
 
 -- CREATE FUNCTION grants EXECUTE to PUBLIC by default — close it in the same
 -- migration (§21), then grant the two roles that may call it.
-REVOKE EXECUTE ON FUNCTION public.get_collections_trend(uuid, uuid) FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.get_collections_trend(uuid, uuid) TO authenticated, service_role;
+REVOKE EXECUTE ON FUNCTION public.get_collections_trend(uuid, uuid, date, date) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.get_collections_trend(uuid, uuid, date, date) TO authenticated, service_role;
