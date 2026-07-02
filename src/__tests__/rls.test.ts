@@ -1847,7 +1847,7 @@ if (!haveDb) {
         const all0 = await trendTotalAs(VV_ALL_USER, VV_CLIENT_ID)
         const cot0 = await trendTotalAs(VV_COT_USER, VV_CLIENT_ID)
 
-        // One reached-the-field booking per sub-client, each with one item.
+        // One delivered (Completed) booking per sub-client, each with one item.
         await pg.query(
           `INSERT INTO public.booking (id, ref, type, status, collection_area_id, client_id, contractor_id, fy_id)
            VALUES
