@@ -64,7 +64,7 @@ import {
   type NoticeRow,
 } from '@/lib/reports/notice-split'
 import { SlaCard, ProvenanceStamp, scorecardTone } from './sla-card'
-import { TrendBars, type TrendPoint } from './trend-bars'
+import { Sparkline, type TrendPoint } from './sparkline'
 import {
   computeCleanCollection,
   CLEAN_TARGET_PCT,
@@ -350,7 +350,7 @@ function OnTimeCard({ clientId, area, period }: CardScope) {
       provenance={liveStamp(period)}
       footer={
         trend && trend.length > 0 ? (
-          <TrendBars points={trend} caption="Completed stops · last 12 months" />
+          <Sparkline points={trend} caption="Completed stops · last 12 months" />
         ) : undefined
       }
     />
@@ -728,7 +728,7 @@ function OpenNoticesCard({ clientId, area }: CardScope) {
       provenance="Live · Current snapshot"
       footer={
         trend && trend.length > 0 ? (
-          <TrendBars points={trend} caption="Notices raised · last 12 months" />
+          <Sparkline points={trend} caption="Notices raised · last 12 months" />
         ) : undefined
       }
     />
@@ -788,7 +788,7 @@ function CollectionsTrendCard({ clientId, area, period }: CardScope) {
       </p>
       {trend && trend.length > 0 && (
         <div className="mt-3">
-          <TrendBars
+          <Sparkline
             points={trend}
             caption="Completed collections per month · last 12 months · history starts at platform adoption"
           />
