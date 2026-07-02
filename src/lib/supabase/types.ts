@@ -354,6 +354,7 @@ export type Database = {
           contractor_id: string
           created_at: string
           created_by: string | null
+          created_via: string
           crew_id: string | null
           deleted_at: string | null
           fy_id: string
@@ -388,6 +389,7 @@ export type Database = {
           contractor_id: string
           created_at?: string
           created_by?: string | null
+          created_via?: string
           crew_id?: string | null
           deleted_at?: string | null
           fy_id: string
@@ -422,6 +424,7 @@ export type Database = {
           contractor_id?: string
           created_at?: string
           created_by?: string | null
+          created_via?: string
           crew_id?: string | null
           deleted_at?: string | null
           fy_id?: string
@@ -2692,6 +2695,7 @@ export type Database = {
           p_collection_date_id: string
           p_contact_id: string
           p_contractor_id: string
+          p_created_via?: string
           p_fy_id: string
           p_items: Json
           p_location: string
@@ -2742,6 +2746,21 @@ export type Database = {
       }
       current_user_sub_client_id: { Args: never; Returns: string }
       generate_booking_ref: { Args: { p_area_code: string }; Returns: string }
+      get_property_penetration: {
+        Args: { p_area_id?: string; p_client_id: string }
+        Returns: {
+          booked: number
+          eligible: number
+        }[]
+      }
+      get_rect_sla: {
+        Args: { p_area_id?: string; p_client_id: string }
+        Returns: {
+          denominator: number
+          numerator: number
+          pct: number
+        }[]
+      }
       has_role: {
         Args: { check_role: Database["public"]["Enums"]["app_role"] }
         Returns: boolean

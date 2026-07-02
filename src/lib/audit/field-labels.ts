@@ -34,6 +34,7 @@ export const FIELD_LABELS: Record<string, string> = {
   property_id: 'Property',
   collection_area_id: 'Collection Area',
   contact_id: 'Contact',
+  created_via: 'Created Via',
   cancelled_at: 'Cancelled At',
   cancelled_by: 'Cancelled By',
   cancellation_reason: 'Cancellation Reason',

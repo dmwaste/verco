@@ -8,8 +8,15 @@ import {
   WASTE_STREAM_LABELS,
   WASTE_STREAM_ORDER,
 } from '@/lib/reports/waste-stream'
+import { SlaDashboard } from './sla-dashboard'
 
-export function ReportsClient({ clientId }: { clientId: string }) {
+export function ReportsClient({
+  clientId,
+  currentFyId,
+}: {
+  clientId: string
+  currentFyId: string | null
+}) {
   const supabase = createClient()
   const [selectedArea, setSelectedArea] = useState('')
   const [dateFrom, setDateFrom] = useState('')
@@ -171,6 +178,11 @@ export function ReportsClient({ clientId }: { clientId: string }) {
       </div>
 
       <div className="px-7 py-6">
+        {/* VER-179 SLA dashboard — reuses the area filter above; FY-scoped BC. */}
+        <div className="mb-6">
+          <SlaDashboard clientId={clientId} currentFyId={currentFyId} selectedArea={selectedArea} />
+        </div>
+
         {isLoading ? (
           <p className="text-sm text-gray-400">Loading reports...</p>
         ) : stats ? (

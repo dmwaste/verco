@@ -4,6 +4,7 @@ import { z } from 'https://esm.sh/zod@3.23.8'
 import { calculatePrice, type ActiveConversion } from '../_shared/pricing.ts'
 import { isAreaBookableServer } from '../_shared/area-gate-server.ts'
 import { type TermsAcceptanceChannel } from '../_shared/terms.ts'
+import { classifyCreator, CREATOR_STAFF_ROLES } from '../_shared/classify-creator.ts'
 
 /**
  * Fire-and-forget POST to the send-notification Edge Function. Returns
@@ -543,6 +544,31 @@ serve(async (req) => {
         ? 'staff_on_behalf'
         : 'resident_self'
 
+    // CBSTAMP (VER-179 §4.2): stamp the immutable created_via channel for the
+    // self-service metric. auth.uid() is NULL inside the service-role RPC, so we
+    // resolve the acting user's role HERE (live JWT context) and pass created_via
+    // explicitly. Staff role ⇒ admin; else the email match/mismatch decides
+    // resident vs admin; guest / no session ⇒ resident.
+    let actingUserRole: string | null = null
+    if (actingUser?.id) {
+      const { data: roleRows } = await supabaseService
+        .from('user_roles')
+        .select('role')
+        .eq('user_id', actingUser.id)
+      const roles = (roleRows ?? []).map((r: { role: string }) => r.role)
+      actingUserRole =
+        roles.find((r: string) => (CREATOR_STAFF_ROLES as readonly string[]).includes(r)) ??
+        roles.find((r: string) => r === 'ranger') ??
+        roles[0] ??
+        null
+    }
+    const { createdVia } = classifyCreator({
+      hasSession: !!actingUser?.id,
+      actingUserRole,
+      actingUserEmail: actingUser?.email ?? null,
+      contactEmail: contact.email,
+    })
+
     const { data: rpcResult, error: rpcError } = await supabaseService
       .rpc('create_booking_with_capacity_check', {
         p_collection_date_id: collection_date_id,
@@ -560,6 +586,7 @@ serve(async (req) => {
         p_actor_id: actingUser?.id ?? null,
         p_terms_accepted: terms_accepted ?? false,
         p_terms_channel: termsChannel,
+        p_created_via: createdVia,
       })
 
     if (rpcError) {
