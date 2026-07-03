@@ -1,13 +1,5 @@
 # TODOS
 
-## [P1 SECURITY] Admin client switcher lets a client-admin scope into another council
-
-- **What:** `getCurrentAdminClient()` / `getAccessibleAdminClients()` (`src/lib/admin/current-client.ts`) validate the switcher cookie and build the switcher dropdown by querying the `client` table filtered only by `is_active = true`. `client` is a **public-SELECT** table (RLS `USING (is_active = true)`), so the re-query validates *any* active client id — it does NOT scope to the user's `accessible_client_ids()`, despite the docstring (lines 15-18) claiming it does.
-- **Impact:** A client-tier admin (e.g. City of Kwinana `client-admin`) sees every active council in their switcher dropdown and can select one, OR set the `verco_admin_client` cookie to any enumerable client UUID. The admin dashboard then scopes its **public-SELECT** surfaces to the chosen council: upcoming collection dates + capacity utilisation, the week widgets, and — via `getTenantMudPropertyIds` → `v_mud_next_expected` — that council's **MUD addresses, unit counts, cadences, next-expected dates** (the VER-280 data class). Booking/ticket queries stay RLS-scoped (return empty), so the leak is confined to the public-SELECT surfaces, but that still includes resident-adjacent MUD address data.
-- **Fix direction:** Validate the candidate id against `accessible_client_ids()` (or a `user_roles` join) instead of the public-SELECT `client` table, in BOTH `getCurrentAdminClient` (cookie/header validation + first-accessible default) and `getAccessibleAdminClients` (switcher list). Preserve contractor-admin/contractor-staff seeing all their contractor's clients. Add an RLS/scoping smoke test per role. Correct the now-false docstring.
-- **Why not in the design-debt release:** Pre-existing (not a regression from #271-#273); touches an auth path and needs its own tested PR — surfaced by the 2026-07-03 pre-merge review of the release batch. Verified by reading the code, not just the advisory.
-- **Effort:** S (human) → XS with CC, plus test. **Priority:** P1.
-
 ## Surface FAQs on the public booking flow
 
 - **What:** Render the FAQ accordion (markdown-formatted answers) somewhere in the `/book` flow, not just `/contact`.
