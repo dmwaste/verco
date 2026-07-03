@@ -22,9 +22,9 @@ const item = (name: string, stream: StopItem['service']['waste_stream'], qty = 1
 
 describe('buildOrderNo', () => {
   it('appends the stream suffix to the booking ref', () => {
-    expect(buildOrderNo('KWN-1-AB12CD', 'general')).toBe('KWN-1-AB12CD-GEN')
-    expect(buildOrderNo('KWN-1-AB12CD', 'green')).toBe('KWN-1-AB12CD-GRN')
-    expect(buildOrderNo('VV-COT-XY99ZZ', 'ancillary')).toBe('VV-COT-XY99ZZ-ANC')
+    expect(buildOrderNo('KWN-1-AB12CD', 'general')).toBe('KWN-1-AB12CD-B')
+    expect(buildOrderNo('KWN-1-AB12CD', 'green')).toBe('KWN-1-AB12CD-G')
+    expect(buildOrderNo('VV-COT-XY99ZZ', 'ancillary')).toBe('VV-COT-XY99ZZ-A')
     expect(buildOrderNo('KWN-1-QQ00QQ', 'illegal_dumping')).toBe('KWN-1-QQ00QQ-ID')
   })
 
@@ -55,9 +55,9 @@ describe('vehicleFeaturesForStream — OptimoRoute routing constraint', () => {
     expect(vehicleFeaturesForStream('ancillary')).toEqual(['ANC'])
   })
 
-  it('general maps to the BLK feature, not the GEN order suffix', () => {
+  it('general maps to the BLK feature, distinct from its -B order suffix', () => {
     expect(vehicleFeaturesForStream('general')).toEqual(['BLK'])
-    expect(STREAM_SUFFIX.general).toBe('GEN')
+    expect(STREAM_SUFFIX.general).toBe('B')
   })
 
   it('illegal_dumping is bulk-truck work — also requires BLK', () => {

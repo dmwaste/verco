@@ -32,11 +32,17 @@ export interface ServiceSummaryEntry {
   qty: number
 }
 
-/** orderNo suffix per stream: {booking.ref}-{suffix}, e.g. KWN-1-AB12CD-GEN */
+/**
+ * orderNo suffix per stream: {booking.ref}-{suffix}, e.g. KWN-1-AB12CD-B.
+ * Short single letters (B/G/A) keep the OR reference neat; each stream still
+ * has a DISTINCT suffix, which is what guarantees a multi-stream booking's
+ * orders get unique orderNos (OR's primary key) — the vehicle feature routes
+ * the truck, the suffix identifies the order. illegal_dumping keeps 'ID'.
+ */
 export const STREAM_SUFFIX: Record<WasteStream, string> = {
-  general: 'GEN',
-  green: 'GRN',
-  ancillary: 'ANC',
+  general: 'B',
+  green: 'G',
+  ancillary: 'A',
   illegal_dumping: 'ID',
 }
 
