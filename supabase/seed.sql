@@ -137,6 +137,21 @@ VALUES
   (v_area1_id, '2026-04-22', true, false, 60, 0, false, 60, 0, false, 10, 0, false)
 ON CONFLICT DO NOTHING;
 
+-- ── Collection Schedule (KWN-1..4) ──────────────────────────────────────────
+-- Mirrors migration 20260703085526_seed_kwn_collection_schedule.sql so the
+-- local/E2E stack matches prod: one weekday per zone (Mon-Thu), unpooled,
+-- bulk 70 / anc 60 / id 10. Seeded here (not by the migration) because the
+-- migration runs BEFORE seed.sql creates these areas, so it no-ops on reset.
+INSERT INTO collection_schedule (
+  collection_area_id, day_of_week, bulk_capacity_limit, anc_capacity_limit, id_capacity_limit
+)
+VALUES
+  (v_area1_id, 1, 70, 60, 10),  -- Mon
+  (v_area2_id, 2, 70, 60, 10),  -- Tue
+  (v_area3_id, 3, 70, 60, 10),  -- Wed
+  (v_area4_id, 4, 70, 60, 10)   -- Thu
+ON CONFLICT (collection_area_id, day_of_week) DO NOTHING;
+
 -- ── Eligible Properties (KWN-1) ─────────────────────────────────────────────
 INSERT INTO eligible_properties (collection_area_id, address, formatted_address, latitude, longitude, has_geocode, is_mud)
 VALUES
