@@ -186,7 +186,7 @@ export function MudBookingForm({
             </p>
           </div>
           {property.mud_code && (
-            <span className="rounded-full bg-[#F3EEFF] px-3 py-1 text-[11px] font-semibold text-[#805AD5]">
+            <span className="rounded-full bg-[#F3EEFF] px-3 py-1 text-caption font-semibold text-[#805AD5]">
               {property.mud_code} · {property.unit_count}u
             </span>
           )}
@@ -202,7 +202,7 @@ export function MudBookingForm({
             </h2>
             <div className="mt-3 grid grid-cols-2 gap-4 text-[13px]">
               <div>
-                <div className="text-[11px] font-semibold text-gray-500">Strata contact</div>
+                <div className="text-caption font-semibold text-gray-500">Strata contact</div>
                 <div className="mt-0.5 text-[#293F52]">{strataContact.full_name}</div>
                 <div className="text-[12px] text-gray-500">{strataContact.email}</div>
                 {strataContact.mobile_e164 && (
@@ -210,7 +210,7 @@ export function MudBookingForm({
                 )}
               </div>
               <div>
-                <div className="text-[11px] font-semibold text-gray-500">Waste location</div>
+                <div className="text-caption font-semibold text-gray-500">Waste location</div>
                 <div className="mt-0.5 whitespace-pre-wrap text-[#293F52]">
                   {property.waste_location_notes || '—'}
                 </div>
@@ -223,7 +223,7 @@ export function MudBookingForm({
             <h2 className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">
               Services
             </h2>
-            <p className="mt-1 text-[11px] text-gray-500">
+            <p className="mt-1 text-caption text-gray-500">
               Each service consumes {mudUnitsPerService} placeholder units of the day&apos;s
               capacity. Allowance figures show this MUD&apos;s current FY usage.
             </p>
@@ -257,12 +257,12 @@ export function MudBookingForm({
                         />
                         <div>
                           <div className="text-[13px] font-medium text-[#293F52]">{s.name}</div>
-                          <div className="text-[11px] text-gray-500">
+                          <div className="text-caption text-gray-500">
                             {s.category_code} · cap {cap} per FY
                           </div>
                         </div>
                       </div>
-                      <div className="text-right text-[11px]">
+                      <div className="text-right text-caption">
                         <div className={exceedsCap ? 'font-semibold text-red-700' : 'text-gray-500'}>
                           {allowance?.used ?? 0} used
                         </div>
@@ -283,7 +283,7 @@ export function MudBookingForm({
                 <ul className="mt-1 list-disc pl-4">
                   {allowanceWarning.map((w) => <li key={w}>{w}</li>)}
                 </ul>
-                <p className="mt-2 text-[11px]">
+                <p className="mt-2 text-caption">
                   Contact D&amp;M admin for an allowance grant.
                 </p>
               </div>
@@ -295,7 +295,7 @@ export function MudBookingForm({
             <h2 className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">
               Collection date
             </h2>
-            <p className="mt-1 text-[11px] text-gray-500">
+            <p className="mt-1 text-caption text-gray-500">
               MUD-enabled dates within the next 12 months for {property.area_code}.
             </p>
             {dates.length === 0 ? (
@@ -324,7 +324,7 @@ export function MudBookingForm({
                 <ul className="mt-1 list-disc pl-4">
                   {dateCapacityWarning.map((w) => <li key={w}>{w}</li>)}
                 </ul>
-                <p className="mt-2 text-[11px]">Choose a different date or wait for capacity to free up.</p>
+                <p className="mt-2 text-caption">Choose a different date or wait for capacity to free up.</p>
               </div>
             )}
           </div>

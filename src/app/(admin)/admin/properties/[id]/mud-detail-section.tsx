@@ -56,7 +56,7 @@ export function MudDetailSection({
           <h2 className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">
             Edit MUD details
           </h2>
-          <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${statusClasses}`}>
+          <span className={`rounded-full px-2.5 py-0.5 text-caption font-semibold ${statusClasses}`}>
             {status}
           </span>
         </div>
@@ -86,13 +86,13 @@ export function MudDetailSection({
             MUD onboarding
           </h2>
           <div className="flex items-center gap-2">
-            <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${statusClasses}`}>
+            <span className={`rounded-full px-2.5 py-0.5 text-caption font-semibold ${statusClasses}`}>
               {status}
             </span>
             <button
               type="button"
               onClick={() => setIsEditing(true)}
-              className="text-[11px] font-medium text-[#293F52] hover:underline"
+              className="text-caption font-medium text-[#293F52] hover:underline"
             >
               Edit
             </button>

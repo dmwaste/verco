@@ -26,7 +26,7 @@ export default async function AuthPage() {
         <EmailEntryForm />
 
         {/* Powered by */}
-        <div className="flex items-center justify-center gap-1.5 pt-8 text-[11px] text-gray-300">
+        <div className="flex items-center justify-center gap-1.5 pt-8 text-caption text-gray-300">
           Booking platform powered by
           <span className="rounded bg-gray-100 px-1.5 py-px font-[family-name:var(--font-heading)] text-2xs font-bold text-gray-500">
             VERCO

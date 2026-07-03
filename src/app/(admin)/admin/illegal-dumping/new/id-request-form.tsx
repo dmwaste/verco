@@ -404,7 +404,7 @@ export function IdRequestForm({
               onChange={(e) => setGeoAddress(e.target.value)}
               className="w-full rounded-lg border-[1.5px] border-gray-100 bg-white px-3 py-2 text-sm text-gray-900 outline-none focus:border-[#293F52]"
             />
-            <p className="text-[11px] text-gray-500">
+            <p className="text-caption text-gray-500">
               Edit freely — e.g. &ldquo;verge opposite 12 Smith St, next to the park entrance&rdquo;.
               The pinned coordinates stay unchanged.
             </p>
@@ -628,7 +628,7 @@ export function IdRequestForm({
                 </span>
                 <span
                   className={cn(
-                    'rounded-full border px-3 py-1 text-[11px] font-medium',
+                    'rounded-full border px-3 py-1 text-caption font-medium',
                     STATUS_CHIP[selectedStatus]
                   )}
                 >
@@ -638,9 +638,9 @@ export function IdRequestForm({
             )}
           </div>
         )}
-        <p className="mt-3 text-[11px] text-gray-500">Draws from the ID capacity bucket.</p>
+        <p className="mt-3 text-caption text-gray-500">Draws from the ID capacity bucket.</p>
         {isContractorAdmin && (
-          <p className="mt-1 text-[11px] text-gray-500">
+          <p className="mt-1 text-caption text-gray-500">
             As a contractor admin you can schedule any future date that still has
             ID capacity — including dates closed to standard booking.
           </p>

@@ -8,7 +8,11 @@ import { createClient } from '@/lib/supabase/client'
 import { buildSearchOrFilter } from '@/lib/search/or-filter'
 import { photoCount } from '@/lib/booking/id-photos'
 import { SkeletonRow } from '@/components/ui/skeleton'
-import { getStatusStyle } from '@/lib/ui/status-styles'
+import { Th } from '@/components/admin/th'
+import { Pagination } from '@/components/admin/pagination'
+import { PageHeader } from '@/components/admin/page-header'
+import { FilterBar, SearchInput, FilterSelect } from '@/components/admin/filter-bar'
+import { StatusBadge } from '@/components/status-badge'
 
 const PAGE_SIZE = 50
 
@@ -109,7 +113,6 @@ export function IllegalDumpingClient({ clientId }: IllegalDumpingClientProps) {
 
   const bookings = idData?.bookings ?? []
   const total = idData?.total ?? 0
-  const totalPages = Math.ceil(total / PAGE_SIZE)
 
   // Status counts for the strip — one query covering all statuses.
   const { data: statusCounts } = useQuery({
@@ -142,15 +145,10 @@ export function IllegalDumpingClient({ clientId }: IllegalDumpingClientProps) {
   return (
     <>
       {/* Header */}
-      <div className="flex items-center justify-between border-b border-gray-100 bg-white px-7 pb-5 pt-6">
-        <div>
-          <h1 className="font-[family-name:var(--font-heading)] text-xl font-bold text-[#293F52]">
-            Illegal Dumping
-          </h1>
-          <p className="mt-0.5 text-body-sm text-gray-500">
-            {total} ID collection{total !== 1 ? 's' : ''} — raised by rangers in the field and office staff.
-          </p>
-        </div>
+      <PageHeader
+        title="Illegal Dumping"
+        subtitle={`${total} ID collection${total !== 1 ? 's' : ''} — raised by rangers in the field and office staff.`}
+      >
         <Link
           href="/admin/illegal-dumping/new"
           className="flex items-center gap-1.5 rounded-lg bg-[#293F52] px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-[#1e3040]"
@@ -161,7 +159,7 @@ export function IllegalDumpingClient({ clientId }: IllegalDumpingClientProps) {
           </svg>
           New ID Collection
         </Link>
-      </div>
+      </PageHeader>
 
       {/* Status summary strip */}
       <div className="mx-7 mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -179,64 +177,53 @@ export function IllegalDumpingClient({ clientId }: IllegalDumpingClientProps) {
       </div>
 
       {/* Filters */}
-      <div className="flex items-center gap-2.5 px-7 py-4">
-        <div className="flex w-60 items-center gap-2 rounded-lg border-[1.5px] border-gray-100 bg-white px-3 py-[7px]">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#B0B0B0" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-          <input
-            type="text"
-            value={search}
-            onChange={(e) => handleSearchChange(e.target.value)}
-            placeholder="Search ref, address, notes..."
-            aria-label="Search illegal dumping reports"
-            className="w-full border-none bg-transparent text-body-sm text-gray-900 outline-none placeholder:text-gray-300"
-          />
-        </div>
+      <FilterBar>
+        <SearchInput
+          value={search}
+          onChange={handleSearchChange}
+          placeholder="Search ref, address, notes..."
+          ariaLabel="Search illegal dumping reports"
+        />
 
-        <select
+        <FilterSelect
           value={statusFilter}
           onChange={(e) => { setStatusFilter(e.target.value); setPage(0) }}
           aria-label="Filter by status"
-          className="rounded-lg border-[1.5px] border-gray-100 bg-white px-3 py-[7px] text-body-sm text-gray-700"
         >
           <option value="">All Statuses</option>
           {BOOKING_STATUSES.map((s) => (
             <option key={s} value={s}>{s}</option>
           ))}
-        </select>
+        </FilterSelect>
 
-        <select
+        <FilterSelect
           value={areaFilter}
           onChange={(e) => { setAreaFilter(e.target.value); setPage(0) }}
           aria-label="Filter by area"
-          className="rounded-lg border-[1.5px] border-gray-100 bg-white px-3 py-[7px] text-body-sm text-gray-700"
         >
           <option value="">All Areas</option>
           {(areas ?? []).map((a) => (
             <option key={a.id} value={a.id}>{a.code} — {a.name}</option>
           ))}
-        </select>
+        </FilterSelect>
 
-        <div className="flex-1" />
-        <span className="text-xs text-gray-500">
-          Showing {total > 0 ? page * PAGE_SIZE + 1 : 0}&ndash;{Math.min((page + 1) * PAGE_SIZE, total)} of {total}
-        </span>
-      </div>
+      </FilterBar>
 
       {/* Table */}
       <div className="flex-1 px-7 pb-6">
         <div className="overflow-x-auto rounded-xl bg-white shadow-sm">
-          <table className="w-full border-collapse">
+          <table className="w-full border-collapse tabular-nums">
             <thead>
               <tr>
-                <th className="border-b border-gray-100 bg-gray-50 px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500">Ref</th>
-                <th className="border-b border-gray-100 bg-gray-50 px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500">Location</th>
-                <th className="border-b border-gray-100 bg-gray-50 px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500">Area</th>
-                <th className="border-b border-gray-100 bg-gray-50 px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500">Collection Date</th>
-                <th className="border-b border-gray-100 bg-gray-50 px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500">Capacity</th>
-                <th className="border-b border-gray-100 bg-gray-50 px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500">Photos</th>
-                <th className="border-b border-gray-100 bg-gray-50 px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500">Status</th>
-                <th className="border-b border-gray-100 bg-gray-50 px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500">Reported</th>
-                <th className="border-b border-gray-100 bg-gray-50 px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500"></th>
+                <Th>Ref</Th>
+                <Th>Location</Th>
+                <Th>Area</Th>
+                <Th>Collection Date</Th>
+                <Th>Capacity</Th>
+                <Th>Photos</Th>
+                <Th>Status</Th>
+                <Th>Reported</Th>
+                <Th />
               </tr>
             </thead>
             <tbody>
@@ -253,7 +240,6 @@ export function IllegalDumpingClient({ clientId }: IllegalDumpingClientProps) {
                 }> | null) ?? []
                 const collDate = items[0]?.collection_date ?? null
                 const nPhotos = photoCount(b.photos, b.notes)
-                const ss = getStatusStyle('booking', b.status)
                 return (
                   <tr key={b.id} className="border-b border-gray-100 last:border-b-0 hover:bg-gray-50">
                     <td className="px-4 py-3">
@@ -286,9 +272,7 @@ export function IllegalDumpingClient({ clientId }: IllegalDumpingClientProps) {
                         : '—'}
                     </td>
                     <td className="px-4 py-3">
-                      <span className={`inline-flex items-center whitespace-nowrap rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${ss.bg} ${ss.text}`}>
-                        {b.status}
-                      </span>
+                      <StatusBadge entity="booking" status={b.status} />
                     </td>
                     <td className="px-4 py-3 text-xs text-gray-500">
                       {format(new Date(b.created_at), 'd MMM yyyy')}
@@ -308,27 +292,7 @@ export function IllegalDumpingClient({ clientId }: IllegalDumpingClientProps) {
           </table>
         </div>
 
-        {totalPages > 1 && (
-          <div className="mt-4 flex items-center justify-center gap-2">
-            <button
-              type="button"
-              onClick={() => setPage((p) => Math.max(0, p - 1))}
-              disabled={page === 0}
-              className="rounded-md border border-gray-100 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 disabled:opacity-40"
-            >
-              Previous
-            </button>
-            <span className="text-xs text-gray-500">Page {page + 1} of {totalPages}</span>
-            <button
-              type="button"
-              onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
-              disabled={page >= totalPages - 1}
-              className="rounded-md border border-gray-100 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 disabled:opacity-40"
-            >
-              Next
-            </button>
-          </div>
-        )}
+        <Pagination page={page} pageSize={PAGE_SIZE} total={total} onPageChange={setPage} />
       </div>
     </>
   )

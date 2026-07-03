@@ -9,12 +9,24 @@
 
   /* Custom type scale — replaces arbitrary text-[Xpx] values */
   --text-2xs: 10px;           /* bottom nav labels, tiny badges */
-  /* text-[11px] kept as arbitrary — can't redefine text-xs (12px, used 215+ places) */
+  --text-caption: 11px;       /* badge pills, table header cells, timestamps */
   --text-body-sm: 13px;       /* descriptions, secondary text, table cells */
   --text-body: 15px;          /* buttons, inputs, primary body */
   --text-subtitle: 17px;      /* card headings */
   --text-title: 22px;         /* page headings */
   --text-display: 28px;       /* large section headings */
+
+  /* Semantic status colours — the single palette for status badges/pills.
+     Use bg-status-*-bg + text-status-* pairs (see lib/ui/status-styles.ts);
+     never add new greens/oranges/reds/blues for status meaning. */
+  --color-status-success: #006A38;
+  --color-status-success-bg: #E8FDF0;
+  --color-status-warn: #8B4000;
+  --color-status-warn-bg: #FFF3EA;
+  --color-status-error: #E53E3E;
+  --color-status-error-bg: #FFF0F0;
+  --color-status-info: #3182CE;
+  --color-status-info-bg: #EBF5FF;
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --font-sans: var(--font-dm-sans), sans-serif;
@@ -113,5 +125,12 @@
   }
   html {
     @apply font-sans;
+  }
+  /* Keyboard-focus convention for the admin surface (class set on the
+     (admin) layout root). Utilities like outline-none still override — pair
+     them with an explicit focus affordance (ring or focus-within border). */
+  .admin-surface :focus-visible {
+    outline: 2px solid #293F52;
+    outline-offset: 2px;
   }
 }

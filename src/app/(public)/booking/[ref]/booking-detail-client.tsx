@@ -491,7 +491,7 @@ export function BookingDetailClient({ booking, tickets, receiptUrl, ncn, np, pay
               <span className="text-2xs font-semibold uppercase tracking-wide text-gray-500">
                 Non-Conformance Notice
               </span>
-              <span className={`inline-flex items-center whitespace-nowrap rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${
+              <span className={`inline-flex items-center whitespace-nowrap rounded-full px-2.5 py-0.5 text-caption font-semibold ${
                 ncn.status === 'Issued' ? 'bg-gray-100 text-gray-600'
                   : ncn.status === 'Disputed' ? 'bg-red-50 text-red-700'
                   : ncn.status === 'Under Review' ? 'bg-amber-50 text-amber-700'
@@ -570,7 +570,7 @@ export function BookingDetailClient({ booking, tickets, receiptUrl, ncn, np, pay
               <span className="text-2xs font-semibold uppercase tracking-wide text-gray-500">
                 Nothing Presented
               </span>
-              <span className={`inline-flex items-center whitespace-nowrap rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${
+              <span className={`inline-flex items-center whitespace-nowrap rounded-full px-2.5 py-0.5 text-caption font-semibold ${
                 np.status === 'Issued' ? 'bg-gray-100 text-gray-600'
                   : np.status === 'Disputed' ? 'bg-red-50 text-red-700'
                   : np.status === 'Under Review' ? 'bg-blue-50 text-blue-700'
@@ -659,11 +659,11 @@ export function BookingDetailClient({ booking, tickets, receiptUrl, ncn, np, pay
                       className="block rounded-lg border border-gray-100 px-3 py-2.5 transition-colors hover:border-[var(--brand)]/20 hover:bg-gray-50"
                     >
                       <div className="mb-1 flex items-center justify-between">
-                        <span className="font-mono text-[11px] text-gray-400">
+                        <span className="font-mono text-caption text-gray-400">
                           {ticket.display_id}
                         </span>
                         <span
-                          className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${statusStyle.bg} ${statusStyle.text}`}
+                          className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-caption font-medium ${statusStyle.bg} ${statusStyle.text}`}
                         >
                           <span className={`size-1.5 rounded-full ${statusStyle.dot}`} />
                           {statusStyle.label}
@@ -673,10 +673,10 @@ export function BookingDetailClient({ booking, tickets, receiptUrl, ncn, np, pay
                         {ticket.subject}
                       </div>
                       <div className="mt-1 flex items-center gap-2">
-                        <span className="rounded-full border border-gray-200 px-2 py-0.5 text-[11px] text-gray-500">
+                        <span className="rounded-full border border-gray-200 px-2 py-0.5 text-caption text-gray-500">
                           {CATEGORY_LABELS[ticket.category]}
                         </span>
-                        <span className="text-[11px] text-gray-400">
+                        <span className="text-caption text-gray-400">
                           {format(new Date(ticket.created_at), 'd MMM yyyy')}
                         </span>
                       </div>

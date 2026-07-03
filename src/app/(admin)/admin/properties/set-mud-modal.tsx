@@ -211,7 +211,7 @@ export function SetMudModal({ open, onOpenChange, property, onSuccess }: SetMudM
               {/* Unit count + MUD code */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+                  <label className="text-caption font-semibold uppercase tracking-wide text-gray-500">
                     Unit count <span className="text-red-500">*</span>
                   </label>
                   <input
@@ -221,10 +221,10 @@ export function SetMudModal({ open, onOpenChange, property, onSuccess }: SetMudM
                     onChange={(e) => setUnitCount(Number.parseInt(e.target.value, 10) || 0)}
                     className="mt-1 w-full rounded-lg border-[1.5px] border-gray-100 bg-white px-3 py-2 text-[13px] outline-none focus:border-[#293F52]"
                   />
-                  <p className="mt-1 text-[11px] text-gray-400">Minimum 8</p>
+                  <p className="mt-1 text-caption text-gray-400">Minimum 8</p>
                 </div>
                 <div>
-                  <label className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+                  <label className="text-caption font-semibold uppercase tracking-wide text-gray-500">
                     MUD code <span className="text-red-500">*</span>
                   </label>
                   <input
@@ -233,13 +233,13 @@ export function SetMudModal({ open, onOpenChange, property, onSuccess }: SetMudM
                     onChange={(e) => setMudCode(e.target.value.toUpperCase())}
                     className="mt-1 w-full rounded-lg border-[1.5px] border-gray-100 bg-white px-3 py-2 font-mono text-[13px] outline-none focus:border-[#293F52]"
                   />
-                  <p className="mt-1 text-[11px] text-gray-400">Auto-suggested</p>
+                  <p className="mt-1 text-caption text-gray-400">Auto-suggested</p>
                 </div>
               </div>
 
               {/* Cadence */}
               <div>
-                <label className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+                <label className="text-caption font-semibold uppercase tracking-wide text-gray-500">
                   Collection cadence <span className="text-red-500">*</span>
                 </label>
                 <select
@@ -255,7 +255,7 @@ export function SetMudModal({ open, onOpenChange, property, onSuccess }: SetMudM
 
               {/* Waste location notes */}
               <div>
-                <label className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+                <label className="text-caption font-semibold uppercase tracking-wide text-gray-500">
                   Waste location notes
                 </label>
                 <textarea
@@ -264,15 +264,15 @@ export function SetMudModal({ open, onOpenChange, property, onSuccess }: SetMudM
                   placeholder="e.g. Collect all from the corner of Eric and Gadson"
                   className="mt-1 h-20 w-full resize-none rounded-lg border-[1.5px] border-gray-100 bg-white px-3 py-2 text-[13px] outline-none placeholder:text-gray-400 focus:border-[#293F52]"
                 />
-                <p className="mt-1 text-[11px] text-gray-400">Required to mark Registered</p>
+                <p className="mt-1 text-caption text-gray-400">Required to mark Registered</p>
               </div>
 
               {/* Strata contact */}
               <div className="rounded-xl border border-gray-100 p-3.5">
-                <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+                <div className="mb-2 text-caption font-semibold uppercase tracking-wide text-gray-500">
                   Strata contact
                 </div>
-                <p className="mb-3 text-[11px] text-gray-400">
+                <p className="mb-3 text-caption text-gray-400">
                   All three required if marking Registered. Required for NCN dual-recipient
                   routing.
                 </p>
@@ -314,10 +314,10 @@ export function SetMudModal({ open, onOpenChange, property, onSuccess }: SetMudM
 
               {/* Auth form upload */}
               <div className="rounded-xl border border-gray-100 p-3.5">
-                <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+                <div className="mb-2 text-caption font-semibold uppercase tracking-wide text-gray-500">
                   Authorisation form
                 </div>
-                <p className="mb-3 text-[11px] text-gray-400">
+                <p className="mb-3 text-caption text-gray-400">
                   PDF, JPG, PNG, or HEIC. Max 10 MB. Required to mark Registered.
                 </p>
                 {authFormPath ? (
@@ -332,7 +332,7 @@ export function SetMudModal({ open, onOpenChange, property, onSuccess }: SetMudM
                         setAuthFormName(null)
                         if (fileInputRef.current) fileInputRef.current.value = ''
                       }}
-                      className="ml-2 text-[11px] font-medium text-emerald-600 hover:underline"
+                      className="ml-2 text-caption font-medium text-emerald-600 hover:underline"
                     >
                       Replace
                     </button>
@@ -348,7 +348,7 @@ export function SetMudModal({ open, onOpenChange, property, onSuccess }: SetMudM
                   />
                 )}
                 {isUploading && (
-                  <p className="mt-2 text-[11px] text-gray-500">Uploading...</p>
+                  <p className="mt-2 text-caption text-gray-500">Uploading...</p>
                 )}
               </div>
 

@@ -220,7 +220,7 @@ export function DateForm() {
               {neededBuckets.serviceChips.map((chip) => (
                 <span
                   key={chip.name}
-                  className="rounded-full border border-gray-100 bg-gray-50 px-3 py-1.5 text-[11px] font-medium text-gray-700"
+                  className="rounded-full border border-gray-100 bg-gray-50 px-3 py-1.5 text-caption font-medium text-gray-700"
                 >
                   {chip.name} &times; {chip.qty}
                 </span>
@@ -264,7 +264,7 @@ export function DateForm() {
                     </span>
                     <span
                       className={cn(
-                        'rounded-full border px-3 py-1 text-[11px] font-medium',
+                        'rounded-full border px-3 py-1 text-caption font-medium',
                         STATUS_CHIP[selectedOption.status]
                       )}
                     >

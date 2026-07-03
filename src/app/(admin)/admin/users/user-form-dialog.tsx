@@ -317,7 +317,7 @@ export function UserFormDialog({ callerRole, editData, open, onOpenChange }: Use
   const inputClass =
     'w-full rounded-[10px] border-[1.5px] border-gray-100 bg-gray-50 px-3.5 py-3 text-sm text-gray-900 outline-none placeholder:text-gray-300 focus:border-[#293F52] focus:bg-white'
   const labelClass = 'mb-1 block text-xs font-medium text-gray-700'
-  const errorClass = 'mt-1 text-[11px] text-red-500'
+  const errorClass = 'mt-1 text-caption text-red-500'
 
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
@@ -394,7 +394,7 @@ export function UserFormDialog({ callerRole, editData, open, onOpenChange }: Use
                       readOnly={isEdit}
                     />
                     {errors.email && <p className={errorClass}>{errors.email.message}</p>}
-                    {isEdit && <p className="mt-0.5 text-[11px] text-gray-400">Email cannot be changed</p>}
+                    {isEdit && <p className="mt-0.5 text-caption text-gray-400">Email cannot be changed</p>}
                   </div>
 
                   {/* Mobile */}
@@ -454,7 +454,7 @@ export function UserFormDialog({ callerRole, editData, open, onOpenChange }: Use
                           </option>
                         ))}
                       </select>
-                      <p className="mt-0.5 text-[11px] text-gray-400">
+                      <p className="mt-0.5 text-caption text-gray-400">
                         Restricts this user to bookings, notices and properties under one
                         sub-client. Leave as &ldquo;All sub-clients&rdquo; for client-wide access.
                       </p>
@@ -498,7 +498,7 @@ export function UserFormDialog({ callerRole, editData, open, onOpenChange }: Use
                         </div>
                       )}
                       {selectedMudPropertyIds.length > 0 && (
-                        <p className="mt-1 text-[11px] text-gray-400">
+                        <p className="mt-1 text-caption text-gray-400">
                           {selectedMudPropertyIds.length} propert{selectedMudPropertyIds.length === 1 ? 'y' : 'ies'} selected
                         </p>
                       )}

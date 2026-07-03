@@ -48,7 +48,7 @@ export function AlreadySubmitted() {
           Back to Dashboard
         </VercoButton>
 
-        <div className="mt-6 flex items-center justify-center gap-1.5 text-[11px] text-gray-300">
+        <div className="mt-6 flex items-center justify-center gap-1.5 text-caption text-gray-300">
           Powered by
           <span className="rounded bg-gray-100 px-1.5 py-px font-[family-name:var(--font-heading)] text-2xs font-bold text-gray-500">
             VERCO

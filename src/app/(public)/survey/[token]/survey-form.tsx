@@ -67,7 +67,7 @@ function StarRating({
           </button>
         ))}
       </div>
-      <span className="text-[11px] text-gray-500">
+      <span className="text-caption text-gray-500">
         {value > 0 ? `${value} out of 5 stars` : label}
       </span>
     </div>
@@ -189,7 +189,7 @@ export function SurveyForm({
           us improve.
         </p>
         <div className="mt-3 flex items-center justify-between rounded-lg bg-white/[0.08] px-3 py-2">
-          <span className="text-[11px] text-[#8FA5B8]">Booking reference</span>
+          <span className="text-caption text-[#8FA5B8]">Booking reference</span>
           <span className="font-[family-name:var(--font-heading)] text-xs font-semibold text-white">
             {bookingRef}
           </span>
@@ -198,7 +198,7 @@ export function SurveyForm({
 
       {/* Progress */}
       <div className="bg-white px-5 pb-3 pt-3">
-        <div className="flex justify-between text-[11px] text-gray-500">
+        <div className="flex justify-between text-caption text-gray-500">
           <span>Survey progress</span>
           <span>{sectionsCompleted} of 3 sections</span>
         </div>
@@ -254,7 +254,7 @@ export function SurveyForm({
                     </span>
                   ))}
                 </div>
-                <div className="mt-1 text-[11px] text-gray-500">
+                <div className="mt-1 text-caption text-gray-500">
                   From booking {bookingRef}
                   {formattedDate && ` · ${formattedDate}`}
                 </div>
@@ -502,7 +502,7 @@ export function SurveyForm({
           {isSubmitting ? 'Submitting...' : 'Submit Survey'}
         </VercoButton>
 
-        <div className="flex items-center justify-center gap-1.5 pt-4 text-[11px] text-gray-300">
+        <div className="flex items-center justify-center gap-1.5 pt-4 text-caption text-gray-300">
           Powered by
           <span className="rounded bg-gray-100 px-1.5 py-px font-[family-name:var(--font-heading)] text-2xs font-bold text-gray-500">
             VERCO

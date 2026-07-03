@@ -209,7 +209,7 @@ export function AdminTicketDetailClient({
             </h1>
             <p className="mt-0.5 font-mono text-body-sm text-gray-400">{ticket.displayId}</p>
           </div>
-          <span className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${statusStyle.bg} ${statusStyle.text}`}>
+          <span className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-0.5 text-caption font-semibold ${statusStyle.bg} ${statusStyle.text}`}>
             {statusStyle.label}
           </span>
         </div>
@@ -223,14 +223,14 @@ export function AdminTicketDetailClient({
           {/* Ticket meta */}
           <div className="rounded-xl bg-white p-5 shadow-sm">
             <div className="flex flex-wrap items-center gap-2">
-              <span className="rounded-full border border-gray-200 px-2.5 py-0.5 text-[11px] text-gray-500">
+              <span className="rounded-full border border-gray-200 px-2.5 py-0.5 text-caption text-gray-500">
                 {CATEGORY_LABELS[ticket.category]}
               </span>
-              <span className="text-[11px] text-gray-400">
+              <span className="text-caption text-gray-400">
                 Opened {format(new Date(ticket.createdAt), "d MMM yyyy 'at' h:mmaaa")}
               </span>
               {contact && (
-                <span className="text-[11px] text-gray-400">
+                <span className="text-caption text-gray-400">
                   by <strong className="text-[#293F52]">{contact.full_name}</strong>
                 </span>
               )}
@@ -247,7 +247,7 @@ export function AdminTicketDetailClient({
               <div className="flex justify-end">
                 <div className="max-w-[85%]">
                   {contact && (
-                    <div className="mb-1 text-right text-[11px] font-medium text-gray-400">
+                    <div className="mb-1 text-right text-caption font-medium text-gray-400">
                       {contact.full_name}
                     </div>
                   )}
@@ -256,7 +256,7 @@ export function AdminTicketDetailClient({
                       {ticket.message}
                     </p>
                   </div>
-                  <div className="mt-1 text-right text-[11px] text-gray-400">
+                  <div className="mt-1 text-right text-caption text-gray-400">
                     {format(new Date(ticket.createdAt), "d MMM yyyy, h:mmaaa")}
                   </div>
                 </div>
@@ -268,13 +268,13 @@ export function AdminTicketDetailClient({
                 return (
                   <div key={resp.id} className={`flex ${isResident ? 'justify-end' : 'justify-start'}`}>
                     <div className="max-w-[85%]">
-                      <div className={`mb-1 text-[11px] font-medium text-gray-400 ${isResident ? 'text-right' : 'text-left'}`}>
+                      <div className={`mb-1 text-caption font-medium text-gray-400 ${isResident ? 'text-right' : 'text-left'}`}>
                         {resp.authorName}
                       </div>
                       <div className={`px-4 py-3 ${isResident ? 'rounded-2xl rounded-br-md bg-[#E8FDF0]' : 'rounded-2xl rounded-bl-md bg-[#F5F5F5]'}`}>
                         <p className="whitespace-pre-wrap text-body-sm leading-relaxed text-[#293F52]">{resp.message}</p>
                       </div>
-                      <div className={`mt-1 text-[11px] text-gray-400 ${isResident ? 'text-right' : 'text-left'}`}>
+                      <div className={`mt-1 text-caption text-gray-400 ${isResident ? 'text-right' : 'text-left'}`}>
                         {format(new Date(resp.createdAt), "d MMM yyyy, h:mmaaa")}
                       </div>
                     </div>
@@ -295,13 +295,13 @@ export function AdminTicketDetailClient({
                 {internalNotes.map((note) => (
                   <div key={note.id} className="flex justify-start">
                     <div className="max-w-[85%]">
-                      <div className="mb-1 text-[11px] font-medium text-amber-600">
+                      <div className="mb-1 text-caption font-medium text-amber-600">
                         {note.authorName} &middot; Internal note
                       </div>
                       <div className="rounded-2xl rounded-bl-md border border-amber-200 bg-white px-4 py-3">
                         <p className="whitespace-pre-wrap text-body-sm leading-relaxed text-[#293F52]">{note.message}</p>
                       </div>
-                      <div className="mt-1 text-[11px] text-amber-500">
+                      <div className="mt-1 text-caption text-amber-500">
                         {format(new Date(note.createdAt), "d MMM yyyy, h:mmaaa")}
                       </div>
                     </div>
@@ -377,7 +377,7 @@ export function AdminTicketDetailClient({
             </div>
             <div className="flex flex-col gap-3">
               <div>
-                <label className="mb-1 block text-[11px] font-medium text-gray-400">Status</label>
+                <label className="mb-1 block text-caption font-medium text-gray-400">Status</label>
                 <select
                   value={status}
                   onChange={(e) => handleStatusChange(e.target.value as TicketStatus)}
@@ -391,7 +391,7 @@ export function AdminTicketDetailClient({
                 </select>
               </div>
               <div>
-                <label className="mb-1 block text-[11px] font-medium text-gray-400">Priority</label>
+                <label className="mb-1 block text-caption font-medium text-gray-400">Priority</label>
                 <select
                   value={priority}
                   onChange={(e) => handlePriorityChange(e.target.value as TicketPriority)}
@@ -404,7 +404,7 @@ export function AdminTicketDetailClient({
                 </select>
               </div>
               <div>
-                <label className="mb-1 block text-[11px] font-medium text-gray-400">Assign to</label>
+                <label className="mb-1 block text-caption font-medium text-gray-400">Assign to</label>
                 <select
                   value={assignedTo}
                   onChange={(e) => handleAssignChange(e.target.value)}
@@ -456,7 +456,7 @@ export function AdminTicketDetailClient({
               </div>
               <div className="flex flex-col gap-2">
                 <div>
-                  <div className="text-[11px] text-gray-400">Name</div>
+                  <div className="text-caption text-gray-400">Name</div>
                   <button
                     type="button"
                     onClick={() => copyToClipboard(contact.full_name, 'name')}
@@ -468,7 +468,7 @@ export function AdminTicketDetailClient({
                   </button>
                 </div>
                 <div>
-                  <div className="text-[11px] text-gray-400">Email</div>
+                  <div className="text-caption text-gray-400">Email</div>
                   <button
                     type="button"
                     onClick={() => copyToClipboard(contact.email, 'email')}
@@ -481,7 +481,7 @@ export function AdminTicketDetailClient({
                 </div>
                 {contact.mobile_e164 && (
                   <div>
-                    <div className="text-[11px] text-gray-400">Mobile</div>
+                    <div className="text-caption text-gray-400">Mobile</div>
                     <button
                       type="button"
                       onClick={() => copyToClipboard(contact.mobile_e164!, 'mobile')}
@@ -525,7 +525,7 @@ export function AdminTicketDetailClient({
                     ))}
                   </div>
                 )}
-                <div className="mt-2 text-[11px] font-semibold text-[#00B864]">View booking &rarr;</div>
+                <div className="mt-2 text-caption font-semibold text-[#00B864]">View booking &rarr;</div>
               </Link>
             </div>
           )}

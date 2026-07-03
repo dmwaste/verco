@@ -383,7 +383,7 @@ export default async function LandingPage() {
         {branding.show_powered_by && (
           <div className="flex items-center gap-1.5 text-xs md:text-sm text-[#8FA5B8]">
             Booking platform powered by
-            <span className="rounded border border-white/[0.12] bg-white/[0.08] px-2 py-0.5 font-[family-name:var(--font-heading)] text-[11px] md:text-body-sm font-semibold text-white">
+            <span className="rounded border border-white/[0.12] bg-white/[0.08] px-2 py-0.5 font-[family-name:var(--font-heading)] text-caption md:text-body-sm font-semibold text-white">
               VERCO
             </span>
           </div>

@@ -11,7 +11,7 @@ const STATUS_CLASSES: Record<StopStatus, string> = {
 export function StopStatusBadge({ status }: { status: StopStatus }) {
   return (
     <span
-      className={`inline-flex rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${STATUS_CLASSES[status]}`}
+      className={`inline-flex rounded-full px-2.5 py-0.5 text-caption font-semibold ${STATUS_CLASSES[status]}`}
     >
       {status}
     </span>

@@ -104,7 +104,7 @@ export function MudStatusActions({ property }: MudStatusActionsProps) {
             {isSubmitting ? 'Marking...' : 'Mark as Registered'}
           </button>
           {!prereq.ok && (
-            <div className="rounded-lg bg-amber-50 px-3 py-2 text-[11px] text-amber-800">
+            <div className="rounded-lg bg-amber-50 px-3 py-2 text-caption text-amber-800">
               <div className="font-semibold">Cannot mark Registered yet:</div>
               <ul className="mt-1 list-disc pl-4">
                 {prereq.errors.map((err) => (

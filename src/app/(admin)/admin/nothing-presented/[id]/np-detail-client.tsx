@@ -133,10 +133,10 @@ export function NpDetailClient({ np, availableDates, auditLogs }: NpDetailClient
             <p className="mt-0.5 text-body-sm text-gray-500">{address}</p>
           </div>
           <div className="flex items-center gap-2">
-            <span className={`inline-flex items-center whitespace-nowrap rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${np.contractor_fault ? 'bg-red-50 text-red-700' : 'bg-gray-100 text-gray-600'}`}>
+            <span className={`inline-flex items-center whitespace-nowrap rounded-full px-2.5 py-0.5 text-caption font-semibold ${np.contractor_fault ? 'bg-red-50 text-red-700' : 'bg-gray-100 text-gray-600'}`}>
               {np.contractor_fault ? 'Contractor Fault' : 'Resident Fault'}
             </span>
-            <span className={`inline-flex items-center whitespace-nowrap rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${ss.bg} ${ss.text}`}>
+            <span className={`inline-flex items-center whitespace-nowrap rounded-full px-2.5 py-0.5 text-caption font-semibold ${ss.bg} ${ss.text}`}>
               {np.status}
             </span>
           </div>
@@ -161,7 +161,7 @@ export function NpDetailClient({ np, availableDates, auditLogs }: NpDetailClient
             <div className="flex flex-col gap-2.5">
               <div className="flex items-center justify-between text-body-sm">
                 <span className="text-gray-500">Fault Type</span>
-                <span className={`inline-flex items-center whitespace-nowrap rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${np.contractor_fault ? 'bg-red-50 text-red-700' : 'bg-gray-100 text-gray-600'}`}>
+                <span className={`inline-flex items-center whitespace-nowrap rounded-full px-2.5 py-0.5 text-caption font-semibold ${np.contractor_fault ? 'bg-red-50 text-red-700' : 'bg-gray-100 text-gray-600'}`}>
                   {np.contractor_fault ? 'Contractor' : 'Resident'}
                 </span>
               </div>
@@ -311,7 +311,7 @@ export function NpDetailClient({ np, availableDates, auditLogs }: NpDetailClient
                 className="size-4 rounded border-gray-300 text-[#293F52] focus:ring-[#293F52]"
               />
               <span className="text-body-sm font-medium text-gray-900">Contractor fault</span>
-              <span className="text-[11px] text-gray-400">
+              <span className="text-caption text-gray-400">
                 — allocations restored, paid items refunded if not rebooked
               </span>
             </label>

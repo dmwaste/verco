@@ -841,15 +841,15 @@ function PreferServicePanel({
       <CardLabel text="Prefer This Service" />
       <div className="flex flex-1 items-center py-2">
         {period.unresolved ? (
-          <p className="text-[11px] text-gray-500">Period unavailable.</p>
+          <p className="text-caption text-gray-500">Period unavailable.</p>
         ) : isError ? (
           <p className="font-[family-name:var(--font-heading)] text-sm font-bold text-amber-600">
             Couldn&apos;t load
           </p>
         ) : isLoading ? (
-          <p className="text-[11px] text-gray-500">Loading…</p>
+          <p className="text-caption text-gray-500">Loading…</p>
         ) : !pref || pref.total === 0 ? (
-          <p className="text-[11px] text-gray-500">No responses yet</p>
+          <p className="text-caption text-gray-500">No responses yet</p>
         ) : (
           <DonutChart
             ariaLabel="Prefer this service over traditional verge collection"
@@ -1097,15 +1097,15 @@ function VolumeMixCard({ clientId, area, period }: CardScope) {
       <CardLabel text="Service Breakdown" />
       <div className="flex flex-1 items-center py-3">
         {period.unresolved ? (
-          <p className="text-[11px] text-gray-500">Period unavailable.</p>
+          <p className="text-caption text-gray-500">Period unavailable.</p>
         ) : isError ? (
           <p className="font-[family-name:var(--font-heading)] text-sm font-bold text-amber-600">
             Couldn&apos;t load
           </p>
         ) : isLoading || !r ? (
-          <p className="text-[11px] text-gray-500">Loading…</p>
+          <p className="text-caption text-gray-500">Loading…</p>
         ) : r.isEmpty ? (
-          <p className="text-[11px] text-gray-500">No collections match these filters.</p>
+          <p className="text-caption text-gray-500">No collections match these filters.</p>
         ) : (
           <DonutChart
             svgClassName="h-36 w-36"
@@ -1121,7 +1121,7 @@ function VolumeMixCard({ clientId, area, period }: CardScope) {
         )}
       </div>
       {hasData && (
-        <p className="text-[11px] text-gray-500">
+        <p className="text-caption text-gray-500">
           {r.freeUnits} included · {r.extraUnits} extra
           {r.isLowN ? ' · building data' : ''}
         </p>
@@ -1166,15 +1166,15 @@ function NoticeTypesCard({ clientId, area, period }: CardScope) {
       <CardLabel text="NCN Types" />
       <div className="flex flex-1 items-center py-3">
         {period.unresolved ? (
-          <p className="text-[11px] text-gray-500">Period unavailable.</p>
+          <p className="text-caption text-gray-500">Period unavailable.</p>
         ) : isError ? (
           <p className="font-[family-name:var(--font-heading)] text-sm font-bold text-amber-600">
             Couldn&apos;t load
           </p>
         ) : isLoading ? (
-          <p className="text-[11px] text-gray-500">Loading…</p>
+          <p className="text-caption text-gray-500">Loading…</p>
         ) : slices.length === 0 ? (
-          <p className="text-[11px] text-gray-500">No notices in this period.</p>
+          <p className="text-caption text-gray-500">No notices in this period.</p>
         ) : (
           <DonutChart
             svgClassName="h-36 w-36"

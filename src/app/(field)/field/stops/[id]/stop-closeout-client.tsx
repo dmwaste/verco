@@ -130,7 +130,7 @@ function CloseoutInner({ stop, runHref }: StopCloseoutClientProps) {
             <div className="flex items-center gap-2 font-[family-name:var(--font-heading)] text-base font-bold text-[var(--brand)]">
               {stop.booking.ref}
               {stop.stop_sequence !== null && (
-                <span className="rounded-md bg-[#E8EEF2] px-1.5 py-0.5 text-[11px] font-bold text-[var(--brand)]">
+                <span className="rounded-md bg-[#E8EEF2] px-1.5 py-0.5 text-caption font-bold text-[var(--brand)]">
                   #{stop.stop_sequence}
                 </span>
               )}
@@ -193,14 +193,14 @@ function CloseoutInner({ stop, runHref }: StopCloseoutClientProps) {
               <span className="font-semibold">Counts saved</span>
               <Link
                 href={`/field/stops/${stop.id}?recount=1`}
-                className="-m-3 inline-block p-3 text-[11px] font-medium text-emerald-700 underline"
+                className="-m-3 inline-block p-3 text-caption font-medium text-emerald-700 underline"
               >
                 Edit counts
               </Link>
             </div>
             <div className="mt-1 space-y-0.5">
               {streamItems.map((i) => (
-                <div key={i.id} className="flex justify-between text-[11px]">
+                <div key={i.id} className="flex justify-between text-caption">
                   <span>{i.service.name}</span>
                   <span className="font-mono">{i.actual_services ?? '—'}</span>
                 </div>
@@ -270,7 +270,7 @@ function CloseoutInner({ stop, runHref }: StopCloseoutClientProps) {
             <button
               type="button"
               onClick={handleComplete}
-              className="shrink-0 rounded-md bg-white px-2.5 py-1 text-[11px] font-semibold text-red-700 shadow-sm"
+              className="shrink-0 rounded-md bg-white px-2.5 py-1 text-caption font-semibold text-red-700 shadow-sm"
             >
               Retry
             </button>

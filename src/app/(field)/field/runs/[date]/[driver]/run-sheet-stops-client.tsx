@@ -97,7 +97,7 @@ function StopCard({ stop, error, isPending, onComplete }: StopCardProps) {
               {stop.booking.ref}
               {isMud && ' · MUD'}
             </span>
-            {eta && <span className="text-[11px] text-gray-400">~{eta}</span>}
+            {eta && <span className="text-caption text-gray-400">~{eta}</span>}
           </div>
           <div className="text-sm font-semibold leading-snug text-[var(--brand)]">
             {street}
@@ -116,7 +116,7 @@ function StopCard({ stop, error, isPending, onComplete }: StopCardProps) {
         {stop.services_summary.map((s) => (
           <span
             key={s.name}
-            className="inline-flex rounded-full bg-[#E8EEF2] px-2.5 py-0.5 text-[11px] font-medium text-[var(--brand)]"
+            className="inline-flex rounded-full bg-[#E8EEF2] px-2.5 py-0.5 text-caption font-medium text-[var(--brand)]"
           >
             {s.name} &times; {s.qty}
           </span>
@@ -146,7 +146,7 @@ function StopCard({ stop, error, isPending, onComplete }: StopCardProps) {
           <button
             type="button"
             onClick={() => onComplete(stop)}
-            className="shrink-0 rounded-md bg-white px-3 py-2.5 text-[11px] font-semibold text-red-700 shadow-sm"
+            className="shrink-0 rounded-md bg-white px-3 py-2.5 text-caption font-semibold text-red-700 shadow-sm"
           >
             Retry
           </button>
@@ -159,7 +159,7 @@ function StopCard({ stop, error, isPending, onComplete }: StopCardProps) {
             href={mapsUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className="flex min-h-[44px] items-center gap-1 text-[11px] font-medium text-[var(--brand-accent-dark)]"
+            className="flex min-h-[44px] items-center gap-1 text-caption font-medium text-[var(--brand-accent-dark)]"
           >
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
               <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/>
@@ -276,7 +276,7 @@ export function RunSheetStopsClient({
             </svg>
             Runs
           </Link>
-          <span className="text-[11px] text-gray-500">
+          <span className="text-caption text-gray-500">
             {format(parseISO(date), 'EEE d MMM')}
           </span>
         </div>
@@ -289,12 +289,12 @@ export function RunSheetStopsClient({
               <span className="ml-2 text-xs text-gray-500">{runMeta.driverName}</span>
             )}
           </div>
-          <span className="rounded-full bg-[#E8EEF2] px-2.5 py-0.5 text-[11px] font-semibold text-[var(--brand)]">
+          <span className="rounded-full bg-[#E8EEF2] px-2.5 py-0.5 text-caption font-semibold text-[var(--brand)]">
             {done.length}/{live.length}
           </span>
         </div>
         {(startTime || finishTime || (runMeta?.depotLabels.length ?? 0) > 0) && (
-          <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-gray-500">
+          <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-caption text-gray-500">
             {startTime && finishTime && (
               <span>
                 {startTime} – {finishTime}
@@ -353,7 +353,7 @@ export function RunSheetStopsClient({
             <span className="font-[family-name:var(--font-heading)] text-body-sm font-semibold text-[var(--brand)]">
               Done
             </span>
-            <span className="text-[11px] text-gray-500">{done.length} stops</span>
+            <span className="text-caption text-gray-500">{done.length} stops</span>
           </div>
           {done.map((stop) => (
             <StopCard
@@ -373,7 +373,7 @@ export function RunSheetStopsClient({
             <span className="font-[family-name:var(--font-heading)] text-body-sm font-semibold text-gray-400">
               Cancelled
             </span>
-            <span className="text-[11px] text-gray-400">{cancelled.length} stops</span>
+            <span className="text-caption text-gray-400">{cancelled.length} stops</span>
           </div>
           {cancelled.map((stop) => {
             const { street, suburb } = splitAddress(stop.address)
