@@ -313,7 +313,7 @@ export default async function AdminDashboardPage() {
           <div className="font-[family-name:var(--font-heading)] text-display font-bold text-[#293F52]">
             {openExceptions}
           </div>
-          <div className="mt-1 text-xs text-[#E53E3E]">
+          <div className={`mt-1 text-xs ${openExceptions > 0 ? 'text-[#E53E3E]' : 'text-gray-500'}`}>
             {ncnResult.count ?? 0} NCN &middot; {npResult.count ?? 0} NP
           </div>
         </div>
@@ -393,7 +393,9 @@ export default async function AdminDashboardPage() {
             ].map((stat) => (
               <div key={stat.label} className="rounded-lg bg-gray-50 px-3.5 py-3">
                 <div className="mb-1 text-[11px] text-gray-500">{stat.label}</div>
-                <div className={`font-[family-name:var(--font-heading)] text-xl font-bold ${stat.color}`}>
+                {/* Tone colour only when the count is non-zero — an orange or red
+                    zero reads as an alarm for a state where nothing is wrong. */}
+                <div className={`font-[family-name:var(--font-heading)] text-xl font-bold ${stat.value > 0 ? stat.color : 'text-[#293F52]'}`}>
                   {stat.value}
                 </div>
               </div>
