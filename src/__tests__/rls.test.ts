@@ -1629,6 +1629,41 @@ if (!haveDb) {
         await pg.query('ROLLBACK')
       }
     })
+
+    // Contact linkage (20260703040000): the RPC stamps booking.contact_id with
+    // the logging user's own contact (current_user_contact_id()), so the detail
+    // page shows who logged the collection instead of "No contact linked".
+    it('links the logging staff member\'s contact to the ID booking', async () => {
+      await pg.query('BEGIN')
+      try {
+        const ctx = await setupIdDate()
+        if (!ctx) return
+        const contact = await pg.query<{ id: string }>(
+          `INSERT INTO contacts (first_name, last_name, email)
+           VALUES ('Staff', 'Logger', 'rls-id-logger@example.test')
+           RETURNING id`,
+        )
+        const contactId = contact.rows[0]!.id
+        await pg.query(`UPDATE profiles SET contact_id = $1 WHERE id = $2`, [
+          contactId,
+          USERS['contractor-admin'],
+        ])
+        await impersonate(USERS['contractor-admin'])
+
+        const res = await pg.query<{ r: { booking_id: string } }>(CALL, [
+          ctx.dateId, ctx.areaId, -32.27, 115.75, 'Contact link', '', [], ['General / Mixed'], ID_VOLUME_WIRE,
+        ])
+
+        await pg.query('RESET ROLE')
+        const b = await pg.query<{ contact_id: string | null }>(
+          `SELECT contact_id FROM booking WHERE id = $1`,
+          [res.rows[0]!.r.booking_id],
+        )
+        expect(b.rows[0]!.contact_id).toBe(contactId)
+      } finally {
+        await pg.query('ROLLBACK')
+      }
+    })
   })
 
   // ---------------------------------------------------------------------------

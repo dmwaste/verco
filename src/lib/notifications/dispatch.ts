@@ -190,6 +190,13 @@ export async function dispatch(
         return { ok: false, error }
       }
 
+      // Illegal Dumping collections never send resident notifications (see the
+      // guard on the normal path below) — a resumed retry must skip too.
+      if (booking.type === 'Illegal Dumping') {
+        log({ type: logRow.notification_type, booking_id: logRow.booking_id, status: 'skipped', reason: 'illegal_dumping', sendgrid_status: null })
+        return { ok: true, skipped: true }
+      }
+
       if (!booking.contact || !booking.contact.email) {
         const error = `Booking ${logRow.booking_id} has no contact email`
         await deps.updateLogStatus(logId, 'failed', error)
@@ -256,6 +263,17 @@ export async function dispatch(
       const error = `Booking not found: ${payload.booking_id}`
       log({ ...baseLog, status: 'failed', error, sendgrid_status: null })
       return { ok: false, error }
+    }
+
+    // Illegal Dumping collections are internal ops records — their contact is
+    // the logging staff member, not a resident — so they never send
+    // resident-facing notifications (collection_reminder / completion_survey /
+    // ncn_raised / np_raised). This preserves the pre-contact-link behaviour
+    // where a NULL contact suppressed every send; skip before touching either
+    // channel or writing a log row.
+    if (booking.type === 'Illegal Dumping') {
+      log({ ...baseLog, status: 'skipped', reason: 'illegal_dumping', sendgrid_status: null })
+      return { ok: true, skipped: true }
     }
 
     // 2. Run the email path. Returns the email DispatchResult (sent /

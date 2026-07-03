@@ -17,6 +17,13 @@
 --   2. The pooled-area collection_date_pool.id_is_closed check.
 -- The capacity check (v_id_available < 1) and the advisory lock are untouched.
 --
+-- Also links the booking's contact to the LOGGING user's own contact record
+-- (current_user_contact_id(), email-match fallback) so the booking detail shows
+-- who logged the collection instead of "No contact linked". Every staff user
+-- has a linked contact; rangers without one fall back to NULL (unchanged). ID
+-- collections still send NO resident notifications — the dispatch guard skips
+-- type='Illegal Dumping', so populating the contact never emails/SMSes staff.
+--
 -- Signature identical to 20260611031624, so generated types are unaffected —
 -- the caller's role is resolved internally via current_user_role().
 CREATE OR REPLACE FUNCTION create_id_booking_with_capacity_check(
@@ -49,6 +56,7 @@ DECLARE
   v_booking_id          uuid;
   v_ref                 text;
   v_is_contractor_admin boolean;
+  v_contact_id          uuid;
 BEGIN
   -- Rangers (field intake) and office staff (admin portal) create ID bookings.
   IF (current_user_role() IN (
@@ -173,15 +181,20 @@ BEGIN
 
   v_ref := generate_booking_ref(v_area_code);
 
+  -- Link the logging user's own contact (staff all have one; ranger without a
+  -- linked contact → NULL, unchanged). Shows who logged the collection in the
+  -- booking detail. No notifications result — dispatch skips Illegal Dumping.
+  v_contact_id := COALESCE(current_user_contact_id(), current_user_contact_id_by_email());
+
   INSERT INTO booking (
     ref, type, status, collection_area_id, client_id, contractor_id, fy_id,
     latitude, longitude, geo_address, notes, photos, id_waste_types, id_volume,
-    created_by
+    created_by, contact_id
   ) VALUES (
     v_ref, 'Illegal Dumping', 'Confirmed', p_collection_area_id, v_client_id, v_contractor_id, v_fy_id,
     p_latitude, p_longitude, p_geo_address, p_notes,
     COALESCE(p_photos, '{}'), COALESCE(p_waste_types, '{}'), p_volume,
-    auth.uid()
+    auth.uid(), v_contact_id
   )
   RETURNING id INTO v_booking_id;
 

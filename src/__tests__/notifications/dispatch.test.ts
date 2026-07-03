@@ -116,6 +116,26 @@ describe('dispatch', () => {
     })
   })
 
+  describe('Illegal Dumping guard', () => {
+    // ID collections carry the logging staff member as their contact, not a
+    // resident — so no resident-facing notification (reminder/survey/NCN/NP)
+    // may go out. The guard skips before either channel or any log write.
+    it('skips resident notifications for an Illegal Dumping booking', async () => {
+      const booking = makeMockBooking({ id: 'b-id', type: 'Illegal Dumping' })
+      const deps = createMockDispatchDeps({ bookings: { 'b-id': booking } })
+
+      const result = await dispatch(deps, {
+        type: 'collection_reminder',
+        booking_id: 'b-id',
+      })
+
+      expect(result).toEqual({ ok: true, skipped: true })
+      expect(deps.sendEmailMock).not.toHaveBeenCalled()
+      expect(deps.sendSMSMock).not.toHaveBeenCalled()
+      expect(deps.writtenLogs).toHaveLength(0)
+    })
+  })
+
   describe('booking-not-found short-circuit', () => {
     it('returns a clean error without writing to notification_log', async () => {
       const deps = createMockDispatchDeps({ bookings: {} })
