@@ -148,7 +148,7 @@ export function IllegalDumpingClient({ clientId }: IllegalDumpingClientProps) {
             Illegal Dumping
           </h1>
           <p className="mt-0.5 text-body-sm text-gray-500">
-            {total} ID report{total !== 1 ? 's' : ''} — raised by rangers in the field and office staff.
+            {total} ID collection{total !== 1 ? 's' : ''} — raised by rangers in the field and office staff.
           </p>
         </div>
         <Link
@@ -159,7 +159,7 @@ export function IllegalDumpingClient({ clientId }: IllegalDumpingClientProps) {
             <line x1="12" y1="5" x2="12" y2="19" />
             <line x1="5" y1="12" x2="19" y2="12" />
           </svg>
-          New ID Report
+          New ID Collection
         </Link>
       </div>
 

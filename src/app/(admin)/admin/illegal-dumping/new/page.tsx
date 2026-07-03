@@ -10,6 +10,7 @@ export default async function NewIdRequestPage() {
 
   let areas: AreaOption[] = []
   let dates: IdDateOption[] = []
+  let isContractorAdmin = false
 
   if (currentClient) {
     // Sub-client narrowing (VER-216): a client-tier user scoped to one
@@ -20,11 +21,14 @@ export default async function NewIdRequestPage() {
     } = await supabase.auth.getUser()
     const { data: userRole } = await supabase
       .from('user_roles')
-      .select('sub_client_id')
+      .select('sub_client_id, role')
       .eq('user_id', user?.id ?? '')
       .eq('is_active', true)
       .maybeSingle()
     const subClientId = userRole?.sub_client_id ?? null
+    // Contractor-admins may schedule ID collections onto closed dates that
+    // still have capacity (see the date fetch below + the RPC's closure gate).
+    isContractorAdmin = userRole?.role === 'contractor-admin'
 
     // collection_area / collection_date are public-SELECT — RLS does not
     // tenant-scope them (CLAUDE.md §21), so filter by the switcher client.
@@ -50,16 +54,21 @@ export default async function NewIdRequestPage() {
       // silently starve later-sorting areas of their dates.
       const horizon = awstDateFromUtc(new Date(now.getTime() + 90 * 24 * 60 * 60 * 1000))
 
-      const { data: dateRows } = await supabase
+      // Standard roles only see open, not-ID-closed dates. Contractor-admins
+      // also see closed dates — the calendar keeps only those with capacity
+      // remaining, and the RPC relaxes the same closure gate for this role.
+      let dateQuery = supabase
         .from('collection_date')
         .select('id, date, id_capacity_limit, id_units_booked, collection_area_id')
         .in('collection_area_id', areas.map((a) => a.id))
-        .eq('is_open', true)
-        .eq('id_is_closed', false)
         .gte('date', today)
         .lte('date', horizon)
         .order('date', { ascending: true })
         .limit(500)
+      if (!isContractorAdmin) {
+        dateQuery = dateQuery.eq('is_open', true).eq('id_is_closed', false)
+      }
+      const { data: dateRows } = await dateQuery
       dates = dateRows ?? []
 
       // Pool-backed areas (capacity_pool_id set) keep their ID counters on
@@ -86,8 +95,12 @@ export default async function NewIdRequestPage() {
           const poolId = poolByArea.get(d.collection_area_id)
           if (!poolId) return [d]
           const pool = poolByKey.get(`${poolId}|${d.date}`)
-          // No pool row or pool-closed → the RPC would reject; hide the date.
-          if (!pool || pool.id_is_closed) return []
+          if (!pool) return []
+          // Standard roles: a pool-closed date is not bookable. Contractor-admins
+          // may book a closed pool date as long as it still has capacity — mirror
+          // the RPC's per-role gate so the picker never offers a dead-end date.
+          const poolHasCapacity = pool.id_units_booked < pool.id_capacity_limit
+          if (isContractorAdmin ? !poolHasCapacity : pool.id_is_closed) return []
           return [
             {
               ...d,
@@ -113,7 +126,7 @@ export default async function NewIdRequestPage() {
             <span>New</span>
           </div>
           <h1 className="mt-1 font-[family-name:var(--font-heading)] text-xl font-bold text-[#293F52]">
-            New ID Report
+            New ID Collection
           </h1>
           <p className="mt-0.5 text-body-sm text-gray-500">
             Log a reported illegal dumping pile and schedule its collection.
@@ -123,11 +136,11 @@ export default async function NewIdRequestPage() {
 
       <div className="flex-1 px-7 py-6">
         {currentClient ? (
-          <IdRequestForm areas={areas} dates={dates} />
+          <IdRequestForm areas={areas} dates={dates} isContractorAdmin={isContractorAdmin} />
         ) : (
           <div className="mx-auto mt-10 w-full max-w-xl rounded-xl bg-white px-8 py-10 text-center shadow-sm">
             <p className="text-body-sm text-gray-500">
-              Select a client in the sidebar switcher to log an ID report.
+              Select a client in the sidebar switcher to log an ID collection.
             </p>
           </div>
         )}

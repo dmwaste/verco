@@ -380,7 +380,6 @@ export function IdBookingForm({ collectionDates, prefill }: IdBookingFormProps) 
                     onClick={() => toggleWasteType(type)}
                     className={cn(
                       'rounded-lg border-[1.5px] px-3 py-2.5 text-center text-xs font-medium transition-colors',
-                      type === 'Construction / Demolition' && 'col-span-2',
                       wasteTypes.includes(type)
                         ? 'border-[var(--brand)] bg-[#E8EEF2] text-[var(--brand)]'
                         : 'border-gray-100 bg-white text-gray-700'

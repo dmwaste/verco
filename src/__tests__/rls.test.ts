@@ -1537,6 +1537,133 @@ if (!haveDb) {
         await pg.query('ROLLBACK')
       }
     })
+
+    // Contractor-admin closed-date override (20260703040000): a contractor-admin
+    // may book any FUTURE date that still has ID capacity, even when the date is
+    // admin-closed (is_open = false) or system-closed (id_is_closed). Capacity is
+    // never overridden, and the override is role-scoped. These assertions reflect
+    // the DEPLOYED behaviour post-release (the RLS suite runs against prod).
+    it('allows a contractor-admin to book an admin-closed (is_open=false) date with capacity', async () => {
+      await pg.query('BEGIN')
+      try {
+        const ctx = await setupIdDate()
+        if (!ctx) return
+        await pg.query(`UPDATE collection_date SET is_open = false WHERE id = $1`, [ctx.dateId])
+        await impersonate(USERS['contractor-admin'])
+
+        const res = await pg.query<{ r: { ref: string } }>(CALL, [
+          ctx.dateId, ctx.areaId, -32.27, 115.75, 'Closed-date override', '', [], ['General / Mixed'], ID_VOLUME_WIRE,
+        ])
+        expect(res.rows[0]!.r.ref).toMatch(/-/)
+      } finally {
+        await pg.query('ROLLBACK')
+      }
+    })
+
+    it('allows a contractor-admin to book a system-closed (id_is_closed) date with capacity', async () => {
+      await pg.query('BEGIN')
+      try {
+        const ctx = await setupIdDate()
+        if (!ctx) return
+        await pg.query(`UPDATE collection_date SET id_is_closed = true WHERE id = $1`, [ctx.dateId])
+        await impersonate(USERS['contractor-admin'])
+
+        const res = await pg.query<{ r: { ref: string } }>(CALL, [
+          ctx.dateId, ctx.areaId, -32.27, 115.75, 'Closed-date override', '', [], ['General / Mixed'], ID_VOLUME_WIRE,
+        ])
+        expect(res.rows[0]!.r.ref).toMatch(/-/)
+      } finally {
+        await pg.query('ROLLBACK')
+      }
+    })
+
+    // The capacity ceiling is never relaxed — a closed AND full date is refused
+    // even for a contractor-admin.
+    it('still rejects a contractor-admin on a closed date with no capacity', async () => {
+      await pg.query('BEGIN')
+      try {
+        const ctx = await setupIdDate()
+        if (!ctx) return
+        await pg.query(
+          `UPDATE collection_date
+             SET id_is_closed = true, id_capacity_limit = 0, id_units_booked = 0
+           WHERE id = $1`,
+          [ctx.dateId],
+        )
+        await impersonate(USERS['contractor-admin'])
+
+        let err: Error | null = null
+        try {
+          await pg.query(CALL, [
+            ctx.dateId, ctx.areaId, -32.27, 115.75, 'x', '', [], ['General / Mixed'], ID_VOLUME_WIRE,
+          ])
+        } catch (e) {
+          err = e as Error
+        }
+        expect(err?.message ?? '').toMatch(/capacity/i)
+      } finally {
+        await pg.query('ROLLBACK')
+      }
+    })
+
+    // The override is role-scoped: a client-admin (staff role, but not
+    // contractor-admin) is still refused on a closed date in their own tenant.
+    it('still rejects a non-override role (client-admin) on a closed date in their own tenant', async () => {
+      await pg.query('BEGIN')
+      try {
+        const ctx = await setupIdDate()
+        if (!ctx) return
+        await pg.query(`UPDATE collection_date SET id_is_closed = true WHERE id = $1`, [ctx.dateId])
+        await impersonate(USERS['client-admin'])
+
+        let err: Error | null = null
+        try {
+          await pg.query(CALL, [
+            ctx.dateId, ctx.areaId, -32.27, 115.75, 'x', '', [], ['General / Mixed'], ID_VOLUME_WIRE,
+          ])
+        } catch (e) {
+          err = e as Error
+        }
+        expect(err?.message ?? '').toMatch(/closed for illegal dumping/i)
+      } finally {
+        await pg.query('ROLLBACK')
+      }
+    })
+
+    // Contact linkage (20260703040000): the RPC stamps booking.contact_id with
+    // the logging user's own contact (current_user_contact_id()), so the detail
+    // page shows who logged the collection instead of "No contact linked".
+    it('links the logging staff member\'s contact to the ID booking', async () => {
+      await pg.query('BEGIN')
+      try {
+        const ctx = await setupIdDate()
+        if (!ctx) return
+        const contact = await pg.query<{ id: string }>(
+          `INSERT INTO contacts (first_name, last_name, email)
+           VALUES ('Staff', 'Logger', 'rls-id-logger@example.test')
+           RETURNING id`,
+        )
+        const contactId = contact.rows[0]!.id
+        await pg.query(`UPDATE profiles SET contact_id = $1 WHERE id = $2`, [
+          contactId,
+          USERS['contractor-admin'],
+        ])
+        await impersonate(USERS['contractor-admin'])
+
+        const res = await pg.query<{ r: { booking_id: string } }>(CALL, [
+          ctx.dateId, ctx.areaId, -32.27, 115.75, 'Contact link', '', [], ['General / Mixed'], ID_VOLUME_WIRE,
+        ])
+
+        await pg.query('RESET ROLE')
+        const b = await pg.query<{ contact_id: string | null }>(
+          `SELECT contact_id FROM booking WHERE id = $1`,
+          [res.rows[0]!.r.booking_id],
+        )
+        expect(b.rows[0]!.contact_id).toBe(contactId)
+      } finally {
+        await pg.query('ROLLBACK')
+      }
+    })
   })
 
   // ---------------------------------------------------------------------------
