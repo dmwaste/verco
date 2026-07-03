@@ -284,7 +284,7 @@ export default async function AdminDashboardPage() {
 
       {/* Stat cards — each links to its drill-down page (the numbers are
           summaries of queues staff act on, not decoration). */}
-      <div className="grid grid-cols-4 gap-4 px-7 pt-5">
+      <div className="grid grid-cols-2 gap-4 px-7 pt-5 xl:grid-cols-4">
         <Link href="/admin/bookings" className="block rounded-xl bg-white p-5 shadow-sm transition-shadow hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#293F52]/40">
           <div className="mb-2.5 flex size-9 items-center justify-center rounded-[10px] bg-[#E8FDF0] text-[#00B864]">
             <svg width="20" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/></svg>
@@ -331,7 +331,7 @@ export default async function AdminDashboardPage() {
       </div>
 
       {/* Two-column grid */}
-      <div className="grid grid-cols-2 gap-4 px-7 py-5">
+      <div className="grid grid-cols-1 gap-4 px-7 py-5 lg:grid-cols-2">
         {/* Upcoming collection dates — all future dates (open + closed), compact */}
         <div className="rounded-xl bg-white p-5 shadow-sm">
           <div className="mb-3.5 flex items-center justify-between">
