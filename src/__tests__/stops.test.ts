@@ -9,6 +9,7 @@ import {
   STOP_DURATION_MINUTES,
   STREAM_PRIORITY,
   STREAM_SUFFIX,
+  vehicleFeaturesForStream,
   type StopItem,
   type StopStatus,
 } from '@/lib/stops/stops'
@@ -43,6 +44,23 @@ describe('stream constants', () => {
   it('stop duration is a positive integer of minutes', () => {
     expect(Number.isInteger(STOP_DURATION_MINUTES)).toBe(true)
     expect(STOP_DURATION_MINUTES).toBeGreaterThan(0)
+  })
+})
+
+describe('vehicleFeaturesForStream — OptimoRoute routing constraint', () => {
+  it('maps each waste stream to its account vehicle-feature code', () => {
+    expect(vehicleFeaturesForStream('general')).toEqual(['BLK'])
+    expect(vehicleFeaturesForStream('green')).toEqual(['GRN'])
+    expect(vehicleFeaturesForStream('ancillary')).toEqual(['ANC'])
+  })
+
+  it('general maps to the BLK feature, not the GEN order suffix', () => {
+    expect(vehicleFeaturesForStream('general')).toEqual(['BLK'])
+    expect(STREAM_SUFFIX.general).toBe('GEN')
+  })
+
+  it('illegal_dumping has no required feature — routes to any vehicle', () => {
+    expect(vehicleFeaturesForStream('illegal_dumping')).toEqual([])
   })
 })
 

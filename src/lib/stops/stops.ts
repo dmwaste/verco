@@ -52,6 +52,27 @@ export const STREAM_PRIORITY: Record<WasteStream, 'H' | 'M'> = {
   illegal_dumping: 'M',
 }
 
+/**
+ * Required OptimoRoute vehicle feature per stream — a HARD routing constraint
+ * (the engine only assigns an order to a vehicle carrying the feature), unlike
+ * STREAM_PRIORITY which merely orders stops within a route. Codes match the
+ * account's Vehicle features (BLK / GRN / ANC) — note general → BLK (Bulk
+ * Waste), deliberately NOT the GEN order-suffix. illegal_dumping has no
+ * feature (routes to any vehicle) until a code is defined for it.
+ */
+export const STREAM_VEHICLE_FEATURE: Record<WasteStream, string | null> = {
+  general: 'BLK',
+  green: 'GRN',
+  ancillary: 'ANC',
+  illegal_dumping: null,
+}
+
+/** Required vehicle-feature codes for a stop's stream (empty = no constraint). */
+export function vehicleFeaturesForStream(stream: WasteStream): string[] {
+  const feature = STREAM_VEHICLE_FEATURE[stream]
+  return feature ? [feature] : []
+}
+
 /** Planning duration per stop, minutes. Flat v1 value across streams. */
 export const STOP_DURATION_MINUTES = 5
 

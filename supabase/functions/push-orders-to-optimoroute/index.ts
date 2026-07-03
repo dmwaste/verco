@@ -8,6 +8,7 @@ import {
   groupItemsByStream,
   STOP_DURATION_MINUTES,
   STREAM_PRIORITY,
+  vehicleFeaturesForStream,
   type ServiceSummaryEntry,
   type StopItem,
   type WasteStream,
@@ -412,6 +413,7 @@ serve(async (_req) => {
         date: stop.collection_date.date,
         duration: STOP_DURATION_MINUTES,
         priority: STREAM_PRIORITY[stop.stream],
+        vehicleFeatures: vehicleFeaturesForStream(stop.stream),
         notes: buildOrderNotes(stop.services_summary ?? [], stop.waste_location, stop.driver_notes),
         location:
           stop.latitude !== null && stop.longitude !== null
