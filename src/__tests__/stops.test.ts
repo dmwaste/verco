@@ -59,8 +59,8 @@ describe('vehicleFeaturesForStream — OptimoRoute routing constraint', () => {
     expect(STREAM_SUFFIX.general).toBe('GEN')
   })
 
-  it('illegal_dumping has no required feature — routes to any vehicle', () => {
-    expect(vehicleFeaturesForStream('illegal_dumping')).toEqual([])
+  it('illegal_dumping is bulk-truck work — also requires BLK', () => {
+    expect(vehicleFeaturesForStream('illegal_dumping')).toEqual(['BLK'])
   })
 })
 
