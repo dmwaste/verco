@@ -183,6 +183,41 @@ export function wasteLocationOrNull(location: string | null | undefined): string
   return (WASTE_LOCATION_VALUES as readonly string[]).includes(trimmed) ? trimmed : null
 }
 
+/** Composite key matching a stop to a booking item: collection date × waste stream. */
+export function stopItemKey(collectionDateId: string, stream: WasteStream): string {
+  return `${collectionDateId}:${stream}`
+}
+
+/**
+ * Pass-1 orphan reconciliation: should an existing Pending stop be cancelled?
+ *
+ *  - Booking present in `desired` (has a locked-date item): cancel iff this stop's
+ *    stream is no longer among the booking's desired streams (an in-window edit
+ *    dropped the stream).
+ *  - Booking absent from `desired` and no longer live: cancel (cancelled/terminal).
+ *  - Booking absent from `desired` but STILL live: its collection moved off the
+ *    locked window — e.g. rescheduled to a not-yet-locked date. Cancel iff the
+ *    booking no longer has a current item on this stop's (date, stream). This is
+ *    the phantom-order fix: the old assumption ("a live booking can't be absent
+ *    from desired") left the stale stop — and its OR order — behind forever. The
+ *    positive item check means we never over-cancel (a SYNC delete loses OR route
+ *    planning), and it self-heals: a fresh stop is created when the new date locks.
+ */
+export function shouldCancelOrphanStop(args: {
+  stopStream: WasteStream
+  stopDateId: string
+  desiredStreamsForBooking: readonly WasteStream[] | null
+  bookingLive: boolean
+  currentItemKeys: ReadonlySet<string>
+}): boolean {
+  const { stopStream, stopDateId, desiredStreamsForBooking, bookingLive, currentItemKeys } = args
+  if (desiredStreamsForBooking !== null) {
+    return !desiredStreamsForBooking.includes(stopStream)
+  }
+  if (!bookingLive) return true
+  return !currentItemKeys.has(stopItemKey(stopDateId, stopStream))
+}
+
 /**
  * Booking-status rollup over a booking's stop statuses — exception wins.
  * Mirrors rollup_booking_status_from_stops exactly; the DB trigger is
