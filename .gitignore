@@ -49,8 +49,10 @@ next-env.d.ts
 /playwright-report/
 .playwright-mcp/
 
-# script run reports (geocode-loop, import-vv, etc.)
+# script run reports (geocode-loop, import-vv, reconcile-vv, etc.)
 /*-report-*.json
+/*-report-*.md
+/*-report-*.csv
 
 # Claude Code worktrees — created on-demand when an agent spins an isolated
 # branch. They have their own .git and shouldn't be tracked by the parent.
