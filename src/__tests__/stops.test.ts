@@ -9,10 +9,13 @@ import {
   STOP_DURATION_MINUTES,
   STREAM_PRIORITY,
   STREAM_SUFFIX,
+  shouldCancelOrphanStop,
+  stopItemKey,
   vehicleFeaturesForStream,
   wasteLocationOrNull,
   type StopItem,
   type StopStatus,
+  type WasteStream,
 } from '@/lib/stops/stops'
 
 const item = (name: string, stream: StopItem['service']['waste_stream'], qty = 1): StopItem => ({
@@ -201,6 +204,47 @@ describe('canStopTransition — parity with enforce_stop_state_transition', () =
       }
     }
     expect(canStopTransition('Cancelled', 'Completed', { privileged: true })).toBe(false)
+  })
+})
+
+describe('shouldCancelOrphanStop — Pass-1 orphan reconciliation', () => {
+  const base = {
+    stopStream: 'green' as WasteStream,
+    stopDateId: 'd1',
+    desiredStreamsForBooking: null as readonly WasteStream[] | null,
+    bookingLive: true,
+    currentItemKeys: new Set<string>(),
+  }
+
+  it('cancels when the stream is gone from an in-window booking', () => {
+    expect(shouldCancelOrphanStop({ ...base, desiredStreamsForBooking: ['general'] })).toBe(true)
+  })
+
+  it('keeps when the stream is still present in-window', () => {
+    expect(
+      shouldCancelOrphanStop({ ...base, desiredStreamsForBooking: ['general', 'green'] }),
+    ).toBe(false)
+  })
+
+  it('cancels when the booking is no longer live', () => {
+    expect(shouldCancelOrphanStop({ ...base, bookingLive: false })).toBe(true)
+  })
+
+  it('cancels a live booking rescheduled off this date+stream (the phantom-order bug)', () => {
+    // green stop on d1, but the booking's green item now sits on d2 (a not-yet-locked date)
+    expect(
+      shouldCancelOrphanStop({ ...base, currentItemKeys: new Set([stopItemKey('d2', 'green')]) }),
+    ).toBe(true)
+  })
+
+  it('keeps a live booking that still has an item on this date+stream', () => {
+    expect(
+      shouldCancelOrphanStop({ ...base, currentItemKeys: new Set([stopItemKey('d1', 'green')]) }),
+    ).toBe(false)
+  })
+
+  it('stopItemKey composes date and stream unambiguously', () => {
+    expect(stopItemKey('abc', 'ancillary')).toBe('abc:ancillary')
   })
 })
 
