@@ -151,7 +151,7 @@ export function TicketDetailClient({
                 {ticket.displayId}
               </span>
               <span
-                className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${statusStyle.bg} ${statusStyle.text}`}
+                className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-caption font-semibold ${statusStyle.bg} ${statusStyle.text}`}
               >
                 <span
                   className={`size-1.5 rounded-full ${statusStyle.dot}`}
@@ -163,10 +163,10 @@ export function TicketDetailClient({
               {ticket.subject}
             </h1>
             <div className="mt-2 flex flex-wrap items-center gap-2">
-              <span className="rounded-full border border-gray-200 px-2.5 py-0.5 text-[11px] text-gray-500">
+              <span className="rounded-full border border-gray-200 px-2.5 py-0.5 text-caption text-gray-500">
                 {CATEGORY_LABELS[ticket.category]}
               </span>
-              <span className="text-[11px] text-gray-400">
+              <span className="text-caption text-gray-400">
                 Opened{' '}
                 {format(new Date(ticket.createdAt), "d MMM yyyy 'at' h:mmaaa")}
               </span>
@@ -188,7 +188,7 @@ export function TicketDetailClient({
                       {ticket.message}
                     </p>
                   </div>
-                  <div className="mt-1 text-right text-[11px] text-gray-400">
+                  <div className="mt-1 text-right text-caption text-gray-400">
                     {format(
                       new Date(ticket.createdAt),
                       "d MMM yyyy, h:mmaaa"
@@ -208,7 +208,7 @@ export function TicketDetailClient({
                   >
                     <div className="max-w-[85%]">
                       {!isResident && resp.authorName && (
-                        <div className="mb-1 text-[11px] font-medium text-gray-400">
+                        <div className="mb-1 text-caption font-medium text-gray-400">
                           {resp.authorName}
                         </div>
                       )}
@@ -224,7 +224,7 @@ export function TicketDetailClient({
                         </p>
                       </div>
                       <div
-                        className={`mt-1 text-[11px] text-gray-400 ${
+                        className={`mt-1 text-caption text-gray-400 ${
                           isResident ? 'text-right' : 'text-left'
                         }`}
                       >
@@ -334,7 +334,7 @@ export function TicketDetailClient({
                     ))}
                   </div>
                 )}
-                <div className="mt-2 text-[11px] font-semibold text-[var(--brand-accent-dark)]">
+                <div className="mt-2 text-caption font-semibold text-[var(--brand-accent-dark)]">
                   View booking &rarr;
                 </div>
               </Link>

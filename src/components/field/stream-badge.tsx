@@ -16,7 +16,7 @@ const STREAM_CLASSES: Record<WasteStream, string> = {
 export function StreamBadge({ stream }: { stream: WasteStream }) {
   return (
     <span
-      className={`inline-flex rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${STREAM_CLASSES[stream]}`}
+      className={`inline-flex rounded-full px-2.5 py-0.5 text-caption font-semibold ${STREAM_CLASSES[stream]}`}
     >
       {STREAM_LABEL[stream]}
     </span>

@@ -81,10 +81,10 @@ export function SlaCard({
           <p className="font-[family-name:var(--font-heading)] text-xl font-bold text-amber-600">
             Couldn&apos;t load
           </p>
-          <p className="mt-1 text-[11px] text-gray-500">
+          <p className="mt-1 text-caption text-gray-500">
             Data failed to refresh — reload the page or try again shortly.
           </p>
-          {provenance && <p className="mt-1 text-[11px] text-gray-500">{provenance}</p>}
+          {provenance && <p className="mt-1 text-caption text-gray-500">{provenance}</p>}
         </div>
       </div>
     )
@@ -103,9 +103,9 @@ export function SlaCard({
             {provenance}
           </p>
         )}
-        {sub && !isLoading && <p className="mt-1 text-[11px] text-gray-500">{sub}</p>}
+        {sub && !isLoading && <p className="mt-1 text-caption text-gray-500">{sub}</p>}
         {target && !isLoading && (
-          <p className="mt-0.5 text-[11px] font-medium text-gray-500">{target}</p>
+          <p className="mt-0.5 text-caption font-medium text-gray-500">{target}</p>
         )}
       </div>
       {footer && !isLoading && <div className="mt-auto pt-2">{footer}</div>}
@@ -116,7 +116,7 @@ export function SlaCard({
 /** Uppercase card label — shared with the chart panels so the level reads the same everywhere. */
 export function CardLabel({ text }: { text: string }) {
   return (
-    <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">{text}</p>
+    <p className="text-caption font-semibold uppercase tracking-wide text-gray-500">{text}</p>
   )
 }
 

@@ -716,7 +716,7 @@ export function ConfirmForm() {
                   className="w-full rounded-[10px] border-[1.5px] border-gray-100 bg-gray-50 px-3.5 py-3 text-sm text-gray-900 outline-none placeholder:text-gray-300 focus:border-[var(--brand)] focus:bg-white"
                 />
                 {errors.first_name && (
-                  <p className="mt-1 text-[11px] text-red-500">
+                  <p className="mt-1 text-caption text-red-500">
                     {errors.first_name.message}
                   </p>
                 )}
@@ -733,7 +733,7 @@ export function ConfirmForm() {
                   className="w-full rounded-[10px] border-[1.5px] border-gray-100 bg-gray-50 px-3.5 py-3 text-sm text-gray-900 outline-none placeholder:text-gray-300 focus:border-[var(--brand)] focus:bg-white"
                 />
                 {errors.last_name && (
-                  <p className="mt-1 text-[11px] text-red-500">
+                  <p className="mt-1 text-caption text-red-500">
                     {errors.last_name.message}
                   </p>
                 )}
@@ -751,7 +751,7 @@ export function ConfirmForm() {
                 className="w-full rounded-[10px] border-[1.5px] border-gray-100 bg-gray-50 px-3.5 py-3 text-sm text-gray-900 outline-none placeholder:text-gray-300 focus:border-[var(--brand)] focus:bg-white"
               />
               {errors.email && (
-                <p className="mt-1 text-[11px] text-red-500">
+                <p className="mt-1 text-caption text-red-500">
                   {errors.email.message}
                 </p>
               )}
@@ -771,7 +771,7 @@ export function ConfirmForm() {
               {/* Hidden field for react-hook-form */}
               <input type="hidden" {...register('mobile')} />
               {errors.mobile && (
-                <p className="mt-1 text-[11px] text-red-500">
+                <p className="mt-1 text-caption text-red-500">
                   {errors.mobile.message}
                 </p>
               )}
@@ -900,7 +900,7 @@ export function ConfirmForm() {
         </div>
 
         {totalCents > 0 && (
-          <p className="text-center text-[11px] text-gray-500">
+          <p className="text-center text-caption text-gray-500">
             Payment will be collected via Stripe before your booking is
             confirmed.
           </p>
@@ -948,7 +948,7 @@ export function ConfirmForm() {
               </div>
 
               {otpState === 'error' && otpError && (
-                <p role="alert" className="flex items-center justify-center gap-1 text-[11px] text-red-500">
+                <p role="alert" className="flex items-center justify-center gap-1 text-caption text-red-500">
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <circle cx="12" cy="12" r="10" />
                     <line x1="12" y1="8" x2="12" y2="12" />

@@ -10,6 +10,10 @@ import { RowActionMenu } from '@/components/admin/row-action-menu'
 import { UserFormDialog } from './user-form-dialog'
 import type { EditUserData } from './user-form-dialog'
 import type { Database } from '@/lib/supabase/types'
+import { Th } from '@/components/admin/th'
+import { Pagination } from '@/components/admin/pagination'
+import { PageHeader } from '@/components/admin/page-header'
+import { FilterBar, SearchInput, FilterSelect } from '@/components/admin/filter-bar'
 
 type AppRole = Database['public']['Enums']['app_role']
 
@@ -170,15 +174,7 @@ export function UsersClient({ clientId }: UsersClientProps) {
   return (
     <>
       {/* Header */}
-      <div className="flex items-center justify-between border-b border-gray-100 bg-white px-7 pb-5 pt-6">
-        <div>
-          <h1 className="font-[family-name:var(--font-heading)] text-xl font-bold text-[#293F52]">
-            Users
-          </h1>
-          <p className="mt-0.5 text-body-sm text-gray-500">
-            {total} user roles
-          </p>
-        </div>
+      <PageHeader title="Users" subtitle={`${total} user roles`}>
         {canManageUsers && (
           <button
             type="button"
@@ -188,61 +184,54 @@ export function UsersClient({ clientId }: UsersClientProps) {
             + Add User
           </button>
         )}
-      </div>
+      </PageHeader>
 
       {/* Filters */}
-      <div className="flex flex-wrap items-center gap-2.5 px-7 py-4">
-        <div className="flex w-60 items-center gap-2 rounded-lg border-[1.5px] border-gray-100 bg-white px-3 py-[7px]">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#B0B0B0" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-          <input
-            type="text"
-            value={search}
-            onChange={(e) => handleSearchChange(e.target.value)}
-            placeholder="Search email, name..."
-            aria-label="Search users"
-            className="w-full border-none bg-transparent text-body-sm text-gray-900 outline-none placeholder:text-gray-300"
-          />
-        </div>
+      <FilterBar>
+        <SearchInput
+          value={search}
+          onChange={handleSearchChange}
+          placeholder="Search email, name..."
+          ariaLabel="Search users"
+        />
 
-        <select
+        <FilterSelect
           value={roleFilter}
           onChange={(e) => { setRoleFilter(e.target.value); setPage(0) }}
           aria-label="Filter by role"
-          className="rounded-lg border-[1.5px] border-gray-100 bg-white px-3 py-[7px] text-body-sm text-gray-700"
         >
           <option value="">All Roles</option>
           {ROLE_OPTIONS.map((r) => (
             <option key={r} value={r}>{ROLE_STYLE[r].label}</option>
           ))}
-        </select>
+        </FilterSelect>
 
-        <select
+        <FilterSelect
           value={activeFilter}
           onChange={(e) => { setActiveFilter(e.target.value); setPage(0) }}
           aria-label="Filter by status"
-          className="rounded-lg border-[1.5px] border-gray-100 bg-white px-3 py-[7px] text-body-sm text-gray-700"
         >
           <option value="">All Status</option>
           <option value="active">Active</option>
           <option value="inactive">Inactive</option>
-        </select>
-      </div>
+        </FilterSelect>
+      </FilterBar>
 
       {/* Table */}
       <div className="flex-1 px-7 pb-6">
         <div className="overflow-x-auto rounded-xl bg-white shadow-sm">
-          <table className="w-full border-collapse">
+          <table className="w-full border-collapse tabular-nums">
             <thead>
               <tr>
-                <th className="border-b border-gray-100 bg-gray-50 px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500">Name</th>
-                <th className="border-b border-gray-100 bg-gray-50 px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500">Email</th>
-                <th className="border-b border-gray-100 bg-gray-50 px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500">Role</th>
-                <th className="border-b border-gray-100 bg-gray-50 px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500">Organisation</th>
-                <th className="border-b border-gray-100 bg-gray-50 px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500">Sub-client</th>
-                <th className="border-b border-gray-100 bg-gray-50 px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500">Active</th>
-                <th className="border-b border-gray-100 bg-gray-50 px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500">Joined</th>
+                <Th>Name</Th>
+                <Th>Email</Th>
+                <Th>Role</Th>
+                <Th>Organisation</Th>
+                <Th>Sub-client</Th>
+                <Th>Active</Th>
+                <Th>Joined</Th>
                 {canManageUsers && (
-                  <th className="border-b border-gray-100 bg-gray-50 px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500"></th>
+                  <Th />
                 )}
               </tr>
             </thead>
@@ -272,7 +261,7 @@ export function UsersClient({ clientId }: UsersClientProps) {
                       {profile?.email ?? '—'}
                     </td>
                     <td className="px-4 py-3">
-                      <span className={`inline-flex items-center whitespace-nowrap rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${rs.bg} ${rs.text}`}>
+                      <span className={`inline-flex items-center whitespace-nowrap rounded-full px-2.5 py-0.5 text-caption font-semibold ${rs.bg} ${rs.text}`}>
                         {rs.label}
                       </span>
                     </td>
@@ -309,15 +298,7 @@ export function UsersClient({ clientId }: UsersClientProps) {
           </table>
         </div>
 
-        {total > PAGE_SIZE && (
-          <div className="mt-4 flex items-center justify-between text-sm text-gray-500">
-            <span>Showing {page * PAGE_SIZE + 1}&ndash;{Math.min((page + 1) * PAGE_SIZE, total)} of {total}</span>
-            <div className="flex gap-2">
-              <button type="button" onClick={() => setPage((p) => Math.max(0, p - 1))} disabled={page === 0} className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium disabled:opacity-30">Previous</button>
-              <button type="button" onClick={() => setPage((p) => p + 1)} disabled={(page + 1) * PAGE_SIZE >= total} className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium disabled:opacity-30">Next</button>
-            </div>
-          </div>
-        )}
+        <Pagination page={page} pageSize={PAGE_SIZE} total={total} onPageChange={setPage} />
       </div>
 
       {/* Shared dialog for Add / Edit */}

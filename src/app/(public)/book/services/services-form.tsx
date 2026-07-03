@@ -449,7 +449,7 @@ export function ServicesForm({ clientSlug }: { clientSlug: string }) {
             {title}
           </span>
           <span
-            className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${badgeClass}`}
+            className={`rounded-full px-2.5 py-1 text-caption font-medium ${badgeClass}`}
           >
             {remaining} of {max} remaining
           </span>

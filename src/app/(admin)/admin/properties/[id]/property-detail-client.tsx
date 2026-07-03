@@ -5,12 +5,12 @@ import { useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { format } from 'date-fns'
 import { BookingStatusBadge } from '@/components/booking/booking-status-badge'
-import { getStatusStyle } from '@/lib/ui/status-styles'
 import { AllocationFormModal } from '@/app/(admin)/admin/allocations/allocation-form-modal'
 import { MudDetailSection } from './mud-detail-section'
 import type { ResolvedAuditEntry } from '@/lib/audit/resolve'
 import { AuditTimeline } from '@/components/audit-timeline'
 import { BackLink } from '@/components/admin/back-link'
+import { StatusBadge } from '@/components/status-badge'
 
 /* ------------------------------------------------------------------ */
 /*  Props — shaped by what page.tsx actually passes                    */
@@ -249,12 +249,12 @@ export function PropertyDetailClient({
 
         <div className="mt-2 flex items-center gap-2">
           {property.is_mud && (
-            <span className="inline-flex items-center rounded-full bg-purple-50 px-2.5 py-0.5 text-[11px] font-semibold text-purple-700">
+            <span className="inline-flex items-center rounded-full bg-purple-50 px-2.5 py-0.5 text-caption font-semibold text-purple-700">
               MUD
             </span>
           )}
           {!property.is_eligible && (
-            <span className="inline-flex items-center rounded-full bg-red-50 px-2.5 py-0.5 text-[11px] font-semibold text-red-700">
+            <span className="inline-flex items-center rounded-full bg-red-50 px-2.5 py-0.5 text-caption font-semibold text-red-700">
               Ineligible
             </span>
           )}
@@ -305,22 +305,22 @@ export function PropertyDetailClient({
 
           {allocations.length > 0 ? (
             <div className="overflow-x-auto">
-              <table className="w-full border-collapse">
+              <table className="w-full border-collapse tabular-nums">
                 <thead>
                   <tr className="border-t border-gray-100">
-                    <th className="px-5 py-2.5 text-left text-[11px] font-medium uppercase tracking-wide text-gray-400">
+                    <th className="px-5 py-2.5 text-left text-caption font-medium uppercase tracking-wide text-gray-400">
                       Category
                     </th>
-                    <th className="px-5 py-2.5 text-left text-[11px] font-medium uppercase tracking-wide text-gray-400">
+                    <th className="px-5 py-2.5 text-left text-caption font-medium uppercase tracking-wide text-gray-400">
                       Max
                     </th>
-                    <th className="px-5 py-2.5 text-left text-[11px] font-medium uppercase tracking-wide text-gray-400">
+                    <th className="px-5 py-2.5 text-left text-caption font-medium uppercase tracking-wide text-gray-400">
                       Used
                     </th>
-                    <th className="px-5 py-2.5 text-left text-[11px] font-medium uppercase tracking-wide text-gray-400">
+                    <th className="px-5 py-2.5 text-left text-caption font-medium uppercase tracking-wide text-gray-400">
                       Extra
                     </th>
-                    <th className="px-5 py-2.5 text-left text-[11px] font-medium uppercase tracking-wide text-gray-400">
+                    <th className="px-5 py-2.5 text-left text-caption font-medium uppercase tracking-wide text-gray-400">
                       Remaining
                     </th>
                   </tr>
@@ -337,7 +337,7 @@ export function PropertyDetailClient({
                       <td className="px-5 py-3 text-body-sm text-gray-700">
                         {a.max}
                         {property.is_mud && property.unit_count > 0 && (
-                          <span className="ml-1.5 text-[11px] text-gray-400">
+                          <span className="ml-1.5 text-caption text-gray-400">
                             ({a.councilRule} × {property.unit_count})
                           </span>
                         )}
@@ -350,7 +350,7 @@ export function PropertyDetailClient({
                       </td>
                       <td className="px-5 py-3">
                         <span
-                          className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${
+                          className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-caption font-semibold ${
                             a.remaining > 0
                               ? 'bg-emerald-50 text-emerald-700'
                               : 'bg-red-50 text-red-700'
@@ -383,14 +383,14 @@ export function PropertyDetailClient({
 
           {bookings.length > 0 ? (
             <div className="overflow-x-auto">
-              <table className="w-full border-collapse">
+              <table className="w-full border-collapse tabular-nums">
                 <thead>
                   <tr className="border-t border-gray-100">
                     {['Ref', 'Status', 'Type', 'Date', 'Contact', 'Services'].map(
                       (h) => (
                         <th
                           key={h}
-                          className="px-5 py-2.5 text-left text-[11px] font-medium uppercase tracking-wide text-gray-400"
+                          className="px-5 py-2.5 text-left text-caption font-medium uppercase tracking-wide text-gray-400"
                         >
                           {h}
                         </th>
@@ -457,14 +457,14 @@ export function PropertyDetailClient({
             </div>
 
             <div className="overflow-x-auto">
-              <table className="w-full border-collapse">
+              <table className="w-full border-collapse tabular-nums">
                 <thead>
                   <tr className="border-t border-gray-100">
                     {['Type', 'Booking', 'Status', 'Reported', 'Fault'].map(
                       (h) => (
                         <th
                           key={h}
-                          className="px-5 py-2.5 text-left text-[11px] font-medium uppercase tracking-wide text-gray-400"
+                          className="px-5 py-2.5 text-left text-caption font-medium uppercase tracking-wide text-gray-400"
                         >
                           {h}
                         </th>
@@ -475,7 +475,6 @@ export function PropertyDetailClient({
                 <tbody>
                   {issues.map((issue) => {
                     const entity = issue._type === 'NCN' ? 'ncn' : 'np'
-                    const ss = getStatusStyle(entity, issue.status)
                     const detailPath =
                       issue._type === 'NCN'
                         ? `/admin/non-conformance/${issue.id}`
@@ -489,7 +488,7 @@ export function PropertyDetailClient({
                         <td className="px-5 py-3">
                           <Link href={detailPath}>
                             <span
-                              className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${
+                              className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-caption font-semibold ${
                                 issue._type === 'NCN'
                                   ? 'bg-red-50 text-red-700'
                                   : 'bg-amber-50 text-amber-700'
@@ -514,18 +513,14 @@ export function PropertyDetailClient({
                           )}
                         </td>
                         <td className="px-5 py-3">
-                          <span
-                            className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${ss.bg} ${ss.text}`}
-                          >
-                            {ss.label}
-                          </span>
+                          <StatusBadge entity={entity} status={issue.status} />
                         </td>
                         <td className="px-5 py-3 text-body-sm text-gray-700">
                           {format(new Date(issue.reported_at), 'd MMM yyyy')}
                         </td>
                         <td className="px-5 py-3">
                           <span
-                            className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${
+                            className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-caption font-semibold ${
                               issue.contractor_fault
                                 ? 'bg-red-50 text-red-700'
                                 : 'bg-gray-100 text-gray-600'
@@ -555,13 +550,13 @@ export function PropertyDetailClient({
             </div>
 
             <div className="overflow-x-auto">
-              <table className="w-full border-collapse">
+              <table className="w-full border-collapse tabular-nums">
                 <thead>
                   <tr className="border-t border-gray-100">
                     {['ID', 'Subject', 'Status', 'Created'].map((h) => (
                       <th
                         key={h}
-                        className="px-5 py-2.5 text-left text-[11px] font-medium uppercase tracking-wide text-gray-400"
+                        className="px-5 py-2.5 text-left text-caption font-medium uppercase tracking-wide text-gray-400"
                       >
                         {h}
                       </th>
@@ -570,7 +565,6 @@ export function PropertyDetailClient({
                 </thead>
                 <tbody>
                   {serviceTickets.map((t) => {
-                    const ss = getStatusStyle('ticket', t.status)
                     return (
                       <tr
                         key={t.id}
@@ -588,11 +582,7 @@ export function PropertyDetailClient({
                           {t.subject}
                         </td>
                         <td className="px-5 py-3">
-                          <span
-                            className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${ss.bg} ${ss.text}`}
-                          >
-                            {ss.label}
-                          </span>
+                          <StatusBadge entity="ticket" status={t.status} />
                         </td>
                         <td className="px-5 py-3 text-body-sm text-gray-700">
                           {format(new Date(t.created_at), 'd MMM yyyy')}
@@ -616,14 +606,14 @@ export function PropertyDetailClient({
             </div>
 
             <div className="overflow-x-auto">
-              <table className="w-full border-collapse">
+              <table className="w-full border-collapse tabular-nums">
                 <thead>
                   <tr className="border-t border-gray-100">
                     {['Service', 'Extra', 'Reason', 'Created By', 'Date'].map(
                       (h) => (
                         <th
                           key={h}
-                          className="px-5 py-2.5 text-left text-[11px] font-medium uppercase tracking-wide text-gray-400"
+                          className="px-5 py-2.5 text-left text-caption font-medium uppercase tracking-wide text-gray-400"
                         >
                           {h}
                         </th>
@@ -649,7 +639,7 @@ export function PropertyDetailClient({
                           </span>
                         </td>
                         <td className="px-5 py-3">
-                          <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${o.extra_allocations < 0 ? 'bg-red-50 text-red-600' : 'bg-emerald-50 text-emerald-700'}`}>
+                          <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-caption font-semibold ${o.extra_allocations < 0 ? 'bg-red-50 text-red-600' : 'bg-emerald-50 text-emerald-700'}`}>
                             {o.extra_allocations > 0 ? '+' : ''}{o.extra_allocations}
                           </span>
                         </td>
@@ -702,7 +692,7 @@ export function PropertyDetailClient({
 function StatCard({ label, value }: { label: string; value: number }) {
   return (
     <div className="rounded-xl border-[1.5px] border-gray-100 bg-white px-4 py-3">
-      <p className="text-[11px] uppercase tracking-wide text-gray-500">
+      <p className="text-caption uppercase tracking-wide text-gray-500">
         {label}
       </p>
       <p className="font-[family-name:var(--font-heading)] text-xl font-bold text-[#293F52]">

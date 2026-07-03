@@ -5,9 +5,13 @@ import Link from 'next/link'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { formatDistanceToNow } from 'date-fns'
 import { createClient } from '@/lib/supabase/client'
-import { getStatusStyle } from '@/lib/ui/status-styles'
 import { RowActionMenu } from '@/components/admin/row-action-menu'
 import type { Database } from '@/lib/supabase/types'
+import { Th } from '@/components/admin/th'
+import { Pagination } from '@/components/admin/pagination'
+import { PageHeader } from '@/components/admin/page-header'
+import { FilterBar, SearchInput, FilterSelect } from '@/components/admin/filter-bar'
+import { StatusBadge } from '@/components/status-badge'
 
 type BugCategory = Database['public']['Enums']['bug_report_category']
 type BugPriority = Database['public']['Enums']['bug_report_priority']
@@ -46,9 +50,9 @@ const CATEGORY_OPTIONS: { value: BugCategory | ''; label: string }[] = [
 
 const PRIORITY_STYLE: Record<BugPriority, { bg: string; text: string; label: string }> = {
   low: { bg: 'bg-gray-100', text: 'text-gray-600', label: 'Low' },
-  medium: { bg: 'bg-blue-50', text: 'text-blue-700', label: 'Medium' },
-  high: { bg: 'bg-amber-50', text: 'text-amber-700', label: 'High' },
-  critical: { bg: 'bg-red-50', text: 'text-red-700', label: 'Critical' },
+  medium: { bg: 'bg-status-info-bg', text: 'text-status-info', label: 'Medium' },
+  high: { bg: 'bg-status-warn-bg', text: 'text-status-warn', label: 'High' },
+  critical: { bg: 'bg-status-error-bg', text: 'text-status-error', label: 'Critical' },
 }
 
 const CATEGORY_LABELS: Record<BugCategory, string> = {
@@ -133,56 +137,42 @@ export function BugReportsClient() {
   return (
     <>
       {/* Header */}
-      <div className="flex items-center justify-between border-b border-gray-100 bg-white px-7 pb-5 pt-6">
-        <div>
-          <h1 className="font-[family-name:var(--font-heading)] text-xl font-bold text-[#293F52]">
-            Bug Reports
-          </h1>
-          <p className="mt-0.5 text-body-sm text-gray-500">
-            {total} reports
-          </p>
-        </div>
-      </div>
+      <PageHeader title="Bug Reports" subtitle={`${total} reports`} />
 
       {/* Filters */}
-      <div className="flex flex-wrap items-center gap-2.5 px-7 py-4">
-        <div className="flex w-60 items-center gap-2 rounded-lg border-[1.5px] border-gray-100 bg-white px-3 py-[7px]">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#B0B0B0" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-          <input
-            type="text"
-            value={search}
-            onChange={(e) => handleSearchChange(e.target.value)}
-            placeholder="Search by title..."
-            aria-label="Search bug reports"
-            className="w-full border-none bg-transparent text-body-sm text-gray-900 outline-none placeholder:text-gray-300"
-          />
-        </div>
-        <select value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); setPage(0) }} aria-label="Filter by status" className="rounded-lg border-[1.5px] border-gray-100 bg-white px-3 py-[7px] text-body-sm text-gray-700">
+      <FilterBar>
+        <SearchInput
+          value={search}
+          onChange={handleSearchChange}
+          placeholder="Search by title..."
+          ariaLabel="Search bug reports"
+        />
+        <FilterSelect value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); setPage(0) }} aria-label="Filter by status">
           {STATUS_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-        </select>
-        <select value={priorityFilter} onChange={(e) => { setPriorityFilter(e.target.value); setPage(0) }} aria-label="Filter by priority" className="rounded-lg border-[1.5px] border-gray-100 bg-white px-3 py-[7px] text-body-sm text-gray-700">
+        </FilterSelect>
+        <FilterSelect value={priorityFilter} onChange={(e) => { setPriorityFilter(e.target.value); setPage(0) }} aria-label="Filter by priority">
           {PRIORITY_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-        </select>
-        <select value={categoryFilter} onChange={(e) => { setCategoryFilter(e.target.value); setPage(0) }} aria-label="Filter by category" className="rounded-lg border-[1.5px] border-gray-100 bg-white px-3 py-[7px] text-body-sm text-gray-700">
+        </FilterSelect>
+        <FilterSelect value={categoryFilter} onChange={(e) => { setCategoryFilter(e.target.value); setPage(0) }} aria-label="Filter by category">
           {CATEGORY_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-        </select>
-      </div>
+        </FilterSelect>
+      </FilterBar>
 
       {/* Table */}
       <div className="flex-1 px-7 pb-6">
         <div className="overflow-x-auto rounded-xl bg-white shadow-sm">
-          <table className="w-full border-collapse">
+          <table className="w-full border-collapse tabular-nums">
             <thead>
               <tr>
-                <th className="border-b border-gray-100 bg-gray-50 px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500">ID</th>
-                <th className="border-b border-gray-100 bg-gray-50 px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500">Title</th>
-                <th className="border-b border-gray-100 bg-gray-50 px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500">Category</th>
-                <th className="border-b border-gray-100 bg-gray-50 px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500">Priority</th>
-                <th className="border-b border-gray-100 bg-gray-50 px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500">Status</th>
-                <th className="border-b border-gray-100 bg-gray-50 px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500">Reporter</th>
-                <th className="border-b border-gray-100 bg-gray-50 px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500">Assigned</th>
-                <th className="border-b border-gray-100 bg-gray-50 px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500">Created</th>
-                <th className="border-b border-gray-100 bg-gray-50 px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500"></th>
+                <Th>ID</Th>
+                <Th>Title</Th>
+                <Th>Category</Th>
+                <Th>Priority</Th>
+                <Th>Status</Th>
+                <Th>Reporter</Th>
+                <Th>Assigned</Th>
+                <Th>Created</Th>
+                <Th />
               </tr>
             </thead>
             <tbody>
@@ -194,7 +184,6 @@ export function BugReportsClient() {
                 bugs.map((bug) => {
                   const reporter = bug.reporter as { display_name: string | null } | null
                   const assigned = bug.assigned as { display_name: string | null } | null
-                  const ss = getStatusStyle('bug', bug.status)
                   const ps = PRIORITY_STYLE[bug.priority as BugPriority]
 
                   return (
@@ -210,23 +199,21 @@ export function BugReportsClient() {
                           {bug.title.length > 60 ? bug.title.slice(0, 60) + '...' : bug.title}
                         </Link>
                         {bug.linear_issue_url && (
-                          <a href={bug.linear_issue_url} target="_blank" rel="noopener noreferrer" className="ml-1.5 text-[11px] text-blue-500 hover:underline">Linear</a>
+                          <a href={bug.linear_issue_url} target="_blank" rel="noopener noreferrer" className="ml-1.5 text-caption text-blue-500 hover:underline">Linear</a>
                         )}
                       </td>
                       <td className="px-4 py-2.5">
-                        <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-medium text-gray-600">
+                        <span className="rounded-full bg-gray-100 px-2 py-0.5 text-caption font-medium text-gray-600">
                           {CATEGORY_LABELS[bug.category as BugCategory] ?? bug.category}
                         </span>
                       </td>
                       <td className="px-4 py-2.5">
-                        <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${ps.bg} ${ps.text}`}>
+                        <span className={`rounded-full px-2 py-0.5 text-caption font-semibold ${ps.bg} ${ps.text}`}>
                           {ps.label}
                         </span>
                       </td>
                       <td className="px-4 py-2.5">
-                        <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${ss.bg} ${ss.text}`}>
-                          {ss.label}
-                        </span>
+                        <StatusBadge entity="bug" status={bug.status} />
                       </td>
                       <td className="px-4 py-2.5 text-body-sm text-gray-500">
                         {reporter?.display_name ?? '—'}
@@ -255,15 +242,7 @@ export function BugReportsClient() {
           </table>
         </div>
 
-        {total > PAGE_SIZE && (
-          <div className="mt-4 flex items-center justify-between text-sm text-gray-500">
-            <span>Showing {page * PAGE_SIZE + 1}&ndash;{Math.min((page + 1) * PAGE_SIZE, total)} of {total}</span>
-            <div className="flex gap-2">
-              <button type="button" onClick={() => setPage((p) => Math.max(0, p - 1))} disabled={page === 0} className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium disabled:opacity-30">Previous</button>
-              <button type="button" onClick={() => setPage((p) => p + 1)} disabled={(page + 1) * PAGE_SIZE >= total} className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium disabled:opacity-30">Next</button>
-            </div>
-          </div>
-        )}
+        <Pagination page={page} pageSize={PAGE_SIZE} total={total} onPageChange={setPage} />
       </div>
     </>
   )

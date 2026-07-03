@@ -215,7 +215,7 @@ function BookingCard({ booking }: { booking: Booking }) {
           {booking.booking_item.map((item) => (
             <span
               key={item.id}
-              className={`inline-flex rounded-full px-2.5 py-0.5 text-[11px] md:text-body-sm font-medium ${
+              className={`inline-flex rounded-full px-2.5 py-0.5 text-caption md:text-body-sm font-medium ${
                 item.is_extra ? 'bg-[#FFF3EA] text-[#8B4000]' : 'bg-[#E8EEF2] text-[var(--brand)]'
               }`}
             >
@@ -441,10 +441,10 @@ export function DashboardClient({
                         {ticket.subject}
                       </div>
                       <div className="mt-1.5 flex flex-wrap items-center gap-2">
-                        <span className="inline-flex rounded-full bg-[#E8EEF2] px-2.5 py-0.5 text-[11px] md:text-body-sm font-medium text-[var(--brand)]">
+                        <span className="inline-flex rounded-full bg-[#E8EEF2] px-2.5 py-0.5 text-caption md:text-body-sm font-medium text-[var(--brand)]">
                           {CATEGORIES[ticket.category] ?? ticket.category}
                         </span>
-                        <span className="text-[11px] md:text-body-sm text-gray-500">
+                        <span className="text-caption md:text-body-sm text-gray-500">
                           {format(new Date(ticket.created_at), 'd MMM yyyy')}
                         </span>
                       </div>

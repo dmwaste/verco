@@ -10,6 +10,11 @@ import Link from 'next/link'
 import { SkeletonRow } from '@/components/ui/skeleton'
 import { RowActionMenu } from '@/components/admin/row-action-menu'
 import { invokeEfWithUserToken } from '@/lib/supabase/invoke-ef-client'
+import { Th } from '@/components/admin/th'
+import { Pagination } from '@/components/admin/pagination'
+import { PageHeader } from '@/components/admin/page-header'
+import { FilterBar, SearchInput, FilterSelect } from '@/components/admin/filter-bar'
+import { StatusBadge } from '@/components/status-badge'
 
 const STATUS_OPTIONS = ['Pending', 'Approved', 'Rejected'] as const
 
@@ -52,7 +57,6 @@ export function RefundsClient() {
 
   const refunds = refundData?.refunds ?? []
   const total = refundData?.total ?? 0
-  const totalPages = Math.ceil(total / PAGE_SIZE)
 
   async function handleAction(refundId: string, action: 'approve' | 'reject') {
     setActionError(null)
@@ -100,48 +104,29 @@ export function RefundsClient() {
   return (
     <>
       {/* Header */}
-      <div className="flex items-center justify-between border-b border-gray-100 bg-white px-7 pb-5 pt-6">
-        <div>
-          <h1 className="font-[family-name:var(--font-heading)] text-xl font-bold text-[#293F52]">
-            Refund Requests
-          </h1>
-          <p className="mt-0.5 text-body-sm text-gray-500">
-            {total} requests
-          </p>
-        </div>
-      </div>
+      <PageHeader title="Refund Requests" subtitle={`${total} requests`} />
 
       {/* Filters */}
-      <div className="flex items-center gap-2.5 px-7 py-4">
-        <div className="flex w-60 items-center gap-2 rounded-lg border-[1.5px] border-gray-100 bg-white px-3 py-[7px]">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#B0B0B0" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-          <input
-            type="text"
-            value={search}
-            onChange={(e) => { setSearch(e.target.value); setPage(0) }}
-            placeholder="Search reason..."
-            aria-label="Search refund requests"
-            className="w-full border-none bg-transparent text-body-sm text-gray-900 outline-none placeholder:text-gray-300"
-          />
-        </div>
+      <FilterBar>
+        <SearchInput
+          value={search}
+          onChange={(value) => { setSearch(value); setPage(0) }}
+          placeholder="Search reason..."
+          ariaLabel="Search refund requests"
+        />
 
-        <select
+        <FilterSelect
           value={statusFilter}
           onChange={(e) => { setStatusFilter(e.target.value); setPage(0) }}
           aria-label="Filter by status"
-          className="rounded-lg border-[1.5px] border-gray-100 bg-white px-3 py-[7px] text-body-sm text-gray-700"
         >
           <option value="">All Statuses</option>
           {STATUS_OPTIONS.map((s) => (
             <option key={s} value={s}>{getStatusStyle('refund', s).label}</option>
           ))}
-        </select>
+        </FilterSelect>
 
-        <div className="flex-1" />
-        <span className="text-xs text-gray-500">
-          Showing {total > 0 ? page * PAGE_SIZE + 1 : 0}&ndash;{Math.min((page + 1) * PAGE_SIZE, total)} of {total}
-        </span>
-      </div>
+      </FilterBar>
 
       {/* Error banner */}
       {actionError && (
@@ -154,18 +139,18 @@ export function RefundsClient() {
       {/* Table */}
       <div className="flex-1 px-7 pb-6">
         <div className="overflow-x-auto rounded-xl bg-white shadow-sm">
-          <table className="w-full border-collapse">
+          <table className="w-full border-collapse tabular-nums">
             <thead>
               <tr>
-                <th className="border-b border-gray-100 bg-gray-50 px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500">Booking</th>
-                <th className="border-b border-gray-100 bg-gray-50 px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500">Resident</th>
-                <th className="border-b border-gray-100 bg-gray-50 px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500">Amount</th>
-                <th className="border-b border-gray-100 bg-gray-50 px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500">Reason</th>
-                <th className="border-b border-gray-100 bg-gray-50 px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500">Status</th>
-                <th className="border-b border-gray-100 bg-gray-50 px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500">Stripe Ref</th>
-                <th className="border-b border-gray-100 bg-gray-50 px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500">Requested</th>
-                <th className="border-b border-gray-100 bg-gray-50 px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500">Reviewed By</th>
-                <th className="border-b border-gray-100 bg-gray-50 px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500"></th>
+                <Th>Booking</Th>
+                <Th>Resident</Th>
+                <Th>Amount</Th>
+                <Th>Reason</Th>
+                <Th>Status</Th>
+                <Th>Stripe Ref</Th>
+                <Th>Requested</Th>
+                <Th>Reviewed By</Th>
+                <Th />
               </tr>
             </thead>
             <tbody>
@@ -179,7 +164,6 @@ export function RefundsClient() {
                 const booking = refund.booking as unknown as { id: string; ref: string } | null
                 const contact = refund.contact as { full_name: string } | null
                 const reviewer = refund.reviewer as { display_name: string | null } | null
-                const ss = getStatusStyle('refund', refund.status)
                 return (
                   <tr key={refund.id} className="border-b border-gray-100 last:border-b-0 hover:bg-gray-50">
                     <td className="px-4 py-3">
@@ -202,11 +186,9 @@ export function RefundsClient() {
                       {refund.reason || '—'}
                     </td>
                     <td className="px-4 py-3">
-                      <span className={`inline-flex items-center whitespace-nowrap rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${ss.bg} ${ss.text}`}>
-                        {ss.label}
-                      </span>
+                      <StatusBadge entity="refund" status={refund.status} />
                     </td>
-                    <td className="px-4 py-3 font-mono text-[11px] text-gray-400">
+                    <td className="px-4 py-3 font-mono text-caption text-gray-400">
                       {refund.stripe_refund_id ?? '—'}
                     </td>
                     <td className="px-4 py-3 text-xs text-gray-500">
@@ -238,13 +220,7 @@ export function RefundsClient() {
           </table>
         </div>
 
-        {totalPages > 1 && (
-          <div className="mt-4 flex items-center justify-center gap-2">
-            <button type="button" onClick={() => setPage((p) => Math.max(0, p - 1))} disabled={page === 0} className="rounded-md border border-gray-100 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 disabled:opacity-40">Previous</button>
-            <span className="text-xs text-gray-500">Page {page + 1} of {totalPages}</span>
-            <button type="button" onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))} disabled={page >= totalPages - 1} className="rounded-md border border-gray-100 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 disabled:opacity-40">Next</button>
-          </div>
-        )}
+        <Pagination page={page} pageSize={PAGE_SIZE} total={total} onPageChange={setPage} />
       </div>
     </>
   )

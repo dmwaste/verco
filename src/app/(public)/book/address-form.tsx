@@ -436,12 +436,12 @@ export function AddressForm({
                       <div className="text-sm font-semibold text-gray-900">
                         {alloc.categoryName}
                       </div>
-                      <div className="mt-0.5 text-[11px] text-gray-500">
+                      <div className="mt-0.5 text-caption text-gray-500">
                         {alloc.used} of {alloc.maxCollections} included used
                       </div>
                     </div>
                     <div
-                      className={`whitespace-nowrap rounded-full border px-3 py-1 text-[11px] font-medium ${
+                      className={`whitespace-nowrap rounded-full border px-3 py-1 text-caption font-medium ${
                         alloc.remaining > 0
                           ? 'border-[var(--brand-accent-dark)] bg-[var(--brand-accent-light)] text-[#006A38]'
                           : 'border-[#E53E3E] bg-[#FFF0F0] text-[#E53E3E]'
@@ -489,14 +489,14 @@ export function AddressForm({
                       <div className="text-body-sm font-medium text-gray-900">
                         {booking.ref}
                       </div>
-                      <div className="text-[11px] text-gray-500">
+                      <div className="text-caption text-gray-500">
                         {new Date(booking.created_at).toLocaleDateString(
                           'en-AU',
                           { day: 'numeric', month: 'short', year: 'numeric' }
                         )}
                       </div>
                     </div>
-                    <span className="rounded-full bg-gray-50 px-2.5 py-1 text-[11px] font-medium text-gray-700">
+                    <span className="rounded-full bg-gray-50 px-2.5 py-1 text-caption font-medium text-gray-700">
                       {booking.status}
                     </span>
                   </div>

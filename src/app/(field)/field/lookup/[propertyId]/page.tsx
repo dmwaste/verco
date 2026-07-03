@@ -244,7 +244,7 @@ export default async function LookupPropertyPage({ params }: PropertyBookingPage
             <span className="font-[family-name:var(--font-heading)] text-body-sm font-semibold text-[var(--brand)]">
               Upcoming
             </span>
-            <span className="text-[11px] text-gray-500">{upcoming.length}</span>
+            <span className="text-caption text-gray-500">{upcoming.length}</span>
           </div>
           {upcoming.map((b) => (
             <BookingCard key={b.id} booking={b} />
@@ -257,7 +257,7 @@ export default async function LookupPropertyPage({ params }: PropertyBookingPage
         <span className="font-[family-name:var(--font-heading)] text-body-sm font-semibold text-[var(--brand)]">
           Last 90 Days
         </span>
-        <span className="text-[11px] text-gray-500">{recent.length}</span>
+        <span className="text-caption text-gray-500">{recent.length}</span>
       </div>
       {recent.length === 0 && (
         <div className="rounded-xl bg-white p-4 text-center text-xs text-gray-500 shadow-sm">
@@ -293,7 +293,7 @@ function BookingCard({ booking }: { booking: PropertyBooking }) {
         {booking.booking_item.map((item, i) => (
           <span
             key={i}
-            className="inline-flex rounded-full bg-[#E8EEF2] px-2.5 py-0.5 text-[11px] font-medium text-[var(--brand)]"
+            className="inline-flex rounded-full bg-[#E8EEF2] px-2.5 py-0.5 text-caption font-medium text-[var(--brand)]"
           >
             {item.service.name} &times; {item.no_services}
           </span>

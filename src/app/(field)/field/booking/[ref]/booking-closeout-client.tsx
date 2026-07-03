@@ -220,13 +220,13 @@ function CloseoutInner({ booking }: { booking: Booking }) {
                   {booking.id_waste_types.map((w) => (
                     <span
                       key={w}
-                      className="inline-flex rounded-full bg-[#E8EEF2] px-2.5 py-0.5 text-[11px] font-medium text-[var(--brand)]"
+                      className="inline-flex rounded-full bg-[#E8EEF2] px-2.5 py-0.5 text-caption font-medium text-[var(--brand)]"
                     >
                       {w}
                     </span>
                   ))}
                   {booking.id_volume && (
-                    <span className="inline-flex rounded-full bg-[#FFF3EA] px-2.5 py-0.5 text-[11px] font-medium text-[#8B4000]">
+                    <span className="inline-flex rounded-full bg-[#FFF3EA] px-2.5 py-0.5 text-caption font-medium text-[#8B4000]">
                       {booking.id_volume}
                     </span>
                   )}
@@ -269,14 +269,14 @@ function CloseoutInner({ booking }: { booking: Booking }) {
               <span className="font-semibold">Counts saved</span>
               <Link
                 href={`/field/booking/${booking.ref}?recount=1`}
-                className="text-[11px] font-medium text-emerald-700 underline"
+                className="text-caption font-medium text-emerald-700 underline"
               >
                 Edit counts
               </Link>
             </div>
             <div className="mt-1 space-y-0.5">
               {booking.booking_item.map((i) => (
-                <div key={i.id} className="flex justify-between text-[11px]">
+                <div key={i.id} className="flex justify-between text-caption">
                   <span>{(i.service as { name: string }).name}</span>
                   <span className="font-mono">{i.actual_services ?? '—'}</span>
                 </div>
@@ -304,7 +304,7 @@ function CloseoutInner({ booking }: { booking: Booking }) {
                 <div className="flex items-center gap-2">
                   <StreamBadge stream={stop.stream} />
                   {stop.stop_sequence !== null && (
-                    <span className="text-[11px] text-gray-500">#{stop.stop_sequence}</span>
+                    <span className="text-caption text-gray-500">#{stop.stop_sequence}</span>
                   )}
                 </div>
                 <StopStatusBadge status={stop.status} />

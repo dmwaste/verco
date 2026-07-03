@@ -105,7 +105,7 @@ export function LookupClient({ areaIds, clientName }: LookupClientProps) {
               <button
                 type="button"
                 onClick={() => refetch()}
-                className="shrink-0 rounded-md bg-white px-3 py-2.5 text-[11px] font-semibold text-red-700 shadow-sm"
+                className="shrink-0 rounded-md bg-white px-3 py-2.5 text-caption font-semibold text-red-700 shadow-sm"
               >
                 Retry
               </button>

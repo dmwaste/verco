@@ -1,11 +1,11 @@
 import { createClient } from '@/lib/supabase/server'
 import { format, formatDistanceToNow } from 'date-fns'
-import { BookingStatusBadge } from '@/components/booking/booking-status-badge'
 import Link from 'next/link'
 import { effectiveCapacity, indexPoolDates } from '@/lib/capacity/effective-capacity'
 import { getCurrentAdminClient } from '@/lib/admin/current-client'
 import { getTenantMudPropertyIds } from '@/lib/admin/mud-tenant-scope'
 import { awstWeekRange } from '@/lib/date/awst-week'
+import { StatusBadge } from '@/components/status-badge'
 
 export default async function AdminDashboardPage() {
   const supabase = await createClient()
@@ -44,10 +44,14 @@ export default async function AdminDashboardPage() {
   // admin sees every tenant's counts merged. collection_date is public-SELECT so
   // it is explicitly filtered by clientId via its area. Each .eq is guarded by
   // `if (clientId)` so the no-client fallback keeps the historical behaviour.
+  // Count only the current FY — the card is labelled "FY total to date". Without
+  // this the count silently becomes all-time (correct only while every booking
+  // lives in the first FY; overstates from FY27 onward).
   const completedQuery = supabase
     .from('booking')
     .select('id', { count: 'exact', head: true })
     .eq('status', 'Completed')
+  if (fy) completedQuery.eq('fy_id', fy.id)
   const ncnQuery = supabase
     .from('booking')
     .select('id', { count: 'exact', head: true })
@@ -66,6 +70,21 @@ export default async function AdminDashboardPage() {
     .in('status', ['open', 'in_progress'])
     .order('created_at', { ascending: false })
     .limit(5)
+  // Open NCN/NP list — bookings currently sitting in an exception status. Keyed
+  // off booking.status (matching the Open Exceptions stat card + sidebar badges),
+  // NOT the non_conformance_notice / nothing_presented record tables: the field
+  // closeout flow sets booking status without always creating a notice record,
+  // so the record tables under-report (prod 03/07/2026: 5 NCN bookings, 0 records).
+  const openExceptionsListQuery = supabase
+    .from('booking')
+    .select(
+      `id, ref, status, location, updated_at,
+       collection_area!inner(code),
+       eligible_properties:property_id(formatted_address, address)`
+    )
+    .in('status', ['Non-conformance', 'Nothing Presented'])
+    .order('updated_at', { ascending: false })
+    .limit(6)
   // Collection dates whose date falls in the current AWST week, scoped to the
   // active tenant's areas (collection_date is public-SELECT — RLS won't scope it).
   // These ids drive the two "this week" widgets via their bookings' items.
@@ -81,6 +100,7 @@ export default async function AdminDashboardPage() {
     npQuery.eq('client_id', clientId)
     ticketsQuery.eq('client_id', clientId)
     openTicketsQuery.eq('client_id', clientId)
+    openExceptionsListQuery.eq('client_id', clientId)
   }
 
   const [
@@ -90,8 +110,8 @@ export default async function AdminDashboardPage() {
     ticketsResult,
     upcomingDatesResult,
     openTicketsResult,
+    openExceptionsResult,
     weekDatesResult,
-    ancServicesResult,
     mudRemindersResult,
   ] = await Promise.all([
     completedQuery,
@@ -115,11 +135,8 @@ export default async function AdminDashboardPage() {
       .order('date', { ascending: true })
       .limit(60),
     openTicketsQuery,
+    openExceptionsListQuery,
     weekDatesQuery,
-    // Ancillary service names (category "anc") — drives the allocation legend so it
-    // always reflects the real current services and never silently zeroes on a
-    // rename (service is public-SELECT / global; not tenant-specific).
-    supabase.from('service').select('name, category!inner(code)').eq('category.code', 'anc'),
     // MUD reminders: Registered MUDs with next_expected_date <= 14 days from today
     // (or NULL — for new MUDs that haven't had a booking yet, surfacing them
     // gives admins a chance to schedule the first one).
@@ -165,65 +182,9 @@ export default async function AdminDashboardPage() {
     else if (status === 'Nothing Presented') weekNp++
   }
 
-  // FY collection totals — aggregate booking items for the current FY. Scope to the
-  // active client via the booking embed (booking_item has no client_id). Keyed off
-  // category.code + service.waste_stream (stable) rather than display names, which
-  // drift on rename — e.g. "General"/"Green" → "Bulk Waste"/"Green Waste" silently
-  // zeroed the old bar.
-  let fyItemsQuery = fy
-    ? supabase
-        .from('booking_item')
-        .select('no_services, service!inner(name, waste_stream, category!inner(code)), booking!inner(fy_id, status, client_id)')
-        .eq('booking.fy_id', fy.id)
-        .not('booking.status', 'in', '("Cancelled","Pending Payment")')
-    : null
-  if (fyItemsQuery && clientId) {
-    fyItemsQuery = fyItemsQuery.eq('booking.client_id', clientId)
-  }
-  const { data: fyItems } = fyItemsQuery ? await fyItemsQuery : { data: null }
-
-  // Collection (category "bulk"): split Bulk (general stream) vs Green.
-  // Ancillary (category "anc"): split by service name (the 3 types share a stream).
-  let bulkWasteCount = 0
-  let greenWasteCount = 0
-  const ancByService = new Map<string, number>()
-  for (const item of fyItems ?? []) {
-    const s = item.service as unknown as {
-      name: string
-      waste_stream: string
-      category: { code: string }
-    }
-    const n = item.no_services
-    if (s.category.code === 'bulk') {
-      if (s.waste_stream === 'green') greenWasteCount += n
-      else bulkWasteCount += n
-    } else if (s.category.code === 'anc') {
-      ancByService.set(s.name, (ancByService.get(s.name) ?? 0) + n)
-    }
-  }
-  const collectionTotal = bulkWasteCount + greenWasteCount
-  const ancTotal = [...ancByService.values()].reduce((sum, n) => sum + n, 0)
-
-  // Legend for the Ancillary card: the real current anc services (alphabetical),
-  // each with its FY count. Fixed colours for the known three; a stable fallback
-  // palette keeps any newly-added service visible.
-  const ANC_COLORS: Record<string, string> = {
-    Mattress: '#8FA5B8',
-    'E-Waste': '#FF8C42',
-    Whitegoods: '#3A5A73',
-  }
-  const ANC_FALLBACK = ['#6B8299', '#B0763A', '#26506B', '#93A7B8']
-  const ancServices = (ancServicesResult.data ?? [])
-    .map((s) => s.name)
-    .sort()
-    .map((name, i) => ({
-      name,
-      count: ancByService.get(name) ?? 0,
-      color: ANC_COLORS[name] ?? ANC_FALLBACK[i % ANC_FALLBACK.length],
-    }))
-
   const upcomingDates = upcomingDatesResult.data ?? []
   const openTickets = openTicketsResult.data ?? []
+  const openExceptionBookings = openExceptionsResult.data ?? []
 
   // For any pool-member areas in the upcoming-dates list, fetch authoritative
   // pool counters — per-area `collection_date.*` stays at 0 by design for
@@ -310,16 +271,17 @@ export default async function AdminDashboardPage() {
         <div className="flex items-center gap-2.5">
           <Link
             href="/book?on_behalf=true"
-            className="inline-flex items-center gap-1.5 rounded-lg bg-[#293F52] px-4 py-2 text-body-sm font-semibold text-white"
+            className="inline-flex items-center gap-1.5 rounded-lg bg-[#293F52] px-4 py-2 text-body-sm font-semibold text-white transition-colors hover:bg-[#1e3040] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#293F52]/40"
           >
             + New Booking
           </Link>
         </div>
       </div>
 
-      {/* Stat cards */}
-      <div className="grid grid-cols-4 gap-4 px-7 pt-5">
-        <div className="rounded-xl bg-white p-5 shadow-sm">
+      {/* Stat cards — each links to its drill-down page (the numbers are
+          summaries of queues staff act on, not decoration). */}
+      <div className="grid grid-cols-2 gap-4 px-7 pt-5 xl:grid-cols-4">
+        <Link href="/admin/bookings" className="block rounded-xl bg-white p-5 shadow-sm transition-shadow hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#293F52]/40">
           <div className="mb-2.5 flex size-9 items-center justify-center rounded-[10px] bg-[#E8FDF0] text-[#00B864]">
             <svg width="20" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/></svg>
           </div>
@@ -327,9 +289,9 @@ export default async function AdminDashboardPage() {
           <div className="font-[family-name:var(--font-heading)] text-display font-bold text-[#293F52]">
             {bookingsThisWeek}
           </div>
-        </div>
+        </Link>
 
-        <div className="rounded-xl bg-white p-5 shadow-sm">
+        <Link href="/admin/bookings?status=Completed" className="block rounded-xl bg-white p-5 shadow-sm transition-shadow hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#293F52]/40">
           <div className="mb-2.5 flex size-9 items-center justify-center rounded-[10px] bg-[#E8EEF2] text-[#293F52]">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
           </div>
@@ -338,9 +300,9 @@ export default async function AdminDashboardPage() {
             {completedResult.count ?? 0}
           </div>
           <div className="mt-1 text-xs text-gray-500">FY total to date</div>
-        </div>
+        </Link>
 
-        <div className="rounded-xl bg-white p-5 shadow-sm">
+        <Link href="/admin/non-conformance" className="block rounded-xl bg-white p-5 shadow-sm transition-shadow hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#293F52]/40">
           <div className="mb-2.5 flex size-9 items-center justify-center rounded-[10px] bg-[#FFF3EA] text-[#FF8C42]">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
           </div>
@@ -348,12 +310,12 @@ export default async function AdminDashboardPage() {
           <div className="font-[family-name:var(--font-heading)] text-display font-bold text-[#293F52]">
             {openExceptions}
           </div>
-          <div className="mt-1 text-xs text-[#E53E3E]">
+          <div className={`mt-1 text-xs ${openExceptions > 0 ? 'text-status-error' : 'text-gray-500'}`}>
             {ncnResult.count ?? 0} NCN &middot; {npResult.count ?? 0} NP
           </div>
-        </div>
+        </Link>
 
-        <div className="rounded-xl bg-white p-5 shadow-sm">
+        <Link href="/admin/service-tickets" className="block rounded-xl bg-white p-5 shadow-sm transition-shadow hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#293F52]/40">
           <div className="mb-2.5 flex size-9 items-center justify-center rounded-[10px] bg-[#FFF0F0] text-[#E53E3E]">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
           </div>
@@ -361,16 +323,18 @@ export default async function AdminDashboardPage() {
           <div className="font-[family-name:var(--font-heading)] text-display font-bold text-[#293F52]">
             {ticketsResult.count ?? 0}
           </div>
-        </div>
+        </Link>
       </div>
 
       {/* Two-column grid */}
-      <div className="grid grid-cols-2 gap-4 px-7 py-5">
+      <div className="grid grid-cols-1 gap-4 px-7 py-5 lg:grid-cols-2">
         {/* Upcoming collection dates — all future dates (open + closed), compact */}
         <div className="rounded-xl bg-white p-5 shadow-sm">
-          <div className="mb-3 flex items-center justify-between font-[family-name:var(--font-heading)] text-sm font-semibold text-[#293F52]">
-            Upcoming Collection Dates
-            <Link href="/admin/collection-dates" className="text-xs font-medium text-[#00B864]">View all &rarr;</Link>
+          <div className="mb-3.5 flex items-center justify-between">
+            <h2 className="font-[family-name:var(--font-heading)] text-sm font-semibold text-[#293F52]">
+              Upcoming Collection Dates
+            </h2>
+            <Link href="/admin/collection-dates" className="text-xs font-medium text-[#00B864] hover:underline">View all &rarr;</Link>
           </div>
           <div className="-mr-1 max-h-80 space-y-0.5 overflow-y-auto pr-1">
             {upcomingDates.map((d: UpcomingDate) => {
@@ -386,7 +350,7 @@ export default async function AdminDashboardPage() {
                     <span className="shrink-0 text-[12px] font-semibold tabular-nums text-[#293F52]">
                       {format(new Date(d.date + 'T00:00:00'), 'EEE d MMM')}
                     </span>
-                    <span className="truncate text-[11px] text-gray-500">{area.name}</span>
+                    <span className="truncate text-caption text-gray-500">{area.name}</span>
                   </div>
                   {d.is_open ? (
                     <div className="flex shrink-0 items-center gap-1.5">
@@ -396,12 +360,12 @@ export default async function AdminDashboardPage() {
                           style={{ width: `${Math.min(pctBulk, 100)}%` }}
                         />
                       </div>
-                      <span className="w-10 text-right text-[11px] tabular-nums text-gray-500">
+                      <span className="w-10 text-right text-caption tabular-nums text-gray-500">
                         {cap.bulk_units_booked}/{cap.bulk_capacity_limit}
                       </span>
                     </div>
                   ) : (
-                    <span className="shrink-0 rounded bg-[#FFF0F0] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#E53E3E]">
+                    <span className="shrink-0 rounded bg-status-error-bg px-1.5 py-0.5 text-2xs font-semibold uppercase tracking-wide text-status-error">
                       Closed
                     </span>
                   )}
@@ -416,19 +380,21 @@ export default async function AdminDashboardPage() {
 
         {/* Weekly summary — collections scheduled this week, by outcome */}
         <div className="rounded-xl bg-white p-5 shadow-sm">
-          <div className="mb-3.5 font-[family-name:var(--font-heading)] text-sm font-semibold text-[#293F52]">
+          <h2 className="mb-3.5 font-[family-name:var(--font-heading)] text-sm font-semibold text-[#293F52]">
             This Week&apos;s Summary
-          </div>
+          </h2>
           <div className="grid grid-cols-2 gap-2.5">
             {[
               { label: 'Completed', value: weekCompleted, color: 'text-[#00B864]' },
               { label: 'Cancelled', value: weekCancelled, color: 'text-[#FF8C42]' },
-              { label: 'Non-Conformance', value: weekNcn, color: 'text-[#E53E3E]' },
+              { label: 'Non-Conformance', value: weekNcn, color: 'text-status-error' },
               { label: 'Nothing Presented', value: weekNp, color: 'text-[#FF8C42]' },
             ].map((stat) => (
               <div key={stat.label} className="rounded-lg bg-gray-50 px-3.5 py-3">
-                <div className="mb-1 text-[11px] text-gray-500">{stat.label}</div>
-                <div className={`font-[family-name:var(--font-heading)] text-xl font-bold text-[#293F52] ${stat.color ?? ''}`}>
+                <div className="mb-1 text-caption text-gray-500">{stat.label}</div>
+                {/* Tone colour only when the count is non-zero — an orange or red
+                    zero reads as an alarm for a state where nothing is wrong. */}
+                <div className={`font-[family-name:var(--font-heading)] text-xl font-bold ${stat.value > 0 ? stat.color : 'text-[#293F52]'}`}>
                   {stat.value}
                 </div>
               </div>
@@ -436,11 +402,14 @@ export default async function AdminDashboardPage() {
           </div>
         </div>
 
-        {/* Open service tickets */}
-        <div className="rounded-xl bg-white p-5 shadow-sm">
-          <div className="mb-3.5 flex items-center justify-between font-[family-name:var(--font-heading)] text-sm font-semibold text-[#293F52]">
-            Open Service Tickets
-            <Link href="/admin/service-tickets" className="text-xs font-medium text-[#00B864]">View all &rarr;</Link>
+        {/* Open service tickets. flex-col so the empty state can centre in the
+            leftover height when the grid row is stretched by a taller sibling. */}
+        <div className="flex flex-col rounded-xl bg-white p-5 shadow-sm">
+          <div className="mb-3.5 flex items-center justify-between">
+            <h2 className="font-[family-name:var(--font-heading)] text-sm font-semibold text-[#293F52]">
+              Open Service Tickets
+            </h2>
+            <Link href="/admin/service-tickets" className="text-xs font-medium text-[#00B864] hover:underline">View all &rarr;</Link>
           </div>
           {openTickets.map((ticket) => {
             const contact = ticket.contact as unknown as { full_name: string }
@@ -451,7 +420,11 @@ export default async function AdminDashboardPage() {
               .toUpperCase()
               .slice(0, 2)
             return (
-              <div key={ticket.id} className="flex items-center gap-3 border-b border-gray-100 py-2.5 last:border-b-0 last:pb-0">
+              <Link
+                key={ticket.id}
+                href={`/admin/service-tickets/${ticket.display_id}`}
+                className="flex items-center gap-3 border-b border-gray-100 py-2.5 last:border-b-0 last:pb-0 hover:bg-gray-50"
+              >
                 <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-[#E8EEF2] text-xs font-semibold text-[#293F52]">
                   {initials}
                 </div>
@@ -460,38 +433,80 @@ export default async function AdminDashboardPage() {
                   <div className="truncate text-xs text-gray-500">{ticket.subject}</div>
                 </div>
                 <div className="flex shrink-0 flex-col items-end gap-1">
-                  <BookingStatusBadge
-                    status={ticket.priority === 'high' || ticket.priority === 'urgent' ? 'Nothing Presented' : 'Submitted'}
-                    className={
-                      ticket.priority === 'high' || ticket.priority === 'urgent'
-                        ? 'bg-[#FFF3EA] text-[#C05A00]'
-                        : 'bg-[#EBF5FF] text-[#3182CE]'
-                    }
-                  />
-                  <span className="text-[11px] text-gray-300">
+                  <StatusBadge entity="ticketPriority" status={ticket.priority} />
+                  <span className="text-caption text-gray-500">
                     {formatDistanceToNow(new Date(ticket.created_at), { addSuffix: false })}
                   </span>
                 </div>
-              </div>
+              </Link>
             )
           })}
           {openTickets.length === 0 && (
-            <p className="py-4 text-center text-sm text-gray-400">No open tickets</p>
+            <p className="flex flex-1 items-center justify-center py-8 text-sm text-gray-400">No open tickets</p>
+          )}
+        </div>
+
+        {/* Open NCNs & NPs — bookings sitting in an exception status, newest
+            first. Mirrors the Open Service Tickets tile; rows link to the
+            booking detail where the exception is investigated/rebooked. */}
+        <div className="flex flex-col rounded-xl bg-white p-5 shadow-sm">
+          <div className="mb-3.5 flex items-center justify-between">
+            <h2 className="font-[family-name:var(--font-heading)] text-sm font-semibold text-[#293F52]">
+              Open NCNs &amp; NPs
+            </h2>
+            <span className="flex items-center gap-3">
+              <Link href="/admin/non-conformance" className="text-xs font-medium text-[#00B864] hover:underline">NCNs &rarr;</Link>
+              <Link href="/admin/nothing-presented" className="text-xs font-medium text-[#00B864] hover:underline">NPs &rarr;</Link>
+            </span>
+          </div>
+          {openExceptionBookings.map((b) => {
+            const isNcn = b.status === 'Non-conformance'
+            const property = b.eligible_properties as unknown as {
+              formatted_address: string | null
+              address: string
+            } | null
+            const area = b.collection_area as unknown as { code: string }
+            const address = property?.formatted_address ?? property?.address ?? b.location ?? b.ref
+            return (
+              <Link
+                key={b.id}
+                href={`/admin/bookings/${b.id}`}
+                className="flex items-center gap-3 border-b border-gray-100 py-2.5 last:border-b-0 last:pb-0 hover:bg-gray-50"
+              >
+                <div
+                  className={`flex h-8 w-11 shrink-0 items-center justify-center rounded-lg text-2xs font-bold ${
+                    isNcn ? 'bg-status-error-bg text-status-error' : 'bg-status-warn-bg text-status-warn'
+                  }`}
+                >
+                  {isNcn ? 'NCN' : 'NP'}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-body-sm font-medium text-gray-900">{address}</div>
+                  <div className="text-xs text-gray-500">{b.ref} &middot; {area.code}</div>
+                </div>
+                <span className="shrink-0 text-caption text-gray-500">
+                  {formatDistanceToNow(new Date(b.updated_at), { addSuffix: false })}
+                </span>
+              </Link>
+            )
+          })}
+          {openExceptionBookings.length === 0 && (
+            <p className="flex flex-1 items-center justify-center py-8 text-sm text-gray-400">No open NCNs or NPs</p>
           )}
         </div>
 
         {/* MUD reminders — half width to match the other dashboard tiles */}
         <div className="rounded-xl bg-white p-5 shadow-sm">
-          <div className="mb-3.5 flex items-center justify-between font-[family-name:var(--font-heading)] text-sm font-semibold text-[#293F52]">
-            <span>
+          <div className="mb-3.5 flex items-center justify-between">
+            <h2 className="font-[family-name:var(--font-heading)] text-sm font-semibold text-[#293F52]">
               MUDs Due Soon
-              <span className="ml-2 text-[11px] font-normal text-gray-400">
+              <span className="ml-2 text-caption font-normal text-gray-500">
                 Next 14 days · cadence-based
               </span>
-            </span>
+            </h2>
             <Link
               href="/admin/properties?mud=mud"
-              className="text-xs font-medium text-[#00B864]"
+              className="text-xs font-medium text-[#00B864] hover:underline"
             >
               All MUDs &rarr;
             </Link>
@@ -510,13 +525,13 @@ export default async function AdminDashboardPage() {
                   <Link
                     key={r.property_id}
                     href={`/admin/properties/${r.property_id}`}
-                    className="flex items-center justify-between rounded-lg px-3 py-2 hover:bg-gray-50"
+                    className="flex items-center justify-between gap-3 rounded-lg px-3 py-2 hover:bg-gray-50"
                   >
                     <div className="min-w-0 flex-1">
                       <div className="truncate text-[13px] font-medium text-[#293F52]">
                         {p.formatted_address ?? p.address}
                       </div>
-                      <div className="mt-0.5 text-[11px] text-gray-500">
+                      <div className="mt-0.5 text-caption text-gray-500">
                         {p.mud_code ?? 'MUD'} · {p.unit_count}u · {r.collection_cadence}
                       </div>
                     </div>
@@ -526,7 +541,7 @@ export default async function AdminDashboardPage() {
                           ? format(new Date(r.next_expected_date + 'T00:00:00'), 'd MMM')
                           : '—'}
                       </div>
-                      <div className="mt-0.5 text-[10px] text-gray-400">
+                      <div className="mt-0.5 text-caption text-gray-500">
                         last {r.last_date
                           ? format(new Date(r.last_date + 'T00:00:00'), 'd MMM yyyy')
                           : 'never'}
@@ -548,17 +563,17 @@ export default async function AdminDashboardPage() {
                       <Link
                         key={r.property_id}
                         href={`/admin/properties/${r.property_id}`}
-                        className="flex items-center justify-between rounded-lg px-3 py-2 hover:bg-gray-50"
+                        className="flex items-center justify-between gap-3 rounded-lg px-3 py-2 hover:bg-gray-50"
                       >
                         <div className="min-w-0 flex-1">
                           <div className="truncate text-[13px] font-medium text-[#293F52]">
                             {p.formatted_address ?? p.address}
                           </div>
-                          <div className="mt-0.5 text-[11px] text-gray-500">
+                          <div className="mt-0.5 text-caption text-gray-500">
                             {p.mud_code ?? 'MUD'} · {p.unit_count}u · {r.collection_cadence}
                           </div>
                         </div>
-                        <div className="shrink-0 text-[11px] text-amber-600">
+                        <div className="shrink-0 text-caption text-amber-600">
                           Schedule first booking
                         </div>
                       </Link>
@@ -570,67 +585,6 @@ export default async function AdminDashboardPage() {
           )}
         </div>
 
-        {/* FY collection totals */}
-        <div className="rounded-xl bg-white p-5 shadow-sm">
-          <div className="mb-3.5 font-[family-name:var(--font-heading)] text-sm font-semibold text-[#293F52]">
-            {fy?.label ?? 'FY'} Collections
-            <span className="ml-2 text-[11px] font-normal text-gray-400">FY to date</span>
-          </div>
-          <div className="flex flex-col gap-5">
-            {/* Collection — Bulk + Green */}
-            <div>
-              <div className="mb-2 flex items-baseline justify-between">
-                <span className="text-body-sm font-semibold text-[#293F52]">Collection</span>
-                <span className="text-[11px] text-gray-500">{collectionTotal} collections</span>
-              </div>
-              <div className="flex h-3.5 overflow-hidden rounded-full bg-gray-100">
-                <div className="h-full bg-[#00E47C]" style={{ width: `${collectionTotal > 0 ? (bulkWasteCount / collectionTotal) * 100 : 0}%` }} title={`Bulk: ${bulkWasteCount}`} />
-                <div className="h-full bg-[#00B864]" style={{ width: `${collectionTotal > 0 ? (greenWasteCount / collectionTotal) * 100 : 0}%` }} title={`Green: ${greenWasteCount}`} />
-              </div>
-              <div className="mt-2 flex gap-4">
-                <div className="flex items-center gap-1.5">
-                  <div className="size-2.5 shrink-0 rounded-sm bg-[#00E47C]" />
-                  <span className="text-[11px] text-gray-700">Bulk</span>
-                  <span className="text-[11px] text-gray-500">{bulkWasteCount}</span>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <div className="size-2.5 shrink-0 rounded-sm bg-[#00B864]" />
-                  <span className="text-[11px] text-gray-700">Green</span>
-                  <span className="text-[11px] text-gray-500">{greenWasteCount}</span>
-                </div>
-              </div>
-            </div>
-
-            <div className="h-px bg-gray-100" />
-
-            {/* Ancillary — service-type breakdown */}
-            <div>
-              <div className="mb-2 flex items-baseline justify-between">
-                <span className="text-body-sm font-semibold text-[#293F52]">Ancillary</span>
-                <span className="text-[11px] text-gray-500">{ancTotal} collections</span>
-              </div>
-              <div className="flex h-3.5 overflow-hidden rounded-full bg-gray-100">
-                {ancServices.map((s) => (
-                  <div
-                    key={s.name}
-                    className="h-full"
-                    style={{ width: `${ancTotal > 0 ? (s.count / ancTotal) * 100 : 0}%`, backgroundColor: s.color }}
-                    title={`${s.name}: ${s.count}`}
-                  />
-                ))}
-              </div>
-              <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1.5">
-                {ancServices.map((s) => (
-                  <div key={s.name} className="flex items-center gap-1.5">
-                    <div className="size-2.5 shrink-0 rounded-sm" style={{ backgroundColor: s.color }} />
-                    <span className="text-[11px] text-gray-700">{s.name}</span>
-                    <span className="text-[11px] text-gray-500">{s.count}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        </div>
       </div>
     </>
   )
