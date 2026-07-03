@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { resolveAuditLogs } from '@/lib/audit/resolve'
 import { getCurrentAdminClient } from '@/lib/admin/current-client'
+import { canManageAllocations } from '@/lib/auth/roles'
 import { PropertyDetailClient } from './property-detail-client'
 
 interface PropertyDetailPageProps {
@@ -161,6 +162,11 @@ export default async function AdminPropertyDetailPage({
     ],
   })
 
+  // Contractor tier + client-admin may adjust allocations (gates the button;
+  // RLS enforces the write). client-staff / read-only roles see values only.
+  const { data: role } = await supabase.rpc('current_user_role')
+  const canManage = canManageAllocations(role)
+
   return (
     <PropertyDetailClient
       property={property}
@@ -175,6 +181,7 @@ export default async function AdminPropertyDetailPage({
       nextExpected={nextExpected}
       authFormSignedUrl={authFormSignedUrl}
       auditLogs={auditLogs}
+      canManageAllocations={canManage}
     />
   )
 }
