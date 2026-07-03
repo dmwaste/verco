@@ -58,6 +58,7 @@ interface ResponseData {
 }
 
 interface LinkedBooking {
+  id: string
   ref: string
   address: string
   collectionDate: string | null
@@ -503,7 +504,7 @@ export function AdminTicketDetailClient({
                 Linked Booking
               </div>
               <Link
-                href={`/admin/bookings/${linkedBooking.ref}`}
+                href={`/admin/bookings/${linkedBooking.id}`}
                 className="block rounded-lg border border-gray-100 p-3 transition-colors hover:border-[#293F52]/20 hover:bg-gray-50"
               >
                 <div className="font-[family-name:var(--font-heading)] text-xs font-semibold text-[#8FA5B8]">
