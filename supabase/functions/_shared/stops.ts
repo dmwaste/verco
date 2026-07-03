@@ -32,11 +32,17 @@ export interface ServiceSummaryEntry {
   qty: number
 }
 
-/** orderNo suffix per stream: {booking.ref}-{suffix}, e.g. KWN-1-AB12CD-GEN */
+/**
+ * orderNo suffix per stream: {booking.ref}-{suffix}, e.g. KWN-1-AB12CD-B.
+ * Short single letters (B/G/A) keep the OR reference neat; each stream still
+ * has a DISTINCT suffix, which is what guarantees a multi-stream booking's
+ * orders get unique orderNos (OR's primary key) — the vehicle feature routes
+ * the truck, the suffix identifies the order. illegal_dumping keeps 'ID'.
+ */
 export const STREAM_SUFFIX: Record<WasteStream, string> = {
-  general: 'GEN',
-  green: 'GRN',
-  ancillary: 'ANC',
+  general: 'B',
+  green: 'G',
+  ancillary: 'A',
   illegal_dumping: 'ID',
 }
 
@@ -155,6 +161,26 @@ export function buildOrderNotes(
     lines.push(`Notes: ${driverNotes.trim()}`)
   }
   return lines.join('\n')
+}
+
+/**
+ * Recognised on-property waste placements — mirror of the booking form's
+ * LOCATION_OPTIONS + the staff-only 'Other'. Kept here (not imported from
+ * src/lib/booking/schemas) because this module is the Deno EF's source of truth.
+ */
+export const WASTE_LOCATION_VALUES = ['Front Verge', 'Side Verge', 'Driveway', 'Other'] as const
+
+/**
+ * booking.location is overloaded — for most bookings (legacy/import) it holds
+ * the street ADDRESS, only sometimes the on-property placement. Surface it as a
+ * waste location ONLY when it's a recognised placement; otherwise null (the
+ * address is already the order's address, so repeating it as "Location:" is
+ * noise). Trims first so trailing-space values still match.
+ */
+export function wasteLocationOrNull(location: string | null | undefined): string | null {
+  if (!location) return null
+  const trimmed = location.trim()
+  return (WASTE_LOCATION_VALUES as readonly string[]).includes(trimmed) ? trimmed : null
 }
 
 /**

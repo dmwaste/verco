@@ -10,6 +10,7 @@ import {
   STREAM_PRIORITY,
   STREAM_SUFFIX,
   vehicleFeaturesForStream,
+  wasteLocationOrNull,
   type StopItem,
   type StopStatus,
 } from '@/lib/stops/stops'
@@ -21,9 +22,9 @@ const item = (name: string, stream: StopItem['service']['waste_stream'], qty = 1
 
 describe('buildOrderNo', () => {
   it('appends the stream suffix to the booking ref', () => {
-    expect(buildOrderNo('KWN-1-AB12CD', 'general')).toBe('KWN-1-AB12CD-GEN')
-    expect(buildOrderNo('KWN-1-AB12CD', 'green')).toBe('KWN-1-AB12CD-GRN')
-    expect(buildOrderNo('VV-COT-XY99ZZ', 'ancillary')).toBe('VV-COT-XY99ZZ-ANC')
+    expect(buildOrderNo('KWN-1-AB12CD', 'general')).toBe('KWN-1-AB12CD-B')
+    expect(buildOrderNo('KWN-1-AB12CD', 'green')).toBe('KWN-1-AB12CD-G')
+    expect(buildOrderNo('VV-COT-XY99ZZ', 'ancillary')).toBe('VV-COT-XY99ZZ-A')
     expect(buildOrderNo('KWN-1-QQ00QQ', 'illegal_dumping')).toBe('KWN-1-QQ00QQ-ID')
   })
 
@@ -54,13 +55,37 @@ describe('vehicleFeaturesForStream — OptimoRoute routing constraint', () => {
     expect(vehicleFeaturesForStream('ancillary')).toEqual(['ANC'])
   })
 
-  it('general maps to the BLK feature, not the GEN order suffix', () => {
+  it('general maps to the BLK feature, distinct from its -B order suffix', () => {
     expect(vehicleFeaturesForStream('general')).toEqual(['BLK'])
-    expect(STREAM_SUFFIX.general).toBe('GEN')
+    expect(STREAM_SUFFIX.general).toBe('B')
   })
 
   it('illegal_dumping is bulk-truck work — also requires BLK', () => {
     expect(vehicleFeaturesForStream('illegal_dumping')).toEqual(['BLK'])
+  })
+})
+
+describe('wasteLocationOrNull — placement vs overloaded booking.location', () => {
+  it('keeps recognised on-property placements', () => {
+    expect(wasteLocationOrNull('Front Verge')).toBe('Front Verge')
+    expect(wasteLocationOrNull('Side Verge')).toBe('Side Verge')
+    expect(wasteLocationOrNull('Driveway')).toBe('Driveway')
+    expect(wasteLocationOrNull('Other')).toBe('Other')
+  })
+
+  it('drops an address — booking.location is overloaded and mostly holds the street address', () => {
+    expect(wasteLocationOrNull('4 William Street COTTESLOE WA 6011')).toBeNull()
+    expect(wasteLocationOrNull('35A Fennager Way CALISTA WESTERN AUSTRALIA 6167')).toBeNull()
+  })
+
+  it('handles null and blank', () => {
+    expect(wasteLocationOrNull(null)).toBeNull()
+    expect(wasteLocationOrNull('')).toBeNull()
+    expect(wasteLocationOrNull('   ')).toBeNull()
+  })
+
+  it('trims surrounding whitespace before matching', () => {
+    expect(wasteLocationOrNull('  Front Verge  ')).toBe('Front Verge')
   })
 })
 
