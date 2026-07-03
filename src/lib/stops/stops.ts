@@ -158,6 +158,26 @@ export function buildOrderNotes(
 }
 
 /**
+ * Recognised on-property waste placements — mirror of the booking form's
+ * LOCATION_OPTIONS + the staff-only 'Other'. Kept here (not imported from
+ * src/lib/booking/schemas) because this module is the Deno EF's source of truth.
+ */
+export const WASTE_LOCATION_VALUES = ['Front Verge', 'Side Verge', 'Driveway', 'Other'] as const
+
+/**
+ * booking.location is overloaded — for most bookings (legacy/import) it holds
+ * the street ADDRESS, only sometimes the on-property placement. Surface it as a
+ * waste location ONLY when it's a recognised placement; otherwise null (the
+ * address is already the order's address, so repeating it as "Location:" is
+ * noise). Trims first so trailing-space values still match.
+ */
+export function wasteLocationOrNull(location: string | null | undefined): string | null {
+  if (!location) return null
+  const trimmed = location.trim()
+  return (WASTE_LOCATION_VALUES as readonly string[]).includes(trimmed) ? trimmed : null
+}
+
+/**
  * Booking-status rollup over a booking's stop statuses — exception wins.
  * Mirrors rollup_booking_status_from_stops exactly; the DB trigger is
  * authoritative, this exists for tests and UI display.

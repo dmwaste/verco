@@ -9,6 +9,7 @@ import {
   STOP_DURATION_MINUTES,
   STREAM_PRIORITY,
   vehicleFeaturesForStream,
+  wasteLocationOrNull,
   type ServiceSummaryEntry,
   type StopItem,
   type WasteStream,
@@ -220,7 +221,7 @@ serve(async (_req) => {
             latitude: num(booking.latitude ?? property?.latitude ?? null),
             longitude: num(booking.longitude ?? property?.longitude ?? null),
             services_summary: buildServicesSummary(streamItems),
-            waste_location: booking.location,
+            waste_location: wasteLocationOrNull(booking.location),
             driver_notes: booking.notes,
             external_order_ref: buildOrderNo(booking.ref, stream),
           })

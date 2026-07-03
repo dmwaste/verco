@@ -10,6 +10,7 @@ import {
   STREAM_PRIORITY,
   STREAM_SUFFIX,
   vehicleFeaturesForStream,
+  wasteLocationOrNull,
   type StopItem,
   type StopStatus,
 } from '@/lib/stops/stops'
@@ -61,6 +62,30 @@ describe('vehicleFeaturesForStream — OptimoRoute routing constraint', () => {
 
   it('illegal_dumping is bulk-truck work — also requires BLK', () => {
     expect(vehicleFeaturesForStream('illegal_dumping')).toEqual(['BLK'])
+  })
+})
+
+describe('wasteLocationOrNull — placement vs overloaded booking.location', () => {
+  it('keeps recognised on-property placements', () => {
+    expect(wasteLocationOrNull('Front Verge')).toBe('Front Verge')
+    expect(wasteLocationOrNull('Side Verge')).toBe('Side Verge')
+    expect(wasteLocationOrNull('Driveway')).toBe('Driveway')
+    expect(wasteLocationOrNull('Other')).toBe('Other')
+  })
+
+  it('drops an address — booking.location is overloaded and mostly holds the street address', () => {
+    expect(wasteLocationOrNull('4 William Street COTTESLOE WA 6011')).toBeNull()
+    expect(wasteLocationOrNull('35A Fennager Way CALISTA WESTERN AUSTRALIA 6167')).toBeNull()
+  })
+
+  it('handles null and blank', () => {
+    expect(wasteLocationOrNull(null)).toBeNull()
+    expect(wasteLocationOrNull('')).toBeNull()
+    expect(wasteLocationOrNull('   ')).toBeNull()
+  })
+
+  it('trims surrounding whitespace before matching', () => {
+    expect(wasteLocationOrNull('  Front Verge  ')).toBe('Front Verge')
   })
 })
 
