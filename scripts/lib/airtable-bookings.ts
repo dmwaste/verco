@@ -22,6 +22,7 @@ const F = {
   noBulk: 'fldquMnXoXziV6O9l',
   noGreen: 'fldvpxHlXrYMhDJiT',
   noMattress: 'fldHpGRMDzHSlVRCH', // singleSelect ("0"/"1"/"2"…)
+  wasteLocation: 'fld28T2IJgeWPQNEQ', // singleSelect (Front Verge / Side Verge / …)
   modifiedTime: 'fldoURZlVBVmsErjF',
 } as const
 
@@ -94,6 +95,7 @@ function parseRow(id: string, f: RawFields): SourceBooking | null {
     noBulk: num(f[F.noBulk]),
     noGreen: num(f[F.noGreen]),
     noMattress: num(f[F.noMattress]),
+    wasteLocation: (f[F.wasteLocation] as string | undefined) ?? null,
     modifiedAt: String(f[F.modifiedTime] ?? ''),
   }
 }

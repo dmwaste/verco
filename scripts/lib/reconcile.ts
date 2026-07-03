@@ -36,6 +36,8 @@ export type SourceBooking = {
   noBulk: number
   noGreen: number
   noMattress: number
+  /** Master Waste_Location singleSelect (Front Verge / Side Verge / …), or null. */
+  wasteLocation: string | null
   /** ISO timestamp of the master row's last modification. */
   modifiedAt: string
 }
@@ -48,6 +50,8 @@ export type VercoBooking = {
   address: string
   /** eligible_properties.external_id (Airtable EP record id), or null for orphan bookings. */
   propertyExternalId: string | null
+  /** Current booking.location — buggy imports set this to the street address. */
+  location: string | null
   /** Earliest booking_item collection date, YYYY-MM-DD. */
   collectionDate: string | null
   /** Verco booking_status. */
@@ -288,4 +292,73 @@ export function countByClass(findings: Finding[]): Record<FindingClass, number> 
   const out = Object.fromEntries(CLASS_ORDER.map((c) => [c, 0])) as Record<FindingClass, number>
   for (const f of findings) out[f.class]++
   return out
+}
+
+// ─── Action plan (Phase 2) ─────────────────────────────────────────────────────
+//
+// Turns findings into concrete writes, per Dan's directives (03/07/2026):
+//   • cancelled in master        → cancel (only the non-blocked ones)
+//   • master Completed           → set Verco Completed   (legal only from Scheduled)
+//   • master Non-Conformance     → set Verco Non-conformance (legal only from Scheduled)
+//   • master Place Out Issued    → SKIP: mapping to Scheduled crosses Red Line #5
+//                                  (the cron owns Confirmed→Scheduled + stop generation)
+//   • reschedule                 → update date ONLY when both old and new dates are future
+//                                  and the booking is not already dispatched
+//   • location == street address → set to the master Waste_Location
+//   • phantom (keep) / missing (ignore) → no writes
+
+export type Action =
+  | { kind: 'cancel'; bookingId: string; ref: string; masterRef: string }
+  | { kind: 'status'; bookingId: string; ref: string; to: 'Completed' | 'Non-conformance' }
+  | { kind: 'reschedule'; bookingId: string; ref: string; from: string; to: string }
+  | { kind: 'location'; bookingId: string; ref: string; to: string }
+
+export type ActionPlan = {
+  actions: Action[]
+  skipped: {
+    placeOutToScheduled: number // Red Line #5 — left for the cron
+    reactivateCancelled: number // master active but Verco already Cancelled (terminal)
+    dispatchedReschedule: number // date move on an already-dispatched booking
+    phantomNeedsLocation: number // phantom with a bad location we can't source from the master
+  }
+}
+
+export function buildActionPlan(findings: Finding[], today: string): ActionPlan {
+  const actions: Action[] = []
+  const skipped = { placeOutToScheduled: 0, reactivateCancelled: 0, dispatchedReschedule: 0, phantomNeedsLocation: 0 }
+  const locationIsWrong = (v: VercoBooking) => !!v.location && !!v.address && v.location === v.address
+
+  for (const f of findings) {
+    const v = f.verco
+    const s = f.source
+
+    if (f.class === 'cancelled_in_source' && v && s && !f.needsManual) {
+      actions.push({ kind: 'cancel', bookingId: v.id, ref: v.ref, masterRef: s.bookingRef })
+      continue // don't also fix the location of a booking we're cancelling
+    }
+
+    if (f.class === 'modified_since_import' && v && s) {
+      if (v.status === 'Cancelled') skipped.reactivateCancelled++
+      else if (s.status === 'Completed' && v.status === 'Scheduled')
+        actions.push({ kind: 'status', bookingId: v.id, ref: v.ref, to: 'Completed' })
+      else if (s.status === 'Non-Conformance' && v.status === 'Scheduled')
+        actions.push({ kind: 'status', bookingId: v.id, ref: v.ref, to: 'Non-conformance' })
+      else if (s.status === 'Place Out Issued' && v.status === 'Confirmed') skipped.placeOutToScheduled++
+    }
+
+    if (f.class === 'date_changed' && v && s && v.collectionDate && s.collectionDate) {
+      if (v.collectionDate > today && s.collectionDate > today) {
+        if (v.isDispatched || v.status === 'Scheduled') skipped.dispatchedReschedule++
+        else actions.push({ kind: 'reschedule', bookingId: v.id, ref: v.ref, from: v.collectionDate, to: s.collectionDate })
+      }
+    }
+
+    // Location fix — any matched, non-cancelled booking whose location is the street address.
+    if (v && locationIsWrong(v) && v.status !== 'Cancelled' && f.class !== 'cancelled_in_source') {
+      if (s?.wasteLocation) actions.push({ kind: 'location', bookingId: v.id, ref: v.ref, to: s.wasteLocation })
+      else if (!s) skipped.phantomNeedsLocation++
+    }
+  }
+
+  return { actions, skipped }
 }

@@ -30,10 +30,13 @@ import { fetchConsolidatedBookings } from './lib/airtable-bookings'
 import {
   reconcile,
   countByClass,
+  buildActionPlan,
   CLASS_ORDER,
   RESCHEDULE_MAX_DAYS,
   type Finding,
   type VercoBooking,
+  type ActionPlan,
+  type Action,
 } from './lib/reconcile'
 
 const DEFAULT_COUNCILS = ['MOS', 'COT', 'PEP']
@@ -95,16 +98,11 @@ async function main() {
   printSummary(counts, findings)
   console.log(`\nReport written:\n  ${paths.md}\n  ${paths.csv}\n  ${paths.json}`)
 
-  // 6. Apply (cancellations only; everything else is manual — see report).
-  if (apply) {
-    await applyFixes(verco, findings)
-  } else {
-    const auto = findings.filter((f) => f.class === 'cancelled_in_source' && !f.needsManual)
-    console.log(
-      `\nDRY RUN — ${auto.length} cancellation(s) would be auto-applied with --apply. ` +
-        `Date changes, missing, phantom and modified rows are report-only (manual). Review the report first.`,
-    )
-  }
+  // 6. Build + print the action plan; execute only with --apply.
+  const today = new Date().toISOString().slice(0, 10)
+  const plan = buildActionPlan(findings, today)
+  printPlan(plan, apply)
+  if (apply) await executePlan(verco, plan)
 }
 
 // ─── Verco data load (chunked queries; avoids the multi-FK embed gotcha) ──────
@@ -122,9 +120,16 @@ async function loadVercoBookings(verco: SupabaseClient, areaIds: string[]): Prom
     ref: string
     status: string
     created_at: string
+    location: string | null
     property_id: string | null
     collection_area_id: string
-  }>(verco, 'booking', 'id, ref, status, created_at, property_id, collection_area_id', 'collection_area_id', areaIds)
+  }>(
+    verco,
+    'booking',
+    'id, ref, status, created_at, location, property_id, collection_area_id',
+    'collection_area_id',
+    areaIds,
+  )
 
   const bookingIds = bookings.map((b) => b.id)
   const propertyIds = uniq(bookings.map((b) => b.property_id).filter((x): x is string => !!x))
@@ -185,6 +190,7 @@ async function loadVercoBookings(verco: SupabaseClient, areaIds: string[]): Prom
       area: areaCode.get(b.collection_area_id) ?? '?',
       address: prop?.address ?? '',
       propertyExternalId: prop?.external_id ?? null,
+      location: b.location ?? null,
       collectionDate: a.minDate,
       status: b.status,
       importedAt: b.created_at,
@@ -198,33 +204,70 @@ async function loadVercoBookings(verco: SupabaseClient, areaIds: string[]): Prom
 
 // ─── Apply (Phase 2) ──────────────────────────────────────────────────────────
 
-async function applyFixes(verco: SupabaseClient, findings: Finding[]) {
-  // Only cancellations are auto-applied. Date changes are always manual (a date
-  // move can't be distinguished from a separate new booking without a stable id),
-  // and missing/phantom rows need human judgement. The DB triggers still gate
-  // every write — a past-cutoff row we somehow attempt is rejected here too.
-  const cancels = findings.filter((f) => f.class === 'cancelled_in_source' && !f.needsManual)
-  console.log(`\nApplying ${cancels.length} cancellation(s)…`)
+function printPlan(plan: ActionPlan, apply: boolean) {
+  const c = (k: Action['kind']) => plan.actions.filter((a) => a.kind === k).length
+  console.log(`\n═════════ Action plan (${apply ? 'APPLYING' : 'DRY RUN'}) ═════════`)
+  console.log(`  cancel                 ${c('cancel')}`)
+  console.log(`  mark Completed         ${plan.actions.filter((a) => a.kind === 'status' && a.to === 'Completed').length}`)
+  console.log(`  mark Non-conformance   ${plan.actions.filter((a) => a.kind === 'status' && a.to === 'Non-conformance').length}`)
+  console.log(`  reschedule (fut→fut)   ${c('reschedule')}`)
+  console.log(`  fix waste location     ${c('location')}`)
+  console.log(`  ─ skipped (need a human / a rule blocks them) ─`)
+  console.log(`  Place Out→Scheduled    ${plan.skipped.placeOutToScheduled}   (Red Line #5 — the cron owns Confirmed→Scheduled)`)
+  console.log(`  dispatched reschedule  ${plan.skipped.dispatchedReschedule}   (already pushed to OptimoRoute)`)
+  console.log(`  reactivate cancelled   ${plan.skipped.reactivateCancelled}   (Verco already Cancelled — terminal)`)
+  console.log(`  phantom bad location   ${plan.skipped.phantomNeedsLocation}   (no master row to source Waste_Location)`)
+}
 
-  let cancelled = 0
-  const failures: { ref: string; error: string }[] = []
-  for (const f of cancels) {
-    const v = f.verco!
-    const { error } = await verco
-      .from('booking')
-      .update({
-        status: 'Cancelled',
-        cancelled_at: new Date().toISOString(),
-        cancellation_reason: `Reconciliation: cancelled in Airtable master (${f.source?.bookingRef ?? '—'})`,
-      })
-      .eq('id', v.id)
-    if (error) failures.push({ ref: v.ref, error: error.message })
-    else cancelled++
+async function executePlan(verco: SupabaseClient, plan: ActionPlan) {
+  const areaCache = new Map<string, string>() // bookingId → collection_area_id (for reschedules)
+  const fail: { ref: string; kind: string; error: string }[] = []
+  const done: Record<string, number> = {}
+  const now = new Date().toISOString()
+
+  for (const a of plan.actions) {
+    let error: string | null = null
+    if (a.kind === 'cancel') {
+      const r = await verco
+        .from('booking')
+        .update({ status: 'Cancelled', cancelled_at: now, cancellation_reason: `Reconciliation: cancelled in Airtable master (${a.masterRef})` })
+        .eq('id', a.bookingId)
+      error = r.error?.message ?? null
+    } else if (a.kind === 'status') {
+      const r = await verco.from('booking').update({ status: a.to }).eq('id', a.bookingId)
+      error = r.error?.message ?? null
+    } else if (a.kind === 'location') {
+      const r = await verco.from('booking').update({ location: a.to }).eq('id', a.bookingId)
+      error = r.error?.message ?? null
+    } else if (a.kind === 'reschedule') {
+      let areaId = areaCache.get(a.bookingId)
+      if (!areaId) {
+        const { data: b } = await verco.from('booking').select('collection_area_id').eq('id', a.bookingId).single()
+        areaId = b?.collection_area_id as string | undefined
+        if (areaId) areaCache.set(a.bookingId, areaId)
+      }
+      const { data: cd } = await verco
+        .from('collection_date')
+        .select('id')
+        .eq('collection_area_id', areaId)
+        .eq('date', a.to)
+        .maybeSingle()
+      if (!cd) error = `no collection_date row for ${a.to}`
+      else {
+        const r = await verco.from('booking_item').update({ collection_date_id: cd.id }).eq('booking_id', a.bookingId)
+        error = r.error?.message ?? null
+      }
+    }
+    if (error) fail.push({ ref: a.ref, kind: a.kind, error })
+    else done[a.kind] = (done[a.kind] ?? 0) + 1
   }
 
-  console.log(`Cancelled: ${cancelled}/${cancels.length}`)
-  for (const f of failures) console.error(`  ✗ ${f.ref}: ${f.error}`)
-  console.log('Date-change, missing, phantom and manual-flagged rows were left for manual handling (see report).')
+  console.log('\n─ applied ─')
+  for (const [k, n] of Object.entries(done)) console.log(`  ${k}: ${n}`)
+  if (fail.length) {
+    console.log(`\n${fail.length} failure(s):`)
+    for (const f of fail) console.error(`  ✗ ${f.ref} (${f.kind}): ${f.error}`)
+  }
 }
 
 // ─── Report ───────────────────────────────────────────────────────────────────

@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   reconcile,
   countByClass,
+  buildActionPlan,
   isSourceActive,
   isSourceCancelled,
   isVercoActive,
@@ -18,6 +19,7 @@ function verco(overrides: Partial<VercoBooking> = {}): VercoBooking {
     area: 'COT',
     address: '1 Test St',
     propertyExternalId: 'recProp1',
+    location: '1 Test St', // buggy default: location == address
     collectionDate: '2026-07-08', // clearly future (cutoff 2026-07-07 07:30Z)
     status: 'Confirmed',
     importedAt: '2026-07-01T00:00:00Z',
@@ -39,10 +41,13 @@ function source(overrides: Partial<SourceBooking> = {}): SourceBooking {
     noBulk: 1,
     noGreen: 0,
     noMattress: 0,
+    wasteLocation: 'Front Verge',
     modifiedAt: '2026-06-25T00:00:00Z', // before import → unchanged
     ...overrides,
   }
 }
+
+const TODAY = '2026-07-03'
 
 describe('status predicates', () => {
   it('maps source active/cancelled correctly', () => {
@@ -197,5 +202,54 @@ describe('countByClass', () => {
     expect(counts.cancelled_in_source).toBe(1)
     expect(counts.phantom_in_verco).toBe(1) // p2 has no master row
     expect(counts.missing_in_verco).toBe(1) // p3
+  })
+})
+
+describe('buildActionPlan', () => {
+  const plan = (v: VercoBooking[], s: SourceBooking[]) => buildActionPlan(reconcile(v, s, NOW), TODAY)
+
+  it('plans a cancel and does not also fix the location of a cancelled booking', () => {
+    const p = plan([verco()], [source({ status: 'Cancelled' })])
+    expect(p.actions.map((a) => a.kind)).toEqual(['cancel'])
+  })
+
+  it('maps master Completed → Verco Completed only from Scheduled', () => {
+    const p = plan([verco({ status: 'Scheduled' })], [source({ status: 'Completed', modifiedAt: '2026-07-02T00:00:00Z' })])
+    expect(p.actions.some((a) => a.kind === 'status' && a.to === 'Completed')).toBe(true)
+  })
+
+  it('maps master Non-Conformance → Verco Non-conformance from Scheduled', () => {
+    const p = plan([verco({ status: 'Scheduled' })], [source({ status: 'Non-Conformance', modifiedAt: '2026-07-02T00:00:00Z' })])
+    expect(p.actions.some((a) => a.kind === 'status' && a.to === 'Non-conformance')).toBe(true)
+  })
+
+  it('refuses to force Place Out Issued → Scheduled (Red Line #5), but still fixes its location', () => {
+    const p = plan([verco({ status: 'Confirmed' })], [source({ status: 'Place Out Issued', modifiedAt: '2026-07-02T00:00:00Z' })])
+    expect(p.skipped.placeOutToScheduled).toBe(1)
+    expect(p.actions.some((a) => a.kind === 'status')).toBe(false)
+    expect(p.actions.some((a) => a.kind === 'location')).toBe(true)
+  })
+
+  it('reschedules only future→future, undispatched', () => {
+    const ok = plan([verco()], [source({ collectionDate: '2026-07-15' })])
+    expect(ok.actions.some((a) => a.kind === 'reschedule')).toBe(true)
+
+    const disp = plan([verco({ isDispatched: true })], [source({ collectionDate: '2026-07-15' })])
+    expect(disp.actions.some((a) => a.kind === 'reschedule')).toBe(false)
+    expect(disp.skipped.dispatchedReschedule).toBe(1)
+  })
+
+  it('fixes location when it equals the street address, and leaves a correct location alone', () => {
+    const wrong = plan([verco()], [source()]) // location default == address
+    expect(wrong.actions.find((a) => a.kind === 'location')).toMatchObject({ to: 'Front Verge' })
+
+    const correct = plan([verco({ location: 'Side Verge' })], [source()])
+    expect(correct.actions.some((a) => a.kind === 'location')).toBe(false)
+  })
+
+  it('cannot source a location for a phantom (no master row)', () => {
+    const p = plan([verco({ propertyExternalId: 'recOrphan' })], [])
+    expect(p.skipped.phantomNeedsLocation).toBe(1)
+    expect(p.actions).toHaveLength(0)
   })
 })
