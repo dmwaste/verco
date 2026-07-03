@@ -5,15 +5,7 @@ import { effectiveCapacity, indexPoolDates } from '@/lib/capacity/effective-capa
 import { getCurrentAdminClient } from '@/lib/admin/current-client'
 import { getTenantMudPropertyIds } from '@/lib/admin/mud-tenant-scope'
 import { awstWeekRange } from '@/lib/date/awst-week'
-
-// Priority pill colours — mirrors PRIORITY_STYLE in service-tickets-client.tsx
-// so a ticket's priority reads identically on the dashboard and the list page.
-const TICKET_PRIORITY_STYLE: Record<string, { bg: string; text: string; label: string }> = {
-  low: { bg: 'bg-gray-100', text: 'text-gray-600', label: 'Low' },
-  normal: { bg: 'bg-blue-50', text: 'text-blue-700', label: 'Normal' },
-  high: { bg: 'bg-amber-50', text: 'text-amber-700', label: 'High' },
-  urgent: { bg: 'bg-red-50', text: 'text-red-700', label: 'Urgent' },
-}
+import { StatusBadge } from '@/components/status-badge'
 
 export default async function AdminDashboardPage() {
   const supabase = await createClient()
@@ -354,7 +346,7 @@ export default async function AdminDashboardPage() {
                     <span className="shrink-0 text-[12px] font-semibold tabular-nums text-[#293F52]">
                       {format(new Date(d.date + 'T00:00:00'), 'EEE d MMM')}
                     </span>
-                    <span className="truncate text-[11px] text-gray-500">{area.name}</span>
+                    <span className="truncate text-caption text-gray-500">{area.name}</span>
                   </div>
                   {d.is_open ? (
                     <div className="flex shrink-0 items-center gap-1.5">
@@ -364,7 +356,7 @@ export default async function AdminDashboardPage() {
                           style={{ width: `${Math.min(pctBulk, 100)}%` }}
                         />
                       </div>
-                      <span className="w-10 text-right text-[11px] tabular-nums text-gray-500">
+                      <span className="w-10 text-right text-caption tabular-nums text-gray-500">
                         {cap.bulk_units_booked}/{cap.bulk_capacity_limit}
                       </span>
                     </div>
@@ -395,7 +387,7 @@ export default async function AdminDashboardPage() {
               { label: 'Nothing Presented', value: weekNp, color: 'text-[#FF8C42]' },
             ].map((stat) => (
               <div key={stat.label} className="rounded-lg bg-gray-50 px-3.5 py-3">
-                <div className="mb-1 text-[11px] text-gray-500">{stat.label}</div>
+                <div className="mb-1 text-caption text-gray-500">{stat.label}</div>
                 {/* Tone colour only when the count is non-zero — an orange or red
                     zero reads as an alarm for a state where nothing is wrong. */}
                 <div className={`font-[family-name:var(--font-heading)] text-xl font-bold ${stat.value > 0 ? stat.color : 'text-[#293F52]'}`}>
@@ -437,15 +429,8 @@ export default async function AdminDashboardPage() {
                   <div className="truncate text-xs text-gray-500">{ticket.subject}</div>
                 </div>
                 <div className="flex shrink-0 flex-col items-end gap-1">
-                  {(() => {
-                    const ps = TICKET_PRIORITY_STYLE[ticket.priority] ?? TICKET_PRIORITY_STYLE.normal
-                    return (
-                      <span className={`inline-flex items-center whitespace-nowrap rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${ps.bg} ${ps.text}`}>
-                        {ps.label}
-                      </span>
-                    )
-                  })()}
-                  <span className="text-[11px] text-gray-500">
+                  <StatusBadge entity="ticketPriority" status={ticket.priority} />
+                  <span className="text-caption text-gray-500">
                     {formatDistanceToNow(new Date(ticket.created_at), { addSuffix: false })}
                   </span>
                 </div>
@@ -495,7 +480,7 @@ export default async function AdminDashboardPage() {
                   <div className="truncate text-body-sm font-medium text-gray-900">{address}</div>
                   <div className="text-xs text-gray-500">{b.ref} &middot; {area.code}</div>
                 </div>
-                <span className="shrink-0 text-[11px] text-gray-500">
+                <span className="shrink-0 text-caption text-gray-500">
                   {formatDistanceToNow(new Date(b.updated_at), { addSuffix: false })}
                 </span>
               </Link>
@@ -511,7 +496,7 @@ export default async function AdminDashboardPage() {
           <div className="mb-3.5 flex items-center justify-between">
             <h2 className="font-[family-name:var(--font-heading)] text-sm font-semibold text-[#293F52]">
               MUDs Due Soon
-              <span className="ml-2 text-[11px] font-normal text-gray-500">
+              <span className="ml-2 text-caption font-normal text-gray-500">
                 Next 14 days · cadence-based
               </span>
             </h2>
@@ -542,7 +527,7 @@ export default async function AdminDashboardPage() {
                       <div className="truncate text-[13px] font-medium text-[#293F52]">
                         {p.formatted_address ?? p.address}
                       </div>
-                      <div className="mt-0.5 text-[11px] text-gray-500">
+                      <div className="mt-0.5 text-caption text-gray-500">
                         {p.mud_code ?? 'MUD'} · {p.unit_count}u · {r.collection_cadence}
                       </div>
                     </div>
@@ -552,7 +537,7 @@ export default async function AdminDashboardPage() {
                           ? format(new Date(r.next_expected_date + 'T00:00:00'), 'd MMM')
                           : '—'}
                       </div>
-                      <div className="mt-0.5 text-[11px] text-gray-500">
+                      <div className="mt-0.5 text-caption text-gray-500">
                         last {r.last_date
                           ? format(new Date(r.last_date + 'T00:00:00'), 'd MMM yyyy')
                           : 'never'}
@@ -580,11 +565,11 @@ export default async function AdminDashboardPage() {
                           <div className="truncate text-[13px] font-medium text-[#293F52]">
                             {p.formatted_address ?? p.address}
                           </div>
-                          <div className="mt-0.5 text-[11px] text-gray-500">
+                          <div className="mt-0.5 text-caption text-gray-500">
                             {p.mud_code ?? 'MUD'} · {p.unit_count}u · {r.collection_cadence}
                           </div>
                         </div>
-                        <div className="shrink-0 text-[11px] text-amber-600">
+                        <div className="shrink-0 text-caption text-amber-600">
                           Schedule first booking
                         </div>
                       </Link>
