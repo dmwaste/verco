@@ -3,6 +3,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
 import Link from 'next/link'
+import { PageHeader } from '@/components/admin/page-header'
 
 export function ClientsList() {
   const supabase = createClient()
@@ -23,22 +24,17 @@ export function ClientsList() {
   return (
     <>
       {/* Header */}
-      <div className="flex items-center justify-between border-b border-gray-100 bg-white px-7 pb-5 pt-6">
-        <div>
-          <h1 className="font-[family-name:var(--font-heading)] text-xl font-bold text-[#293F52]">
-            Clients
-          </h1>
-          <p className="mt-0.5 text-body-sm text-gray-500">
-            {isLoading ? 'Loading...' : `${clientList.length} client${clientList.length !== 1 ? 's' : ''}`}
-          </p>
-        </div>
+      <PageHeader
+        title="Clients"
+        subtitle={isLoading ? 'Loading...' : `${clientList.length} client${clientList.length !== 1 ? 's' : ''}`}
+      >
         <Link
           href="/admin/clients/new"
           className="inline-flex items-center gap-1.5 rounded-lg bg-[#293F52] px-4 py-2 text-body-sm font-semibold text-white"
         >
           + New Client
         </Link>
-      </div>
+      </PageHeader>
 
       {/* Card grid */}
       <div className="px-7 py-6">

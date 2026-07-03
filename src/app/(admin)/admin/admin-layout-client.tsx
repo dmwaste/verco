@@ -29,7 +29,7 @@ export function AdminLayoutClient({
   children,
 }: AdminLayoutClientProps) {
   return (
-    <div className="flex h-screen flex-col">
+    <div className="admin-surface flex h-screen flex-col">
       {/* Top bar */}
       <div className="flex h-14 shrink-0 items-center gap-4 bg-[#293F52] px-5">
         <div className="flex w-60 shrink-0 items-center gap-2.5">

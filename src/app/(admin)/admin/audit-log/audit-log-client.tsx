@@ -4,6 +4,8 @@ import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { format } from 'date-fns'
 import { fetchAuditLogs } from './actions'
+import { Pagination } from '@/components/admin/pagination'
+import { PageHeader } from '@/components/admin/page-header'
 
 const TABLE_OPTIONS = [
   { value: '', label: 'All Tables' },
@@ -46,7 +48,6 @@ export function AuditLogClient() {
 
   const entries = result?.ok ? result.data : []
   const total = result?.ok ? result.total : 0
-  const totalPages = Math.ceil(total / PAGE_SIZE)
 
   const actionBadge = (a: string) => {
     switch (a) {
@@ -64,14 +65,7 @@ export function AuditLogClient() {
   return (
     <div className="flex h-full flex-col">
       {/* Header */}
-      <div className="border-b border-gray-100 bg-white px-7 pb-5 pt-6">
-        <h1 className="font-[family-name:var(--font-heading)] text-xl font-bold text-[#293F52]">
-          Audit Log
-        </h1>
-        <p className="mt-0.5 text-body-sm text-gray-500">
-          {total} {total === 1 ? 'entry' : 'entries'}
-        </p>
-      </div>
+      <PageHeader title="Audit Log" subtitle={`${total} ${total === 1 ? 'entry' : 'entries'}`} />
 
       {/* Filters */}
       <div className="flex items-center gap-3 bg-white px-7 py-3">
@@ -98,7 +92,7 @@ export function AuditLogClient() {
       {/* Table */}
       <div className="flex-1 px-7 pb-6">
         <div className="overflow-x-auto rounded-xl bg-white shadow-sm">
-          <table className="w-full border-collapse">
+          <table className="w-full border-collapse tabular-nums">
             <thead>
               <tr className="border-b border-gray-100">
                 <th className="px-4 py-3 text-left text-2xs font-semibold uppercase tracking-wider text-gray-400">When</th>
@@ -135,31 +129,7 @@ export function AuditLogClient() {
         </div>
 
         {/* Pagination */}
-        {totalPages > 1 && (
-          <div className="mt-4 flex items-center justify-between">
-            <span className="text-body-sm text-gray-500">
-              Page {page + 1} of {totalPages}
-            </span>
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={() => setPage((p) => Math.max(0, p - 1))}
-                disabled={page === 0}
-                className="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-body-sm font-medium text-gray-700 disabled:opacity-40"
-              >
-                Previous
-              </button>
-              <button
-                type="button"
-                onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
-                disabled={page >= totalPages - 1}
-                className="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-body-sm font-medium text-gray-700 disabled:opacity-40"
-              >
-                Next
-              </button>
-            </div>
-          </div>
-        )}
+        <Pagination page={page} pageSize={PAGE_SIZE} total={total} onPageChange={setPage} />
       </div>
     </div>
   )
@@ -202,7 +172,7 @@ function AuditRow({
           <td colSpan={5} className="px-4 py-3">
             <div className="flex flex-col gap-1 pl-4">
               {entry.changes.map((change, i) => (
-                <div key={i} className="text-[11px] text-gray-600">
+                <div key={i} className="text-caption text-gray-600">
                   <span className="font-medium text-gray-700">{change.field}:</span>{' '}
                   {entry.action === 'DELETE' ? (
                     <span className="text-red-500 line-through">{change.oldValue ?? '—'}</span>

@@ -280,7 +280,7 @@ export function MudEditForm({ property, strataContact, onCancel }: MudEditFormPr
                 setAuthFormJustUploaded(null)
                 if (fileInputRef.current) fileInputRef.current.value = ''
               }}
-              className="ml-2 text-[11px] font-medium text-emerald-600 hover:underline"
+              className="ml-2 text-caption font-medium text-emerald-600 hover:underline"
             >
               Replace
             </button>
@@ -295,7 +295,7 @@ export function MudEditForm({ property, strataContact, onCancel }: MudEditFormPr
             className="block w-full text-[12px] text-gray-500 file:mr-3 file:rounded-lg file:border-0 file:bg-gray-100 file:px-3 file:py-1.5 file:text-[12px] file:font-medium file:text-gray-700"
           />
         )}
-        {isUploading && <p className="mt-2 text-[11px] text-gray-500">Uploading...</p>}
+        {isUploading && <p className="mt-2 text-caption text-gray-500">Uploading...</p>}
       </div>
 
       {error && (

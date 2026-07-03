@@ -108,19 +108,19 @@ export function FieldLayoutClient({
             </span>
           </div>
           <div className="flex items-center gap-3">
-            <span className="rounded-full bg-white/10 px-2.5 py-0.5 text-[11px] font-medium text-[#8FA5B8]">
+            <span className="rounded-full bg-white/10 px-2.5 py-0.5 text-caption font-medium text-[#8FA5B8]">
               {roleLabel}
             </span>
             <SignOutButton
               destination="login"
-              className="text-[11px] font-medium text-[#8FA5B8] transition-colors hover:text-white"
+              className="text-caption font-medium text-[#8FA5B8] transition-colors hover:text-white"
             />
           </div>
         </div>
         <div className="flex items-center justify-between">
           <span className="text-body-sm text-[#C7D3DD]">{today}</span>
           {areaCodes && (
-            <span className="rounded-full bg-[var(--brand-accent)]/15 px-2.5 py-0.5 text-[11px] font-semibold text-[var(--brand-accent)]">
+            <span className="rounded-full bg-[var(--brand-accent)]/15 px-2.5 py-0.5 text-caption font-semibold text-[var(--brand-accent)]">
               {areaCodes}
             </span>
           )}

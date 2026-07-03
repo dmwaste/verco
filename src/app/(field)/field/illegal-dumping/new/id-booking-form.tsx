@@ -277,7 +277,7 @@ export function IdBookingForm({ collectionDates, prefill }: IdBookingFormProps) 
               <div className="absolute left-1/2 top-1/2 size-2.5 -translate-x-1/2 -translate-y-[55%] rotate-45 rounded-full bg-white" />
             </div>
             {/* Coords badge */}
-            <div className="absolute bottom-2 left-2 flex items-center gap-1 rounded-md bg-white/[0.92] px-2 py-1 text-[11px] font-medium text-[var(--brand)]">
+            <div className="absolute bottom-2 left-2 flex items-center gap-1 rounded-md bg-white/[0.92] px-2 py-1 text-caption font-medium text-[var(--brand)]">
               <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" />
                 <circle cx="12" cy="10" r="3" />
@@ -293,7 +293,7 @@ export function IdBookingForm({ collectionDates, prefill }: IdBookingFormProps) 
                 <span className="text-body-sm font-medium text-gray-700">
                   Acquiring GPS location...
                 </span>
-                <span className="text-[11px] text-gray-500">
+                <span className="text-caption text-gray-500">
                   Make sure location services are enabled
                 </span>
               </>
@@ -555,7 +555,7 @@ export function IdBookingForm({ collectionDates, prefill }: IdBookingFormProps) 
               )
             })}
           </div>
-          <div className="text-[11px] text-gray-500">
+          <div className="text-caption text-gray-500">
             Draws from ID capacity bucket
           </div>
         </div>

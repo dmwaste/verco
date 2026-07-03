@@ -565,13 +565,13 @@ export function BookingDetailClient({
                   {booking.id_waste_types.map((w) => (
                     <span
                       key={w}
-                      className="inline-flex rounded-full bg-[#E8EEF2] px-2.5 py-0.5 text-[11px] font-medium text-[#293F52]"
+                      className="inline-flex rounded-full bg-[#E8EEF2] px-2.5 py-0.5 text-caption font-medium text-[#293F52]"
                     >
                       {w}
                     </span>
                   ))}
                   {booking.id_volume && (
-                    <span className="inline-flex rounded-full bg-[#FFF3EA] px-2.5 py-0.5 text-[11px] font-medium text-[#8B4000]">
+                    <span className="inline-flex rounded-full bg-[#FFF3EA] px-2.5 py-0.5 text-caption font-medium text-[#8B4000]">
                       {booking.id_volume}
                     </span>
                   )}
@@ -607,7 +607,7 @@ export function BookingDetailClient({
                     type="button"
                     onClick={() => setEditLocation(opt)}
                     className={cn(
-                      'rounded-full border-[1.5px] px-3 py-1.5 text-[11px] font-medium transition-colors',
+                      'rounded-full border-[1.5px] px-3 py-1.5 text-caption font-medium transition-colors',
                       editLocation === opt
                         ? 'border-[#293F52] bg-[#293F52] text-white'
                         : 'border-gray-200 bg-white text-gray-700 hover:border-gray-300'

@@ -16,6 +16,9 @@ import {
   closureStatus,
 } from '@/lib/collection-dates/closure-status'
 import { awstDateFromUtc } from '@/lib/booking/schedule-transition'
+import { Pagination } from '@/components/admin/pagination'
+import { FilterBar, SearchInput, FilterSelect } from '@/components/admin/filter-bar'
+import { PageHeader } from '@/components/admin/page-header'
 
 const PAGE_SIZE = 50
 
@@ -339,50 +342,40 @@ export function CollectionDatesClient({ clientId, clientSlug, isContractorAdmin 
   return (
     <>
       {/* Header */}
-      <div className="flex items-center justify-between border-b border-gray-100 bg-white px-7 pb-5 pt-6">
-        <div>
-          <h1 className="font-[family-name:var(--font-heading)] text-xl font-bold text-[#293F52]">
-            Collection Dates
-          </h1>
-          <p className="mt-0.5 text-body-sm text-gray-500">
-            {total} date{total !== 1 ? 's' : ''}
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => setShowPast((p) => !p)}
-            className={`rounded-lg border px-3 py-2 text-body-sm font-medium transition-colors ${
-              showPast
-                ? 'border-[#293F52] bg-[#293F52] text-white'
-                : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'
-            }`}
-          >
-            {showPast ? 'Hide past dates' : 'Show past dates'}
-          </button>
-          {isContractorAdmin && (
-            <>
-              <button
-                type="button"
-                onClick={() => { setShowBulkCreate((p) => !p); setShowCreate(false) }}
-                className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-body-sm font-medium text-gray-600 hover:bg-gray-50"
-              >
-                Bulk Create
-              </button>
-              <button
-                type="button"
-                onClick={() => { setShowCreate((p) => !p); setShowBulkCreate(false) }}
-                className="rounded-lg bg-[#00E47C] px-4 py-2 text-body-sm font-semibold text-[#293F52]"
-              >
-                + New Date
-              </button>
-            </>
-          )}
-        </div>
-      </div>
+      <PageHeader title="Collection Dates" subtitle={`${total} date${total !== 1 ? 's' : ''}`}>
+        <button
+          type="button"
+          onClick={() => setShowPast((p) => !p)}
+          className={`rounded-lg border px-3 py-2 text-body-sm font-medium transition-colors ${
+            showPast
+              ? 'border-[#293F52] bg-[#293F52] text-white'
+              : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'
+          }`}
+        >
+          {showPast ? 'Hide past dates' : 'Show past dates'}
+        </button>
+        {isContractorAdmin && (
+          <>
+            <button
+              type="button"
+              onClick={() => { setShowBulkCreate((p) => !p); setShowCreate(false) }}
+              className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-body-sm font-medium text-gray-600 hover:bg-gray-50"
+            >
+              Bulk Create
+            </button>
+            <button
+              type="button"
+              onClick={() => { setShowCreate((p) => !p); setShowBulkCreate(false) }}
+              className="rounded-lg bg-[#00E47C] px-4 py-2 text-body-sm font-semibold text-[#293F52]"
+            >
+              + New Date
+            </button>
+          </>
+        )}
+      </PageHeader>
 
       {/* Filters */}
-      <div className="flex items-center gap-2.5 px-7 py-4">
+      <FilterBar>
         <div className="flex items-center gap-1.5">
           <label htmlFor="filter-from" className="text-xs font-medium text-gray-500">From</label>
           <input
@@ -406,17 +399,16 @@ export function CollectionDatesClient({ clientId, clientSlug, isContractorAdmin 
           />
         </div>
 
-        <select
+        <FilterSelect
           value={filterAreaId}
           onChange={(e) => { setFilterAreaId(e.target.value); setPage(0) }}
           aria-label="Filter by collection area"
-          className="rounded-lg border-[1.5px] border-gray-100 bg-white px-3 py-[7px] text-body-sm text-gray-700"
         >
           <option value="">All Areas</option>
           {(areas ?? []).map((a) => (
             <option key={a.id} value={a.id}>{a.code} — {a.name}</option>
           ))}
-        </select>
+        </FilterSelect>
 
         {(filterFrom || filterTo || filterAreaId) && (
           <button
@@ -427,7 +419,7 @@ export function CollectionDatesClient({ clientId, clientSlug, isContractorAdmin 
             Clear
           </button>
         )}
-      </div>
+      </FilterBar>
 
       {/* Create form */}
       {showCreate && (
@@ -568,7 +560,7 @@ export function CollectionDatesClient({ clientId, clientSlug, isContractorAdmin 
 
       {/* Table */}
       <div className="mx-7 mt-6 overflow-x-auto rounded-xl border border-gray-200 bg-white">
-        <table className="w-full text-left text-sm">
+        <table className="w-full text-left text-sm tabular-nums">
           <thead>
             <tr className="border-b border-gray-100 bg-gray-50 text-xs font-semibold uppercase tracking-wide text-gray-500">
               <th className="px-4 py-3">Date</th>
@@ -711,7 +703,7 @@ export function CollectionDatesClient({ clientId, clientSlug, isContractorAdmin 
                         <div className={`h-1.5 w-16 overflow-hidden rounded-full ${capacityBgColor(cap.bulk_units_booked, cap.bulk_capacity_limit)}`}>
                           <div className={`h-full rounded-full ${capacityColor(cap.bulk_units_booked, cap.bulk_capacity_limit)}`} style={{ width: `${Math.min(100, cap.bulk_capacity_limit > 0 ? (cap.bulk_units_booked / cap.bulk_capacity_limit) * 100 : 0)}%` }} />
                         </div>
-                        <span className="text-[11px] text-gray-500">{cap.bulk_units_booked}/{cap.bulk_capacity_limit}</span>
+                        <span className="text-caption text-gray-500">{cap.bulk_units_booked}/{cap.bulk_capacity_limit}</span>
                         {cap.bulk_is_closed && <span className="rounded bg-red-100 px-1 py-px text-[9px] font-semibold text-red-600">Closed</span>}
                       </div>
                     </td>
@@ -722,7 +714,7 @@ export function CollectionDatesClient({ clientId, clientSlug, isContractorAdmin 
                           <div className={`h-1.5 w-16 overflow-hidden rounded-full ${capacityBgColor(cap.anc_units_booked, cap.anc_capacity_limit)}`}>
                             <div className={`h-full rounded-full ${capacityColor(cap.anc_units_booked, cap.anc_capacity_limit)}`} style={{ width: `${Math.min(100, cap.anc_capacity_limit > 0 ? (cap.anc_units_booked / cap.anc_capacity_limit) * 100 : 0)}%` }} />
                           </div>
-                          <span className="text-[11px] text-gray-500">{cap.anc_units_booked}/{cap.anc_capacity_limit}</span>
+                          <span className="text-caption text-gray-500">{cap.anc_units_booked}/{cap.anc_capacity_limit}</span>
                           {cap.anc_is_closed && <span className="rounded bg-red-100 px-1 py-px text-[9px] font-semibold text-red-600">Closed</span>}
                         </div>
                       </td>
@@ -733,7 +725,7 @@ export function CollectionDatesClient({ clientId, clientSlug, isContractorAdmin 
                         <div className={`h-1.5 w-16 overflow-hidden rounded-full ${capacityBgColor(cap.id_units_booked, cap.id_capacity_limit)}`}>
                           <div className={`h-full rounded-full ${capacityColor(cap.id_units_booked, cap.id_capacity_limit)}`} style={{ width: `${Math.min(100, cap.id_capacity_limit > 0 ? (cap.id_units_booked / cap.id_capacity_limit) * 100 : 0)}%` }} />
                         </div>
-                        <span className="text-[11px] text-gray-500">{cap.id_units_booked}/{cap.id_capacity_limit}</span>
+                        <span className="text-caption text-gray-500">{cap.id_units_booked}/{cap.id_capacity_limit}</span>
                         {cap.id_is_closed && <span className="rounded bg-red-100 px-1 py-px text-[9px] font-semibold text-red-600">Closed</span>}
                       </div>
                     </td>
@@ -767,21 +759,7 @@ export function CollectionDatesClient({ clientId, clientSlug, isContractorAdmin 
       </div>
 
       {/* Pagination */}
-      {total > 0 && (
-        <div className="mx-7 mt-4 flex items-center justify-between text-sm text-gray-500">
-          <span>
-            Showing {page * PAGE_SIZE + 1}&ndash;{Math.min((page + 1) * PAGE_SIZE, total)} of {total}
-          </span>
-          <div className="flex gap-2">
-            <button type="button" onClick={() => setPage((p) => Math.max(0, p - 1))} disabled={page === 0} className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium disabled:opacity-30">
-              Previous
-            </button>
-            <button type="button" onClick={() => setPage((p) => p + 1)} disabled={(page + 1) * PAGE_SIZE >= total} className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium disabled:opacity-30">
-              Next
-            </button>
-          </div>
-        </div>
-      )}
+      <Pagination className="mx-7" page={page} pageSize={PAGE_SIZE} total={total} onPageChange={setPage} />
 
       {/* Audit history dialog */}
       <Dialog.Root open={!!auditDialogId} onOpenChange={() => setAuditDialogId(null)}>

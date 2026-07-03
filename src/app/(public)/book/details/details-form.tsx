@@ -182,7 +182,7 @@ export function DetailsForm({ contactPhone }: { contactPhone: string }) {
               className="h-20 w-full resize-none rounded-[10px] border-[1.5px] border-gray-100 bg-gray-50 px-3.5 py-3 text-sm text-gray-900 outline-none transition-colors placeholder:text-gray-300 focus:border-[var(--brand)] focus:bg-white"
             />
             {notesMissing && (
-              <p className="text-[11px] text-red-500">
+              <p className="text-caption text-red-500">
                 Notes for driver are required when the location is
                 &ldquo;Other&rdquo;.
               </p>

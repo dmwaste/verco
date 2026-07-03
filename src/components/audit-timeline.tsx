@@ -49,17 +49,17 @@ export function AuditTimeline({ entries, maxVisible = 10 }: AuditTimelineProps) 
                     {entry.summary}
                   </div>
                   {entry.actorName && (
-                    <div className="shrink-0 text-[11px] text-gray-500">
+                    <div className="shrink-0 text-caption text-gray-500">
                       {entry.actorName}
                     </div>
                   )}
                   {!entry.actorName && (
-                    <div className="shrink-0 text-[11px] italic text-gray-400">
+                    <div className="shrink-0 text-caption italic text-gray-400">
                       System
                     </div>
                   )}
                 </div>
-                <div className="text-[11px] text-gray-500">
+                <div className="text-caption text-gray-500">
                   {format(new Date(entry.createdAt), 'd MMM yyyy, h:mmaaa')}
                 </div>
 
@@ -67,7 +67,7 @@ export function AuditTimeline({ entries, maxVisible = 10 }: AuditTimelineProps) 
                   <button
                     type="button"
                     onClick={() => toggleExpanded(entry.id)}
-                    className="mt-1 text-[11px] font-medium text-[var(--brand,#293F52)] hover:underline"
+                    className="mt-1 text-caption font-medium text-[var(--brand,#293F52)] hover:underline"
                   >
                     {isExpanded
                       ? 'Hide changes'
@@ -78,7 +78,7 @@ export function AuditTimeline({ entries, maxVisible = 10 }: AuditTimelineProps) 
                 {isExpanded && (
                   <div className="mt-1.5 flex flex-col gap-1 border-l-2 border-gray-100 pl-3">
                     {entry.changes.map((change, i) => (
-                      <div key={i} className="text-[11px] text-gray-600">
+                      <div key={i} className="text-caption text-gray-600">
                         <span className="font-medium text-gray-700">{change.field}:</span>{' '}
                         {entry.action === 'DELETE' ? (
                           <span className="text-red-500 line-through">{change.oldValue ?? '—'}</span>
@@ -105,7 +105,7 @@ export function AuditTimeline({ entries, maxVisible = 10 }: AuditTimelineProps) 
         <button
           type="button"
           onClick={() => setShowAll(true)}
-          className="mt-3 text-[11px] font-medium text-[var(--brand,#293F52)] hover:underline"
+          className="mt-3 text-caption font-medium text-[var(--brand,#293F52)] hover:underline"
         >
           Show {entries.length - maxVisible} more entries
         </button>

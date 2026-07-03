@@ -9,6 +9,10 @@ import { invokeEfWithUserToken } from '@/lib/supabase/invoke-ef-client'
 import { BookingStatusBadge } from '@/components/booking/booking-status-badge'
 import { RefreshRoutesButton } from './refresh-routes-button'
 import { SkeletonRow } from '@/components/ui/skeleton'
+import { PageHeader } from '@/components/admin/page-header'
+import { FilterBar, SearchInput, FilterSelect } from '@/components/admin/filter-bar'
+import { Th } from '@/components/admin/th'
+import { Pagination } from '@/components/admin/pagination'
 import Link from 'next/link'
 import type { Database } from '@/lib/supabase/types'
 
@@ -186,7 +190,6 @@ export function BookingsListClient({ clientId, isContractorAdmin, isContractorUs
 
   const bookings = bookingsData?.bookings ?? []
   const total = bookingsData?.total ?? 0
-  const totalPages = Math.ceil(total / PAGE_SIZE)
 
   function getCollectionDate(booking: typeof bookings[number]): { id: string; date: string } | null {
     const items = booking.booking_item as Array<{ collection_date: { id: string; date: string } }>
@@ -249,97 +252,72 @@ export function BookingsListClient({ clientId, isContractorAdmin, isContractorUs
 
   return (
     <>
-      {/* Page header */}
-      <div className="flex items-center justify-between border-b border-gray-100 bg-white px-7 pb-5 pt-6">
-        <div>
-          <h1 className="font-[family-name:var(--font-heading)] text-xl font-bold text-[#293F52]">
-            Bookings
-          </h1>
-          <p className="mt-0.5 text-body-sm text-gray-500">
-            {total} bookings
-          </p>
-        </div>
-        <div className="flex items-center gap-2.5">
-          {isContractorUser && <RefreshRoutesButton />}
-          {isContractorAdmin && (
-            <button
-              type="button"
-              className="inline-flex items-center gap-1.5 rounded-lg border-[1.5px] border-gray-100 bg-white px-3 py-1.5 text-body-sm font-semibold text-gray-700"
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-              Export CSV
-            </button>
-          )}
-          <Link
-            // F6 (BR-0015): mark admin-created bookings as on-behalf so the
-            // confirm step does NOT pre-fill the staff member's own contact,
-            // forwards the staff JWT to create-booking, and returns to the
-            // admin booking detail. Without this the booking silently attaches
-            // to the admin's contact.
-            href="/book?on_behalf=true"
-            className="inline-flex items-center gap-1.5 rounded-lg bg-[#293F52] px-4 py-2 text-body-sm font-semibold text-white"
+      <PageHeader title="Bookings" subtitle={`${total} bookings`}>
+        {isContractorUser && <RefreshRoutesButton />}
+        {isContractorAdmin && (
+          <button
+            type="button"
+            className="inline-flex items-center gap-1.5 rounded-lg border-[1.5px] border-gray-100 bg-white px-3 py-1.5 text-body-sm font-semibold text-gray-700"
           >
-            + New Booking
-          </Link>
-        </div>
-      </div>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            Export CSV
+          </button>
+        )}
+        <Link
+          // F6 (BR-0015): mark admin-created bookings as on-behalf so the
+          // confirm step does NOT pre-fill the staff member's own contact,
+          // forwards the staff JWT to create-booking, and returns to the
+          // admin booking detail. Without this the booking silently attaches
+          // to the admin's contact.
+          href="/book?on_behalf=true"
+          className="inline-flex items-center gap-1.5 rounded-lg bg-[#293F52] px-4 py-2 text-body-sm font-semibold text-white"
+        >
+          + New Booking
+        </Link>
+      </PageHeader>
 
       {/* Filters */}
-      <div className="flex items-center gap-2.5 px-7 py-4">
-        <div className="flex w-60 items-center gap-2 rounded-lg border-[1.5px] border-gray-100 bg-white px-3 py-[7px]">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#B0B0B0" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-          <input
-            type="text"
-            value={search}
-            onChange={(e) => { setSearch(e.target.value); setPage(0) }}
-            placeholder="Search ref, address, name..."
-            aria-label="Search bookings"
-            className="w-full border-none bg-transparent text-body-sm text-gray-900 outline-none placeholder:text-gray-300"
-          />
-        </div>
+      <FilterBar>
+        <SearchInput
+          value={search}
+          onChange={(value) => { setSearch(value); setPage(0) }}
+          placeholder="Search ref, address, name..."
+          ariaLabel="Search bookings"
+        />
 
-        <select
+        <FilterSelect
           value={statusFilter}
           onChange={(e) => { setStatusFilter(e.target.value); setPage(0) }}
           aria-label="Filter by status"
-          className="rounded-lg border-[1.5px] border-gray-100 bg-white px-3 py-[7px] text-body-sm text-gray-700"
         >
           <option value="">All Statuses</option>
           {STATUS_OPTIONS.map((s) => (
             <option key={s} value={s}>{s}</option>
           ))}
-        </select>
+        </FilterSelect>
 
-        <select
+        <FilterSelect
           value={areaFilter}
           onChange={(e) => { setAreaFilter(e.target.value); setPage(0) }}
           aria-label="Filter by area"
-          className="rounded-lg border-[1.5px] border-gray-100 bg-white px-3 py-[7px] text-body-sm text-gray-700"
         >
           <option value="">All Areas</option>
           {(areas ?? []).map((a) => (
             <option key={a.id} value={a.id}>{a.code}</option>
           ))}
-        </select>
+        </FilterSelect>
 
-        <select
+        <FilterSelect
           value={typeFilter}
           onChange={(e) => { setTypeFilter(e.target.value); setPage(0) }}
           aria-label="Filter by type"
-          className="rounded-lg border-[1.5px] border-gray-100 bg-white px-3 py-[7px] text-body-sm text-gray-700"
         >
           <option value="">All Types</option>
           {TYPE_OPTIONS.map((t) => (
             <option key={t} value={t}>{t}</option>
           ))}
-        </select>
-
-        <div className="flex-1" />
-
-        <span className="text-xs text-gray-500">
-          Showing {page * PAGE_SIZE + 1}&ndash;{Math.min((page + 1) * PAGE_SIZE, total)} of {total}
-        </span>
-      </div>
+        </FilterSelect>
+      </FilterBar>
 
       {payError && (
         <div role="alert" className="mx-7 mb-2 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-body-sm text-red-700">
@@ -351,17 +329,17 @@ export function BookingsListClient({ clientId, isContractorAdmin, isContractorUs
       {/* Table */}
       <div className="flex-1 px-7 pb-6">
         <div className="overflow-x-auto rounded-xl bg-white shadow-sm">
-          <table className="w-full border-collapse">
+          <table className="w-full border-collapse tabular-nums">
             <thead>
               <tr>
-                <th className="border-b border-gray-100 bg-gray-50 px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500">Ref</th>
-                <th className="border-b border-gray-100 bg-gray-50 px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500">Address</th>
-                <th className="border-b border-gray-100 bg-gray-50 px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500">Type</th>
-                <th className="border-b border-gray-100 bg-gray-50 px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500">Services</th>
-                <th className="border-b border-gray-100 bg-gray-50 px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500">Collection Date</th>
-                <th className="border-b border-gray-100 bg-gray-50 px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500">Area</th>
-                <th className="border-b border-gray-100 bg-gray-50 px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500">Status</th>
-                <th className="border-b border-gray-100 bg-gray-50 px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500">Created</th>
+                <Th>Ref</Th>
+                <Th>Address</Th>
+                <Th>Type</Th>
+                <Th>Services</Th>
+                <Th>Collection Date</Th>
+                <Th>Area</Th>
+                <Th>Status</Th>
+                <Th>Created</Th>
               </tr>
             </thead>
             <tbody>
@@ -373,7 +351,7 @@ export function BookingsListClient({ clientId, isContractorAdmin, isContractorUs
                 </>
               )}
               {!isLoading && bookings.length === 0 && (
-                <tr><td colSpan={9} className="px-4 py-8 text-center text-sm text-gray-400">No bookings found</td></tr>
+                <tr><td colSpan={8} className="px-4 py-8 text-center text-sm text-gray-400">No bookings found</td></tr>
               )}
               {bookings.map((booking) => {
                 const collDate = getCollectionDate(booking)
@@ -404,7 +382,7 @@ export function BookingsListClient({ clientId, isContractorAdmin, isContractorUs
                       )}
                     </td>
                     <td className="px-4 py-3">
-                      <span className="inline-flex items-center gap-1 text-[11px] font-medium text-gray-700">
+                      <span className="inline-flex items-center gap-1 text-caption font-medium text-gray-700">
                         <span className={`size-1.5 shrink-0 rounded-full ${TYPE_DOT_COLOR[booking.type] ?? 'bg-gray-400'}`} />
                         {booking.type}
                       </span>
@@ -433,7 +411,7 @@ export function BookingsListClient({ clientId, isContractorAdmin, isContractorUs
                             type="button"
                             onClick={() => handlePayNow(booking.id)}
                             disabled={payingBookingId === booking.id}
-                            className="inline-flex items-center rounded-md border-[1.5px] border-[#00B864] bg-[#E8FDF0] px-2 py-0.5 text-2xs font-semibold text-[#006A38] disabled:opacity-50"
+                            className="inline-flex items-center rounded-md border-[1.5px] border-[#00B864] bg-status-success-bg px-2 py-0.5 text-2xs font-semibold text-status-success disabled:opacity-50"
                           >
                             {payingBookingId === booking.id ? '...' : 'Pay'}
                           </button>
@@ -450,30 +428,7 @@ export function BookingsListClient({ clientId, isContractorAdmin, isContractorUs
           </table>
         </div>
 
-        {/* Pagination */}
-        {totalPages > 1 && (
-          <div className="mt-4 flex items-center justify-center gap-2">
-            <button
-              type="button"
-              onClick={() => setPage((p) => Math.max(0, p - 1))}
-              disabled={page === 0}
-              className="rounded-md border border-gray-100 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 disabled:opacity-40"
-            >
-              Previous
-            </button>
-            <span className="text-xs text-gray-500">
-              Page {page + 1} of {totalPages}
-            </span>
-            <button
-              type="button"
-              onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
-              disabled={page >= totalPages - 1}
-              className="rounded-md border border-gray-100 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 disabled:opacity-40"
-            >
-              Next
-            </button>
-          </div>
-        )}
+        <Pagination page={page} pageSize={PAGE_SIZE} total={total} onPageChange={setPage} />
       </div>
     </>
   )

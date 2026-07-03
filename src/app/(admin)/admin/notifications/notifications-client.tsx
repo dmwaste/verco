@@ -131,15 +131,15 @@ export function NotificationsClient({ clientId }: NotificationsClientProps) {
       {/* Table */}
       <div className="flex-1 px-7 pb-6">
         <div className="overflow-x-auto rounded-xl bg-white shadow-sm">
-          <table className="w-full border-collapse">
+          <table className="w-full border-collapse tabular-nums">
           <thead>
             <tr className="border-b border-gray-100 text-left">
-              <th className="px-4 py-2 text-[11px] font-semibold uppercase tracking-wider text-gray-400">Booking</th>
-              <th className="px-4 py-2 text-[11px] font-semibold uppercase tracking-wider text-gray-400">Type</th>
-              <th className="px-4 py-2 text-[11px] font-semibold uppercase tracking-wider text-gray-400">Recipient</th>
-              <th className="px-4 py-2 text-[11px] font-semibold uppercase tracking-wider text-gray-400">Error</th>
-              <th className="px-4 py-2 text-[11px] font-semibold uppercase tracking-wider text-gray-400">Time</th>
-              <th className="px-4 py-2 text-[11px] font-semibold uppercase tracking-wider text-gray-400"></th>
+              <th className="px-4 py-2 text-caption font-semibold uppercase tracking-wider text-gray-400">Booking</th>
+              <th className="px-4 py-2 text-caption font-semibold uppercase tracking-wider text-gray-400">Type</th>
+              <th className="px-4 py-2 text-caption font-semibold uppercase tracking-wider text-gray-400">Recipient</th>
+              <th className="px-4 py-2 text-caption font-semibold uppercase tracking-wider text-gray-400">Error</th>
+              <th className="px-4 py-2 text-caption font-semibold uppercase tracking-wider text-gray-400">Time</th>
+              <th className="px-4 py-2 text-caption font-semibold uppercase tracking-wider text-gray-400"></th>
             </tr>
           </thead>
           <tbody>

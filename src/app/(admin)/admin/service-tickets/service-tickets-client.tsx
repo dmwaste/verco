@@ -4,10 +4,14 @@ import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { formatDistanceToNow } from 'date-fns'
 import { createClient } from '@/lib/supabase/client'
-import { getStatusStyle } from '@/lib/ui/status-styles'
 import Link from 'next/link'
 import { SkeletonRow } from '@/components/ui/skeleton'
 import { RowActionMenu } from '@/components/admin/row-action-menu'
+import { StatusBadge } from '@/components/status-badge'
+import { PageHeader } from '@/components/admin/page-header'
+import { FilterBar, SearchInput, FilterSelect } from '@/components/admin/filter-bar'
+import { Th } from '@/components/admin/th'
+import { Pagination } from '@/components/admin/pagination'
 import type { Database } from '@/lib/supabase/types'
 
 type TicketStatus = Database['public']['Enums']['ticket_status']
@@ -43,13 +47,6 @@ const CATEGORY_OPTIONS: { value: TicketCategory | ''; label: string }[] = [
   { value: 'other', label: 'Other' },
 ]
 
-
-const PRIORITY_STYLE: Record<TicketPriority, { bg: string; text: string; label: string }> = {
-  low: { bg: 'bg-gray-100', text: 'text-gray-600', label: 'Low' },
-  normal: { bg: 'bg-blue-50', text: 'text-blue-700', label: 'Normal' },
-  high: { bg: 'bg-amber-50', text: 'text-amber-700', label: 'High' },
-  urgent: { bg: 'bg-red-50', text: 'text-red-700', label: 'Urgent' },
-}
 
 const CATEGORY_LABELS: Record<TicketCategory, string> = {
   general: 'General',
@@ -140,56 +137,41 @@ export function ServiceTicketsClient({ clientId }: ServiceTicketsClientProps) {
 
   return (
     <>
-      {/* Header */}
-      <div className="flex items-center justify-between border-b border-gray-100 bg-white px-7 pb-5 pt-6">
-        <div>
-          <h1 className="font-[family-name:var(--font-heading)] text-xl font-bold text-[#293F52]">
-            Service Tickets
-          </h1>
-          <p className="mt-0.5 text-body-sm text-gray-500">
-            {total} ticket{total !== 1 ? 's' : ''}
-          </p>
-        </div>
-      </div>
+      <PageHeader title="Service Tickets" subtitle={`${total} ticket${total !== 1 ? 's' : ''}`} />
 
       {/* Filters */}
-      <div className="flex flex-wrap items-center gap-2.5 px-7 py-4">
-        <div className="flex w-60 items-center gap-2 rounded-lg border-[1.5px] border-gray-100 bg-white px-3 py-[7px]">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#B0B0B0" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-          <input
-            type="text"
-            value={search}
-            onChange={(e) => handleSearchChange(e.target.value)}
-            placeholder="Search by subject..."
-            aria-label="Search service tickets"
-            className="w-full border-none bg-transparent text-body-sm text-gray-900 outline-none placeholder:text-gray-300"
-          />
-        </div>
-        <select value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); setPage(0) }} aria-label="Filter by status" className="rounded-lg border-[1.5px] border-gray-100 bg-white px-3 py-[7px] text-body-sm text-gray-700">
+      <FilterBar>
+        <SearchInput
+          value={search}
+          onChange={handleSearchChange}
+          placeholder="Search by subject..."
+          ariaLabel="Search service tickets"
+        />
+        <FilterSelect value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); setPage(0) }} aria-label="Filter by status">
           {STATUS_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-        </select>
-        <select value={priorityFilter} onChange={(e) => { setPriorityFilter(e.target.value); setPage(0) }} aria-label="Filter by priority" className="rounded-lg border-[1.5px] border-gray-100 bg-white px-3 py-[7px] text-body-sm text-gray-700">
+        </FilterSelect>
+        <FilterSelect value={priorityFilter} onChange={(e) => { setPriorityFilter(e.target.value); setPage(0) }} aria-label="Filter by priority">
           {PRIORITY_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-        </select>
-        <select value={categoryFilter} onChange={(e) => { setCategoryFilter(e.target.value); setPage(0) }} aria-label="Filter by category" className="rounded-lg border-[1.5px] border-gray-100 bg-white px-3 py-[7px] text-body-sm text-gray-700">
+        </FilterSelect>
+        <FilterSelect value={categoryFilter} onChange={(e) => { setCategoryFilter(e.target.value); setPage(0) }} aria-label="Filter by category">
           {CATEGORY_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-        </select>
-      </div>
+        </FilterSelect>
+      </FilterBar>
 
       {/* Table */}
       <div className="mx-7 overflow-x-auto rounded-xl bg-white shadow-sm">
-        <table className="w-full text-left text-sm">
+        <table className="w-full text-left text-sm tabular-nums">
           <thead>
-            <tr className="border-b border-gray-100 bg-gray-50 text-[11px] font-semibold uppercase tracking-wide text-gray-500">
-              <th className="px-4 py-3">Ticket</th>
-              <th className="px-4 py-3">Subject</th>
-              <th className="px-4 py-3">Resident</th>
-              <th className="px-4 py-3">Category</th>
-              <th className="px-4 py-3">Priority</th>
-              <th className="px-4 py-3">Status</th>
-              <th className="px-4 py-3">Assigned</th>
-              <th className="px-4 py-3">Created</th>
-              <th className="px-4 py-3 text-right">Actions</th>
+            <tr>
+              <Th>Ticket</Th>
+              <Th>Subject</Th>
+              <Th>Resident</Th>
+              <Th>Category</Th>
+              <Th>Priority</Th>
+              <Th>Status</Th>
+              <Th>Assigned</Th>
+              <Th>Created</Th>
+              <Th className="text-right">Actions</Th>
             </tr>
           </thead>
           <tbody>
@@ -203,8 +185,6 @@ export function ServiceTicketsClient({ clientId }: ServiceTicketsClientProps) {
               tickets.map((t) => {
                 const contact = t.contact as { full_name: string } | null
                 const assignedProfile = t.assigned_profile as { display_name: string | null } | null
-                const ss = getStatusStyle('ticket', t.status)
-                const ps = PRIORITY_STYLE[t.priority as TicketPriority]
 
                 return (
                   <tr key={t.id} className="border-b border-gray-50 hover:bg-gray-50/50">
@@ -220,19 +200,15 @@ export function ServiceTicketsClient({ clientId }: ServiceTicketsClientProps) {
                     </td>
                     <td className="px-4 py-2.5 text-gray-600">{contact?.full_name ?? '—'}</td>
                     <td className="px-4 py-2.5">
-                      <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-medium text-gray-600">
+                      <span className="rounded-full bg-gray-100 px-2 py-0.5 text-caption font-medium text-gray-600">
                         {CATEGORY_LABELS[t.category as TicketCategory] ?? t.category}
                       </span>
                     </td>
                     <td className="px-4 py-2.5">
-                      <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${ps.bg} ${ps.text}`}>
-                        {ps.label}
-                      </span>
+                      <StatusBadge entity="ticketPriority" status={t.priority} />
                     </td>
                     <td className="px-4 py-2.5">
-                      <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${ss.bg} ${ss.text}`}>
-                        {ss.label}
-                      </span>
+                      <StatusBadge entity="ticket" status={t.status} />
                     </td>
                     <td className="px-4 py-2.5 text-body-sm text-gray-500">
                       {assignedProfile?.display_name ?? '—'}
@@ -257,16 +233,7 @@ export function ServiceTicketsClient({ clientId }: ServiceTicketsClientProps) {
         </table>
       </div>
 
-      {/* Pagination */}
-      {total > 0 && (
-        <div className="mx-7 mt-4 flex items-center justify-between text-sm text-gray-500">
-          <span>Showing {page * PAGE_SIZE + 1}&ndash;{Math.min((page + 1) * PAGE_SIZE, total)} of {total}</span>
-          <div className="flex gap-2">
-            <button type="button" onClick={() => setPage((p) => Math.max(0, p - 1))} disabled={page === 0} className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium disabled:opacity-30">Previous</button>
-            <button type="button" onClick={() => setPage((p) => p + 1)} disabled={(page + 1) * PAGE_SIZE >= total} className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium disabled:opacity-30">Next</button>
-          </div>
-        </div>
-      )}
+      <Pagination className="mx-7" page={page} pageSize={PAGE_SIZE} total={total} onPageChange={setPage} />
     </>
   )
 }

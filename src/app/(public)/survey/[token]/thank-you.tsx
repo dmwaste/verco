@@ -73,7 +73,7 @@ export function ThankYou({ bookingRef, responses }: ThankYouProps) {
         {/* Rating summary */}
         {responses && (
           <div className="mt-7 flex w-full max-w-sm flex-col gap-2.5 rounded-xl bg-gray-50 px-5 py-4">
-            <div className="mb-0.5 text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+            <div className="mb-0.5 text-caption font-semibold uppercase tracking-wide text-gray-500">
               Your ratings
             </div>
             <div className="flex items-center justify-between">
@@ -122,7 +122,7 @@ export function ThankYou({ bookingRef, responses }: ThankYouProps) {
           Booking {bookingRef}
         </div>
 
-        <div className="mt-6 flex items-center justify-center gap-1.5 text-[11px] text-gray-300">
+        <div className="mt-6 flex items-center justify-center gap-1.5 text-caption text-gray-300">
           Powered by
           <span className="rounded bg-gray-100 px-1.5 py-px font-[family-name:var(--font-heading)] text-2xs font-bold text-gray-500">
             VERCO

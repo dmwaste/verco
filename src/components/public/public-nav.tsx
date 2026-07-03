@@ -76,7 +76,7 @@ export function PublicNav({
             />
           )}
           {showPoweredBy && (
-            <div className="ml-4 flex items-center gap-1.5 border-l border-white/10 pl-4 text-[11px] md:text-body-sm text-[#8FA5B8]">
+            <div className="ml-4 flex items-center gap-1.5 border-l border-white/10 pl-4 text-caption md:text-body-sm text-[#8FA5B8]">
               Powered by
               <span className="rounded border border-white/[0.12] bg-white/[0.08] px-1.5 py-0.5 font-[family-name:var(--font-heading)] text-2xs md:text-xs font-semibold text-[#C7D3DD]">
                 VERCO

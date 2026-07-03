@@ -88,7 +88,7 @@ export function DonutChart({
             />
             <span className="min-w-0 flex-1 truncate text-gray-600">{s.label}</span>
             <span className="font-semibold text-gray-700">{s.value}</span>
-            <span className="w-12 text-right text-[11px] text-gray-500">
+            <span className="w-12 text-right text-caption text-gray-500">
               {((s.value / total) * 100).toFixed(0)}%
             </span>
           </li>

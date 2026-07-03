@@ -5,6 +5,9 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
 import { SkeletonRow } from '@/components/ui/skeleton'
 import { AllocationFormModal } from './allocation-form-modal'
+import { Th } from '@/components/admin/th'
+import { PageHeader } from '@/components/admin/page-header'
+import { FilterBar, SearchInput, FilterSelect } from '@/components/admin/filter-bar'
 
 interface AllocationOverrideRow {
   id: string
@@ -103,64 +106,49 @@ export function AllocationsList({ clientId, canManage }: AllocationsListProps) {
   return (
     <>
       {/* Header */}
-      <div className="flex items-center justify-between border-b border-gray-100 bg-white px-7 pb-5 pt-6">
-        <div>
-          <h1 className="font-[family-name:var(--font-heading)] text-xl font-bold text-[#293F52]">
-            Allocation Overrides
-          </h1>
-          <p className="mt-0.5 text-body-sm text-gray-500">
-            {total} override{total !== 1 ? 's' : ''}
-          </p>
-        </div>
-      </div>
+      <PageHeader title="Allocation Overrides" subtitle={`${total} override${total !== 1 ? 's' : ''}`} />
 
       {/* Filters */}
-      <div className="flex items-center gap-2.5 px-7 py-4">
-        <div className="flex w-60 items-center gap-2 rounded-lg border-[1.5px] border-gray-100 bg-white px-3 py-[7px]">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#B0B0B0" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-          <input
-            type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search address, service, reason..."
-            aria-label="Search allocation overrides"
-            className="w-full border-none bg-transparent text-body-sm text-gray-900 outline-none placeholder:text-gray-300"
-          />
-        </div>
+      <FilterBar>
+        <SearchInput
+          value={search}
+          onChange={setSearch}
+          placeholder="Search address, service, reason..."
+          ariaLabel="Search allocation overrides"
+        />
 
-        <select
+        <FilterSelect
           value={filterFyId}
           onChange={(e) => setFilterFyId(e.target.value)}
           aria-label="Filter by financial year"
-          className="rounded-lg border-[1.5px] border-gray-100 bg-white px-3 py-[7px] text-body-sm text-gray-700"
         >
           <option value="">All Financial Years</option>
           {financialYears?.map((fy) => (
             <option key={fy.id} value={fy.id}>{fy.label}</option>
           ))}
-        </select>
+        </FilterSelect>
 
         <div className="flex-1" />
         <span className="text-xs text-gray-500">
           {total} result{total !== 1 ? 's' : ''}
         </span>
-      </div>
+      </FilterBar>
 
       {/* Table */}
       <div className="flex-1 px-7 pb-6">
         <div className="overflow-x-auto rounded-xl bg-white shadow-sm">
-          <table className="w-full border-collapse">
+          <table className="w-full border-collapse tabular-nums">
             <thead>
               <tr>
-                <th className="border-b border-gray-100 bg-gray-50 px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500">Property</th>
-                <th className="border-b border-gray-100 bg-gray-50 px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500">Service</th>
-                <th className="border-b border-gray-100 bg-gray-50 px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500">FY</th>
-                <th className="border-b border-gray-100 bg-gray-50 px-4 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wide text-gray-500">Extra</th>
-                <th className="border-b border-gray-100 bg-gray-50 px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500">Reason</th>
-                <th className="border-b border-gray-100 bg-gray-50 px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500">Created By</th>
-                <th className="border-b border-gray-100 bg-gray-50 px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500">Date</th>
+                <Th>Property</Th>
+                <Th>Service</Th>
+                <Th>FY</Th>
+                <Th className="text-right">Extra</Th>
+                <Th>Reason</Th>
+                <Th>Created By</Th>
+                <Th>Date</Th>
                 {canManage && (
-                  <th className="border-b border-gray-100 bg-gray-50 px-4 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wide text-gray-500">Actions</th>
+                  <Th className="text-right">Actions</Th>
                 )}
               </tr>
             </thead>
@@ -178,13 +166,13 @@ export function AllocationsList({ clientId, canManage }: AllocationsListProps) {
                   </td>
                   <td className="px-4 py-3 text-body-sm text-gray-700">
                     {override.service?.name}
-                    <span className="ml-1 text-[11px] text-gray-400">({override.service?.category?.name})</span>
+                    <span className="ml-1 text-caption text-gray-400">({override.service?.category?.name})</span>
                   </td>
                   <td className="px-4 py-3 text-body-sm text-gray-700">
                     {override.financial_year?.label}
                   </td>
                   <td className="px-4 py-3 text-right">
-                    <span className={`inline-flex items-center justify-center rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${override.extra_allocations < 0 ? 'bg-red-50 text-red-600' : 'bg-gray-100 text-[#293F52]'}`}>
+                    <span className={`inline-flex items-center justify-center rounded-full px-2.5 py-0.5 text-caption font-semibold ${override.extra_allocations < 0 ? 'bg-red-50 text-red-600' : 'bg-gray-100 text-[#293F52]'}`}>
                       {override.extra_allocations > 0 ? '+' : ''}{override.extra_allocations}
                     </span>
                   </td>

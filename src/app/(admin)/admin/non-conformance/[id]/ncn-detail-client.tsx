@@ -135,7 +135,7 @@ export function NcnDetailClient({ ncn, availableDates, auditLogs }: NcnDetailCli
             </h1>
             <p className="mt-0.5 text-body-sm text-gray-500">{address}</p>
           </div>
-          <span className={`inline-flex items-center whitespace-nowrap rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${ss.bg} ${ss.text}`}>
+          <span className={`inline-flex items-center whitespace-nowrap rounded-full px-2.5 py-0.5 text-caption font-semibold ${ss.bg} ${ss.text}`}>
             {ncn.status}
           </span>
         </div>
@@ -317,7 +317,7 @@ export function NcnDetailClient({ ncn, availableDates, auditLogs }: NcnDetailCli
                 className="size-4 rounded border-gray-300 text-[#293F52] focus:ring-[#293F52]"
               />
               <span className="text-body-sm font-medium text-gray-900">Contractor fault</span>
-              <span className="text-[11px] text-gray-400">
+              <span className="text-caption text-gray-400">
                 — allocations restored, paid items refunded if not rebooked
               </span>
             </label>

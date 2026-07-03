@@ -68,13 +68,13 @@ function IdDetail({ booking }: { booking: Booking }) {
           {wasteTypes.map((w) => (
             <span
               key={w}
-              className="inline-flex rounded-full bg-[#E8EEF2] px-2.5 py-0.5 text-[11px] font-medium text-[var(--brand)]"
+              className="inline-flex rounded-full bg-[#E8EEF2] px-2.5 py-0.5 text-caption font-medium text-[var(--brand)]"
             >
               {w}
             </span>
           ))}
           {volume && (
-            <span className="inline-flex rounded-full bg-[#FFF3EA] px-2.5 py-0.5 text-[11px] font-medium text-[#8B4000]">
+            <span className="inline-flex rounded-full bg-[#FFF3EA] px-2.5 py-0.5 text-caption font-medium text-[#8B4000]">
               {volume}
             </span>
           )}
@@ -172,7 +172,7 @@ export function RunSheetClient({ bookings }: RunSheetClientProps) {
             <span className="font-[family-name:var(--font-heading)] text-body-sm font-semibold text-[var(--brand)]">
               Remaining
             </span>
-            <span className="text-[11px] text-gray-500">
+            <span className="text-caption text-gray-500">
               {remaining.length} bookings
             </span>
           </div>
@@ -222,7 +222,7 @@ export function RunSheetClient({ bookings }: RunSheetClientProps) {
                     {booking.booking_item.map((item) => (
                       <span
                         key={item.id}
-                        className={`inline-flex rounded-full px-2.5 py-0.5 text-[11px] font-medium ${
+                        className={`inline-flex rounded-full px-2.5 py-0.5 text-caption font-medium ${
                           item.is_extra
                             ? 'bg-[#FFF3EA] text-[#8B4000]'
                             : 'bg-[#E8EEF2] text-[var(--brand)]'
@@ -256,7 +256,7 @@ export function RunSheetClient({ bookings }: RunSheetClientProps) {
                         href={mapsUrl}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="flex items-center gap-1 text-[11px] font-medium text-[var(--brand-accent-dark)]"
+                        className="flex items-center gap-1 text-caption font-medium text-[var(--brand-accent-dark)]"
                       >
                         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                           <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/>
@@ -313,7 +313,7 @@ export function RunSheetClient({ bookings }: RunSheetClientProps) {
             <span className="font-[family-name:var(--font-heading)] text-body-sm font-semibold text-[var(--brand)]">
               Completed
             </span>
-            <span className="text-[11px] text-gray-500">
+            <span className="text-caption text-gray-500">
               {completed.length} bookings
             </span>
           </div>
@@ -350,7 +350,7 @@ export function RunSheetClient({ bookings }: RunSheetClientProps) {
                     {booking.booking_item.map((item) => (
                       <span
                         key={item.id}
-                        className="inline-flex rounded-full bg-[#E8EEF2] px-2.5 py-0.5 text-[11px] font-medium text-[var(--brand)]"
+                        className="inline-flex rounded-full bg-[#E8EEF2] px-2.5 py-0.5 text-caption font-medium text-[var(--brand)]"
                       >
                         {(item.service as { name: string }).name} &times;{' '}
                         {item.no_services}

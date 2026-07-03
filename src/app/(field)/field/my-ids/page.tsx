@@ -62,7 +62,7 @@ export default async function MyIdsPage() {
             Illegal-dumping collections you&apos;ve raised
           </p>
         </div>
-        <span className="rounded-full bg-[#E8EEF2] px-2.5 py-0.5 text-[11px] font-semibold text-[var(--brand)]">
+        <span className="rounded-full bg-[#E8EEF2] px-2.5 py-0.5 text-caption font-semibold text-[var(--brand)]">
           {ids.length}
         </span>
       </div>
@@ -96,13 +96,13 @@ export default async function MyIdsPage() {
                 {b.id_waste_types.map((w) => (
                   <span
                     key={w}
-                    className="inline-flex rounded-full bg-[#E8EEF2] px-2.5 py-0.5 text-[11px] font-medium text-[var(--brand)]"
+                    className="inline-flex rounded-full bg-[#E8EEF2] px-2.5 py-0.5 text-caption font-medium text-[var(--brand)]"
                   >
                     {w}
                   </span>
                 ))}
                 {b.id_volume && (
-                  <span className="inline-flex rounded-full bg-[#FFF3EA] px-2.5 py-0.5 text-[11px] font-medium text-[#8B4000]">
+                  <span className="inline-flex rounded-full bg-[#FFF3EA] px-2.5 py-0.5 text-caption font-medium text-[#8B4000]">
                     {b.id_volume}
                   </span>
                 )}

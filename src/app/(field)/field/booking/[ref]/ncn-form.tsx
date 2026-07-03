@@ -126,7 +126,7 @@ export function NcnForm({ bookingId, bookingRef, address }: NcnFormProps) {
                 type="button"
                 onClick={() => setReason(r)}
                 className={cn(
-                  'rounded-lg border-[1.5px] px-2.5 py-2 text-center text-[11px] font-medium transition-colors',
+                  'rounded-lg border-[1.5px] px-2.5 py-2 text-center text-caption font-medium transition-colors',
                   reason === r
                     ? 'border-[#E53E3E] bg-[#FFF0F0] text-[#E53E3E]'
                     : 'border-gray-100 bg-white text-gray-700'

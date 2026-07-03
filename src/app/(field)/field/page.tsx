@@ -70,7 +70,7 @@ export default async function RunPickerPage() {
         <span className="font-[family-name:var(--font-heading)] text-body-sm font-semibold text-[var(--brand)]">
           Today&apos;s Runs
         </span>
-        <span className="text-[11px] text-gray-500">
+        <span className="text-caption text-gray-500">
           {runs.length} {runs.length === 1 ? 'run' : 'runs'}
         </span>
       </div>
@@ -94,7 +94,7 @@ export default async function RunPickerPage() {
                   {[run.driverName, ...run.clientNames].filter(Boolean).join(' · ')}
                 </div>
               </div>
-              <span className="rounded-full bg-[#E8EEF2] px-2.5 py-0.5 text-[11px] font-semibold text-[var(--brand)]">
+              <span className="rounded-full bg-[#E8EEF2] px-2.5 py-0.5 text-caption font-semibold text-[var(--brand)]">
                 {run.done}/{run.total}
               </span>
             </div>
@@ -111,14 +111,14 @@ export default async function RunPickerPage() {
                 ([stream, count]) => (
                   <span
                     key={stream}
-                    className="inline-flex rounded-full bg-gray-50 px-2.5 py-0.5 text-[11px] font-medium text-gray-700"
+                    className="inline-flex rounded-full bg-gray-50 px-2.5 py-0.5 text-caption font-medium text-gray-700"
                   >
                     {STREAM_LABEL[stream]} {count}
                   </span>
                 ),
               )}
               {!run.sequenced && (
-                <span className="inline-flex rounded-full bg-[#FFF3EA] px-2.5 py-0.5 text-[11px] font-semibold text-[#8B4000]">
+                <span className="inline-flex rounded-full bg-[#FFF3EA] px-2.5 py-0.5 text-caption font-semibold text-[#8B4000]">
                   Route not planned yet
                 </span>
               )}

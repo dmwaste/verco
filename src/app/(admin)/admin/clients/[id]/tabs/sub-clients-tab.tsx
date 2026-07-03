@@ -118,7 +118,7 @@ export function SubClientsTab({ client, subClients: initialSubClients }: { clien
       </div>
 
       <div className="overflow-x-auto rounded-xl bg-white shadow-sm">
-        <table className="w-full border-collapse">
+        <table className="w-full border-collapse tabular-nums">
           <thead>
             <tr className="border-b border-gray-100">
               <th className="px-4 py-3 text-left text-2xs font-semibold uppercase tracking-wider text-gray-400">Name</th>

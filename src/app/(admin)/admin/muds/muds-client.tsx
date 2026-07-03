@@ -7,6 +7,10 @@ import { createClient } from '@/lib/supabase/client'
 import { buildSearchOrFilter } from '@/lib/search/or-filter'
 import { SkeletonRow } from '@/components/ui/skeleton'
 import { RowActionMenu } from '@/components/admin/row-action-menu'
+import { Th } from '@/components/admin/th'
+import { Pagination } from '@/components/admin/pagination'
+import { PageHeader } from '@/components/admin/page-header'
+import { FilterBar, SearchInput, FilterSelect } from '@/components/admin/filter-bar'
 
 const PAGE_SIZE = 50
 
@@ -167,23 +171,17 @@ export function MudsClient({ clientId, isContractorAdmin }: MudsClientProps) {
   return (
     <>
       {/* Header */}
-      <div className="flex items-center justify-between border-b border-gray-100 bg-white px-7 pb-5 pt-6">
-        <div>
-          <h1 className="font-[family-name:var(--font-heading)] text-xl font-bold text-[#293F52]">
-            Multi-Unit Dwellings
-          </h1>
-          <p className="mt-0.5 text-body-sm text-gray-500">
-            {total} MUD{total !== 1 ? 's' : ''}
-            {isContractorAdmin ? ' — manage from the Properties page to convert a residential property into a MUD.' : ''}
-          </p>
-        </div>
+      <PageHeader
+        title="Multi-Unit Dwellings"
+        subtitle={`${total} MUD${total !== 1 ? 's' : ''}${isContractorAdmin ? ' — manage from the Properties page to convert a residential property into a MUD.' : ''}`}
+      >
         <Link
           href="/admin/properties?mud=true"
           className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-body-sm font-medium text-gray-600 hover:bg-gray-50"
         >
           All Properties &rarr;
         </Link>
-      </div>
+      </PageHeader>
 
       {/* Status counts strip */}
       <div className="mx-7 mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -201,57 +199,50 @@ export function MudsClient({ clientId, isContractorAdmin }: MudsClientProps) {
       </div>
 
       {/* Filters */}
-      <div className="flex flex-wrap items-center gap-2.5 px-7 py-4">
-        <div className="flex w-60 items-center gap-2 rounded-lg border-[1.5px] border-gray-100 bg-white px-3 py-[7px]">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#B0B0B0" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-          <input
-            type="text"
-            value={search}
-            onChange={(e) => handleSearchChange(e.target.value)}
-            placeholder="Search by address or MUD code..."
-            aria-label="Search MUDs"
-            className="w-full border-none bg-transparent text-body-sm text-gray-900 outline-none placeholder:text-gray-300"
-          />
-        </div>
-        <select
+      <FilterBar>
+        <SearchInput
+          value={search}
+          onChange={handleSearchChange}
+          placeholder="Search by address or MUD code..."
+          ariaLabel="Search MUDs"
+        />
+        <FilterSelect
           value={areaFilter}
           onChange={(e) => { setAreaFilter(e.target.value); setPage(0) }}
           aria-label="Filter by area"
-          className="rounded-lg border-[1.5px] border-gray-100 bg-white px-3 py-[7px] text-body-sm text-gray-700"
         >
           <option value="">All areas</option>
           {(areas ?? []).map((a) => (
             <option key={a.id} value={a.id}>{a.code} — {a.name}</option>
           ))}
-        </select>
-        <select
+        </FilterSelect>
+        <FilterSelect
           value={statusFilter}
           onChange={(e) => { setStatusFilter(e.target.value as typeof statusFilter); setPage(0) }}
           aria-label="Filter by onboarding status"
-          className="rounded-lg border-[1.5px] border-gray-100 bg-white px-3 py-[7px] text-body-sm text-gray-700"
         >
           <option value="">All statuses</option>
           {ONBOARDING_STATUSES.map((s) => (
             <option key={s} value={s}>{s}</option>
           ))}
           <option value="unset">Not Set</option>
-        </select>
-      </div>
+        </FilterSelect>
+      </FilterBar>
 
       {/* Table */}
       <div className="mx-7 overflow-x-auto rounded-xl bg-white shadow-sm">
-        <table className="w-full text-left text-sm">
+        <table className="w-full text-left text-sm tabular-nums">
           <thead>
-            <tr className="border-b border-gray-100 bg-gray-50 text-[11px] font-semibold uppercase tracking-wide text-gray-500">
-              <th className="px-4 py-3">Address</th>
-              <th className="px-4 py-3">Area</th>
-              <th className="px-4 py-3">MUD Code</th>
-              <th className="px-4 py-3 text-right">Units</th>
-              <th className="px-4 py-3">Status</th>
-              <th className="px-4 py-3">Strata Contact</th>
-              <th className="px-4 py-3">Cadence</th>
-              <th className="px-4 py-3">Auth form</th>
-              <th className="px-4 py-3 text-right">Actions</th>
+            <tr>
+              <Th>Address</Th>
+              <Th>Area</Th>
+              <Th>MUD Code</Th>
+              <Th className="text-right">Units</Th>
+              <Th>Status</Th>
+              <Th>Strata Contact</Th>
+              <Th>Cadence</Th>
+              <Th>Auth form</Th>
+              <Th className="text-right">Actions</Th>
             </tr>
           </thead>
           <tbody>
@@ -329,31 +320,7 @@ export function MudsClient({ clientId, isContractorAdmin }: MudsClientProps) {
       </div>
 
       {/* Pagination */}
-      {total > 0 && (
-        <div className="mx-7 mt-4 flex items-center justify-between text-sm text-gray-500">
-          <span>
-            Showing {page * PAGE_SIZE + 1}&ndash;{Math.min((page + 1) * PAGE_SIZE, total)} of {total}
-          </span>
-          <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={() => setPage((p) => Math.max(0, p - 1))}
-              disabled={page === 0}
-              className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium disabled:opacity-30"
-            >
-              Previous
-            </button>
-            <button
-              type="button"
-              onClick={() => setPage((p) => p + 1)}
-              disabled={(page + 1) * PAGE_SIZE >= total}
-              className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium disabled:opacity-30"
-            >
-              Next
-            </button>
-          </div>
-        </div>
-      )}
+      <Pagination className="mx-7" page={page} pageSize={PAGE_SIZE} total={total} onPageChange={setPage} />
     </>
   )
 }

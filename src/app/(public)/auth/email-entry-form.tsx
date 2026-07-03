@@ -64,7 +64,7 @@ export function EmailEntryForm() {
           }`}
         />
         {error && (
-          <p className="flex items-center gap-1 text-[11px] text-red-500">
+          <p className="flex items-center gap-1 text-caption text-red-500">
             <svg
               width="13"
               height="13"
@@ -107,7 +107,7 @@ export function EmailEntryForm() {
         )}
       </VercoButton>
 
-      <div className="flex items-start gap-2 rounded-lg bg-gray-50 p-2.5 text-[11px] leading-snug text-gray-500">
+      <div className="flex items-start gap-2 rounded-lg bg-gray-50 p-2.5 text-caption leading-snug text-gray-500">
         <svg
           width="14"
           height="14"

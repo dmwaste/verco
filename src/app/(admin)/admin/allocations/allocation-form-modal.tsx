@@ -194,7 +194,7 @@ export function AllocationFormModal({ open, onOpenChange, onSave, propertyId, pr
   const inputClass =
     'w-full rounded-[10px] border-[1.5px] border-gray-100 bg-gray-50 px-3.5 py-3 text-body text-gray-900 outline-none placeholder:text-gray-300 focus:border-[var(--brand)] focus:bg-white'
   const labelClass = 'mb-1 block text-xs font-medium text-gray-700'
-  const errorClass = 'mt-1 text-[11px] text-red-500'
+  const errorClass = 'mt-1 text-caption text-red-500'
 
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
@@ -272,7 +272,7 @@ export function AllocationFormModal({ open, onOpenChange, onSave, propertyId, pr
                   {errors.extra_allocations && (
                     <p className={errorClass}>{errors.extra_allocations}</p>
                   )}
-                  <p className="mt-1 text-[11px] text-gray-400">
+                  <p className="mt-1 text-caption text-gray-400">
                     Adjusts this service&apos;s allocation for the financial year. A negative value reduces the effective allocation below the base.
                   </p>
                 </div>
