@@ -12,14 +12,21 @@
  *      while ADMIN_SUBDOMAIN_ENFORCED=false — old URLs still serve)
  *   3. User's first accessible active client (sane default for first visit)
  *
- * Defence-in-depth: every candidate ID is re-queried via the authenticated
- * client, so RLS scopes to `accessible_client_ids()`. A tampered cookie
- * pointing at a client the user doesn't have access to silently falls
- * through to step 3.
+ * Security: the `client` table is public-SELECT (RLS `USING (is_active = true)`
+ * for the unauthenticated /book flow), so a re-query filtered only by
+ * `is_active` validates ANY active client id — it does NOT scope to the
+ * caller. Both functions therefore filter explicitly to
+ * `accessible_client_ids()` (a SECURITY DEFINER helper: contractor users get
+ * every client under their contractor, client-tier users get only their own).
+ * A tampered cookie / forged x-client-id pointing at a client the user can't
+ * access is not in that set, so it falls through to the accessible default
+ * (step 3) rather than scoping the admin surface into another tenant.
  */
 
 import { cookies, headers } from 'next/headers'
 import { createClient } from '@/lib/supabase/server'
+import type { SupabaseClient } from '@supabase/supabase-js'
+import type { Database } from '@/lib/supabase/types'
 
 export const CURRENT_ADMIN_CLIENT_COOKIE = 'verco_admin_client'
 
@@ -36,6 +43,19 @@ export interface AccessibleAdminClient {
   name: string
 }
 
+/**
+ * The client ids the current user may administer, per `accessible_client_ids()`.
+ * Fails closed (empty array) on error or no active role — callers must treat
+ * an empty set as "no accessible clients", never as "unfiltered".
+ */
+async function getAccessibleClientIds(
+  supabase: SupabaseClient<Database>,
+): Promise<string[]> {
+  const { data, error } = await supabase.rpc('accessible_client_ids')
+  if (error || !data) return []
+  return data
+}
+
 export async function getCurrentAdminClient(): Promise<CurrentAdminClient | null> {
   const cookieStore = await cookies()
   const headerStore = await headers()
@@ -46,49 +66,42 @@ export async function getCurrentAdminClient(): Promise<CurrentAdminClient | null
 
   const supabase = await createClient()
 
-  if (candidateId) {
-    const { data } = await supabase
-      .from('client')
-      .select('id, slug, name, contractor_id')
-      .eq('id', candidateId)
-      .eq('is_active', true)
-      .maybeSingle()
+  const accessibleIds = await getAccessibleClientIds(supabase)
+  if (accessibleIds.length === 0) return null
 
-    if (data) {
-      return {
-        id: data.id,
-        slug: data.slug,
-        name: data.name,
-        contractorId: data.contractor_id,
-      }
-    }
-  }
-
-  // No cookie + no header (or invalid id): default to the user's first
-  // accessible active client. RLS will scope this to clients the user can see.
-  const { data: first } = await supabase
+  // Only accessible clients — the candidate id is honoured only if it is in
+  // this set, so a tampered cookie can't scope into another tenant.
+  const { data: clients } = await supabase
     .from('client')
     .select('id, slug, name, contractor_id')
+    .in('id', accessibleIds)
     .eq('is_active', true)
     .order('name', { ascending: true })
-    .limit(1)
-    .maybeSingle()
 
-  if (!first) return null
+  const list = clients ?? []
+
+  const chosen =
+    (candidateId ? list.find((c) => c.id === candidateId) : undefined) ?? list[0]
+  if (!chosen) return null
 
   return {
-    id: first.id,
-    slug: first.slug,
-    name: first.name,
-    contractorId: first.contractor_id,
+    id: chosen.id,
+    slug: chosen.slug,
+    name: chosen.name,
+    contractorId: chosen.contractor_id,
   }
 }
 
 export async function getAccessibleAdminClients(): Promise<AccessibleAdminClient[]> {
   const supabase = await createClient()
+
+  const accessibleIds = await getAccessibleClientIds(supabase)
+  if (accessibleIds.length === 0) return []
+
   const { data } = await supabase
     .from('client')
     .select('id, slug, name')
+    .in('id', accessibleIds)
     .eq('is_active', true)
     .order('name', { ascending: true })
 
