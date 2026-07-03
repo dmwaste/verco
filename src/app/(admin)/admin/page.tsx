@@ -91,7 +91,6 @@ export default async function AdminDashboardPage() {
     upcomingDatesResult,
     openTicketsResult,
     weekDatesResult,
-    ancServicesResult,
     mudRemindersResult,
   ] = await Promise.all([
     completedQuery,
@@ -116,10 +115,6 @@ export default async function AdminDashboardPage() {
       .limit(60),
     openTicketsQuery,
     weekDatesQuery,
-    // Ancillary service names (category "anc") — drives the allocation legend so it
-    // always reflects the real current services and never silently zeroes on a
-    // rename (service is public-SELECT / global; not tenant-specific).
-    supabase.from('service').select('name, category!inner(code)').eq('category.code', 'anc'),
     // MUD reminders: Registered MUDs with next_expected_date <= 14 days from today
     // (or NULL — for new MUDs that haven't had a booking yet, surfacing them
     // gives admins a chance to schedule the first one).
@@ -164,63 +159,6 @@ export default async function AdminDashboardPage() {
     else if (status === 'Non-conformance') weekNcn++
     else if (status === 'Nothing Presented') weekNp++
   }
-
-  // FY collection totals — aggregate booking items for the current FY. Scope to the
-  // active client via the booking embed (booking_item has no client_id). Keyed off
-  // category.code + service.waste_stream (stable) rather than display names, which
-  // drift on rename — e.g. "General"/"Green" → "Bulk Waste"/"Green Waste" silently
-  // zeroed the old bar.
-  let fyItemsQuery = fy
-    ? supabase
-        .from('booking_item')
-        .select('no_services, service!inner(name, waste_stream, category!inner(code)), booking!inner(fy_id, status, client_id)')
-        .eq('booking.fy_id', fy.id)
-        .not('booking.status', 'in', '("Cancelled","Pending Payment")')
-    : null
-  if (fyItemsQuery && clientId) {
-    fyItemsQuery = fyItemsQuery.eq('booking.client_id', clientId)
-  }
-  const { data: fyItems } = fyItemsQuery ? await fyItemsQuery : { data: null }
-
-  // Collection (category "bulk"): split Bulk (general stream) vs Green.
-  // Ancillary (category "anc"): split by service name (the 3 types share a stream).
-  let bulkWasteCount = 0
-  let greenWasteCount = 0
-  const ancByService = new Map<string, number>()
-  for (const item of fyItems ?? []) {
-    const s = item.service as unknown as {
-      name: string
-      waste_stream: string
-      category: { code: string }
-    }
-    const n = item.no_services
-    if (s.category.code === 'bulk') {
-      if (s.waste_stream === 'green') greenWasteCount += n
-      else bulkWasteCount += n
-    } else if (s.category.code === 'anc') {
-      ancByService.set(s.name, (ancByService.get(s.name) ?? 0) + n)
-    }
-  }
-  const collectionTotal = bulkWasteCount + greenWasteCount
-  const ancTotal = [...ancByService.values()].reduce((sum, n) => sum + n, 0)
-
-  // Legend for the Ancillary card: the real current anc services (alphabetical),
-  // each with its FY count. Fixed colours for the known three; a stable fallback
-  // palette keeps any newly-added service visible.
-  const ANC_COLORS: Record<string, string> = {
-    Mattress: '#8FA5B8',
-    'E-Waste': '#FF8C42',
-    Whitegoods: '#3A5A73',
-  }
-  const ANC_FALLBACK = ['#6B8299', '#B0763A', '#26506B', '#93A7B8']
-  const ancServices = (ancServicesResult.data ?? [])
-    .map((s) => s.name)
-    .sort()
-    .map((name, i) => ({
-      name,
-      count: ancByService.get(name) ?? 0,
-      color: ANC_COLORS[name] ?? ANC_FALLBACK[i % ANC_FALLBACK.length],
-    }))
 
   const upcomingDates = upcomingDatesResult.data ?? []
   const openTickets = openTicketsResult.data ?? []
@@ -570,67 +508,6 @@ export default async function AdminDashboardPage() {
           )}
         </div>
 
-        {/* FY collection totals */}
-        <div className="rounded-xl bg-white p-5 shadow-sm">
-          <div className="mb-3.5 font-[family-name:var(--font-heading)] text-sm font-semibold text-[#293F52]">
-            {fy?.label ?? 'FY'} Collections
-            <span className="ml-2 text-[11px] font-normal text-gray-400">FY to date</span>
-          </div>
-          <div className="flex flex-col gap-5">
-            {/* Collection — Bulk + Green */}
-            <div>
-              <div className="mb-2 flex items-baseline justify-between">
-                <span className="text-body-sm font-semibold text-[#293F52]">Collection</span>
-                <span className="text-[11px] text-gray-500">{collectionTotal} collections</span>
-              </div>
-              <div className="flex h-3.5 overflow-hidden rounded-full bg-gray-100">
-                <div className="h-full bg-[#00E47C]" style={{ width: `${collectionTotal > 0 ? (bulkWasteCount / collectionTotal) * 100 : 0}%` }} title={`Bulk: ${bulkWasteCount}`} />
-                <div className="h-full bg-[#00B864]" style={{ width: `${collectionTotal > 0 ? (greenWasteCount / collectionTotal) * 100 : 0}%` }} title={`Green: ${greenWasteCount}`} />
-              </div>
-              <div className="mt-2 flex gap-4">
-                <div className="flex items-center gap-1.5">
-                  <div className="size-2.5 shrink-0 rounded-sm bg-[#00E47C]" />
-                  <span className="text-[11px] text-gray-700">Bulk</span>
-                  <span className="text-[11px] text-gray-500">{bulkWasteCount}</span>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <div className="size-2.5 shrink-0 rounded-sm bg-[#00B864]" />
-                  <span className="text-[11px] text-gray-700">Green</span>
-                  <span className="text-[11px] text-gray-500">{greenWasteCount}</span>
-                </div>
-              </div>
-            </div>
-
-            <div className="h-px bg-gray-100" />
-
-            {/* Ancillary — service-type breakdown */}
-            <div>
-              <div className="mb-2 flex items-baseline justify-between">
-                <span className="text-body-sm font-semibold text-[#293F52]">Ancillary</span>
-                <span className="text-[11px] text-gray-500">{ancTotal} collections</span>
-              </div>
-              <div className="flex h-3.5 overflow-hidden rounded-full bg-gray-100">
-                {ancServices.map((s) => (
-                  <div
-                    key={s.name}
-                    className="h-full"
-                    style={{ width: `${ancTotal > 0 ? (s.count / ancTotal) * 100 : 0}%`, backgroundColor: s.color }}
-                    title={`${s.name}: ${s.count}`}
-                  />
-                ))}
-              </div>
-              <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1.5">
-                {ancServices.map((s) => (
-                  <div key={s.name} className="flex items-center gap-1.5">
-                    <div className="size-2.5 shrink-0 rounded-sm" style={{ backgroundColor: s.color }} />
-                    <span className="text-[11px] text-gray-700">{s.name}</span>
-                    <span className="text-[11px] text-gray-500">{s.count}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        </div>
       </div>
     </>
   )
