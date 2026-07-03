@@ -275,7 +275,7 @@ export default async function AdminDashboardPage() {
         <div className="flex items-center gap-2.5">
           <Link
             href="/book?on_behalf=true"
-            className="inline-flex items-center gap-1.5 rounded-lg bg-[#293F52] px-4 py-2 text-body-sm font-semibold text-white"
+            className="inline-flex items-center gap-1.5 rounded-lg bg-[#293F52] px-4 py-2 text-body-sm font-semibold text-white transition-colors hover:bg-[#1e3040] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#293F52]/40"
           >
             + New Booking
           </Link>
@@ -338,7 +338,7 @@ export default async function AdminDashboardPage() {
             <h2 className="font-[family-name:var(--font-heading)] text-sm font-semibold text-[#293F52]">
               Upcoming Collection Dates
             </h2>
-            <Link href="/admin/collection-dates" className="text-xs font-medium text-[#00B864]">View all &rarr;</Link>
+            <Link href="/admin/collection-dates" className="text-xs font-medium text-[#00B864] hover:underline">View all &rarr;</Link>
           </div>
           <div className="-mr-1 max-h-80 space-y-0.5 overflow-y-auto pr-1">
             {upcomingDates.map((d: UpcomingDate) => {
@@ -412,7 +412,7 @@ export default async function AdminDashboardPage() {
             <h2 className="font-[family-name:var(--font-heading)] text-sm font-semibold text-[#293F52]">
               Open Service Tickets
             </h2>
-            <Link href="/admin/service-tickets" className="text-xs font-medium text-[#00B864]">View all &rarr;</Link>
+            <Link href="/admin/service-tickets" className="text-xs font-medium text-[#00B864] hover:underline">View all &rarr;</Link>
           </div>
           {openTickets.map((ticket) => {
             const contact = ticket.contact as unknown as { full_name: string }
@@ -423,7 +423,11 @@ export default async function AdminDashboardPage() {
               .toUpperCase()
               .slice(0, 2)
             return (
-              <div key={ticket.id} className="flex items-center gap-3 border-b border-gray-100 py-2.5 last:border-b-0 last:pb-0">
+              <Link
+                key={ticket.id}
+                href={`/admin/service-tickets/${ticket.id}`}
+                className="flex items-center gap-3 border-b border-gray-100 py-2.5 last:border-b-0 last:pb-0 hover:bg-gray-50"
+              >
                 <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-[#E8EEF2] text-xs font-semibold text-[#293F52]">
                   {initials}
                 </div>
@@ -444,7 +448,7 @@ export default async function AdminDashboardPage() {
                     {formatDistanceToNow(new Date(ticket.created_at), { addSuffix: false })}
                   </span>
                 </div>
-              </div>
+              </Link>
             )
           })}
           {openTickets.length === 0 && (
@@ -461,8 +465,8 @@ export default async function AdminDashboardPage() {
               Open NCNs &amp; NPs
             </h2>
             <span className="flex items-center gap-3">
-              <Link href="/admin/non-conformance" className="text-xs font-medium text-[#00B864]">NCNs &rarr;</Link>
-              <Link href="/admin/nothing-presented" className="text-xs font-medium text-[#00B864]">NPs &rarr;</Link>
+              <Link href="/admin/non-conformance" className="text-xs font-medium text-[#00B864] hover:underline">NCNs &rarr;</Link>
+              <Link href="/admin/nothing-presented" className="text-xs font-medium text-[#00B864] hover:underline">NPs &rarr;</Link>
             </span>
           </div>
           {openExceptionBookings.map((b) => {
@@ -512,7 +516,7 @@ export default async function AdminDashboardPage() {
             </h2>
             <Link
               href="/admin/properties?mud=mud"
-              className="text-xs font-medium text-[#00B864]"
+              className="text-xs font-medium text-[#00B864] hover:underline"
             >
               All MUDs &rarr;
             </Link>
