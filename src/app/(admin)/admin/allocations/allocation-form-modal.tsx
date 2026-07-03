@@ -12,11 +12,29 @@ interface AllocationFormModalProps {
   onSave: () => void
   propertyId: string
   propertyAddress: string
+  /**
+   * When provided, the modal opens in "edit existing override" mode: the
+   * service is locked and the form pre-fills from this row. Omit for the
+   * add flow (service chosen in the modal, targeting the current FY).
+   */
+  editOverride?: {
+    id: string
+    service_id: string
+    fy_id: string
+    fy_label?: string
+    extra_allocations: number
+    reason: string
+  }
 }
 
-export function AllocationFormModal({ open, onOpenChange, onSave, propertyId, propertyAddress }: AllocationFormModalProps) {
+export function AllocationFormModal({ open, onOpenChange, onSave, propertyId, propertyAddress, editOverride }: AllocationFormModalProps) {
   const supabase = createClient()
+  const isEdit = !!editOverride
   const [userId, setUserId] = useState<string | null>(null)
+  // Existing override row for the current (property, service, FY) combination.
+  // Set → submit UPDATEs it; null → submit INSERTs a new row. Drives the
+  // "one canonical row, no stacking" rule (VER-304).
+  const [existingRowId, setExistingRowId] = useState<string | null>(null)
   const [formData, setFormData] = useState({
     service_id: '',
     extra_allocations: '',
@@ -61,52 +79,111 @@ export function AllocationFormModal({ open, onOpenChange, onSave, propertyId, pr
     },
   })
 
-  // Reset form when modal opens
+  // Effective financial year: an edited row keeps its own FY (may be a past
+  // FY visible in the list); the add flow always targets the current FY.
+  const effectiveFyId = editOverride?.fy_id ?? currentFy?.id ?? null
+  const effectiveFyLabel = editOverride?.fy_label ?? currentFy?.label ?? 'Loading...'
+
+  // Reset / pre-fill the form when the modal opens.
   useEffect(() => {
-    if (open) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional modal-reset on `open` prop transition; the extra render is desired
+    if (!open) return
+    /* eslint-disable react-hooks/set-state-in-effect -- intentional (pre)fill on `open` prop transition; the extra render is desired */
+    if (editOverride) {
+      setFormData({
+        service_id: editOverride.service_id,
+        extra_allocations: String(editOverride.extra_allocations),
+        reason: editOverride.reason,
+      })
+      setExistingRowId(editOverride.id)
+    } else {
       setFormData({ service_id: '', extra_allocations: '', reason: '' })
-      setErrors({})
+      setExistingRowId(null)
     }
-  }, [open])
+    setErrors({})
+    /* eslint-enable react-hooks/set-state-in-effect */
+  }, [open, editOverride])
+
+  // Add flow only: when the chosen service already has an override for the
+  // current FY, switch to update-mode and pre-fill it (no duplicate rows).
+  const { data: existingForService } = useQuery({
+    queryKey: ['allocation-override-existing', propertyId, formData.service_id, effectiveFyId],
+    enabled: open && !isEdit && !!formData.service_id && !!effectiveFyId,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from('allocation_override')
+        .select('id, extra_allocations, reason')
+        .eq('property_id', propertyId)
+        .eq('service_id', formData.service_id)
+        .eq('fy_id', effectiveFyId as string)
+        .maybeSingle()
+      return data
+    },
+  })
+
+  useEffect(() => {
+    if (isEdit) return
+    /* eslint-disable react-hooks/set-state-in-effect -- keyed on the resolved lookup; pre-fills when an override already exists for the picked service */
+    if (existingForService) {
+      setExistingRowId(existingForService.id)
+      setFormData((prev) => ({
+        ...prev,
+        extra_allocations: String(existingForService.extra_allocations),
+        reason: existingForService.reason,
+      }))
+    } else {
+      setExistingRowId(null)
+    }
+    /* eslint-enable react-hooks/set-state-in-effect */
+  }, [existingForService, isEdit])
 
   // Validate form
   const validateForm = (): boolean => {
     const newErrors: Record<string, string> = {}
 
     if (!formData.service_id) newErrors.service_id = 'Service is required'
-    if (!formData.extra_allocations) newErrors.extra_allocations = 'Extra allocations is required'
-    if (isNaN(Number(formData.extra_allocations)) || Number(formData.extra_allocations) < 1) {
-      newErrors.extra_allocations = 'Must be a positive whole number'
+    const n = Number(formData.extra_allocations)
+    if (formData.extra_allocations.trim() === '' || !Number.isInteger(n)) {
+      newErrors.extra_allocations = 'Enter a whole number'
+    } else if (n < -999 || n > 999) {
+      newErrors.extra_allocations = 'Must be between -999 and 999'
     }
     if (!formData.reason.trim()) newErrors.reason = 'Reason is required'
-    if (!currentFy) newErrors.fy = 'No current financial year found'
+    if (!effectiveFyId) newErrors.fy = 'No financial year found'
 
     setErrors(newErrors)
     return Object.keys(newErrors).length === 0
   }
 
-  // Create mutation
+  // Save mutation — UPDATE the canonical row when one exists (preserving
+  // created_by as the original creator; the audit trigger records the editor),
+  // otherwise INSERT a new one.
   const saveMutation = useMutation({
     mutationFn: async () => {
       if (!validateForm()) throw new Error('Form validation failed')
       if (!userId) throw new Error('User session not found. Please refresh the page.')
-      if (!currentFy) throw new Error('No current financial year found.')
+      if (!effectiveFyId) throw new Error('No financial year found.')
 
-      const payload = {
-        property_id: propertyId,
-        service_id: formData.service_id,
-        fy_id: currentFy.id,
-        extra_allocations: Number(formData.extra_allocations),
-        reason: formData.reason,
-        created_by: userId,
+      const value = Number(formData.extra_allocations)
+
+      if (existingRowId) {
+        const { error } = await supabase
+          .from('allocation_override')
+          .update({ extra_allocations: value, reason: formData.reason })
+          .eq('id', existingRowId)
+        if (error) throw error
+      } else {
+        const { error } = await supabase
+          .from('allocation_override')
+          .insert({
+            property_id: propertyId,
+            service_id: formData.service_id,
+            fy_id: effectiveFyId,
+            extra_allocations: value,
+            reason: formData.reason,
+            created_by: userId,
+          })
+        if (error) throw error
       }
-
-      const { error } = await supabase
-        .from('allocation_override')
-        .insert(payload)
-
-      if (error) throw error
     },
     onSuccess: () => {
       onSave()
@@ -128,7 +205,7 @@ export function AllocationFormModal({ open, onOpenChange, onSave, propertyId, pr
             {/* Header */}
             <div className="flex items-center justify-between border-b border-gray-100 px-6 py-4">
               <Dialog.Title className="font-[family-name:var(--font-heading)] text-lg font-bold text-[var(--brand)]">
-                Add Extra Allocations
+                Adjust Allocation
               </Dialog.Title>
               <Dialog.Close className="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
@@ -150,7 +227,7 @@ export function AllocationFormModal({ open, onOpenChange, onSave, propertyId, pr
                 <div>
                   <label className={labelClass}>Financial Year</label>
                   <p className="rounded-[10px] border-[1.5px] border-gray-100 bg-gray-100 px-3.5 py-3 text-body text-gray-700">
-                    {currentFy?.label ?? 'Loading...'}
+                    {effectiveFyLabel}
                   </p>
                   {errors.fy && <p className={errorClass}>{errors.fy}</p>}
                 </div>
@@ -163,7 +240,8 @@ export function AllocationFormModal({ open, onOpenChange, onSave, propertyId, pr
                   <select
                     value={formData.service_id}
                     onChange={(e) => setFormData({ ...formData, service_id: e.target.value })}
-                    className={inputClass}
+                    disabled={isEdit}
+                    className={`${inputClass} disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-gray-500`}
                   >
                     <option value="">Select a service</option>
                     {services?.map((s) => {
@@ -178,24 +256,24 @@ export function AllocationFormModal({ open, onOpenChange, onSave, propertyId, pr
                   {errors.service_id && <p className={errorClass}>{errors.service_id}</p>}
                 </div>
 
-                {/* Extra Allocations */}
+                {/* Adjustment */}
                 <div>
                   <label className={labelClass}>
-                    Extra Allocations<span className="ml-0.5 text-red-500">*</span>
+                    Adjustment (positive to add, negative to reduce)<span className="ml-0.5 text-red-500">*</span>
                   </label>
                   <input
                     type="number"
-                    min="1"
+                    step="1"
                     value={formData.extra_allocations}
                     onChange={(e) => setFormData({ ...formData, extra_allocations: e.target.value })}
-                    placeholder="1"
+                    placeholder="e.g. 1 or -1"
                     className={inputClass}
                   />
                   {errors.extra_allocations && (
                     <p className={errorClass}>{errors.extra_allocations}</p>
                   )}
                   <p className="mt-1 text-[11px] text-gray-400">
-                    How many extra allocations to add for this service?
+                    Adjusts this service&apos;s allocation for the financial year. A negative value reduces the effective allocation below the base.
                   </p>
                 </div>
 
@@ -239,7 +317,7 @@ export function AllocationFormModal({ open, onOpenChange, onSave, propertyId, pr
                 onClick={() => saveMutation.mutate()}
                 disabled={saveMutation.isPending}
               >
-                {saveMutation.isPending ? 'Saving...' : 'Create'}
+                {saveMutation.isPending ? 'Saving...' : existingRowId ? 'Update' : 'Create'}
               </VercoButton>
             </div>
           </div>

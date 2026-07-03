@@ -98,6 +98,8 @@ interface PropertyDetailClientProps {
     booking: { property_id: string | null; fy_id: string; status: string }
   }>
   auditLogs: ResolvedAuditEntry[]
+  /** Contractor tier + client-admin — gates the "Add Allocation" button. */
+  canManageAllocations: boolean
 }
 
 /* ------------------------------------------------------------------ */
@@ -202,6 +204,7 @@ export function PropertyDetailClient({
   nextExpected,
   authFormSignedUrl,
   auditLogs,
+  canManageAllocations,
 }: PropertyDetailClientProps) {
   const queryClient = useQueryClient()
   const [showAllocationModal, setShowAllocationModal] = useState(false)
@@ -286,12 +289,14 @@ export function PropertyDetailClient({
           <div className="px-5 pt-4">
             <SectionHeading
               action={
-                <button
-                  onClick={() => setShowAllocationModal(true)}
-                  className="rounded-lg border border-gray-200 px-3 py-1.5 text-body-sm font-medium text-[#293F52] hover:bg-gray-50"
-                >
-                  Add Allocation
-                </button>
+                canManageAllocations ? (
+                  <button
+                    onClick={() => setShowAllocationModal(true)}
+                    className="rounded-lg border border-gray-200 px-3 py-1.5 text-body-sm font-medium text-[#293F52] hover:bg-gray-50"
+                  >
+                    Add Allocation
+                  </button>
+                ) : undefined
               }
             >
               Allocations &mdash; {fy.label}
@@ -644,8 +649,8 @@ export function PropertyDetailClient({
                           </span>
                         </td>
                         <td className="px-5 py-3">
-                          <span className="inline-flex items-center rounded-full bg-emerald-50 px-2.5 py-0.5 text-[11px] font-semibold text-emerald-700">
-                            +{o.extra_allocations}
+                          <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${o.extra_allocations < 0 ? 'bg-red-50 text-red-600' : 'bg-emerald-50 text-emerald-700'}`}>
+                            {o.extra_allocations > 0 ? '+' : ''}{o.extra_allocations}
                           </span>
                         </td>
                         <td className="px-5 py-3 text-body-sm text-gray-700">

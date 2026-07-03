@@ -36,6 +36,8 @@ export interface OrOrderInput {
   date: string // YYYY-MM-DD
   duration: number // minutes
   priority: 'L' | 'M' | 'H' | 'C'
+  /** Required vehicle-feature codes — router only assigns to a matching vehicle. */
+  vehicleFeatures?: string[]
   notes?: string
   location: {
     address?: string
@@ -134,6 +136,7 @@ export async function createOrUpdateOrders(
         date: o.date,
         duration: o.duration,
         priority: o.priority,
+        vehicleFeatures: o.vehicleFeatures ?? [],
         notes: o.notes,
         location: o.location,
       })),

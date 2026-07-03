@@ -9,6 +9,7 @@ import {
   STOP_DURATION_MINUTES,
   STREAM_PRIORITY,
   STREAM_SUFFIX,
+  vehicleFeaturesForStream,
   type StopItem,
   type StopStatus,
 } from '@/lib/stops/stops'
@@ -46,6 +47,23 @@ describe('stream constants', () => {
   })
 })
 
+describe('vehicleFeaturesForStream — OptimoRoute routing constraint', () => {
+  it('maps each waste stream to its account vehicle-feature code', () => {
+    expect(vehicleFeaturesForStream('general')).toEqual(['BLK'])
+    expect(vehicleFeaturesForStream('green')).toEqual(['GRN'])
+    expect(vehicleFeaturesForStream('ancillary')).toEqual(['ANC'])
+  })
+
+  it('general maps to the BLK feature, not the GEN order suffix', () => {
+    expect(vehicleFeaturesForStream('general')).toEqual(['BLK'])
+    expect(STREAM_SUFFIX.general).toBe('GEN')
+  })
+
+  it('illegal_dumping is bulk-truck work — also requires BLK', () => {
+    expect(vehicleFeaturesForStream('illegal_dumping')).toEqual(['BLK'])
+  })
+})
+
 describe('groupItemsByStream', () => {
   it('splits a mixed booking into one group per stream', () => {
     const groups = groupItemsByStream([
@@ -64,14 +82,13 @@ describe('groupItemsByStream', () => {
   })
 })
 
-describe('buildServicesSummary / buildOrderNotes', () => {
+describe('buildServicesSummary', () => {
   it('summarises name + qty per item', () => {
     const summary = buildServicesSummary([item('General', 'general', 2), item('Green', 'green')])
     expect(summary).toEqual([
       { name: 'General', qty: 2 },
       { name: 'Green', qty: 1 },
     ])
-    expect(buildOrderNotes(summary)).toBe('General x2, Green x1')
   })
 
   it('is deterministic regardless of input order (push EF diffs summaries)', () => {
@@ -80,9 +97,44 @@ describe('buildServicesSummary / buildOrderNotes', () => {
     expect(a).toEqual(b)
     expect(a.map((s) => s.name)).toEqual(['Mattress', 'Whitegoods'])
   })
+})
 
-  it('empty summary renders empty notes', () => {
+describe('buildOrderNotes — structured OptimoRoute notes block', () => {
+  const summary = [
+    { name: 'General', qty: 2 },
+    { name: 'Green', qty: 1 },
+  ]
+
+  it('labels the services line', () => {
+    expect(buildOrderNotes(summary)).toBe('Services: General x2, Green x1')
+  })
+
+  it('stacks Services / Location / Notes as labelled lines', () => {
+    expect(buildOrderNotes(summary, 'Front Verge', 'Side street of the property')).toBe(
+      'Services: General x2, Green x1\nLocation: Front Verge\nNotes: Side street of the property',
+    )
+  })
+
+  it('omits the Location and Notes lines when blank', () => {
+    expect(buildOrderNotes(summary, null, null)).toBe('Services: General x2, Green x1')
+    expect(buildOrderNotes(summary, '', '   ')).toBe('Services: General x2, Green x1')
+  })
+
+  it('omits the Services line when the summary is empty', () => {
+    expect(buildOrderNotes([], 'Driveway', 'Behind the gate')).toBe(
+      'Location: Driveway\nNotes: Behind the gate',
+    )
+  })
+
+  it('trims surrounding whitespace on location and notes', () => {
+    expect(buildOrderNotes([], '  Side Verge  ', '  leave at kerb  ')).toBe(
+      'Location: Side Verge\nNotes: leave at kerb',
+    )
+  })
+
+  it('renders empty notes for a fully empty stop', () => {
     expect(buildOrderNotes([])).toBe('')
+    expect(buildOrderNotes([], null, null)).toBe('')
   })
 })
 

@@ -52,6 +52,25 @@ export const STREAM_PRIORITY: Record<WasteStream, 'H' | 'M'> = {
   illegal_dumping: 'M',
 }
 
+/**
+ * Required OptimoRoute vehicle feature per stream — a HARD routing constraint
+ * (the engine only assigns an order to a vehicle carrying the feature), unlike
+ * STREAM_PRIORITY which merely orders stops within a route. Codes match the
+ * account's Vehicle features. Bulk-truck streams (general + illegal_dumping)
+ * both require BLK — note general → BLK, deliberately NOT the GEN order-suffix.
+ */
+export const STREAM_VEHICLE_FEATURE: Record<WasteStream, string> = {
+  general: 'BLK',
+  green: 'GRN',
+  ancillary: 'ANC',
+  illegal_dumping: 'BLK',
+}
+
+/** Required vehicle-feature codes for a stop's stream. */
+export function vehicleFeaturesForStream(stream: WasteStream): string[] {
+  return [STREAM_VEHICLE_FEATURE[stream]]
+}
+
 /** Planning duration per stop, minutes. Flat v1 value across streams. */
 export const STOP_DURATION_MINUTES = 5
 
@@ -108,9 +127,34 @@ export function buildServicesSummary(items: StopItem[]): ServiceSummaryEntry[] {
     .sort((a, b) => a.name.localeCompare(b.name))
 }
 
-/** Human-readable order notes, e.g. "General x2, Mattress x1". Never PII. */
-export function buildOrderNotes(summary: ServiceSummaryEntry[]): string {
-  return summary.map((s) => `${s.name} x${s.qty}`).join(', ')
+/**
+ * Structured OptimoRoute order notes — a labelled block the crew reads in the
+ * driver app / order detail, e.g.
+ *
+ *   Services: E-Waste x1, Mattress x2
+ *   Location: Front Verge
+ *   Notes: Will be on the side street of the property
+ *
+ * Each line is omitted when its source is empty (a bare bulk stop is just
+ * "Services: Bulk Waste x1"). location = booking.location (waste placement),
+ * driverNotes = booking.notes (resident instructions for the crew).
+ */
+export function buildOrderNotes(
+  summary: ServiceSummaryEntry[],
+  location?: string | null,
+  driverNotes?: string | null,
+): string {
+  const lines: string[] = []
+  if (summary.length > 0) {
+    lines.push(`Services: ${summary.map((s) => `${s.name} x${s.qty}`).join(', ')}`)
+  }
+  if (location && location.trim() !== '') {
+    lines.push(`Location: ${location.trim()}`)
+  }
+  if (driverNotes && driverNotes.trim() !== '') {
+    lines.push(`Notes: ${driverNotes.trim()}`)
+  }
+  return lines.join('\n')
 }
 
 /**

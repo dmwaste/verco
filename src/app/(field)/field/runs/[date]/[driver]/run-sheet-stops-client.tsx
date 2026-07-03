@@ -19,6 +19,8 @@ export interface RunStop {
   latitude: number | null
   longitude: number | null
   services_summary: ServiceSummaryEntry[]
+  waste_location: string | null
+  driver_notes: string | null
   stop_sequence: number | null
   scheduled_at: string | null
   driver_serial: string | null
@@ -120,6 +122,23 @@ function StopCard({ stop, error, isPending, onComplete }: StopCardProps) {
           </span>
         ))}
       </div>
+
+      {(stop.waste_location || stop.driver_notes) && (
+        <div className="flex flex-col gap-1 text-xs">
+          {stop.waste_location && (
+            <div className="flex items-baseline gap-1.5">
+              <span className="shrink-0 font-semibold text-[var(--brand)]">Location:</span>
+              <span className="min-w-0 break-words text-gray-600">{stop.waste_location}</span>
+            </div>
+          )}
+          {stop.driver_notes && (
+            <div className="flex items-baseline gap-1.5">
+              <span className="shrink-0 font-semibold text-[var(--brand)]">Notes:</span>
+              <span className="min-w-0 break-words text-gray-600">{stop.driver_notes}</span>
+            </div>
+          )}
+        </div>
+      )}
 
       {error && (
         <div className="flex items-center justify-between gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">

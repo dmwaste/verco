@@ -31,9 +31,11 @@ interface ModalProperty {
 interface PropertiesClientProps {
   clientId: string
   isContractorAdmin: boolean
+  /** Contractor tier + client-admin — gates the "Add Allocations" row action. */
+  canManageAllocations: boolean
 }
 
-export function PropertiesClient({ clientId, isContractorAdmin }: PropertiesClientProps) {
+export function PropertiesClient({ clientId, isContractorAdmin, canManageAllocations }: PropertiesClientProps) {
   const supabase = createClient()
   const queryClient = useQueryClient()
 
@@ -642,13 +644,13 @@ export function PropertiesClient({ clientId, isContractorAdmin }: PropertiesClie
                       <RowActionMenu
                         ariaLabel="Property actions"
                         actions={[
-                          {
+                          ...(canManageAllocations ? [{
                             label: 'Add Allocations',
                             onSelect: () => {
                               setOverridePropertyId(p.id)
                               setOverridePropertyAddress(p.formatted_address ?? p.address)
                             },
-                          },
+                          }] : []),
                           {
                             label: p.is_mud ? 'Set Residential' : 'Set MUD',
                             onSelect: () => {
