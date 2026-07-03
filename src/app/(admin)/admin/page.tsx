@@ -282,9 +282,10 @@ export default async function AdminDashboardPage() {
         </div>
       </div>
 
-      {/* Stat cards */}
+      {/* Stat cards — each links to its drill-down page (the numbers are
+          summaries of queues staff act on, not decoration). */}
       <div className="grid grid-cols-4 gap-4 px-7 pt-5">
-        <div className="rounded-xl bg-white p-5 shadow-sm">
+        <Link href="/admin/bookings" className="block rounded-xl bg-white p-5 shadow-sm transition-shadow hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#293F52]/40">
           <div className="mb-2.5 flex size-9 items-center justify-center rounded-[10px] bg-[#E8FDF0] text-[#00B864]">
             <svg width="20" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/></svg>
           </div>
@@ -292,9 +293,9 @@ export default async function AdminDashboardPage() {
           <div className="font-[family-name:var(--font-heading)] text-display font-bold text-[#293F52]">
             {bookingsThisWeek}
           </div>
-        </div>
+        </Link>
 
-        <div className="rounded-xl bg-white p-5 shadow-sm">
+        <Link href="/admin/bookings?status=Completed" className="block rounded-xl bg-white p-5 shadow-sm transition-shadow hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#293F52]/40">
           <div className="mb-2.5 flex size-9 items-center justify-center rounded-[10px] bg-[#E8EEF2] text-[#293F52]">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
           </div>
@@ -303,9 +304,9 @@ export default async function AdminDashboardPage() {
             {completedResult.count ?? 0}
           </div>
           <div className="mt-1 text-xs text-gray-500">FY total to date</div>
-        </div>
+        </Link>
 
-        <div className="rounded-xl bg-white p-5 shadow-sm">
+        <Link href="/admin/non-conformance" className="block rounded-xl bg-white p-5 shadow-sm transition-shadow hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#293F52]/40">
           <div className="mb-2.5 flex size-9 items-center justify-center rounded-[10px] bg-[#FFF3EA] text-[#FF8C42]">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
           </div>
@@ -316,9 +317,9 @@ export default async function AdminDashboardPage() {
           <div className={`mt-1 text-xs ${openExceptions > 0 ? 'text-[#E53E3E]' : 'text-gray-500'}`}>
             {ncnResult.count ?? 0} NCN &middot; {npResult.count ?? 0} NP
           </div>
-        </div>
+        </Link>
 
-        <div className="rounded-xl bg-white p-5 shadow-sm">
+        <Link href="/admin/service-tickets" className="block rounded-xl bg-white p-5 shadow-sm transition-shadow hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#293F52]/40">
           <div className="mb-2.5 flex size-9 items-center justify-center rounded-[10px] bg-[#FFF0F0] text-[#E53E3E]">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
           </div>
@@ -326,7 +327,7 @@ export default async function AdminDashboardPage() {
           <div className="font-[family-name:var(--font-heading)] text-display font-bold text-[#293F52]">
             {ticketsResult.count ?? 0}
           </div>
-        </div>
+        </Link>
       </div>
 
       {/* Two-column grid */}
