@@ -393,7 +393,7 @@ export default async function AdminDashboardPage() {
             ].map((stat) => (
               <div key={stat.label} className="rounded-lg bg-gray-50 px-3.5 py-3">
                 <div className="mb-1 text-[11px] text-gray-500">{stat.label}</div>
-                <div className={`font-[family-name:var(--font-heading)] text-xl font-bold text-[#293F52] ${stat.color ?? ''}`}>
+                <div className={`font-[family-name:var(--font-heading)] text-xl font-bold ${stat.color}`}>
                   {stat.value}
                 </div>
               </div>
