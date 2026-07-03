@@ -323,6 +323,29 @@ export type ActionPlan = {
   }
 }
 
+/**
+ * Collapse a verbose master Waste_Location to Verco's short form.
+ * "Driveway (Verge side of letterbox)" → "Driveway";
+ * "Front Verge; Side Verge; Laneway (If no other option applicable)" → "Front Verge; Side Verge; Laneway".
+ * Combined selections are split on ';', mapped per segment, de-duped, and rejoined.
+ */
+export function normaliseWasteLocation(raw: string): string {
+  const parts = raw
+    .split(';')
+    .map((seg) => {
+      const l = seg.trim().toLowerCase()
+      if (l.startsWith('front verge')) return 'Front Verge'
+      if (l.startsWith('side verge')) return 'Side Verge'
+      if (l.startsWith('rear')) return 'Rear Verge'
+      if (l.startsWith('driveway')) return 'Driveway'
+      if (l.startsWith('laneway')) return 'Laneway'
+      if (l.startsWith('other')) return 'Other'
+      return seg.trim()
+    })
+    .filter(Boolean)
+  return [...new Set(parts)].join('; ')
+}
+
 export function buildActionPlan(findings: Finding[], today: string): ActionPlan {
   const actions: Action[] = []
   const skipped = { placeOutToScheduled: 0, reactivateCancelled: 0, dispatchedReschedule: 0, phantomNeedsLocation: 0 }
@@ -332,7 +355,9 @@ export function buildActionPlan(findings: Finding[], today: string): ActionPlan 
     const v = f.verco
     const s = f.source
 
-    if (f.class === 'cancelled_in_source' && v && s && !f.needsManual) {
+    if (f.class === 'cancelled_in_source' && v && s && !f.needsManual && isVercoActive(v.status)) {
+      // isVercoActive guard keeps this idempotent — a re-run won't re-cancel a
+      // booking already Cancelled (which the state-machine trigger would reject).
       actions.push({ kind: 'cancel', bookingId: v.id, ref: v.ref, masterRef: s.bookingRef })
       continue // don't also fix the location of a booking we're cancelling
     }
@@ -355,7 +380,7 @@ export function buildActionPlan(findings: Finding[], today: string): ActionPlan 
 
     // Location fix — any matched, non-cancelled booking whose location is the street address.
     if (v && locationIsWrong(v) && v.status !== 'Cancelled' && f.class !== 'cancelled_in_source') {
-      if (s?.wasteLocation) actions.push({ kind: 'location', bookingId: v.id, ref: v.ref, to: s.wasteLocation })
+      if (s?.wasteLocation) actions.push({ kind: 'location', bookingId: v.id, ref: v.ref, to: normaliseWasteLocation(s.wasteLocation) })
       else if (!s) skipped.phantomNeedsLocation++
     }
   }

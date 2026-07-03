@@ -3,6 +3,7 @@ import {
   reconcile,
   countByClass,
   buildActionPlan,
+  normaliseWasteLocation,
   isSourceActive,
   isSourceCancelled,
   isVercoActive,
@@ -213,6 +214,11 @@ describe('buildActionPlan', () => {
     expect(p.actions.map((a) => a.kind)).toEqual(['cancel'])
   })
 
+  it('is idempotent — does not re-cancel a booking already Cancelled', () => {
+    const p = plan([verco({ status: 'Cancelled' })], [source({ status: 'Cancelled' })])
+    expect(p.actions.some((a) => a.kind === 'cancel')).toBe(false)
+  })
+
   it('maps master Completed → Verco Completed only from Scheduled', () => {
     const p = plan([verco({ status: 'Scheduled' })], [source({ status: 'Completed', modifiedAt: '2026-07-02T00:00:00Z' })])
     expect(p.actions.some((a) => a.kind === 'status' && a.to === 'Completed')).toBe(true)
@@ -247,9 +253,28 @@ describe('buildActionPlan', () => {
     expect(correct.actions.some((a) => a.kind === 'location')).toBe(false)
   })
 
+  it('normalises the master location to a short form when fixing', () => {
+    const p = plan([verco()], [source({ wasteLocation: 'Driveway (Verge side of letterbox)' })])
+    expect(p.actions.find((a) => a.kind === 'location')).toMatchObject({ to: 'Driveway' })
+  })
+
   it('cannot source a location for a phantom (no master row)', () => {
     const p = plan([verco({ propertyExternalId: 'recOrphan' })], [])
     expect(p.skipped.phantomNeedsLocation).toBe(1)
     expect(p.actions).toHaveLength(0)
+  })
+})
+
+describe('normaliseWasteLocation', () => {
+  it('collapses verbose single values', () => {
+    expect(normaliseWasteLocation('Driveway (Verge side of letterbox)')).toBe('Driveway')
+    expect(normaliseWasteLocation('Laneway (If no other option applicable)')).toBe('Laneway')
+    expect(normaliseWasteLocation('Rear verge')).toBe('Rear Verge')
+    expect(normaliseWasteLocation('Other (Subject to WMRC authorisation - contact vergevalet@wmrc.wa.gov.au)')).toBe('Other')
+  })
+
+  it('splits, maps and de-dupes combined selections', () => {
+    expect(normaliseWasteLocation('Front Verge; Side Verge; Driveway (Verge side of letterbox)')).toBe('Front Verge; Side Verge; Driveway')
+    expect(normaliseWasteLocation('Driveway (Verge side of letterbox); Driveway')).toBe('Driveway')
   })
 })
