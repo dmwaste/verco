@@ -333,8 +333,10 @@ export default async function AdminDashboardPage() {
       <div className="grid grid-cols-2 gap-4 px-7 py-5">
         {/* Upcoming collection dates — all future dates (open + closed), compact */}
         <div className="rounded-xl bg-white p-5 shadow-sm">
-          <div className="mb-3 flex items-center justify-between font-[family-name:var(--font-heading)] text-sm font-semibold text-[#293F52]">
-            Upcoming Collection Dates
+          <div className="mb-3.5 flex items-center justify-between">
+            <h2 className="font-[family-name:var(--font-heading)] text-sm font-semibold text-[#293F52]">
+              Upcoming Collection Dates
+            </h2>
             <Link href="/admin/collection-dates" className="text-xs font-medium text-[#00B864]">View all &rarr;</Link>
           </div>
           <div className="-mr-1 max-h-80 space-y-0.5 overflow-y-auto pr-1">
@@ -381,9 +383,9 @@ export default async function AdminDashboardPage() {
 
         {/* Weekly summary — collections scheduled this week, by outcome */}
         <div className="rounded-xl bg-white p-5 shadow-sm">
-          <div className="mb-3.5 font-[family-name:var(--font-heading)] text-sm font-semibold text-[#293F52]">
+          <h2 className="mb-3.5 font-[family-name:var(--font-heading)] text-sm font-semibold text-[#293F52]">
             This Week&apos;s Summary
-          </div>
+          </h2>
           <div className="grid grid-cols-2 gap-2.5">
             {[
               { label: 'Completed', value: weekCompleted, color: 'text-[#00B864]' },
@@ -405,8 +407,10 @@ export default async function AdminDashboardPage() {
 
         {/* Open service tickets */}
         <div className="rounded-xl bg-white p-5 shadow-sm">
-          <div className="mb-3.5 flex items-center justify-between font-[family-name:var(--font-heading)] text-sm font-semibold text-[#293F52]">
-            Open Service Tickets
+          <div className="mb-3.5 flex items-center justify-between">
+            <h2 className="font-[family-name:var(--font-heading)] text-sm font-semibold text-[#293F52]">
+              Open Service Tickets
+            </h2>
             <Link href="/admin/service-tickets" className="text-xs font-medium text-[#00B864]">View all &rarr;</Link>
           </div>
           {openTickets.map((ticket) => {
@@ -451,8 +455,10 @@ export default async function AdminDashboardPage() {
             first. Mirrors the Open Service Tickets tile; rows link to the
             booking detail where the exception is investigated/rebooked. */}
         <div className="rounded-xl bg-white p-5 shadow-sm">
-          <div className="mb-3.5 flex items-center justify-between font-[family-name:var(--font-heading)] text-sm font-semibold text-[#293F52]">
-            Open NCNs &amp; NPs
+          <div className="mb-3.5 flex items-center justify-between">
+            <h2 className="font-[family-name:var(--font-heading)] text-sm font-semibold text-[#293F52]">
+              Open NCNs &amp; NPs
+            </h2>
             <span className="flex items-center gap-3">
               <Link href="/admin/non-conformance" className="text-xs font-medium text-[#00B864]">NCNs &rarr;</Link>
               <Link href="/admin/nothing-presented" className="text-xs font-medium text-[#00B864]">NPs &rarr;</Link>
@@ -496,13 +502,13 @@ export default async function AdminDashboardPage() {
 
         {/* MUD reminders — half width to match the other dashboard tiles */}
         <div className="rounded-xl bg-white p-5 shadow-sm">
-          <div className="mb-3.5 flex items-center justify-between font-[family-name:var(--font-heading)] text-sm font-semibold text-[#293F52]">
-            <span>
+          <div className="mb-3.5 flex items-center justify-between">
+            <h2 className="font-[family-name:var(--font-heading)] text-sm font-semibold text-[#293F52]">
               MUDs Due Soon
               <span className="ml-2 text-[11px] font-normal text-gray-500">
                 Next 14 days · cadence-based
               </span>
-            </span>
+            </h2>
             <Link
               href="/admin/properties?mud=mud"
               className="text-xs font-medium text-[#00B864]"
