@@ -31,6 +31,7 @@ export default async function RunSheetByDriverPage({ params }: RunSheetPageProps
       .from('collection_stop')
       .select(
         `id, stream, status, address, latitude, longitude, services_summary,
+         waste_location, driver_notes,
          stop_sequence, scheduled_at, driver_serial, driver_name,
          booking:booking_id(id, ref, status, type),
          collection_date!inner(date)`,
