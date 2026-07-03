@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   reconcile,
+  reconcileByRef,
   countByClass,
   buildActionPlan,
   normaliseWasteLocation,
@@ -206,6 +207,31 @@ describe('countByClass', () => {
   })
 })
 
+describe('reconcileByRef (exact booking-ref match, KWN)', () => {
+  const R = 'KWN-22872'
+
+  it('classifies a ref match by status', () => {
+    const f = reconcileByRef([verco({ ref: R })], [source({ bookingRef: R, status: 'Cancelled' })], NOW)
+    expect(f).toHaveLength(1)
+    expect(f[0]!.class).toBe('cancelled_in_source')
+  })
+
+  it('a different date on a ref match is a reschedule (no proximity guard needed)', () => {
+    const f = reconcileByRef([verco({ ref: R })], [source({ bookingRef: R, collectionDate: '2026-09-30' })], NOW)
+    expect(f[0]!.class).toBe('date_changed')
+  })
+
+  it('no ref match → phantom; unmatched active master → missing', () => {
+    const f = reconcileByRef([verco({ ref: 'KWN-1' })], [source({ bookingRef: 'KWN-2' })], NOW)
+    expect(f.map((x) => x.class).sort()).toEqual(['missing_in_verco', 'phantom_in_verco'])
+  })
+
+  it('a null master date does not produce a false reschedule', () => {
+    const f = reconcileByRef([verco({ ref: R })], [source({ bookingRef: R, collectionDate: null })], NOW)
+    expect(f[0]!.class).not.toBe('date_changed')
+  })
+})
+
 describe('buildActionPlan', () => {
   const plan = (v: VercoBooking[], s: SourceBooking[]) => buildActionPlan(reconcile(v, s, NOW), TODAY)
 
@@ -217,6 +243,12 @@ describe('buildActionPlan', () => {
   it('is idempotent — does not re-cancel a booking already Cancelled', () => {
     const p = plan([verco({ status: 'Cancelled' })], [source({ status: 'Cancelled' })])
     expect(p.actions.some((a) => a.kind === 'cancel')).toBe(false)
+  })
+
+  it('flags Completed→Verco-Confirmed as a blocked status change (illegal transition)', () => {
+    const p = plan([verco({ status: 'Confirmed' })], [source({ status: 'Completed', modifiedAt: '2026-07-02T00:00:00Z' })])
+    expect(p.skipped.statusChangeBlocked).toBe(1)
+    expect(p.actions.some((a) => a.kind === 'status')).toBe(false)
   })
 
   it('maps master Completed → Verco Completed only from Scheduled', () => {
