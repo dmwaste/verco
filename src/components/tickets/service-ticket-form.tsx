@@ -6,6 +6,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { createClient } from '@/lib/supabase/client'
 import { invokeEfWithUserToken } from '@/lib/supabase/invoke-ef-client'
+import { fetchAuthedTicketContact } from '@/components/tickets/authed-contact'
 import { VercoButton } from '@/components/ui/verco-button'
 
 const OTP_LENGTH = 6
@@ -119,17 +120,10 @@ export function ServiceTicketForm({
         } = await supabase.auth.getUser()
 
         if (user) {
-          const { data: profile } = await supabase
-            .from('profiles')
-            .select('contact_id, contacts(first_name, last_name, email)')
-            .eq('id', user.id)
-            .single()
-
-          const contact = profile?.contacts as {
-            first_name: string
-            last_name: string
-            email: string
-          } | null
+          // Split query via helper, NOT an embedded `profiles.contacts(...)`
+          // select — that embed silently returns empty for authed users and
+          // corrupted the resident's contact name. See fetchAuthedTicketContact.
+          const contact = await fetchAuthedTicketContact(supabase, user.id)
           if (contact) {
             contactFirstName = contact.first_name
             contactLastName = contact.last_name
