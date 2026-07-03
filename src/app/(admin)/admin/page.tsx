@@ -66,6 +66,21 @@ export default async function AdminDashboardPage() {
     .in('status', ['open', 'in_progress'])
     .order('created_at', { ascending: false })
     .limit(5)
+  // Open NCN/NP list — bookings currently sitting in an exception status. Keyed
+  // off booking.status (matching the Open Exceptions stat card + sidebar badges),
+  // NOT the non_conformance_notice / nothing_presented record tables: the field
+  // closeout flow sets booking status without always creating a notice record,
+  // so the record tables under-report (prod 03/07/2026: 5 NCN bookings, 0 records).
+  const openExceptionsListQuery = supabase
+    .from('booking')
+    .select(
+      `id, ref, status, location, updated_at,
+       collection_area!inner(code),
+       eligible_properties:property_id(formatted_address, address)`
+    )
+    .in('status', ['Non-conformance', 'Nothing Presented'])
+    .order('updated_at', { ascending: false })
+    .limit(6)
   // Collection dates whose date falls in the current AWST week, scoped to the
   // active tenant's areas (collection_date is public-SELECT — RLS won't scope it).
   // These ids drive the two "this week" widgets via their bookings' items.
@@ -81,6 +96,7 @@ export default async function AdminDashboardPage() {
     npQuery.eq('client_id', clientId)
     ticketsQuery.eq('client_id', clientId)
     openTicketsQuery.eq('client_id', clientId)
+    openExceptionsListQuery.eq('client_id', clientId)
   }
 
   const [
@@ -90,6 +106,7 @@ export default async function AdminDashboardPage() {
     ticketsResult,
     upcomingDatesResult,
     openTicketsResult,
+    openExceptionsResult,
     weekDatesResult,
     mudRemindersResult,
   ] = await Promise.all([
@@ -114,6 +131,7 @@ export default async function AdminDashboardPage() {
       .order('date', { ascending: true })
       .limit(60),
     openTicketsQuery,
+    openExceptionsListQuery,
     weekDatesQuery,
     // MUD reminders: Registered MUDs with next_expected_date <= 14 days from today
     // (or NULL — for new MUDs that haven't had a booking yet, surfacing them
@@ -162,6 +180,7 @@ export default async function AdminDashboardPage() {
 
   const upcomingDates = upcomingDatesResult.data ?? []
   const openTickets = openTicketsResult.data ?? []
+  const openExceptionBookings = openExceptionsResult.data ?? []
 
   // For any pool-member areas in the upcoming-dates list, fetch authoritative
   // pool counters — per-area `collection_date.*` stays at 0 by design for
@@ -415,6 +434,53 @@ export default async function AdminDashboardPage() {
           })}
           {openTickets.length === 0 && (
             <p className="py-4 text-center text-sm text-gray-400">No open tickets</p>
+          )}
+        </div>
+
+        {/* Open NCNs & NPs — bookings sitting in an exception status, newest
+            first. Mirrors the Open Service Tickets tile; rows link to the
+            booking detail where the exception is investigated/rebooked. */}
+        <div className="rounded-xl bg-white p-5 shadow-sm">
+          <div className="mb-3.5 flex items-center justify-between font-[family-name:var(--font-heading)] text-sm font-semibold text-[#293F52]">
+            Open NCNs &amp; NPs
+            <span className="flex items-center gap-3">
+              <Link href="/admin/non-conformance" className="text-xs font-medium text-[#00B864]">NCNs &rarr;</Link>
+              <Link href="/admin/nothing-presented" className="text-xs font-medium text-[#00B864]">NPs &rarr;</Link>
+            </span>
+          </div>
+          {openExceptionBookings.map((b) => {
+            const isNcn = b.status === 'Non-conformance'
+            const property = b.eligible_properties as unknown as {
+              formatted_address: string | null
+              address: string
+            } | null
+            const area = b.collection_area as unknown as { code: string }
+            const address = property?.formatted_address ?? property?.address ?? b.location ?? b.ref
+            return (
+              <Link
+                key={b.id}
+                href={`/admin/bookings/${b.id}`}
+                className="flex items-center gap-3 border-b border-gray-100 py-2.5 last:border-b-0 last:pb-0 hover:bg-gray-50"
+              >
+                <div
+                  className={`flex h-8 w-11 shrink-0 items-center justify-center rounded-lg text-[10px] font-bold ${
+                    isNcn ? 'bg-[#FFF0F0] text-[#E53E3E]' : 'bg-[#FFF3EA] text-[#8B4000]'
+                  }`}
+                >
+                  {isNcn ? 'NCN' : 'NP'}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-body-sm font-medium text-gray-900">{address}</div>
+                  <div className="text-xs text-gray-500">{b.ref} &middot; {area.code}</div>
+                </div>
+                <span className="shrink-0 text-[11px] text-gray-500">
+                  {formatDistanceToNow(new Date(b.updated_at), { addSuffix: false })}
+                </span>
+              </Link>
+            )
+          })}
+          {openExceptionBookings.length === 0 && (
+            <p className="py-4 text-center text-sm text-gray-400">No open NCNs or NPs</p>
           )}
         </div>
 
