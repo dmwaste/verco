@@ -46,6 +46,14 @@
 - **Cons:** DNS + Coolify + Supabase data + host-only OTP cookies + council comms on changed URLs — a real migration, not a rename.
 - **Effort:** L (human, multi-day incl. comms) → M with CC. **Priority:** P2. **Depends on:** council comms window.
 
+## Admin design-debt batch (deferred from 2026-07-03 dashboard design review)
+
+- **What:** Systemic admin-surface cleanups the dashboard review surfaced but deliberately kept out of that PR: (1) one `<StatusBadge entity status>` component wrapping `getStatusStyle` — `BookingStatusBadge` duplicates `status-styles.ts` verbatim and the pill markup is re-typed with drift in 4 files; (2) admin-wide `focus-visible` convention — zero hits in the `(admin)` tree, and 4 list-page search inputs use `outline-none` with no replacement; (3) semantic colour tokens — 35 distinct hexes, success appears as 6 different greens, warning as 7 oranges; (4) `--text-caption: 11px` token (11px is the most-used small size, ×216, with no token); (5) extract `PageHeader`/`FilterBar`/`Th`/`Pagination` (3 divergent pagination variants); (6) `tabular-nums` on table numeric/date columns; (7) fix bookings empty-row `colSpan={9}` on an 8-column table (`bookings-list-client.tsx:376`); (8) reconcile "Under Review" amber (NCN) vs blue (NP) in `status-styles.ts`.
+- **Why:** Each is invisible individually but together they are why success renders as six greens and keyboard focus disappears; copy-paste drift already produced the colSpan defect.
+- **Cons:** Wide mechanical diff across ~28 admin files; deserves its own PR + review, not a rider.
+- **Context:** Full findings in `~/.gstack/projects/dmwaste-verco/designs/design-audit-20260703/design-audit-admin-dashboard.md` (deferred section). Dashboard-page instances were fixed on the design-review branch (F-001…F-012).
+- **Effort:** M (human, ~2 days) → S with CC. **Priority:** P3 (P2 for the colSpan bug + focus-visible, which are user-visible).
+
 ## Extract a shared brand-colour normalization helper
 
 - **What:** Replace the duplicated `colour.startsWith('#') ? colour : '#'+colour` coercion with a single `normalizeBrandColour()` util (e.g. in `lib/branding/`).
