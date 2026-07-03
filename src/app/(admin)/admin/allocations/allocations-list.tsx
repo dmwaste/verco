@@ -1,9 +1,10 @@
 'use client'
 
 import { useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
 import { SkeletonRow } from '@/components/ui/skeleton'
+import { AllocationFormModal } from './allocation-form-modal'
 
 interface AllocationOverrideRow {
   id: string
@@ -38,12 +39,17 @@ interface AllocationsListProps {
   /** Selected tenant from the admin switcher. allocation_override has no
    *  client_id column, so we scope through property → collection_area → client. */
   clientId: string
+  /** contractor-admin / client-admin only — gates the edit (pencil) action.
+   *  RLS still enforces writes; this only hides the UI for read-only roles. */
+  canManage: boolean
 }
 
-export function AllocationsList({ clientId }: AllocationsListProps) {
+export function AllocationsList({ clientId, canManage }: AllocationsListProps) {
   const supabase = createClient()
+  const queryClient = useQueryClient()
   const [search, setSearch] = useState('')
   const [filterFyId, setFilterFyId] = useState<string>('')
+  const [editRow, setEditRow] = useState<AllocationOverrideRow | null>(null)
 
   const { data: overrides, isLoading } = useQuery({
     queryKey: ['allocation_overrides', clientId, filterFyId],
@@ -153,14 +159,17 @@ export function AllocationsList({ clientId }: AllocationsListProps) {
                 <th className="border-b border-gray-100 bg-gray-50 px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500">Reason</th>
                 <th className="border-b border-gray-100 bg-gray-50 px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500">Created By</th>
                 <th className="border-b border-gray-100 bg-gray-50 px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500">Date</th>
+                {canManage && (
+                  <th className="border-b border-gray-100 bg-gray-50 px-4 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wide text-gray-500">Actions</th>
+                )}
               </tr>
             </thead>
             <tbody>
               {isLoading && Array.from({ length: 5 }).map((_, i) => (
-                <SkeletonRow key={i} columns={7} />
+                <SkeletonRow key={i} columns={canManage ? 8 : 7} />
               ))}
               {!isLoading && total === 0 && (
-                <tr><td colSpan={7} className="px-4 py-8 text-center text-sm text-gray-400">No allocation overrides found</td></tr>
+                <tr><td colSpan={canManage ? 8 : 7} className="px-4 py-8 text-center text-sm text-gray-400">No allocation overrides found</td></tr>
               )}
               {filtered?.map((override) => (
                 <tr key={override.id} className="border-b border-gray-100 last:border-b-0 hover:bg-gray-50">
@@ -175,8 +184,8 @@ export function AllocationsList({ clientId }: AllocationsListProps) {
                     {override.financial_year?.label}
                   </td>
                   <td className="px-4 py-3 text-right">
-                    <span className="inline-flex items-center justify-center rounded-full bg-gray-100 px-2.5 py-0.5 text-[11px] font-semibold text-[#293F52]">
-                      +{override.extra_allocations}
+                    <span className={`inline-flex items-center justify-center rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${override.extra_allocations < 0 ? 'bg-red-50 text-red-600' : 'bg-gray-100 text-[#293F52]'}`}>
+                      {override.extra_allocations > 0 ? '+' : ''}{override.extra_allocations}
                     </span>
                   </td>
                   <td className="max-w-[180px] truncate px-4 py-3 text-body-sm text-gray-700">
@@ -188,12 +197,46 @@ export function AllocationsList({ clientId }: AllocationsListProps) {
                   <td className="px-4 py-3 text-xs text-gray-500">
                     {new Date(override.created_at).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' })}
                   </td>
+                  {canManage && (
+                    <td className="px-4 py-3 text-right">
+                      <button
+                        type="button"
+                        onClick={() => setEditRow(override)}
+                        aria-label="Adjust allocation"
+                        title="Adjust allocation"
+                        className="rounded p-1.5 text-gray-400 hover:bg-gray-100 hover:text-[var(--brand)]"
+                      >
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+                      </button>
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
       </div>
+
+      {editRow && (
+        <AllocationFormModal
+          open={!!editRow}
+          onOpenChange={(open) => { if (!open) setEditRow(null) }}
+          onSave={() => {
+            void queryClient.invalidateQueries({ queryKey: ['allocation_overrides'] })
+            setEditRow(null)
+          }}
+          propertyId={editRow.property_id}
+          propertyAddress={editRow.eligible_properties.formatted_address || editRow.eligible_properties.address}
+          editOverride={{
+            id: editRow.id,
+            service_id: editRow.service_id,
+            fy_id: editRow.fy_id,
+            fy_label: editRow.financial_year?.label,
+            extra_allocations: editRow.extra_allocations,
+            reason: editRow.reason,
+          }}
+        />
+      )}
     </>
   )
 }

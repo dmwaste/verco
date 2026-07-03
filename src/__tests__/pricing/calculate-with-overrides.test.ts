@@ -198,4 +198,56 @@ describe('computeLineItems with additive extra_allocations overrides', () => {
     expect(result.line_items[0]!.line_charge_cents).toBe(4000)
     expect(result.override_applied).toBe(true)
   })
+
+  // ── VER-304: negative overrides reduce effective allocation ──────────────
+  it('negative override reduces effective service and category allocation below base', () => {
+    // Base: General max=3, Bulk category max=3, nothing used. Override -2.
+    const overrides: AllocationOverride[] = [
+      { service_id: SVC_GENERAL, extra_allocations: -2, reason: 'Correction — prior over-grant' },
+    ]
+
+    const result = computeLineItems(
+      [{ service_id: SVC_GENERAL, quantity: 3 }],
+      rules([[SVC_GENERAL, { max_collections: 3, extra_unit_price: 50 }]]),
+      catMax([[CAT_BULK, 3]]),
+      svcCat([[SVC_GENERAL, CAT_BULK]]),
+      usage([[SVC_GENERAL, 0]]),
+      usage([[CAT_BULK, 0]]),
+      overrides,
+    )
+
+    // effective_service_max = 3 + (-2) = 1 → service_remaining = 1
+    // effective_category_max = 3 + (-2) = 1 → category_remaining = 1
+    // free = MIN(3, 1, 1) = 1, paid = 2
+    expect(result.line_items[0]!.free_units).toBe(1)
+    expect(result.line_items[0]!.paid_units).toBe(2)
+    expect(result.line_items[0]!.line_charge_cents).toBe(10000)
+    expect(result.override_applied).toBe(true)
+    expect(result.override_reason).toBe('Correction — prior over-grant')
+  })
+
+  it('negative override more than the base floors free units at 0 — never overcharges beyond requested', () => {
+    // Override (-5) makes effective allocation negative; the Math.max(0, …) floors
+    // must keep free_units at 0 (not negative) so paid_units never exceeds quantity.
+    const overrides: AllocationOverride[] = [
+      { service_id: SVC_GENERAL, extra_allocations: -5, reason: 'Full removal' },
+    ]
+
+    const result = computeLineItems(
+      [{ service_id: SVC_GENERAL, quantity: 2 }],
+      rules([[SVC_GENERAL, { max_collections: 3, extra_unit_price: 50 }]]),
+      catMax([[CAT_BULK, 3]]),
+      svcCat([[SVC_GENERAL, CAT_BULK]]),
+      usage([[SVC_GENERAL, 0]]),
+      usage([[CAT_BULK, 0]]),
+      overrides,
+    )
+
+    // effective_service_max = 3 + (-5) = -2 → remaining floored to 0
+    // effective_category_max = 3 + (-5) = -2 → remaining floored to 0
+    // free = MIN(2, 0, 0) = 0 (never negative), paid = 2 (== requested; no overcharge)
+    expect(result.line_items[0]!.free_units).toBe(0)
+    expect(result.line_items[0]!.paid_units).toBe(2)
+    expect(result.line_items[0]!.line_charge_cents).toBe(10000)
+  })
 })
