@@ -406,8 +406,9 @@ export default async function AdminDashboardPage() {
           </div>
         </div>
 
-        {/* Open service tickets */}
-        <div className="rounded-xl bg-white p-5 shadow-sm">
+        {/* Open service tickets. flex-col so the empty state can centre in the
+            leftover height when the grid row is stretched by a taller sibling. */}
+        <div className="flex flex-col rounded-xl bg-white p-5 shadow-sm">
           <div className="mb-3.5 flex items-center justify-between">
             <h2 className="font-[family-name:var(--font-heading)] text-sm font-semibold text-[#293F52]">
               Open Service Tickets
@@ -452,14 +453,14 @@ export default async function AdminDashboardPage() {
             )
           })}
           {openTickets.length === 0 && (
-            <p className="py-4 text-center text-sm text-gray-400">No open tickets</p>
+            <p className="flex flex-1 items-center justify-center py-8 text-sm text-gray-400">No open tickets</p>
           )}
         </div>
 
         {/* Open NCNs & NPs — bookings sitting in an exception status, newest
             first. Mirrors the Open Service Tickets tile; rows link to the
             booking detail where the exception is investigated/rebooked. */}
-        <div className="rounded-xl bg-white p-5 shadow-sm">
+        <div className="flex flex-col rounded-xl bg-white p-5 shadow-sm">
           <div className="mb-3.5 flex items-center justify-between">
             <h2 className="font-[family-name:var(--font-heading)] text-sm font-semibold text-[#293F52]">
               Open NCNs &amp; NPs
@@ -501,7 +502,7 @@ export default async function AdminDashboardPage() {
             )
           })}
           {openExceptionBookings.length === 0 && (
-            <p className="py-4 text-center text-sm text-gray-400">No open NCNs or NPs</p>
+            <p className="flex flex-1 items-center justify-center py-8 text-sm text-gray-400">No open NCNs or NPs</p>
           )}
         </div>
 
