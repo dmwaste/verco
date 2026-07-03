@@ -118,7 +118,8 @@ export type StatusEntity = keyof typeof ENTITIES
 const FALLBACK: StatusStyle = { bg: 'bg-gray-100', text: 'text-gray-600', label: 'Unknown' }
 
 export function getStatusStyle(entity: StatusEntity, status: string): StatusStyle {
-  return ENTITIES[entity][status] ?? FALLBACK
+  // Unmapped statuses degrade to grey-but-readable — never a literal "Unknown"
+  return ENTITIES[entity][status] ?? { ...FALLBACK, label: status }
 }
 
 /** Get all status keys for an entity (useful for filter dropdowns) */

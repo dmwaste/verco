@@ -44,10 +44,14 @@ export default async function AdminDashboardPage() {
   // admin sees every tenant's counts merged. collection_date is public-SELECT so
   // it is explicitly filtered by clientId via its area. Each .eq is guarded by
   // `if (clientId)` so the no-client fallback keeps the historical behaviour.
+  // Count only the current FY — the card is labelled "FY total to date". Without
+  // this the count silently becomes all-time (correct only while every booking
+  // lives in the first FY; overstates from FY27 onward).
   const completedQuery = supabase
     .from('booking')
     .select('id', { count: 'exact', head: true })
     .eq('status', 'Completed')
+  if (fy) completedQuery.eq('fy_id', fy.id)
   const ncnQuery = supabase
     .from('booking')
     .select('id', { count: 'exact', head: true })
@@ -306,7 +310,7 @@ export default async function AdminDashboardPage() {
           <div className="font-[family-name:var(--font-heading)] text-display font-bold text-[#293F52]">
             {openExceptions}
           </div>
-          <div className={`mt-1 text-xs ${openExceptions > 0 ? 'text-[#E53E3E]' : 'text-gray-500'}`}>
+          <div className={`mt-1 text-xs ${openExceptions > 0 ? 'text-status-error' : 'text-gray-500'}`}>
             {ncnResult.count ?? 0} NCN &middot; {npResult.count ?? 0} NP
           </div>
         </Link>
@@ -361,7 +365,7 @@ export default async function AdminDashboardPage() {
                       </span>
                     </div>
                   ) : (
-                    <span className="shrink-0 rounded bg-[#FFF0F0] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#E53E3E]">
+                    <span className="shrink-0 rounded bg-status-error-bg px-1.5 py-0.5 text-2xs font-semibold uppercase tracking-wide text-status-error">
                       Closed
                     </span>
                   )}
@@ -383,7 +387,7 @@ export default async function AdminDashboardPage() {
             {[
               { label: 'Completed', value: weekCompleted, color: 'text-[#00B864]' },
               { label: 'Cancelled', value: weekCancelled, color: 'text-[#FF8C42]' },
-              { label: 'Non-Conformance', value: weekNcn, color: 'text-[#E53E3E]' },
+              { label: 'Non-Conformance', value: weekNcn, color: 'text-status-error' },
               { label: 'Nothing Presented', value: weekNp, color: 'text-[#FF8C42]' },
             ].map((stat) => (
               <div key={stat.label} className="rounded-lg bg-gray-50 px-3.5 py-3">
@@ -418,7 +422,7 @@ export default async function AdminDashboardPage() {
             return (
               <Link
                 key={ticket.id}
-                href={`/admin/service-tickets/${ticket.id}`}
+                href={`/admin/service-tickets/${ticket.display_id}`}
                 className="flex items-center gap-3 border-b border-gray-100 py-2.5 last:border-b-0 last:pb-0 hover:bg-gray-50"
               >
                 <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-[#E8EEF2] text-xs font-semibold text-[#293F52]">
@@ -470,8 +474,8 @@ export default async function AdminDashboardPage() {
                 className="flex items-center gap-3 border-b border-gray-100 py-2.5 last:border-b-0 last:pb-0 hover:bg-gray-50"
               >
                 <div
-                  className={`flex h-8 w-11 shrink-0 items-center justify-center rounded-lg text-[10px] font-bold ${
-                    isNcn ? 'bg-[#FFF0F0] text-[#E53E3E]' : 'bg-[#FFF3EA] text-[#8B4000]'
+                  className={`flex h-8 w-11 shrink-0 items-center justify-center rounded-lg text-2xs font-bold ${
+                    isNcn ? 'bg-status-error-bg text-status-error' : 'bg-status-warn-bg text-status-warn'
                   }`}
                 >
                   {isNcn ? 'NCN' : 'NP'}

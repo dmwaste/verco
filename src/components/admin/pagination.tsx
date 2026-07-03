@@ -12,7 +12,7 @@ interface PaginationProps {
 }
 
 const BUTTON_CLASS =
-  'rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 disabled:opacity-40'
+  'rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:opacity-40 disabled:hover:bg-white'
 
 /**
  * The one admin list pagination (replaces three divergent hand-rolled
