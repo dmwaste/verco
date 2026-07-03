@@ -278,6 +278,38 @@ export function reconcile(
   return findings
 }
 
+/**
+ * Reconcile by EXACT booking reference. Used where the Verco `booking.ref`
+ * equals the master's `Booking_Ref` (KWN: no Airtable property id exists, but the
+ * ref was preserved on import). Each Verco booking maps to at most one master row,
+ * so there is no collision handling or proximity guard — a different date on a
+ * ref match IS a reschedule, and an unmatched booking IS a phantom.
+ */
+export function reconcileByRef(verco: VercoBooking[], source: SourceBooking[], now: Date): Finding[] {
+  const findings: Finding[] = []
+  const byRef = new Map<string, SourceBooking>()
+  for (const s of source) if (!byRef.has(s.bookingRef)) byRef.set(s.bookingRef, s)
+
+  const used = new Set<string>()
+  for (const v of verco) {
+    const s = byRef.get(v.ref)
+    if (!s) {
+      findings.push(phantom(v))
+      continue
+    }
+    used.add(v.ref)
+    // A null master date can't be compared → treat as same date (no false reschedule).
+    const sameDate = !s.collectionDate || v.collectionDate === s.collectionDate
+    findings.push(classifyPair(v, s, sameDate ? 'same_date' : 'diff_date', now, false))
+  }
+
+  for (const s of source) {
+    if (!used.has(s.bookingRef) && isSourceActive(s.status)) findings.push(missing(s))
+  }
+
+  return findings
+}
+
 /** Group findings by class, in a stable report order. */
 export const CLASS_ORDER: FindingClass[] = [
   'cancelled_in_source',
@@ -320,6 +352,7 @@ export type ActionPlan = {
     reactivateCancelled: number // master active but Verco already Cancelled (terminal)
     dispatchedReschedule: number // date move on an already-dispatched booking
     phantomNeedsLocation: number // phantom with a bad location we can't source from the master
+    statusChangeBlocked: number // master Completed/Non-Conformance but Verco not Scheduled → illegal transition
   }
 }
 
@@ -348,7 +381,7 @@ export function normaliseWasteLocation(raw: string): string {
 
 export function buildActionPlan(findings: Finding[], today: string): ActionPlan {
   const actions: Action[] = []
-  const skipped = { placeOutToScheduled: 0, reactivateCancelled: 0, dispatchedReschedule: 0, phantomNeedsLocation: 0 }
+  const skipped = { placeOutToScheduled: 0, reactivateCancelled: 0, dispatchedReschedule: 0, phantomNeedsLocation: 0, statusChangeBlocked: 0 }
   const locationIsWrong = (v: VercoBooking) => !!v.location && !!v.address && v.location === v.address
 
   for (const f of findings) {
@@ -369,6 +402,7 @@ export function buildActionPlan(findings: Finding[], today: string): ActionPlan 
       else if (s.status === 'Non-Conformance' && v.status === 'Scheduled')
         actions.push({ kind: 'status', bookingId: v.id, ref: v.ref, to: 'Non-conformance' })
       else if (s.status === 'Place Out Issued' && v.status === 'Confirmed') skipped.placeOutToScheduled++
+      else if (s.status === 'Completed' || s.status === 'Non-Conformance') skipped.statusChangeBlocked++
     }
 
     if (f.class === 'date_changed' && v && s && v.collectionDate && s.collectionDate) {
