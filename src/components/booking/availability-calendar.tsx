@@ -23,6 +23,10 @@ export interface CalendarDate {
  * navigation hops only between months that actually contain dates, so a resident
  * never pages through empty months. The selected date's full status pill is
  * rendered by the caller beneath the calendar.
+ *
+ * Shared by the resident booking wizard (`/book/date`) and the admin illegal
+ * dumping intake (`/admin/illegal-dumping/new`). Presentational only — the
+ * caller decides which dates are bookable and maps each to a DateStatus.
  */
 export function AvailabilityCalendar({
   dates,

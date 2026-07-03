@@ -32,11 +32,17 @@ export interface ServiceSummaryEntry {
   qty: number
 }
 
-/** orderNo suffix per stream: {booking.ref}-{suffix}, e.g. KWN-1-AB12CD-GEN */
+/**
+ * orderNo suffix per stream: {booking.ref}-{suffix}, e.g. KWN-1-AB12CD-B.
+ * Short single letters (B/G/A) keep the OR reference neat; each stream still
+ * has a DISTINCT suffix, which is what guarantees a multi-stream booking's
+ * orders get unique orderNos (OR's primary key) — the vehicle feature routes
+ * the truck, the suffix identifies the order. illegal_dumping keeps 'ID'.
+ */
 export const STREAM_SUFFIX: Record<WasteStream, string> = {
-  general: 'GEN',
-  green: 'GRN',
-  ancillary: 'ANC',
+  general: 'B',
+  green: 'G',
+  ancillary: 'A',
   illegal_dumping: 'ID',
 }
 
@@ -155,6 +161,61 @@ export function buildOrderNotes(
     lines.push(`Notes: ${driverNotes.trim()}`)
   }
   return lines.join('\n')
+}
+
+/**
+ * Recognised on-property waste placements — mirror of the booking form's
+ * LOCATION_OPTIONS + the staff-only 'Other'. Kept here (not imported from
+ * src/lib/booking/schemas) because this module is the Deno EF's source of truth.
+ */
+export const WASTE_LOCATION_VALUES = ['Front Verge', 'Side Verge', 'Driveway', 'Other'] as const
+
+/**
+ * booking.location is overloaded — for most bookings (legacy/import) it holds
+ * the street ADDRESS, only sometimes the on-property placement. Surface it as a
+ * waste location ONLY when it's a recognised placement; otherwise null (the
+ * address is already the order's address, so repeating it as "Location:" is
+ * noise). Trims first so trailing-space values still match.
+ */
+export function wasteLocationOrNull(location: string | null | undefined): string | null {
+  if (!location) return null
+  const trimmed = location.trim()
+  return (WASTE_LOCATION_VALUES as readonly string[]).includes(trimmed) ? trimmed : null
+}
+
+/** Composite key matching a stop to a booking item: collection date × waste stream. */
+export function stopItemKey(collectionDateId: string, stream: WasteStream): string {
+  return `${collectionDateId}:${stream}`
+}
+
+/**
+ * Pass-1 orphan reconciliation: should an existing Pending stop be cancelled?
+ *
+ *  - Booking present in `desired` (has a locked-date item): cancel iff this stop's
+ *    stream is no longer among the booking's desired streams (an in-window edit
+ *    dropped the stream).
+ *  - Booking absent from `desired` and no longer live: cancel (cancelled/terminal).
+ *  - Booking absent from `desired` but STILL live: its collection moved off the
+ *    locked window — e.g. rescheduled to a not-yet-locked date. Cancel iff the
+ *    booking no longer has a current item on this stop's (date, stream). This is
+ *    the phantom-order fix: the old assumption ("a live booking can't be absent
+ *    from desired") left the stale stop — and its OR order — behind forever. The
+ *    positive item check means we never over-cancel (a SYNC delete loses OR route
+ *    planning), and it self-heals: a fresh stop is created when the new date locks.
+ */
+export function shouldCancelOrphanStop(args: {
+  stopStream: WasteStream
+  stopDateId: string
+  desiredStreamsForBooking: readonly WasteStream[] | null
+  bookingLive: boolean
+  currentItemKeys: ReadonlySet<string>
+}): boolean {
+  const { stopStream, stopDateId, desiredStreamsForBooking, bookingLive, currentItemKeys } = args
+  if (desiredStreamsForBooking !== null) {
+    return !desiredStreamsForBooking.includes(stopStream)
+  }
+  if (!bookingLive) return true
+  return !currentItemKeys.has(stopItemKey(stopDateId, stopStream))
 }
 
 /**

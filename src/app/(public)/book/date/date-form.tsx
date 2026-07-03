@@ -12,7 +12,7 @@ import { Spinner } from '@/components/ui/spinner'
 import { decodeItems } from '@/lib/booking/search-params'
 import { effectiveCapacity, indexPoolDates } from '@/lib/capacity/effective-capacity'
 import { STATUS_CHIP, STATUS_LABEL, type DateStatus } from '@/lib/booking/calendar'
-import { AvailabilityCalendar, type CalendarDate } from './availability-calendar'
+import { AvailabilityCalendar, type CalendarDate } from '@/components/booking/availability-calendar'
 import { cn } from '@/lib/utils'
 
 export function DateForm() {

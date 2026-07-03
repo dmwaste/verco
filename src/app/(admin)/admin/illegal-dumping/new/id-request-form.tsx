@@ -14,6 +14,8 @@ import {
   ID_PHOTOS_PREFIX,
 } from '@/lib/booking/id-options'
 import { matchAddressToArea, resolveAreaSuggestion } from '@/lib/booking/id-area-suggestion'
+import { AvailabilityCalendar, type CalendarDate } from '@/components/booking/availability-calendar'
+import { STATUS_CHIP, type DateStatus } from '@/lib/booking/calendar'
 import { createAdminIdBooking } from './actions'
 
 export interface AreaOption {
@@ -33,11 +35,18 @@ export interface IdDateOption {
 interface IdRequestFormProps {
   areas: AreaOption[]
   dates: IdDateOption[]
+  // Contractor-admins may schedule any future date that still has ID capacity,
+  // including admin- or system-closed dates: page.tsx widens the date fetch and
+  // create_id_booking_with_capacity_check relaxes the closure gate for this
+  // role. The capacity ceiling is never overridden. Drives the helper note.
+  isContractorAdmin?: boolean
 }
 
-const DATES_PER_AREA = 9
-
-export function IdRequestForm({ areas, dates }: IdRequestFormProps) {
+export function IdRequestForm({
+  areas,
+  dates,
+  isContractorAdmin = false,
+}: IdRequestFormProps) {
   const supabase = createClient()
   const fileInputRef = useRef<HTMLInputElement>(null)
   // Discards stale geocode responses when the user re-selects an address
@@ -81,9 +90,29 @@ export function IdRequestForm({ areas, dates }: IdRequestFormProps) {
     if (submitted) successHeadingRef.current?.focus()
   }, [submitted])
 
-  const areaDates = dates
-    .filter((d) => d.collection_area_id === areaId)
-    .slice(0, DATES_PER_AREA)
+  // Every in-horizon date for the chosen area — the server already capped the
+  // 90-day window and applied role-appropriate closure filtering, and the
+  // calendar spans months, so there's no client-side slice.
+  const areaDates = dates.filter((d) => d.collection_area_id === areaId)
+
+  // Only dates with capacity left are selectable; full dates drop out and
+  // render as inert day-numbers. ID buckets are small, so 1–2 free spots read
+  // as "low".
+  const calendarDates: CalendarDate[] = areaDates.flatMap((d) => {
+    const spots = Math.max(0, d.id_capacity_limit - d.id_units_booked)
+    if (spots === 0) return []
+    const status: DateStatus = spots <= 2 ? 'low' : 'available'
+    return [{ id: d.id, date: new Date(d.date + 'T00:00:00'), status }]
+  })
+  const selectedAreaDate = areaDates.find((d) => d.id === selectedDateId) ?? null
+  const selectedSpots = selectedAreaDate
+    ? Math.max(0, selectedAreaDate.id_capacity_limit - selectedAreaDate.id_units_booked)
+    : 0
+  const selectedStatus: DateStatus | null = selectedAreaDate
+    ? selectedSpots <= 2
+      ? 'low'
+      : 'available'
+    : null
 
   const isPinned = latitude !== null && longitude !== null
 
@@ -256,7 +285,7 @@ export function IdRequestForm({ areas, dates }: IdRequestFormProps) {
         collectionDate: selectedDate.date,
       })
     } catch {
-      setError('Something went wrong submitting the report. Please try again.')
+      setError('Something went wrong submitting the ID collection. Please try again.')
       setIsSubmitting(false)
     }
   }
@@ -274,7 +303,7 @@ export function IdRequestForm({ areas, dates }: IdRequestFormProps) {
           tabIndex={-1}
           className="mt-4 font-[family-name:var(--font-heading)] text-lg font-bold text-[#293F52] outline-none"
         >
-          ID Report Logged
+          ID Collection Logged
         </h2>
         <p className="mt-1 text-center text-body-sm text-gray-500">
           Booking <span className="font-semibold text-[#293F52]">{submitted.ref}</span> at{' '}
@@ -579,51 +608,43 @@ export function IdRequestForm({ areas, dates }: IdRequestFormProps) {
             </button>
           </div>
         )}
-        {areaId && areaDates.length === 0 && (
+        {areaId && calendarDates.length === 0 && (
           <p className="mt-3 text-body-sm text-gray-500">
-            No upcoming ID-eligible collection dates for this area. Check the
-            area&rsquo;s collection dates and ID capacity settings.
+            No upcoming ID-eligible collection dates with capacity for this area.
+            Check the area&rsquo;s collection dates and ID capacity settings.
           </p>
         )}
-        {areaDates.length > 0 && (
-          <div className="mt-3 grid grid-cols-3 gap-2">
-            {areaDates.map((d) => {
-              const isSelected = d.id === selectedDateId
-              const spotsRemaining = Math.max(0, d.id_capacity_limit - d.id_units_booked)
-              const isFull = spotsRemaining === 0
-              return (
-                <button
-                  key={d.id}
-                  type="button"
-                  disabled={isFull}
-                  aria-pressed={isSelected}
-                  onClick={() => setSelectedDateId(d.id)}
+        {calendarDates.length > 0 && (
+          <div className="mt-3">
+            <AvailabilityCalendar
+              dates={calendarDates}
+              selectedId={selectedDateId || null}
+              onSelect={setSelectedDateId}
+            />
+            {selectedAreaDate && selectedStatus && (
+              <div className="mx-auto mt-3 flex max-w-sm items-center justify-between rounded-xl bg-white px-4 py-3 shadow-sm ring-1 ring-gray-100">
+                <span className="text-body-sm font-medium text-[#293F52]">
+                  {format(new Date(selectedAreaDate.date + 'T00:00:00'), 'EEEE, d MMMM yyyy')}
+                </span>
+                <span
                   className={cn(
-                    'flex flex-col gap-0.5 rounded-xl border-[1.5px] px-2 py-2.5 text-left shadow-sm transition-colors',
-                    isSelected
-                      ? 'border-[#293F52] border-2 bg-[#293F52]'
-                      : isFull
-                        ? 'cursor-not-allowed border-gray-100 bg-gray-50 opacity-60'
-                        : 'border-gray-100 bg-white hover:bg-gray-50'
+                    'rounded-full border px-3 py-1 text-[11px] font-medium',
+                    STATUS_CHIP[selectedStatus]
                   )}
                 >
-                  <span
-                    className={cn(
-                      'text-xs font-semibold',
-                      isSelected ? 'text-white' : 'text-[#293F52]'
-                    )}
-                  >
-                    {format(new Date(d.date + 'T00:00:00'), 'EEE d MMM')}
-                  </span>
-                  <span className={cn('text-2xs', isSelected ? 'text-gray-300' : 'text-gray-500')}>
-                    {isFull ? 'Full' : `${spotsRemaining} ID spot${spotsRemaining !== 1 ? 's' : ''}`}
-                  </span>
-                </button>
-              )
-            })}
+                  {selectedSpots} ID spot{selectedSpots !== 1 ? 's' : ''}
+                </span>
+              </div>
+            )}
           </div>
         )}
         <p className="mt-3 text-[11px] text-gray-500">Draws from the ID capacity bucket.</p>
+        {isContractorAdmin && (
+          <p className="mt-1 text-[11px] text-gray-500">
+            As a contractor admin you can schedule any future date that still has
+            ID capacity — including dates closed to standard booking.
+          </p>
+        )}
       </div>
 
       {/* Notes */}
@@ -665,7 +686,7 @@ export function IdRequestForm({ areas, dates }: IdRequestFormProps) {
           disabled={isSubmitting}
           className="rounded-lg bg-[#293F52] px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-[#1e3040] disabled:opacity-50"
         >
-          {isSubmitting ? 'Submitting...' : 'Log ID Report'}
+          {isSubmitting ? 'Submitting...' : 'Log ID Collection'}
         </button>
       </div>
     </div>

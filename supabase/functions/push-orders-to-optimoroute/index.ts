@@ -6,9 +6,12 @@ import {
   buildOrderNotes,
   buildServicesSummary,
   groupItemsByStream,
+  shouldCancelOrphanStop,
   STOP_DURATION_MINUTES,
   STREAM_PRIORITY,
+  stopItemKey,
   vehicleFeaturesForStream,
+  wasteLocationOrNull,
   type ServiceSummaryEntry,
   type StopItem,
   type WasteStream,
@@ -220,7 +223,7 @@ serve(async (_req) => {
             latitude: num(booking.latitude ?? property?.latitude ?? null),
             longitude: num(booking.longitude ?? property?.longitude ?? null),
             services_summary: buildServicesSummary(streamItems),
-            waste_location: booking.location,
+            waste_location: wasteLocationOrNull(booking.location),
             driver_notes: booking.notes,
             external_order_ref: buildOrderNo(booking.ref, stream),
           })
@@ -297,16 +300,52 @@ serve(async (_req) => {
         }
       }
 
+      // A live booking absent from `desired` still has a Pending stop but no
+      // locked-date item — its collection moved off the window (e.g. rescheduled
+      // to a not-yet-locked date). Fetch those bookings' CURRENT items so we can
+      // positively confirm the stop is stale before cancelling; never over-cancel
+      // (a SYNC delete drops OR route planning). Without this the stale stop — and
+      // its phantom OR order — survives forever (booking stays live, so the
+      // cancelled-booking sweep never fires).
+      const liveAbsentItemsByBooking = new Map<string, Set<string>>()
+      const liveAbsentBookingIds = [...liveUnknown]
+      if (liveAbsentBookingIds.length > 0) {
+        const items = await fetchAll<{
+          booking_id: string
+          collection_date_id: string
+          service: { waste_stream: WasteStream } | null
+        }>(
+          (from, to) =>
+            supabase
+              .from('booking_item')
+              .select('booking_id, collection_date_id, service(waste_stream)')
+              .in('booking_id', liveAbsentBookingIds)
+              .order('id')
+              .range(from, to),
+          'live-absent booking items fetch',
+        )
+        for (const it of items) {
+          if (!it.service) continue
+          let set = liveAbsentItemsByBooking.get(it.booking_id)
+          if (!set) {
+            set = new Set<string>()
+            liveAbsentItemsByBooking.set(it.booking_id, set)
+          }
+          set.add(stopItemKey(it.collection_date_id, it.service.waste_stream))
+        }
+      }
+
       for (const stop of existing) {
         if (stop.status !== 'Pending') continue
         const byStream = desired.get(stop.booking_id)
-        if (byStream) {
-          if (!byStream.has(stop.stream)) cancelIds.push(stop.id) // stream gone
-        } else if (!liveUnknown.has(stop.booking_id)) {
-          cancelIds.push(stop.id) // booking cancelled/terminal
-        }
-        // booking live but absent from desired with the stream present can't
-        // happen — desired is keyed by the same live-booking query.
+        const cancel = shouldCancelOrphanStop({
+          stopStream: stop.stream,
+          stopDateId: stop.collection_date_id,
+          desiredStreamsForBooking: byStream ? [...byStream.keys()] : null,
+          bookingLive: liveUnknown.has(stop.booking_id),
+          currentItemKeys: liveAbsentItemsByBooking.get(stop.booking_id) ?? new Set(),
+        })
+        if (cancel) cancelIds.push(stop.id)
       }
 
       if (inserts.length > 0) {

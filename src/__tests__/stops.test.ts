@@ -9,9 +9,13 @@ import {
   STOP_DURATION_MINUTES,
   STREAM_PRIORITY,
   STREAM_SUFFIX,
+  shouldCancelOrphanStop,
+  stopItemKey,
   vehicleFeaturesForStream,
+  wasteLocationOrNull,
   type StopItem,
   type StopStatus,
+  type WasteStream,
 } from '@/lib/stops/stops'
 
 const item = (name: string, stream: StopItem['service']['waste_stream'], qty = 1): StopItem => ({
@@ -21,9 +25,9 @@ const item = (name: string, stream: StopItem['service']['waste_stream'], qty = 1
 
 describe('buildOrderNo', () => {
   it('appends the stream suffix to the booking ref', () => {
-    expect(buildOrderNo('KWN-1-AB12CD', 'general')).toBe('KWN-1-AB12CD-GEN')
-    expect(buildOrderNo('KWN-1-AB12CD', 'green')).toBe('KWN-1-AB12CD-GRN')
-    expect(buildOrderNo('VV-COT-XY99ZZ', 'ancillary')).toBe('VV-COT-XY99ZZ-ANC')
+    expect(buildOrderNo('KWN-1-AB12CD', 'general')).toBe('KWN-1-AB12CD-B')
+    expect(buildOrderNo('KWN-1-AB12CD', 'green')).toBe('KWN-1-AB12CD-G')
+    expect(buildOrderNo('VV-COT-XY99ZZ', 'ancillary')).toBe('VV-COT-XY99ZZ-A')
     expect(buildOrderNo('KWN-1-QQ00QQ', 'illegal_dumping')).toBe('KWN-1-QQ00QQ-ID')
   })
 
@@ -54,13 +58,37 @@ describe('vehicleFeaturesForStream — OptimoRoute routing constraint', () => {
     expect(vehicleFeaturesForStream('ancillary')).toEqual(['ANC'])
   })
 
-  it('general maps to the BLK feature, not the GEN order suffix', () => {
+  it('general maps to the BLK feature, distinct from its -B order suffix', () => {
     expect(vehicleFeaturesForStream('general')).toEqual(['BLK'])
-    expect(STREAM_SUFFIX.general).toBe('GEN')
+    expect(STREAM_SUFFIX.general).toBe('B')
   })
 
   it('illegal_dumping is bulk-truck work — also requires BLK', () => {
     expect(vehicleFeaturesForStream('illegal_dumping')).toEqual(['BLK'])
+  })
+})
+
+describe('wasteLocationOrNull — placement vs overloaded booking.location', () => {
+  it('keeps recognised on-property placements', () => {
+    expect(wasteLocationOrNull('Front Verge')).toBe('Front Verge')
+    expect(wasteLocationOrNull('Side Verge')).toBe('Side Verge')
+    expect(wasteLocationOrNull('Driveway')).toBe('Driveway')
+    expect(wasteLocationOrNull('Other')).toBe('Other')
+  })
+
+  it('drops an address — booking.location is overloaded and mostly holds the street address', () => {
+    expect(wasteLocationOrNull('4 William Street COTTESLOE WA 6011')).toBeNull()
+    expect(wasteLocationOrNull('35A Fennager Way CALISTA WESTERN AUSTRALIA 6167')).toBeNull()
+  })
+
+  it('handles null and blank', () => {
+    expect(wasteLocationOrNull(null)).toBeNull()
+    expect(wasteLocationOrNull('')).toBeNull()
+    expect(wasteLocationOrNull('   ')).toBeNull()
+  })
+
+  it('trims surrounding whitespace before matching', () => {
+    expect(wasteLocationOrNull('  Front Verge  ')).toBe('Front Verge')
   })
 })
 
@@ -176,6 +204,47 @@ describe('canStopTransition — parity with enforce_stop_state_transition', () =
       }
     }
     expect(canStopTransition('Cancelled', 'Completed', { privileged: true })).toBe(false)
+  })
+})
+
+describe('shouldCancelOrphanStop — Pass-1 orphan reconciliation', () => {
+  const base = {
+    stopStream: 'green' as WasteStream,
+    stopDateId: 'd1',
+    desiredStreamsForBooking: null as readonly WasteStream[] | null,
+    bookingLive: true,
+    currentItemKeys: new Set<string>(),
+  }
+
+  it('cancels when the stream is gone from an in-window booking', () => {
+    expect(shouldCancelOrphanStop({ ...base, desiredStreamsForBooking: ['general'] })).toBe(true)
+  })
+
+  it('keeps when the stream is still present in-window', () => {
+    expect(
+      shouldCancelOrphanStop({ ...base, desiredStreamsForBooking: ['general', 'green'] }),
+    ).toBe(false)
+  })
+
+  it('cancels when the booking is no longer live', () => {
+    expect(shouldCancelOrphanStop({ ...base, bookingLive: false })).toBe(true)
+  })
+
+  it('cancels a live booking rescheduled off this date+stream (the phantom-order bug)', () => {
+    // green stop on d1, but the booking's green item now sits on d2 (a not-yet-locked date)
+    expect(
+      shouldCancelOrphanStop({ ...base, currentItemKeys: new Set([stopItemKey('d2', 'green')]) }),
+    ).toBe(true)
+  })
+
+  it('keeps a live booking that still has an item on this date+stream', () => {
+    expect(
+      shouldCancelOrphanStop({ ...base, currentItemKeys: new Set([stopItemKey('d1', 'green')]) }),
+    ).toBe(false)
+  })
+
+  it('stopItemKey composes date and stream unambiguously', () => {
+    expect(stopItemKey('abc', 'ancillary')).toBe('abc:ancillary')
   })
 })
 

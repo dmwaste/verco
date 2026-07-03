@@ -144,3 +144,50 @@ describe('collection-dates: planDates', () => {
     expect(result.map((r) => r.entity_id).sort()).toEqual(['area-a', 'area-b'])
   })
 })
+
+describe('collection-dates: KWN schedule extends dates past Dec 2026', () => {
+  // Mirrors migration 20260703085526_seed_kwn_collection_schedule.sql — the
+  // four City of Kwinana zones, one per weekday Mon-Thu, unpooled, 70/60/10.
+  // KWN's hand-made collection_date rows currently stop at 2026-12-17; without
+  // a collection_schedule the generator would never roll KWN forward past that.
+  const KWN_SCHEDULE: ScheduleEntry[] = [
+    { id: 'KWN-1', day_of_week: 1, bulk_capacity_limit: 70, anc_capacity_limit: 60, id_capacity_limit: 10 }, // Mon
+    { id: 'KWN-2', day_of_week: 2, bulk_capacity_limit: 70, anc_capacity_limit: 60, id_capacity_limit: 10 }, // Tue
+    { id: 'KWN-3', day_of_week: 3, bulk_capacity_limit: 70, anc_capacity_limit: 60, id_capacity_limit: 10 }, // Wed
+    { id: 'KWN-4', day_of_week: 4, bulk_capacity_limit: 70, anc_capacity_limit: 60, id_capacity_limit: 10 }, // Thu
+  ]
+  const LAST_HANDMADE_KWN_DATE = '2026-12-17'
+
+  it('generates dates beyond the last hand-made KWN date when the 16wk window reaches it', () => {
+    // Simulate the cron on a day whose 16-week horizon crosses mid-Dec 2026.
+    const { start, end } = windowFromToday(new Date('2026-12-01T19:00:00Z'), 16)
+    const result = planDates(KWN_SCHEDULE, start, end, new Map())
+
+    const pastRunout = result.filter((r) => r.date > LAST_HANDMADE_KWN_DATE)
+    expect(pastRunout.length).toBeGreaterThan(0)
+    // All four zones keep generating past the run-out.
+    expect(new Set(pastRunout.map((r) => r.entity_id))).toEqual(
+      new Set(['KWN-1', 'KWN-2', 'KWN-3', 'KWN-4']),
+    )
+    // Extension reaches into 2027.
+    expect(result.some((r) => r.date >= '2027-01-01')).toBe(true)
+  })
+
+  it('keeps each zone on its assigned weekday with capacity passed through', () => {
+    const { start, end } = windowFromToday(new Date('2026-12-01T19:00:00Z'), 16)
+    const result = planDates(KWN_SCHEDULE, start, end, new Map())
+
+    for (const row of result) {
+      // planDates must only emit a date on the entry's own weekday.
+      expect(dayOfWeek(row.date)).toBe(row.day_of_week)
+      expect(row).toMatchObject({
+        bulk_capacity_limit: 70,
+        anc_capacity_limit: 60,
+        id_capacity_limit: 10,
+      })
+    }
+    // KWN-1 collects Mondays only.
+    const kwn1Dows = new Set(result.filter((r) => r.entity_id === 'KWN-1').map((r) => dayOfWeek(r.date)))
+    expect([...kwn1Dows]).toEqual([1])
+  })
+})

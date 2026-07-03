@@ -8,8 +8,6 @@ export const ID_WASTE_TYPES = [
   'Whitegoods',
   'Mattress',
   'E-Waste',
-  'Hazardous',
-  'Construction / Demolition',
 ] as const
 
 // Volumes are 3m³ allocation units (VER-258). The intake value is a crew-facing
