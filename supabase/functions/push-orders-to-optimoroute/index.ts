@@ -53,6 +53,7 @@ interface BookingRow {
   longitude: number | null
   geo_address: string | null
   location: string | null
+  notes: string | null
   eligible_properties: {
     formatted_address: string | null
     address: string | null
@@ -76,6 +77,8 @@ interface ExistingStopRow {
   latitude: number | string | null
   longitude: number | string | null
   services_summary: ServiceSummaryEntry[]
+  waste_location: string | null
+  driver_notes: string | null
 }
 
 interface PendingStopRow {
@@ -86,6 +89,8 @@ interface PendingStopRow {
   latitude: number | string | null
   longitude: number | string | null
   services_summary: ServiceSummaryEntry[]
+  waste_location: string | null
+  driver_notes: string | null
   collection_date: { date: string }
 }
 
@@ -98,6 +103,8 @@ interface DesiredStop {
   latitude: number | null
   longitude: number | null
   services_summary: ServiceSummaryEntry[]
+  waste_location: string | null
+  driver_notes: string | null
   external_order_ref: string
 }
 
@@ -132,6 +139,8 @@ function payloadDiffers(existing: ExistingStopRow, desired: DesiredStop): boolea
     (existing.address ?? null) !== (desired.address ?? null) ||
     num(existing.latitude) !== desired.latitude ||
     num(existing.longitude) !== desired.longitude ||
+    (existing.waste_location ?? null) !== (desired.waste_location ?? null) ||
+    (existing.driver_notes ?? null) !== (desired.driver_notes ?? null) ||
     JSON.stringify(existing.services_summary ?? []) !== JSON.stringify(desired.services_summary)
   )
 }
@@ -175,7 +184,7 @@ serve(async (_req) => {
           supabase
             .from('booking')
             .select(
-              `id, ref, client_id, latitude, longitude, geo_address, location,
+              `id, ref, client_id, latitude, longitude, geo_address, location, notes,
                eligible_properties:property_id(formatted_address, address, latitude, longitude),
                booking_item!inner(no_services, collection_date_id, service(name, waste_stream))`,
             )
@@ -210,6 +219,8 @@ serve(async (_req) => {
             latitude: num(booking.latitude ?? property?.latitude ?? null),
             longitude: num(booking.longitude ?? property?.longitude ?? null),
             services_summary: buildServicesSummary(streamItems),
+            waste_location: booking.location,
+            driver_notes: booking.notes,
             external_order_ref: buildOrderNo(booking.ref, stream),
           })
         }
@@ -221,7 +232,7 @@ serve(async (_req) => {
           supabase
             .from('collection_stop')
             .select(
-              'id, booking_id, stream, status, collection_date_id, address, latitude, longitude, services_summary',
+              'id, booking_id, stream, status, collection_date_id, address, latitude, longitude, services_summary, waste_location, driver_notes',
             )
             .in('collection_date_id', lockedDateIds)
             .order('id')
@@ -319,6 +330,8 @@ serve(async (_req) => {
             latitude: payload.latitude,
             longitude: payload.longitude,
             services_summary: payload.services_summary,
+            waste_location: payload.waste_location,
+            driver_notes: payload.driver_notes,
             pushed_at: null, // changed payload → re-push in pass 2
             external_deleted_at: null,
           })
@@ -343,6 +356,8 @@ serve(async (_req) => {
             latitude: payload.latitude,
             longitude: payload.longitude,
             services_summary: payload.services_summary,
+            waste_location: payload.waste_location,
+            driver_notes: payload.driver_notes,
             pushed_at: null,
             external_deleted_at: null,
           })
@@ -381,7 +396,7 @@ serve(async (_req) => {
           .from('collection_stop')
           .select(
             `id, stream, external_order_ref, address, latitude, longitude,
-             services_summary, collection_date!inner(date)`,
+             services_summary, waste_location, driver_notes, collection_date!inner(date)`,
           )
           .eq('status', 'Pending')
           .is('pushed_at', null)
@@ -397,7 +412,7 @@ serve(async (_req) => {
         date: stop.collection_date.date,
         duration: STOP_DURATION_MINUTES,
         priority: STREAM_PRIORITY[stop.stream],
-        notes: buildOrderNotes(stop.services_summary ?? []),
+        notes: buildOrderNotes(stop.services_summary ?? [], stop.waste_location, stop.driver_notes),
         location:
           stop.latitude !== null && stop.longitude !== null
             ? {

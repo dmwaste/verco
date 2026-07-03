@@ -35,6 +35,8 @@ describe('field run cards link through to their detail page', () => {
         latitude: -32.2,
         longitude: 115.8,
         services_summary: [{ name: 'General', qty: 2 }],
+        waste_location: 'Front Verge',
+        driver_notes: null,
         stop_sequence: 1,
         scheduled_at: '08:30:00',
         driver_serial: 'T-01',
@@ -118,5 +120,47 @@ describe('field run cards link through to their detail page', () => {
       'href',
       '/field/booking/VV-BK1?action=np',
     )
+  })
+})
+
+describe('run-sheet stop card surfaces waste location + driver notes', () => {
+  const baseStop: ComponentProps<typeof RunSheetStopsClient>['stops'][number] = {
+    id: 'stop-2',
+    stream: 'ancillary',
+    status: 'Pending',
+    address: '23 Leda Blvd, Wellard WA 6170',
+    latitude: -32.2,
+    longitude: 115.8,
+    services_summary: [{ name: 'Mattress', qty: 2 }],
+    waste_location: 'Front Verge',
+    driver_notes: 'Behind the bins on the side street',
+    stop_sequence: 1,
+    scheduled_at: '08:30:00',
+    driver_serial: 'T-01',
+    driver_name: 'Driver A',
+    booking: { id: 'b2', ref: 'VV-STOP2', status: 'Scheduled', type: 'Residential' },
+  }
+
+  it('renders labelled Location + Notes when present', () => {
+    render(
+      <RunSheetStopsClient date="2026-06-16" driverSerial="T-01" stops={[baseStop]} runMeta={null} />,
+    )
+    expect(screen.getByText('Location:')).toBeInTheDocument()
+    expect(screen.getByText('Front Verge')).toBeInTheDocument()
+    expect(screen.getByText('Notes:')).toBeInTheDocument()
+    expect(screen.getByText('Behind the bins on the side street')).toBeInTheDocument()
+  })
+
+  it('omits both labels when the stop carries neither', () => {
+    render(
+      <RunSheetStopsClient
+        date="2026-06-16"
+        driverSerial="T-01"
+        stops={[{ ...baseStop, id: 'stop-3', waste_location: null, driver_notes: null }]}
+        runMeta={null}
+      />,
+    )
+    expect(screen.queryByText('Location:')).not.toBeInTheDocument()
+    expect(screen.queryByText('Notes:')).not.toBeInTheDocument()
   })
 })
