@@ -1414,6 +1414,7 @@ export type Database = {
           completed_by: string | null
           created_at: string
           driver_name: string | null
+          driver_notes: string | null
           driver_serial: string | null
           external_deleted_at: string | null
           external_order_ref: string | null
@@ -1429,6 +1430,7 @@ export type Database = {
           stop_sequence: number | null
           stream: Database["public"]["Enums"]["waste_stream"]
           updated_at: string
+          waste_location: string | null
         }
         Insert: {
           address?: string | null
@@ -1440,6 +1442,7 @@ export type Database = {
           completed_by?: string | null
           created_at?: string
           driver_name?: string | null
+          driver_notes?: string | null
           driver_serial?: string | null
           external_deleted_at?: string | null
           external_order_ref?: string | null
@@ -1455,6 +1458,7 @@ export type Database = {
           stop_sequence?: number | null
           stream: Database["public"]["Enums"]["waste_stream"]
           updated_at?: string
+          waste_location?: string | null
         }
         Update: {
           address?: string | null
@@ -1466,6 +1470,7 @@ export type Database = {
           completed_by?: string | null
           created_at?: string
           driver_name?: string | null
+          driver_notes?: string | null
           driver_serial?: string | null
           external_deleted_at?: string | null
           external_order_ref?: string | null
@@ -1481,6 +1486,7 @@ export type Database = {
           stop_sequence?: number | null
           stream?: Database["public"]["Enums"]["waste_stream"]
           updated_at?: string
+          waste_location?: string | null
         }
         Relationships: [
           {
