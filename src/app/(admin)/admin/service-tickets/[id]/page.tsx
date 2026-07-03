@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
-import { resolveAuditLogs } from '@/lib/audit/resolve'
+import { resolveAuditLogs, resolveActorNames } from '@/lib/audit/resolve'
 import { AdminTicketDetailClient } from './admin-ticket-detail-client'
 
 interface AdminTicketDetailPageProps {
@@ -48,21 +48,14 @@ export default async function AdminTicketDetailPage({
     .eq('ticket_id', ticket.id)
     .order('created_at', { ascending: true })
 
-  // Fetch author names for all responses
+  // Resolve author display names through the same staff-gated SECURITY DEFINER
+  // resolver the audit timeline uses (resolve_actor_names). A direct
+  // profiles.display_name read returns NULL for anyone whose name lives in
+  // contacts.full_name via profiles.contact_id (the common case) — which
+  // rendered every note/response author as "Unknown" even though the audit
+  // trail resolved them correctly. See src/lib/audit/resolve.ts.
   const authorIds = [...new Set((responses ?? []).map((r) => r.author_id))]
-  let authorNames: Record<string, string> = {}
-  if (authorIds.length > 0) {
-    const { data: profiles } = await supabase
-      .from('profiles')
-      .select('id, display_name')
-      .in('id', authorIds)
-
-    if (profiles) {
-      authorNames = Object.fromEntries(
-        profiles.map((p) => [p.id, p.display_name ?? 'Unknown'])
-      )
-    }
-  }
+  const authorNames = await resolveActorNames(supabase, authorIds)
 
   // Eligible "Assign to" staff — contractor staff for the ticket's contractor +
   // client staff for the ticket's client, computed by the assignable_ticket_staff
@@ -82,6 +75,7 @@ export default async function AdminTicketDetailPage({
 
   // Fetch linked booking if present
   let linkedBooking: {
+    id: string
     ref: string
     address: string
     collectionDate: string | null
@@ -103,6 +97,7 @@ export default async function AdminTicketDetailPage({
       const prop = booking.eligible_properties as { formatted_address: string | null } | null
       const items = booking.booking_item as Array<{ service: { name: string }; collection_date: { date: string } }>
       linkedBooking = {
+        id: ticket.booking_id,
         ref: booking.ref,
         address: prop?.formatted_address ?? '',
         collectionDate: items[0]?.collection_date?.date ?? null,
