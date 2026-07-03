@@ -435,7 +435,7 @@ export default async function AdminDashboardPage() {
                       </span>
                     )
                   })()}
-                  <span className="text-[11px] text-gray-300">
+                  <span className="text-[11px] text-gray-500">
                     {formatDistanceToNow(new Date(ticket.created_at), { addSuffix: false })}
                   </span>
                 </div>
@@ -499,7 +499,7 @@ export default async function AdminDashboardPage() {
           <div className="mb-3.5 flex items-center justify-between font-[family-name:var(--font-heading)] text-sm font-semibold text-[#293F52]">
             <span>
               MUDs Due Soon
-              <span className="ml-2 text-[11px] font-normal text-gray-400">
+              <span className="ml-2 text-[11px] font-normal text-gray-500">
                 Next 14 days · cadence-based
               </span>
             </span>
@@ -540,7 +540,7 @@ export default async function AdminDashboardPage() {
                           ? format(new Date(r.next_expected_date + 'T00:00:00'), 'd MMM')
                           : '—'}
                       </div>
-                      <div className="mt-0.5 text-[10px] text-gray-400">
+                      <div className="mt-0.5 text-[11px] text-gray-500">
                         last {r.last_date
                           ? format(new Date(r.last_date + 'T00:00:00'), 'd MMM yyyy')
                           : 'never'}
