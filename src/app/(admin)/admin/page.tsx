@@ -1,11 +1,19 @@
 import { createClient } from '@/lib/supabase/server'
 import { format, formatDistanceToNow } from 'date-fns'
-import { BookingStatusBadge } from '@/components/booking/booking-status-badge'
 import Link from 'next/link'
 import { effectiveCapacity, indexPoolDates } from '@/lib/capacity/effective-capacity'
 import { getCurrentAdminClient } from '@/lib/admin/current-client'
 import { getTenantMudPropertyIds } from '@/lib/admin/mud-tenant-scope'
 import { awstWeekRange } from '@/lib/date/awst-week'
+
+// Priority pill colours — mirrors PRIORITY_STYLE in service-tickets-client.tsx
+// so a ticket's priority reads identically on the dashboard and the list page.
+const TICKET_PRIORITY_STYLE: Record<string, { bg: string; text: string; label: string }> = {
+  low: { bg: 'bg-gray-100', text: 'text-gray-600', label: 'Low' },
+  normal: { bg: 'bg-blue-50', text: 'text-blue-700', label: 'Normal' },
+  high: { bg: 'bg-amber-50', text: 'text-amber-700', label: 'High' },
+  urgent: { bg: 'bg-red-50', text: 'text-red-700', label: 'Urgent' },
+}
 
 export default async function AdminDashboardPage() {
   const supabase = await createClient()
@@ -417,14 +425,14 @@ export default async function AdminDashboardPage() {
                   <div className="truncate text-xs text-gray-500">{ticket.subject}</div>
                 </div>
                 <div className="flex shrink-0 flex-col items-end gap-1">
-                  <BookingStatusBadge
-                    status={ticket.priority === 'high' || ticket.priority === 'urgent' ? 'Nothing Presented' : 'Submitted'}
-                    className={
-                      ticket.priority === 'high' || ticket.priority === 'urgent'
-                        ? 'bg-[#FFF3EA] text-[#C05A00]'
-                        : 'bg-[#EBF5FF] text-[#3182CE]'
-                    }
-                  />
+                  {(() => {
+                    const ps = TICKET_PRIORITY_STYLE[ticket.priority] ?? TICKET_PRIORITY_STYLE.normal
+                    return (
+                      <span className={`inline-flex items-center whitespace-nowrap rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${ps.bg} ${ps.text}`}>
+                        {ps.label}
+                      </span>
+                    )
+                  })()}
                   <span className="text-[11px] text-gray-300">
                     {formatDistanceToNow(new Date(ticket.created_at), { addSuffix: false })}
                   </span>
