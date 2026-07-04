@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   groupStopsIntoRuns,
+  runStatus,
   UNASSIGNED_RUN_SEGMENT,
   type PickerStop,
 } from '@/lib/stops/runs'
@@ -44,6 +45,8 @@ describe('groupStopsIntoRuns', () => {
     ])
     expect(runs[0]!.done).toBe(3)
     expect(runs[0]!.total).toBe(4)
+    // NCN + NP count as exceptions; Completed and Pending do not.
+    expect(runs[0]!.exceptions).toBe(2)
   })
 
   it('excludes cancelled stops entirely — an all-cancelled run disappears', () => {
@@ -103,5 +106,24 @@ describe('groupStopsIntoRuns', () => {
 
   it('exports the unassigned URL segment used by the picker and run sheet', () => {
     expect(UNASSIGNED_RUN_SEGMENT).toBe('unassigned')
+  })
+})
+
+describe('runStatus', () => {
+  it('is Not started when nothing is done', () => {
+    expect(runStatus({ total: 4, done: 0, exceptions: 0 })).toBe('Not started')
+  })
+
+  it('is In progress when some but not all stops are done', () => {
+    expect(runStatus({ total: 4, done: 2, exceptions: 0 })).toBe('In progress')
+  })
+
+  it('is Complete when every stop is done and clean', () => {
+    expect(runStatus({ total: 4, done: 4, exceptions: 0 })).toBe('Complete')
+  })
+
+  it('is Has exceptions whenever a stop is NCN/NP — even a fully-worked run', () => {
+    expect(runStatus({ total: 4, done: 2, exceptions: 1 })).toBe('Has exceptions')
+    expect(runStatus({ total: 4, done: 4, exceptions: 1 })).toBe('Has exceptions')
   })
 })

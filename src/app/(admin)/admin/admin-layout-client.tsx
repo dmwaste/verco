@@ -29,9 +29,9 @@ export function AdminLayoutClient({
   children,
 }: AdminLayoutClientProps) {
   return (
-    <div className="admin-surface flex h-screen flex-col">
+    <div className="admin-surface flex h-screen flex-col print:h-auto print:overflow-visible">
       {/* Top bar */}
-      <div className="flex h-14 shrink-0 items-center gap-4 bg-[#293F52] px-5">
+      <div className="flex h-14 shrink-0 items-center gap-4 bg-[#293F52] px-5 print:hidden">
         <div className="flex w-60 shrink-0 items-center gap-2.5">
           {/* Verco logo mark (reversed/white variant, for the navy bar). The
               green-leaf + white-circle icon is inlined as vectors; the "VERCO"
@@ -74,15 +74,17 @@ export function AdminLayoutClient({
       </div>
 
       {/* Body: sidebar + main */}
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex flex-1 overflow-hidden print:overflow-visible">
         <AdminSidebar counts={counts} role={role} />
-        <main className="flex flex-1 flex-col overflow-y-auto bg-gray-50">
+        <main className="flex flex-1 flex-col overflow-y-auto bg-gray-50 print:overflow-visible print:bg-white">
           {children}
         </main>
       </div>
 
       {/* Bug-report FAB — desktop only, every admin page */}
-      <BugReportFab />
+      <div className="print:hidden">
+        <BugReportFab />
+      </div>
     </div>
   )
 }
