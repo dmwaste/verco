@@ -193,7 +193,7 @@ export function AllocationFormModal({ open, onOpenChange, onSave, propertyId, pr
   })
 
   // Modal-field visual delta over the shared Input base (roomier dialog inputs).
-  const modalField = 'rounded-[10px] px-3.5 py-3 text-body placeholder:text-gray-300 focus:border-[var(--brand)]'
+  const modalField = 'rounded-[10px] px-3.5 py-3 text-body placeholder:text-gray-300 focus:border-[#293F52]'
   const errorClass = 'mt-1 text-caption text-red-500'
 
   return (

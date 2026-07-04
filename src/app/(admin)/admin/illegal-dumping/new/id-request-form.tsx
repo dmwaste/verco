@@ -373,16 +373,16 @@ export function IdRequestForm({
           className={cn(
             'mt-3 flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-medium',
             locationError
-              ? 'bg-red-50 text-red-700'
+              ? 'bg-status-error-bg text-status-error'
               : isPinned
-                ? 'bg-emerald-50 text-emerald-700'
-                : 'bg-amber-50 text-amber-700'
+                ? 'bg-status-success-bg text-status-success'
+                : 'bg-status-warn-bg text-status-warn'
           )}
         >
           <div
             className={cn(
               'size-2 shrink-0 rounded-full',
-              locationError ? 'bg-red-500' : isPinned ? 'bg-emerald-500' : 'bg-amber-400'
+              locationError ? 'bg-status-error' : isPinned ? 'bg-status-success' : 'bg-status-warn'
             )}
           />
           {isGeocoding
@@ -565,7 +565,7 @@ export function IdRequestForm({
           </Select>
         </div>
         {areaSuggestion.kind === 'agree' && (
-          <p className="mt-2 flex items-center gap-1.5 text-xs text-emerald-600" role="status">
+          <p className="mt-2 flex items-center gap-1.5 text-xs text-status-success" role="status">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
               <polyline points="20 6 9 17 4 12" />
             </svg>

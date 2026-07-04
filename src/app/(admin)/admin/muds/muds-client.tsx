@@ -163,9 +163,9 @@ export function MudsClient({ clientId, isContractorAdmin }: MudsClientProps) {
   }
 
   const statusPills: Array<{ key: 'Contact Made' | 'Registered' | 'Inactive' | 'unset'; label: string; color: string }> = [
-    { key: 'Contact Made', label: 'Contact Made', color: 'text-amber-600 border-amber-200 bg-amber-50' },
-    { key: 'Registered', label: 'Registered', color: 'text-emerald-600 border-emerald-200 bg-emerald-50' },
-    { key: 'Inactive', label: 'Inactive', color: 'text-red-500 border-red-200 bg-red-50' },
+    { key: 'Contact Made', label: 'Contact Made', color: 'text-status-warn border-status-warn/20 bg-status-warn-bg' },
+    { key: 'Registered', label: 'Registered', color: 'text-status-success border-status-success/20 bg-status-success-bg' },
+    { key: 'Inactive', label: 'Inactive', color: 'text-gray-600 border-gray-200 bg-gray-100' },
     { key: 'unset', label: 'Not Set', color: 'text-gray-500 border-gray-200 bg-gray-50' },
   ]
 
@@ -274,9 +274,9 @@ export function MudsClient({ clientId, isContractorAdmin }: MudsClientProps) {
                     </td>
                     <td className="px-4 py-2.5 text-gray-600">{area.code}</td>
                     <td className="px-4 py-2.5">
-                      <span className="rounded-full bg-[#F3EEFF] px-2 py-0.5 text-2xs font-semibold text-[#805AD5]">
+                      <Pill tone="accent" className="px-2 text-2xs">
                         {m.mud_code ?? '—'}
-                      </span>
+                      </Pill>
                     </td>
                     <td className="px-4 py-2.5 text-right text-gray-700">{m.unit_count ?? '—'}</td>
                     <td className="px-4 py-2.5">

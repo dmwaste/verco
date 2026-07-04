@@ -36,6 +36,8 @@ const TONE = {
   warn: { bg: 'bg-status-warn-bg', text: 'text-status-warn' },
   error: { bg: 'bg-status-error-bg', text: 'text-status-error' },
   info: { bg: 'bg-status-info-bg', text: 'text-status-info' },
+  // Non-semantic accent — mirrors the PURPLE pair in lib/ui/status-styles.ts
+  accent: { bg: 'bg-[#F3EEFF]', text: 'text-[#805AD5]' },
   neutral: { bg: 'bg-gray-100', text: 'text-gray-600' },
 } as const
 

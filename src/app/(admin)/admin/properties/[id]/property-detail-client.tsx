@@ -243,9 +243,7 @@ export function PropertyDetailClient({
         subtitle={<>{property.collection_area.code} &mdash; {property.collection_area.name}</>}
       >
         {property.is_mud && (
-          <span className="inline-flex items-center rounded-full bg-[#F3EEFF] px-2.5 py-0.5 text-caption font-semibold text-[#805AD5]">
-            MUD
-          </span>
+          <Pill tone="accent">MUD</Pill>
         )}
         {!property.is_eligible && (
           <Pill tone="error">Ineligible</Pill>

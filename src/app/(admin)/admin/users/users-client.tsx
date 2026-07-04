@@ -28,7 +28,6 @@ const ROLE_OPTIONS: AppRole[] = [
   'ranger',
 ]
 
-
 const PAGE_SIZE = 50
 
 interface UsersClientProps {

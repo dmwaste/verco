@@ -53,29 +53,3 @@ export function Select({
 }: SelectHTMLAttributes<HTMLSelectElement>) {
   return <select {...props} className={cn(FIELD_BASE, className)} />
 }
-
-/**
- * Optional composition helper: label + field + error, with the label bound to
- * the field via htmlFor/id. Pass the same id to the child field.
- */
-export function FormField({
-  label,
-  htmlFor,
-  error,
-  className,
-  children,
-}: {
-  label: ReactNode
-  htmlFor: string
-  error?: string
-  className?: string
-  children: ReactNode
-}) {
-  return (
-    <div className={className}>
-      <FieldLabel htmlFor={htmlFor}>{label}</FieldLabel>
-      {children}
-      {error && <p className="mt-1 text-2xs text-red-500">{error}</p>}
-    </div>
-  )
-}

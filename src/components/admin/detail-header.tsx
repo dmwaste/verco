@@ -19,7 +19,7 @@ export function DetailHeader({ backHref, backLabel, title, subtitle, children }:
   return (
     <div className="border-b border-gray-100 bg-white px-7 pb-5 pt-6">
       <BackLink href={backHref} label={backLabel} />
-      <div className="flex items-start justify-between">
+      <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="font-[family-name:var(--font-heading)] text-xl font-bold text-[#293F52]">
             {title}

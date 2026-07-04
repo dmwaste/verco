@@ -15,6 +15,7 @@ import { Th } from '@/components/admin/th'
 import { Pagination } from '@/components/admin/pagination'
 import { FilterBar, SearchInput, FilterSelect } from '@/components/admin/filter-bar'
 import { PageHeader } from '@/components/admin/page-header'
+import { Pill } from '@/components/status-badge'
 
 const PAGE_SIZE = 50
 
@@ -608,9 +609,9 @@ export function PropertiesClient({ clientId, isContractorAdmin, canManageAllocat
                     <td className="px-4 py-2.5 text-center">
                       {p.is_mud ? (
                         <div className="flex flex-col items-center gap-0.5">
-                          <span className="rounded-full bg-[#F3EEFF] px-2 py-0.5 text-2xs font-semibold text-[#805AD5]">
+                          <Pill tone="accent" className="px-2 text-2xs">
                             {p.mud_code ?? 'MUD'}
-                          </span>
+                          </Pill>
                           {p.mud_onboarding_status && (
                             <span className={`text-2xs font-medium ${
                               p.mud_onboarding_status === 'Registered'

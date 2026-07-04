@@ -20,6 +20,7 @@ import { Pagination } from '@/components/admin/pagination'
 import { FilterBar, SearchInput, FilterSelect } from '@/components/admin/filter-bar'
 import { PageHeader } from '@/components/admin/page-header'
 import { Th } from '@/components/admin/th'
+import { Pill } from '@/components/status-badge'
 
 const PAGE_SIZE = 50
 
@@ -645,7 +646,7 @@ export function CollectionDatesClient({ clientId, clientSlug, isContractorAdmin 
                       {area.code}
                       {isPooled && (
                         <span
-                          className="ml-1.5 rounded-full bg-indigo-50 px-1.5 py-0.5 text-2xs font-semibold text-indigo-700"
+                          className="ml-1.5 rounded-full bg-status-info-bg px-1.5 py-0.5 text-2xs font-semibold text-status-info"
                           title="Capacity shared via pool — limits managed at pool level"
                         >
                           pool
@@ -653,7 +654,7 @@ export function CollectionDatesClient({ clientId, clientSlug, isContractorAdmin 
                       )}
                     </td>
                     <td className="px-4 py-2.5 text-center">
-                      {d.for_mud && <span className="rounded-full bg-[#F3EEFF] px-2 py-0.5 text-2xs font-semibold text-[#805AD5]">MUD</span>}
+                      {d.for_mud && <Pill tone="accent" className="px-2 text-2xs">MUD</Pill>}
                     </td>
                     <td className="px-4 py-2.5 text-center">
                       {(() => {
@@ -705,7 +706,7 @@ export function CollectionDatesClient({ clientId, clientSlug, isContractorAdmin 
                           <div className={`h-full rounded-full ${capacityColor(cap.bulk_units_booked, cap.bulk_capacity_limit)}`} style={{ width: `${Math.min(100, cap.bulk_capacity_limit > 0 ? (cap.bulk_units_booked / cap.bulk_capacity_limit) * 100 : 0)}%` }} />
                         </div>
                         <span className="text-caption text-gray-500">{cap.bulk_units_booked}/{cap.bulk_capacity_limit}</span>
-                        {cap.bulk_is_closed && <span className="rounded bg-red-100 px-1 py-px text-2xs font-semibold text-red-600">Closed</span>}
+                        {cap.bulk_is_closed && <span className="rounded bg-status-error-bg px-1 py-px text-2xs font-semibold text-status-error">Closed</span>}
                       </div>
                     </td>
                     {/* ANC capacity */}
@@ -716,7 +717,7 @@ export function CollectionDatesClient({ clientId, clientSlug, isContractorAdmin 
                             <div className={`h-full rounded-full ${capacityColor(cap.anc_units_booked, cap.anc_capacity_limit)}`} style={{ width: `${Math.min(100, cap.anc_capacity_limit > 0 ? (cap.anc_units_booked / cap.anc_capacity_limit) * 100 : 0)}%` }} />
                           </div>
                           <span className="text-caption text-gray-500">{cap.anc_units_booked}/{cap.anc_capacity_limit}</span>
-                          {cap.anc_is_closed && <span className="rounded bg-red-100 px-1 py-px text-2xs font-semibold text-red-600">Closed</span>}
+                          {cap.anc_is_closed && <span className="rounded bg-status-error-bg px-1 py-px text-2xs font-semibold text-status-error">Closed</span>}
                         </div>
                       </td>
                     )}
@@ -727,7 +728,7 @@ export function CollectionDatesClient({ clientId, clientSlug, isContractorAdmin 
                           <div className={`h-full rounded-full ${capacityColor(cap.id_units_booked, cap.id_capacity_limit)}`} style={{ width: `${Math.min(100, cap.id_capacity_limit > 0 ? (cap.id_units_booked / cap.id_capacity_limit) * 100 : 0)}%` }} />
                         </div>
                         <span className="text-caption text-gray-500">{cap.id_units_booked}/{cap.id_capacity_limit}</span>
-                        {cap.id_is_closed && <span className="rounded bg-red-100 px-1 py-px text-2xs font-semibold text-red-600">Closed</span>}
+                        {cap.id_is_closed && <span className="rounded bg-status-error-bg px-1 py-px text-2xs font-semibold text-status-error">Closed</span>}
                       </div>
                     </td>
                     <td className="px-4 py-2.5 text-right">
