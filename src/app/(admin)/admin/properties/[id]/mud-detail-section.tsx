@@ -53,7 +53,7 @@ export function MudDetailSection({
     return (
       <div className="rounded-xl bg-white p-5 shadow-sm">
         <div className="mb-4 flex items-start justify-between">
-          <h2 className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">
+          <h2 className="text-caption font-semibold uppercase tracking-wide text-gray-500">
             Edit MUD details
           </h2>
           <span className={`rounded-full px-2.5 py-0.5 text-caption font-semibold ${statusClasses}`}>
@@ -82,7 +82,7 @@ export function MudDetailSection({
       {/* ── Left card: MUD details + schedule + status actions ──── */}
       <div className="rounded-xl bg-white p-5 shadow-sm">
         <div className="flex items-start justify-between">
-          <h2 className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">
+          <h2 className="text-caption font-semibold uppercase tracking-wide text-gray-500">
             MUD onboarding
           </h2>
           <div className="flex items-center gap-2">
@@ -99,7 +99,7 @@ export function MudDetailSection({
           </div>
         </div>
 
-        <div className="mt-3 space-y-2.5 text-[13px]">
+        <div className="mt-3 space-y-2.5 text-body-sm">
           <div className="flex justify-between">
             <span className="text-gray-500">MUD code</span>
             <span className="text-right font-mono text-[#293F52]">
@@ -120,7 +120,7 @@ export function MudDetailSection({
 
         {/* Cadence-based reminders */}
         {property.collection_cadence && property.collection_cadence !== 'Ad-hoc' && (
-          <div className="mt-4 rounded-lg bg-gray-50 p-3 text-[12px]">
+          <div className="mt-4 rounded-lg bg-gray-50 p-3 text-xs">
             <div className="flex justify-between">
               <span className="text-gray-500">Last completed</span>
               <span className="text-[#293F52]">
@@ -163,11 +163,11 @@ export function MudDetailSection({
       <div className="rounded-xl bg-white p-5 shadow-sm">
         {/* Strata contact */}
         <div>
-          <div className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">
+          <div className="text-caption font-semibold uppercase tracking-wide text-gray-500">
             Strata contact
           </div>
           {strataContact ? (
-            <div className="mt-2 space-y-1 text-[13px]">
+            <div className="mt-2 space-y-1 text-body-sm">
               <div className="font-medium text-[#293F52]">{strataContact.full_name}</div>
               <div className="text-gray-600">{strataContact.email}</div>
               {strataContact.mobile_e164 && (
@@ -175,7 +175,7 @@ export function MudDetailSection({
               )}
             </div>
           ) : (
-            <div className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-[12px] text-amber-800">
+            <div className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
               Not set — required for Registered status
             </div>
           )}
@@ -183,15 +183,15 @@ export function MudDetailSection({
 
         {/* Waste location notes */}
         <div className="mt-5">
-          <div className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">
+          <div className="text-caption font-semibold uppercase tracking-wide text-gray-500">
             Waste location notes
           </div>
           {property.waste_location_notes ? (
-            <p className="mt-2 whitespace-pre-wrap text-[13px] text-[#293F52]">
+            <p className="mt-2 whitespace-pre-wrap text-body-sm text-[#293F52]">
               {property.waste_location_notes}
             </p>
           ) : (
-            <div className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-[12px] text-amber-800">
+            <div className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
               Not set — required for Registered status
             </div>
           )}
@@ -199,7 +199,7 @@ export function MudDetailSection({
 
         {/* Auth form */}
         <div className="mt-5">
-          <div className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">
+          <div className="text-caption font-semibold uppercase tracking-wide text-gray-500">
             Authorisation form
           </div>
           {authFormSignedUrl ? (
@@ -207,7 +207,7 @@ export function MudDetailSection({
               href={authFormSignedUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="mt-2 inline-flex items-center gap-1.5 rounded-lg bg-emerald-50 px-3 py-2 text-[12px] font-medium text-emerald-700 hover:bg-emerald-100"
+              className="mt-2 inline-flex items-center gap-1.5 rounded-lg bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-700 hover:bg-emerald-100"
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
@@ -216,7 +216,7 @@ export function MudDetailSection({
               View auth form
             </a>
           ) : (
-            <div className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-[12px] text-amber-800">
+            <div className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
               Not uploaded — required for Registered status
             </div>
           )}

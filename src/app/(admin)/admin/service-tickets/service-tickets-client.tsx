@@ -189,7 +189,7 @@ export function ServiceTicketsClient({ clientId }: ServiceTicketsClientProps) {
                 return (
                   <tr key={t.id} className="border-b border-gray-50 hover:bg-gray-50/50">
                     <td className="px-4 py-2.5">
-                      <Link href={`/admin/service-tickets/${t.display_id}`} className="font-mono text-[12px] text-gray-400 hover:text-[#293F52] hover:underline">
+                      <Link href={`/admin/service-tickets/${t.display_id}`} className="font-mono text-xs text-gray-400 hover:text-[#293F52] hover:underline">
                         {t.display_id}
                       </Link>
                     </td>

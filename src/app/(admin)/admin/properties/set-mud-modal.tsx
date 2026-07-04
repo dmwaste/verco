@@ -198,10 +198,10 @@ export function SetMudModal({ open, onOpenChange, property, onSuccess }: SetMudM
             <Dialog.Title className="font-[family-name:var(--font-heading)] text-lg font-bold text-[#293F52]">
               Set as MUD
             </Dialog.Title>
-            <p className="mt-1 text-[13px] text-gray-500">
+            <p className="mt-1 text-body-sm text-gray-500">
               {property.formatted_address ?? property.address}
             </p>
-            <p className="mt-3 text-[12px] text-gray-500">
+            <p className="mt-3 text-xs text-gray-500">
               Creates a MUD record at <strong>Contact Made</strong> status. Fill in the strata
               contact + auth form now or later — the property becomes bookable only after it&apos;s
               promoted to <strong>Registered</strong>.
@@ -219,7 +219,7 @@ export function SetMudModal({ open, onOpenChange, property, onSuccess }: SetMudM
                     min={8}
                     value={unitCount}
                     onChange={(e) => setUnitCount(Number.parseInt(e.target.value, 10) || 0)}
-                    className="mt-1 w-full rounded-lg border-[1.5px] border-gray-100 bg-white px-3 py-2 text-[13px] outline-none focus:border-[#293F52]"
+                    className="mt-1 w-full rounded-lg border-[1.5px] border-gray-100 bg-white px-3 py-2 text-body-sm outline-none focus:border-[#293F52]"
                   />
                   <p className="mt-1 text-caption text-gray-400">Minimum 8</p>
                 </div>
@@ -231,7 +231,7 @@ export function SetMudModal({ open, onOpenChange, property, onSuccess }: SetMudM
                     type="text"
                     value={mudCode}
                     onChange={(e) => setMudCode(e.target.value.toUpperCase())}
-                    className="mt-1 w-full rounded-lg border-[1.5px] border-gray-100 bg-white px-3 py-2 font-mono text-[13px] outline-none focus:border-[#293F52]"
+                    className="mt-1 w-full rounded-lg border-[1.5px] border-gray-100 bg-white px-3 py-2 font-mono text-body-sm outline-none focus:border-[#293F52]"
                   />
                   <p className="mt-1 text-caption text-gray-400">Auto-suggested</p>
                 </div>
@@ -245,7 +245,7 @@ export function SetMudModal({ open, onOpenChange, property, onSuccess }: SetMudM
                 <select
                   value={cadence}
                   onChange={(e) => setCadence(e.target.value as CollectionCadence)}
-                  className="mt-1 w-full rounded-lg border-[1.5px] border-gray-100 bg-white px-3 py-2 text-[13px] outline-none focus:border-[#293F52]"
+                  className="mt-1 w-full rounded-lg border-[1.5px] border-gray-100 bg-white px-3 py-2 text-body-sm outline-none focus:border-[#293F52]"
                 >
                   {COLLECTION_CADENCES.map((c) => (
                     <option key={c} value={c}>{c}</option>
@@ -262,7 +262,7 @@ export function SetMudModal({ open, onOpenChange, property, onSuccess }: SetMudM
                   value={wasteNotes}
                   onChange={(e) => setWasteNotes(e.target.value)}
                   placeholder="e.g. Collect all from the corner of Eric and Gadson"
-                  className="mt-1 h-20 w-full resize-none rounded-lg border-[1.5px] border-gray-100 bg-white px-3 py-2 text-[13px] outline-none placeholder:text-gray-400 focus:border-[#293F52]"
+                  className="mt-1 h-20 w-full resize-none rounded-lg border-[1.5px] border-gray-100 bg-white px-3 py-2 text-body-sm outline-none placeholder:text-gray-400 focus:border-[#293F52]"
                 />
                 <p className="mt-1 text-caption text-gray-400">Required to mark Registered</p>
               </div>
@@ -284,7 +284,7 @@ export function SetMudModal({ open, onOpenChange, property, onSuccess }: SetMudM
                       value={contactFirstName}
                       onChange={(e) => setContactFirstName(e.target.value)}
                       placeholder="First name"
-                      className="w-full rounded-lg border-[1.5px] border-gray-100 bg-white px-3 py-2 text-[13px] outline-none placeholder:text-gray-400 focus:border-[#293F52]"
+                      className="w-full rounded-lg border-[1.5px] border-gray-100 bg-white px-3 py-2 text-body-sm outline-none placeholder:text-gray-400 focus:border-[#293F52]"
                     />
                     <input
                       type="text"
@@ -292,7 +292,7 @@ export function SetMudModal({ open, onOpenChange, property, onSuccess }: SetMudM
                       value={contactLastName}
                       onChange={(e) => setContactLastName(e.target.value)}
                       placeholder="Last name"
-                      className="w-full rounded-lg border-[1.5px] border-gray-100 bg-white px-3 py-2 text-[13px] outline-none placeholder:text-gray-400 focus:border-[#293F52]"
+                      className="w-full rounded-lg border-[1.5px] border-gray-100 bg-white px-3 py-2 text-body-sm outline-none placeholder:text-gray-400 focus:border-[#293F52]"
                     />
                   </div>
                   <input
@@ -300,14 +300,14 @@ export function SetMudModal({ open, onOpenChange, property, onSuccess }: SetMudM
                     value={contactMobile}
                     onChange={(e) => setContactMobile(e.target.value)}
                     placeholder="Mobile (04XX or +614XX)"
-                    className="w-full rounded-lg border-[1.5px] border-gray-100 bg-white px-3 py-2 text-[13px] outline-none placeholder:text-gray-400 focus:border-[#293F52]"
+                    className="w-full rounded-lg border-[1.5px] border-gray-100 bg-white px-3 py-2 text-body-sm outline-none placeholder:text-gray-400 focus:border-[#293F52]"
                   />
                   <input
                     type="email"
                     value={contactEmail}
                     onChange={(e) => setContactEmail(e.target.value)}
                     placeholder="Email"
-                    className="w-full rounded-lg border-[1.5px] border-gray-100 bg-white px-3 py-2 text-[13px] outline-none placeholder:text-gray-400 focus:border-[#293F52]"
+                    className="w-full rounded-lg border-[1.5px] border-gray-100 bg-white px-3 py-2 text-body-sm outline-none placeholder:text-gray-400 focus:border-[#293F52]"
                   />
                 </div>
               </div>
@@ -321,7 +321,7 @@ export function SetMudModal({ open, onOpenChange, property, onSuccess }: SetMudM
                   PDF, JPG, PNG, or HEIC. Max 10 MB. Required to mark Registered.
                 </p>
                 {authFormPath ? (
-                  <div className="flex items-center justify-between rounded-lg bg-emerald-50 px-3 py-2 text-[12px]">
+                  <div className="flex items-center justify-between rounded-lg bg-emerald-50 px-3 py-2 text-xs">
                     <span className="truncate text-emerald-700">
                       ✓ {authFormName}
                     </span>
@@ -344,7 +344,7 @@ export function SetMudModal({ open, onOpenChange, property, onSuccess }: SetMudM
                     accept=".pdf,.jpg,.jpeg,.png,.heic,application/pdf,image/jpeg,image/png,image/heic"
                     onChange={handleFileSelect}
                     disabled={isUploading}
-                    className="block w-full text-[12px] text-gray-500 file:mr-3 file:rounded-lg file:border-0 file:bg-gray-100 file:px-3 file:py-1.5 file:text-[12px] file:font-medium file:text-gray-700"
+                    className="block w-full text-xs text-gray-500 file:mr-3 file:rounded-lg file:border-0 file:bg-gray-100 file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-gray-700"
                   />
                 )}
                 {isUploading && (
@@ -353,7 +353,7 @@ export function SetMudModal({ open, onOpenChange, property, onSuccess }: SetMudM
               </div>
 
               {error && (
-                <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[12px] text-red-700">
+                <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
                   {error}
                 </div>
               )}
@@ -361,7 +361,7 @@ export function SetMudModal({ open, onOpenChange, property, onSuccess }: SetMudM
 
             <div className="mt-6 flex gap-2.5">
               <Dialog.Close
-                className="flex-1 rounded-xl border-[1.5px] border-gray-100 bg-white px-3.5 py-3 font-[family-name:var(--font-heading)] text-[14px] font-semibold text-[#293F52]"
+                className="flex-1 rounded-xl border-[1.5px] border-gray-100 bg-white px-3.5 py-3 font-[family-name:var(--font-heading)] text-sm font-semibold text-[#293F52]"
                 disabled={isSubmitting}
               >
                 Cancel
@@ -370,7 +370,7 @@ export function SetMudModal({ open, onOpenChange, property, onSuccess }: SetMudM
                 type="button"
                 onClick={handleSubmit}
                 disabled={isSubmitting || isUploading}
-                className="flex-1 rounded-xl bg-[#293F52] px-3.5 py-3 font-[family-name:var(--font-heading)] text-[14px] font-semibold text-white disabled:opacity-50"
+                className="flex-1 rounded-xl bg-[#293F52] px-3.5 py-3 font-[family-name:var(--font-heading)] text-sm font-semibold text-white disabled:opacity-50"
               >
                 {isSubmitting ? 'Saving...' : 'Save MUD'}
               </button>

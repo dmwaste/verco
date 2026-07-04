@@ -562,7 +562,7 @@ export function CollectionDatesClient({ clientId, clientSlug, isContractorAdmin 
       <div className="mx-7 mt-6 overflow-x-auto rounded-xl border border-gray-200 bg-white">
         <table className="w-full text-left text-sm tabular-nums">
           <thead>
-            <tr className="border-b border-gray-100 bg-gray-50 text-xs font-semibold uppercase tracking-wide text-gray-500">
+            <tr className="border-b border-gray-100 bg-gray-50 text-caption font-semibold uppercase tracking-wide text-gray-500">
               <th className="px-4 py-3">Date</th>
               <th className="px-4 py-3">Area</th>
               <th className="px-4 py-3 text-center">Type</th>
@@ -704,7 +704,7 @@ export function CollectionDatesClient({ clientId, clientSlug, isContractorAdmin 
                           <div className={`h-full rounded-full ${capacityColor(cap.bulk_units_booked, cap.bulk_capacity_limit)}`} style={{ width: `${Math.min(100, cap.bulk_capacity_limit > 0 ? (cap.bulk_units_booked / cap.bulk_capacity_limit) * 100 : 0)}%` }} />
                         </div>
                         <span className="text-caption text-gray-500">{cap.bulk_units_booked}/{cap.bulk_capacity_limit}</span>
-                        {cap.bulk_is_closed && <span className="rounded bg-red-100 px-1 py-px text-[9px] font-semibold text-red-600">Closed</span>}
+                        {cap.bulk_is_closed && <span className="rounded bg-red-100 px-1 py-px text-2xs font-semibold text-red-600">Closed</span>}
                       </div>
                     </td>
                     {/* ANC capacity */}
@@ -715,7 +715,7 @@ export function CollectionDatesClient({ clientId, clientSlug, isContractorAdmin 
                             <div className={`h-full rounded-full ${capacityColor(cap.anc_units_booked, cap.anc_capacity_limit)}`} style={{ width: `${Math.min(100, cap.anc_capacity_limit > 0 ? (cap.anc_units_booked / cap.anc_capacity_limit) * 100 : 0)}%` }} />
                           </div>
                           <span className="text-caption text-gray-500">{cap.anc_units_booked}/{cap.anc_capacity_limit}</span>
-                          {cap.anc_is_closed && <span className="rounded bg-red-100 px-1 py-px text-[9px] font-semibold text-red-600">Closed</span>}
+                          {cap.anc_is_closed && <span className="rounded bg-red-100 px-1 py-px text-2xs font-semibold text-red-600">Closed</span>}
                         </div>
                       </td>
                     )}
@@ -726,7 +726,7 @@ export function CollectionDatesClient({ clientId, clientSlug, isContractorAdmin 
                           <div className={`h-full rounded-full ${capacityColor(cap.id_units_booked, cap.id_capacity_limit)}`} style={{ width: `${Math.min(100, cap.id_capacity_limit > 0 ? (cap.id_units_booked / cap.id_capacity_limit) * 100 : 0)}%` }} />
                         </div>
                         <span className="text-caption text-gray-500">{cap.id_units_booked}/{cap.id_capacity_limit}</span>
-                        {cap.id_is_closed && <span className="rounded bg-red-100 px-1 py-px text-[9px] font-semibold text-red-600">Closed</span>}
+                        {cap.id_is_closed && <span className="rounded bg-red-100 px-1 py-px text-2xs font-semibold text-red-600">Closed</span>}
                       </div>
                     </td>
                     <td className="px-4 py-2.5 text-right">

@@ -173,7 +173,7 @@ export function MudEditForm({ property, strataContact, onCancel }: MudEditFormPr
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-3">
         <div>
-          <label className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">
+          <label className="text-caption font-semibold uppercase tracking-wide text-gray-500">
             Unit count
           </label>
           <input
@@ -181,30 +181,30 @@ export function MudEditForm({ property, strataContact, onCancel }: MudEditFormPr
             min={8}
             value={unitCount}
             onChange={(e) => setUnitCount(Number.parseInt(e.target.value, 10) || 0)}
-            className="mt-1 w-full rounded-lg border-[1.5px] border-gray-100 bg-white px-3 py-2 text-[13px] outline-none focus:border-[#293F52]"
+            className="mt-1 w-full rounded-lg border-[1.5px] border-gray-100 bg-white px-3 py-2 text-body-sm outline-none focus:border-[#293F52]"
           />
         </div>
         <div>
-          <label className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">
+          <label className="text-caption font-semibold uppercase tracking-wide text-gray-500">
             MUD code
           </label>
           <input
             type="text"
             value={mudCode}
             onChange={(e) => setMudCode(e.target.value.toUpperCase())}
-            className="mt-1 w-full rounded-lg border-[1.5px] border-gray-100 bg-white px-3 py-2 font-mono text-[13px] outline-none focus:border-[#293F52]"
+            className="mt-1 w-full rounded-lg border-[1.5px] border-gray-100 bg-white px-3 py-2 font-mono text-body-sm outline-none focus:border-[#293F52]"
           />
         </div>
       </div>
 
       <div>
-        <label className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">
+        <label className="text-caption font-semibold uppercase tracking-wide text-gray-500">
           Cadence
         </label>
         <select
           value={cadence}
           onChange={(e) => setCadence(e.target.value as CollectionCadence)}
-          className="mt-1 w-full rounded-lg border-[1.5px] border-gray-100 bg-white px-3 py-2 text-[13px] outline-none focus:border-[#293F52]"
+          className="mt-1 w-full rounded-lg border-[1.5px] border-gray-100 bg-white px-3 py-2 text-body-sm outline-none focus:border-[#293F52]"
         >
           {COLLECTION_CADENCES.map((c) => (
             <option key={c} value={c}>{c}</option>
@@ -213,19 +213,19 @@ export function MudEditForm({ property, strataContact, onCancel }: MudEditFormPr
       </div>
 
       <div>
-        <label className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">
+        <label className="text-caption font-semibold uppercase tracking-wide text-gray-500">
           Waste location notes
         </label>
         <textarea
           value={wasteNotes}
           onChange={(e) => setWasteNotes(e.target.value)}
           placeholder="e.g. Collect all from the corner of Eric and Gadson"
-          className="mt-1 h-20 w-full resize-none rounded-lg border-[1.5px] border-gray-100 bg-white px-3 py-2 text-[13px] outline-none placeholder:text-gray-400 focus:border-[#293F52]"
+          className="mt-1 h-20 w-full resize-none rounded-lg border-[1.5px] border-gray-100 bg-white px-3 py-2 text-body-sm outline-none placeholder:text-gray-400 focus:border-[#293F52]"
         />
       </div>
 
       <div className="rounded-xl border border-gray-100 p-3.5">
-        <div className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-gray-500">
+        <div className="mb-2 text-caption font-semibold uppercase tracking-wide text-gray-500">
           Strata contact
         </div>
         <div className="space-y-2">
@@ -236,7 +236,7 @@ export function MudEditForm({ property, strataContact, onCancel }: MudEditFormPr
               value={contactFirstName}
               onChange={(e) => setContactFirstName(e.target.value)}
               placeholder="First name"
-              className="w-full rounded-lg border-[1.5px] border-gray-100 bg-white px-3 py-2 text-[13px] outline-none placeholder:text-gray-400 focus:border-[#293F52]"
+              className="w-full rounded-lg border-[1.5px] border-gray-100 bg-white px-3 py-2 text-body-sm outline-none placeholder:text-gray-400 focus:border-[#293F52]"
             />
             <input
               type="text"
@@ -244,7 +244,7 @@ export function MudEditForm({ property, strataContact, onCancel }: MudEditFormPr
               value={contactLastName}
               onChange={(e) => setContactLastName(e.target.value)}
               placeholder="Last name"
-              className="w-full rounded-lg border-[1.5px] border-gray-100 bg-white px-3 py-2 text-[13px] outline-none placeholder:text-gray-400 focus:border-[#293F52]"
+              className="w-full rounded-lg border-[1.5px] border-gray-100 bg-white px-3 py-2 text-body-sm outline-none placeholder:text-gray-400 focus:border-[#293F52]"
             />
           </div>
           <input
@@ -252,24 +252,24 @@ export function MudEditForm({ property, strataContact, onCancel }: MudEditFormPr
             value={contactMobile}
             onChange={(e) => setContactMobile(e.target.value)}
             placeholder="Mobile (04XX or +614XX)"
-            className="w-full rounded-lg border-[1.5px] border-gray-100 bg-white px-3 py-2 text-[13px] outline-none placeholder:text-gray-400 focus:border-[#293F52]"
+            className="w-full rounded-lg border-[1.5px] border-gray-100 bg-white px-3 py-2 text-body-sm outline-none placeholder:text-gray-400 focus:border-[#293F52]"
           />
           <input
             type="email"
             value={contactEmail}
             onChange={(e) => setContactEmail(e.target.value)}
             placeholder="Email"
-            className="w-full rounded-lg border-[1.5px] border-gray-100 bg-white px-3 py-2 text-[13px] outline-none placeholder:text-gray-400 focus:border-[#293F52]"
+            className="w-full rounded-lg border-[1.5px] border-gray-100 bg-white px-3 py-2 text-body-sm outline-none placeholder:text-gray-400 focus:border-[#293F52]"
           />
         </div>
       </div>
 
       <div className="rounded-xl border border-gray-100 p-3.5">
-        <div className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-gray-500">
+        <div className="mb-2 text-caption font-semibold uppercase tracking-wide text-gray-500">
           Authorisation form
         </div>
         {authFormPath ? (
-          <div className="flex items-center justify-between rounded-lg bg-emerald-50 px-3 py-2 text-[12px]">
+          <div className="flex items-center justify-between rounded-lg bg-emerald-50 px-3 py-2 text-xs">
             <span className="truncate text-emerald-700">
               ✓ {authFormJustUploaded ?? 'Uploaded'}
             </span>
@@ -292,14 +292,14 @@ export function MudEditForm({ property, strataContact, onCancel }: MudEditFormPr
             accept=".pdf,.jpg,.jpeg,.png,.heic,application/pdf,image/jpeg,image/png,image/heic"
             onChange={handleFileSelect}
             disabled={isUploading}
-            className="block w-full text-[12px] text-gray-500 file:mr-3 file:rounded-lg file:border-0 file:bg-gray-100 file:px-3 file:py-1.5 file:text-[12px] file:font-medium file:text-gray-700"
+            className="block w-full text-xs text-gray-500 file:mr-3 file:rounded-lg file:border-0 file:bg-gray-100 file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-gray-700"
           />
         )}
         {isUploading && <p className="mt-2 text-caption text-gray-500">Uploading...</p>}
       </div>
 
       {error && (
-        <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[12px] text-red-700">
+        <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
           {error}
         </div>
       )}
@@ -309,7 +309,7 @@ export function MudEditForm({ property, strataContact, onCancel }: MudEditFormPr
           type="button"
           onClick={onCancel}
           disabled={isSubmitting}
-          className="flex-1 rounded-xl border-[1.5px] border-gray-100 bg-white px-3.5 py-2.5 text-[13px] font-semibold text-[#293F52]"
+          className="flex-1 rounded-xl border-[1.5px] border-gray-100 bg-white px-3.5 py-2.5 text-body-sm font-semibold text-[#293F52]"
         >
           Cancel
         </button>
@@ -317,7 +317,7 @@ export function MudEditForm({ property, strataContact, onCancel }: MudEditFormPr
           type="button"
           onClick={handleSave}
           disabled={isSubmitting || isUploading}
-          className="flex-1 rounded-xl bg-[#293F52] px-3.5 py-2.5 text-[13px] font-semibold text-white disabled:opacity-50"
+          className="flex-1 rounded-xl bg-[#293F52] px-3.5 py-2.5 text-body-sm font-semibold text-white disabled:opacity-50"
         >
           {isSubmitting ? 'Saving...' : 'Save changes'}
         </button>

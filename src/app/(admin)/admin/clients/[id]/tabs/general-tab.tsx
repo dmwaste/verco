@@ -74,7 +74,7 @@ export function GeneralTab({ client }: { client: Client }) {
 
   const inputClass = 'w-full rounded-lg border-[1.5px] border-gray-100 bg-gray-50 px-3 py-2.5 text-body-sm text-gray-900 outline-none focus:border-[#293F52] focus:bg-white'
   const labelClass = 'mb-1.5 block text-xs font-medium text-gray-500'
-  const sectionHeader = 'mb-3 text-2xs font-semibold uppercase tracking-wide text-gray-500'
+  const sectionHeader = 'mb-3 text-caption font-semibold uppercase tracking-wide text-gray-500'
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="max-w-2xl">

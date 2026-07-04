@@ -92,7 +92,7 @@ export function Sparkline({
           vectorEffect="non-scaling-stroke"
         />
       </svg>
-      {caption && <p className="mt-1 text-[10px] text-gray-500">{caption}</p>}
+      {caption && <p className="mt-1 text-2xs text-gray-500">{caption}</p>}
     </div>
   )
 }

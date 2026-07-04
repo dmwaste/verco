@@ -431,7 +431,7 @@ export function BookingDetailClient({
       {mudContext && (
         <div className="rounded-xl bg-[#FAF8FF] p-5 shadow-sm">
           <div className="mb-3 flex items-center justify-between">
-            <span className="text-2xs font-semibold uppercase tracking-wide text-[#805AD5]">
+            <span className="text-caption font-semibold uppercase tracking-wide text-[#805AD5]">
               MUD Context
             </span>
             <Link
@@ -462,7 +462,7 @@ export function BookingDetailClient({
 
             {mudContext.strataContact && (
               <div className="mt-1 border-t border-gray-100 pt-2.5">
-                <div className="mb-1.5 text-2xs font-semibold uppercase tracking-wide text-gray-500">
+                <div className="mb-1.5 text-caption font-semibold uppercase tracking-wide text-gray-500">
                   Strata contact
                 </div>
                 <div className="text-body-sm text-gray-900">{mudContext.strataContact.fullName}</div>
@@ -477,7 +477,7 @@ export function BookingDetailClient({
 
             {mudContext.allowance.length > 0 && (
               <div className="mt-1 border-t border-gray-100 pt-2.5">
-                <div className="mb-1.5 text-2xs font-semibold uppercase tracking-wide text-gray-500">
+                <div className="mb-1.5 text-caption font-semibold uppercase tracking-wide text-gray-500">
                   FY allowance
                 </div>
                 <div className="flex flex-col gap-1.5">
@@ -495,7 +495,7 @@ export function BookingDetailClient({
                         >
                           {row.used}/{row.total_cap}
                           {row.override_extras > 0 && (
-                            <span className="ml-1 text-[10px] text-gray-500">
+                            <span className="ml-1 text-2xs text-gray-500">
                               (+{row.override_extras})
                             </span>
                           )}
@@ -513,7 +513,7 @@ export function BookingDetailClient({
       {/* Property + Collection Details */}
       <div className="rounded-xl bg-white p-5 shadow-sm">
         <div className="mb-3 flex items-center justify-between">
-          <span className="text-2xs font-semibold uppercase tracking-wide text-gray-500">
+          <span className="text-caption font-semibold uppercase tracking-wide text-gray-500">
             Collection Details
           </span>
           {canEditDetails && !editingDetails && (
@@ -677,7 +677,7 @@ export function BookingDetailClient({
       {(contact || canEdit) && (
         <div className="rounded-xl bg-white p-5 shadow-sm">
           <div className="mb-3 flex items-center justify-between">
-            <span className="text-2xs font-semibold uppercase tracking-wide text-gray-500">
+            <span className="text-caption font-semibold uppercase tracking-wide text-gray-500">
               Contact
             </span>
             {canEdit && !editingContact && contact && (
@@ -780,7 +780,7 @@ export function BookingDetailClient({
       {/* Services — edit via wizard (pricing/capacity) */}
       <div className="rounded-xl bg-white p-5 shadow-sm">
         <div className="mb-3 flex items-center justify-between">
-          <span className="text-2xs font-semibold uppercase tracking-wide text-gray-500">
+          <span className="text-caption font-semibold uppercase tracking-wide text-gray-500">
             Services
           </span>
           {editServicesUrl && (
@@ -872,13 +872,13 @@ export function BookingDetailClient({
                 This action cannot be undone.{totalChargeCents > 0 ? ' A refund will be initiated for any paid services.' : ''}
               </p>
               <div className="mt-5 flex gap-2.5">
-                <Dialog.Close className="flex-1 rounded-xl border-[1.5px] border-gray-100 bg-white px-3.5 py-3 font-[family-name:var(--font-heading)] text-[14px] font-semibold text-[#293F52]">
+                <Dialog.Close className="flex-1 rounded-xl border-[1.5px] border-gray-100 bg-white px-3.5 py-3 font-[family-name:var(--font-heading)] text-sm font-semibold text-[#293F52]">
                   Keep Booking
                 </Dialog.Close>
                 <button
                   type="button"
                   onClick={handleCancel}
-                  className="flex-1 rounded-xl bg-[#E53E3E] px-3.5 py-3 font-[family-name:var(--font-heading)] text-[14px] font-semibold text-white"
+                  className="flex-1 rounded-xl bg-[#E53E3E] px-3.5 py-3 font-[family-name:var(--font-heading)] text-sm font-semibold text-white"
                 >
                   Cancel Booking
                 </button>
