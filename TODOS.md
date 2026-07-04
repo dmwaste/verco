@@ -64,3 +64,9 @@
 - **Context:** Full detail in memory `survey-public-access-pipeline.md`; specs reconciled in PRD §11 / TECH_SPEC §13 (v1.1, #290).
 - **Priority:** P1 (test-row delete, before first collections), P3 (config editor + hardening).
 
+## Admin run sheets — deferred follow-ups (shipped 04/07/2026: PR #296)
+
+- **Aggregate run-summary RPC (scale escalation):** the `/admin/run-sheets` list fetches every stop for a date via `fetchDayStops` (`fetchAllRows`, correct now) then groups in-memory. If a single date routinely exceeds ~1-2k stops, replace with a SECURITY DEFINER RPC that groups stops → run summaries in Postgres. **Must carry the §21 NULL-safe staff role gate** (`tenant-gate-is-not-an-authz-gate`) — `accessible_client_ids()` alone is not an authz gate. **Trigger:** observed per-date stop volumes in prod. **Priority:** P3.
+- **Contractor-roles-only resident contact on the run-sheet detail:** v1 is address-only (`collection_stop` is PII-free by construction). Office staff often pull a run sheet to phone a resident about a missed/disputed collection. Add an optional contractor-roles-only join (a separate query, NOT the PII-free stop record) surfacing name + phone on the detail. **Needs:** RLS scoping + PII tests. **Trigger:** office confirms callbacks are a real workflow. **Priority:** P3.
+- **Context:** Read-only, printable, contractor-only run sheets shipped via PR #296. Full state in memory `admin-run-sheets-feature.md`. Live visual QA (OTP login in preview) outstanding before the develop→main deploy.
+
