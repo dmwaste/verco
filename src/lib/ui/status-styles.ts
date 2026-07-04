@@ -136,6 +136,13 @@ const MUD_ONBOARDING: Record<string, StatusStyle> = {
   Inactive:       { bg: 'bg-gray-100', text: 'text-gray-600', label: 'Inactive' },
 }
 
+// ── Survey response statuses (derived: submitted_at IS NULL ? Pending) ───────
+
+const SURVEY: Record<string, StatusStyle> = {
+  Pending:   { ...WARN, label: 'Pending' },
+  Submitted: { ...SUCCESS, label: 'Submitted' },
+}
+
 // ── Audit-log actions (no DB enum — audit_log.action is free text) ───────────
 
 const AUDIT_ACTION: Record<string, StatusStyle> = {
@@ -157,6 +164,7 @@ const ENTITIES = {
   bugPriority: BUG_PRIORITY,
   role: ROLE,
   mudOnboarding: MUD_ONBOARDING,
+  survey: SURVEY,
   auditAction: AUDIT_ACTION,
 } as const
 
