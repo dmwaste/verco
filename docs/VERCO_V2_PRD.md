@@ -1,9 +1,19 @@
 # Verco v2 — Product Requirements Document
 
-**Version:** 1.0  
-**Date:** 2026-03-26  
+**Version:** 1.1  
+**Date:** 2026-03-26 (last reconciled 2026-07-04 — see Change Log)  
 **Author:** Dan Taylor (D&M Waste Management) + Claude (technical co-author)  
 **Status:** APPROVED — basis for TECH_SPEC  
+
+---
+
+## Change Log
+
+Reconciles this PRD with what actually shipped (the original 2026-03-26 text described intended, not as-built, designs in the noted sections).
+
+| Date | Ver | Change |
+|---|---|---|
+| 2026-07-04 | 1.1 | **Survey system reconciled to as-built (§11).** Public access is token-gated via anon-callable `SECURITY DEFINER` RPCs (not a DB trigger). Survey questions are a **fixed shared set** (code constant), not per-tenant configurable (that is deferred). Added and shipped: admin surveys module (`/admin/surveys`), dashboard survey feed, standalone `/survey/*` layout, and a `DISABLE_SURVEY_EMAIL` kill-switch. `booking_survey` is keyed by `client_id` (not `tenant_id`). Shipped as PRs #284 / #285 / #287 / #288. |
 
 ---
 
@@ -425,12 +435,14 @@ All reporting is **tenant-scoped only**. No cross-tenant benchmarking in-app.
 
 ## 11. Surveys
 
-- One survey per booking, triggered on `status → Completed`
-- Survey is tenant-branded, hosted in Verco
-- Survey link in completion email is a short URL with a signed token (no login required)
-- Responses stored in `booking_survey` table: `booking_id, tenant_id, submitted_at, responses (jsonb)`
-- Survey questions are configurable per tenant (stored in `tenant_survey_config`)
-- Aggregate survey scores available in council dashboard reporting
+_As-built, reconciled 2026-07-04 (shipped #284/#285/#287/#288). Original 1.0 text described a DB trigger + per-tenant question config; see Change Log._
+
+- One survey per booking, created when the booking reaches `Completed` (at field closeout), enforced `UNIQUE (booking_id)` — one submission per booking
+- Survey is tenant-branded (logo + service name from the `client` record) and hosted in Verco on a standalone `/survey/[token]` page (no resident app chrome)
+- Survey link in the completion email is a short URL with an unguessable token (no login required); the logged-out page reads + submits through anon-callable `SECURITY DEFINER` RPCs
+- Responses stored in `booking_survey`: `booking_id, client_id, token, submitted_at, responses (jsonb)`
+- **Survey questions are a fixed shared set** (stable analytics ids, comparable across councils) — per-tenant custom questions are a **future** capability (the `client_survey_config` table exists but is unwired)
+- Aggregate scores + response rate (vs completed bookings) available in the admin surveys module and a dashboard feed; a completion email can be paused with `DISABLE_SURVEY_EMAIL`
 
 ---
 
