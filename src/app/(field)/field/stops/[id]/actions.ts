@@ -174,6 +174,12 @@ async function maybeCreateCompletionSurvey(
   bookingId: string,
   clientId: string,
 ): Promise<void> {
+  // E1 safety valve (plan decision D1): pause survey creation + the completion
+  // email during go-live. Set DISABLE_SURVEY_EMAIL=true in the runtime env to
+  // hold surveys (e.g. before the end-to-end staging verify is done); unset it
+  // to resume normal operation. Default (unset) = surveys on.
+  if (process.env.DISABLE_SURVEY_EMAIL === 'true') return
+
   const { data: booking } = await supabase
     .from('booking')
     .select('status')
