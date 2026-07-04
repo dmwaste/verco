@@ -7,6 +7,26 @@ import { getTenantMudPropertyIds } from '@/lib/admin/mud-tenant-scope'
 import { awstWeekRange } from '@/lib/date/awst-week'
 import { StatusBadge } from '@/components/status-badge'
 
+/** Shared height for every half-width dashboard tile so all rows line up. */
+const HALF_CARD = 'flex h-96 flex-col rounded-xl bg-white p-5 shadow-sm'
+
+/** 5-star rating, or an em-dash when the response has no valid rating. */
+function Stars({ value }: { value: number | null }) {
+  if (value === null) return <span className="text-gray-300">—</span>
+  return (
+    <span className="inline-flex gap-0.5" aria-label={`${value} out of 5`}>
+      {[1, 2, 3, 4, 5].map((s) => (
+        <svg key={s} width="12" height="12" viewBox="0 0 24 24" aria-hidden="true">
+          <path
+            d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"
+            fill={s <= value ? '#FF8C42' : '#E8E8E8'}
+          />
+        </svg>
+      ))}
+    </span>
+  )
+}
+
 export default async function AdminDashboardPage() {
   const supabase = await createClient()
 
@@ -111,7 +131,7 @@ export default async function AdminDashboardPage() {
     .select('id, submitted_at, responses, booking!inner(ref)')
     .not('submitted_at', 'is', null)
     .order('submitted_at', { ascending: false })
-    .limit(5)
+    .limit(20)
   if (clientId) recentSurveysQuery.eq('client_id', clientId)
 
   const [
@@ -199,9 +219,11 @@ export default async function AdminDashboardPage() {
   const openTickets = openTicketsResult.data ?? []
   const openExceptionBookings = openExceptionsResult.data ?? []
   const recentSurveys = recentSurveysResult.data ?? []
-  const surveyOverall = (responses: unknown): number | null => {
+  // Pull one 1..5 integer rating out of the opaque responses blob by key —
+  // used for the three star columns (booking / collection / overall).
+  const surveyRating = (responses: unknown, key: string): number | null => {
     if (responses === null || typeof responses !== 'object' || Array.isArray(responses)) return null
-    const raw = (responses as Record<string, unknown>).overall_rating
+    const raw = (responses as Record<string, unknown>)[key]
     if (typeof raw !== 'number' && typeof raw !== 'string') return null
     const n = Number(raw)
     return Number.isInteger(n) && n >= 1 && n <= 5 ? n : null
@@ -350,14 +372,14 @@ export default async function AdminDashboardPage() {
       {/* Two-column grid */}
       <div className="grid grid-cols-1 gap-4 px-7 py-5 lg:grid-cols-2">
         {/* Upcoming collection dates — all future dates (open + closed), compact */}
-        <div className="rounded-xl bg-white p-5 shadow-sm">
+        <div className={HALF_CARD}>
           <div className="mb-3.5 flex items-center justify-between">
             <h2 className="font-[family-name:var(--font-heading)] text-sm font-semibold text-[#293F52]">
               Upcoming Collection Dates
             </h2>
             <Link href="/admin/collection-dates" className="text-xs font-medium text-[#00B864] hover:underline">View all &rarr;</Link>
           </div>
-          <div className="-mr-1 max-h-80 space-y-0.5 overflow-y-auto pr-1">
+          <div className="-mr-1 min-h-0 flex-1 space-y-0.5 overflow-y-auto pr-1">
             {upcomingDates.map((d: UpcomingDate) => {
               const area = d.collection_area as unknown as { name: string; code: string; capacity_pool_id: string | null }
               const pool = area.capacity_pool_id
@@ -399,19 +421,20 @@ export default async function AdminDashboardPage() {
           </div>
         </div>
 
-        {/* Weekly summary — collections scheduled this week, by outcome */}
-        <div className="rounded-xl bg-white p-5 shadow-sm">
+        {/* Weekly summary — collections scheduled this week, by outcome. No
+            list to scroll, so the 2×2 grid fills the shared card height. */}
+        <div className={HALF_CARD}>
           <h2 className="mb-3.5 font-[family-name:var(--font-heading)] text-sm font-semibold text-[#293F52]">
             This Week&apos;s Summary
           </h2>
-          <div className="grid grid-cols-2 gap-2.5">
+          <div className="grid min-h-0 flex-1 grid-cols-2 grid-rows-2 gap-2.5">
             {[
               { label: 'Completed', value: weekCompleted, color: 'text-[#00B864]' },
               { label: 'Cancelled', value: weekCancelled, color: 'text-[#FF8C42]' },
               { label: 'Non-Conformance', value: weekNcn, color: 'text-status-error' },
               { label: 'Nothing Presented', value: weekNp, color: 'text-[#FF8C42]' },
             ].map((stat) => (
-              <div key={stat.label} className="rounded-lg bg-gray-50 px-3.5 py-3">
+              <div key={stat.label} className="flex flex-col justify-center rounded-lg bg-gray-50 px-3.5 py-3">
                 <div className="mb-1 text-caption text-gray-500">{stat.label}</div>
                 {/* Tone colour only when the count is non-zero — an orange or red
                     zero reads as an alarm for a state where nothing is wrong. */}
@@ -423,15 +446,16 @@ export default async function AdminDashboardPage() {
           </div>
         </div>
 
-        {/* Open service tickets. flex-col so the empty state can centre in the
-            leftover height when the grid row is stretched by a taller sibling. */}
-        <div className="flex flex-col rounded-xl bg-white p-5 shadow-sm">
+        {/* Open service tickets. Fixed height + scrollable body so the list
+            never pushes the card taller than its siblings. */}
+        <div className={HALF_CARD}>
           <div className="mb-3.5 flex items-center justify-between">
             <h2 className="font-[family-name:var(--font-heading)] text-sm font-semibold text-[#293F52]">
               Open Service Tickets
             </h2>
             <Link href="/admin/service-tickets" className="text-xs font-medium text-[#00B864] hover:underline">View all &rarr;</Link>
           </div>
+          <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
           {openTickets.map((ticket) => {
             const contact = ticket.contact as unknown as { full_name: string }
             const initials = contact.full_name
@@ -465,56 +489,81 @@ export default async function AdminDashboardPage() {
           {openTickets.length === 0 && (
             <p className="flex flex-1 items-center justify-center py-8 text-sm text-gray-400">No open tickets</p>
           )}
+          </div>
         </div>
 
-        {/* Recent survey feedback — newest submitted responses; rows link to the
-            survey detail. Mirrors the Open Service Tickets tile. */}
-        <div className="flex flex-col rounded-xl bg-white p-5 shadow-sm">
+        {/* Recent survey feedback — newest 20 submitted responses as a compact
+            table with a sticky column header; each row's Ref links to the
+            survey detail. Shows the three star ratings per submission. */}
+        <div className={HALF_CARD}>
           <div className="mb-3.5 flex items-center justify-between">
             <h2 className="font-[family-name:var(--font-heading)] text-sm font-semibold text-[#293F52]">
               Recent Survey Feedback
             </h2>
             <Link href="/admin/surveys" className="text-xs font-medium text-[#00B864] hover:underline">View all &rarr;</Link>
           </div>
-          {recentSurveys.map((s) => {
-            const booking = s.booking as unknown as { ref: string }
-            const rating = surveyOverall(s.responses)
-            return (
-              <Link
-                key={s.id}
-                href={`/admin/surveys/${s.id}`}
-                className="flex items-center gap-3 border-b border-gray-100 py-2.5 last:border-b-0 last:pb-0 hover:bg-gray-50"
-              >
-                <div className="min-w-0 flex-1">
-                  <div className="text-body-sm font-medium text-gray-900">{booking.ref}</div>
-                  <div className="text-xs text-gray-500">{rating !== null ? `${rating}/5 overall` : 'No rating'}</div>
-                </div>
-                <span className="shrink-0 text-caption text-gray-500">
-                  {s.submitted_at ? formatDistanceToNow(new Date(s.submitted_at), { addSuffix: false }) : ''}
-                </span>
-              </Link>
-            )
-          })}
-          {recentSurveys.length === 0 && (
+          {recentSurveys.length === 0 ? (
             <p className="flex flex-1 items-center justify-center py-8 text-center text-sm text-gray-400">
               No responses yet — surveys are emailed after each collection is completed
             </p>
+          ) : (
+            <div className="min-h-0 flex-1 overflow-y-auto">
+              <table className="w-full">
+                {/* Sticky header keeps the column labels pinned while the 20
+                    rows scroll beneath. */}
+                <thead className="sticky top-0 z-10 bg-white">
+                  <tr className="border-b border-gray-100 text-caption text-gray-500">
+                    <th className="py-1.5 pr-2 text-left font-medium">Ref</th>
+                    <th className="px-1 py-1.5 text-center font-medium">Booking</th>
+                    <th className="px-1 py-1.5 text-center font-medium">Collection</th>
+                    <th className="px-1 py-1.5 text-center font-medium">Overall</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {recentSurveys.map((s) => {
+                    const booking = s.booking as unknown as { ref: string }
+                    return (
+                      <tr key={s.id} className="border-b border-gray-100 last:border-b-0 hover:bg-gray-50">
+                        <td className="py-2 pr-2">
+                          <Link
+                            href={`/admin/surveys/${s.id}`}
+                            className="text-body-sm font-medium text-[#293F52] hover:underline"
+                          >
+                            {booking.ref}
+                          </Link>
+                        </td>
+                        <td className="px-1 py-2 text-center">
+                          <div className="flex justify-center"><Stars value={surveyRating(s.responses, 'booking_rating')} /></div>
+                        </td>
+                        <td className="px-1 py-2 text-center">
+                          <div className="flex justify-center"><Stars value={surveyRating(s.responses, 'collection_rating')} /></div>
+                        </td>
+                        <td className="px-1 py-2 text-center">
+                          <div className="flex justify-center"><Stars value={surveyRating(s.responses, 'overall_rating')} /></div>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
           )}
         </div>
 
-        {/* Open NCNs & NPs — bookings sitting in an exception status, newest
+        {/* Open Exceptions — bookings sitting in an NCN/NP status, newest
             first. Mirrors the Open Service Tickets tile; rows link to the
             booking detail where the exception is investigated/rebooked. */}
-        <div className="flex flex-col rounded-xl bg-white p-5 shadow-sm">
+        <div className={HALF_CARD}>
           <div className="mb-3.5 flex items-center justify-between">
             <h2 className="font-[family-name:var(--font-heading)] text-sm font-semibold text-[#293F52]">
-              Open NCNs &amp; NPs
+              Open Exceptions
             </h2>
             <span className="flex items-center gap-3">
               <Link href="/admin/non-conformance" className="text-xs font-medium text-[#00B864] hover:underline">NCNs &rarr;</Link>
               <Link href="/admin/nothing-presented" className="text-xs font-medium text-[#00B864] hover:underline">NPs &rarr;</Link>
             </span>
           </div>
+          <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
           {openExceptionBookings.map((b) => {
             const isNcn = b.status === 'Non-conformance'
             const property = b.eligible_properties as unknown as {
@@ -547,12 +596,13 @@ export default async function AdminDashboardPage() {
             )
           })}
           {openExceptionBookings.length === 0 && (
-            <p className="flex flex-1 items-center justify-center py-8 text-sm text-gray-400">No open NCNs or NPs</p>
+            <p className="flex flex-1 items-center justify-center py-8 text-sm text-gray-400">No open exceptions</p>
           )}
+          </div>
         </div>
 
         {/* MUD reminders — half width to match the other dashboard tiles */}
-        <div className="rounded-xl bg-white p-5 shadow-sm">
+        <div className={HALF_CARD}>
           <div className="mb-3.5 flex items-center justify-between">
             <h2 className="font-[family-name:var(--font-heading)] text-sm font-semibold text-[#293F52]">
               MUDs Due Soon
@@ -567,8 +617,9 @@ export default async function AdminDashboardPage() {
               All MUDs &rarr;
             </Link>
           </div>
+          <div className="min-h-0 flex-1 overflow-y-auto">
           {dueSoonRows.length === 0 && newRegisteredRows.length === 0 ? (
-            <p className="py-4 text-center text-sm text-gray-400">
+            <p className="flex h-full items-center justify-center py-4 text-center text-sm text-gray-400">
               No MUDs due in the next 14 days.
             </p>
           ) : (
@@ -639,6 +690,7 @@ export default async function AdminDashboardPage() {
               )}
             </div>
           )}
+          </div>
         </div>
 
       </div>
