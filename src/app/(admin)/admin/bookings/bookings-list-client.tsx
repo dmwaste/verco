@@ -10,7 +10,7 @@ import { BookingStatusBadge } from '@/components/booking/booking-status-badge'
 import { RefreshRoutesButton } from './refresh-routes-button'
 import { SkeletonRow } from '@/components/ui/skeleton'
 import { PageHeader } from '@/components/admin/page-header'
-import { FilterBar, SearchInput, FilterSelect } from '@/components/admin/filter-bar'
+import { FilterBar, SearchInput, FilterSelect, DateRangeFilter } from '@/components/admin/filter-bar'
 import { Th } from '@/components/admin/th'
 import { Pagination } from '@/components/admin/pagination'
 import Link from 'next/link'
@@ -46,6 +46,9 @@ const TYPE_DOT_COLOR: Record<string, string> = {
 
 const PAGE_SIZE = 20
 
+/** Sortable columns — top-level booking columns PostgREST can `.order()` on. */
+type SortColumn = 'ref' | 'type' | 'status' | 'created_at'
+
 interface BookingsListClientProps {
   /** The selected tenant from the admin switcher. Scopes every query so the
    *  view matches the chosen client (and closes the public-SELECT area-dropdown
@@ -67,7 +70,26 @@ export function BookingsListClient({ clientId, isContractorAdmin, isContractorUs
   const [statusFilter, setStatusFilter] = useState(searchParams.get('status') ?? '')
   const [areaFilter, setAreaFilter] = useState(searchParams.get('area') ?? '')
   const [typeFilter, setTypeFilter] = useState(searchParams.get('type') ?? '')
+  // Collection-date range (booking_item.collection_date.date), both YYYY-MM-DD
+  // or empty. Filters parents via an !inner join when either bound is set.
+  const [dateFrom, setDateFrom] = useState(searchParams.get('date_from') ?? '')
+  const [dateTo, setDateTo] = useState(searchParams.get('date_to') ?? '')
+  // Server-side sort on top-level booking columns only (nested collection_date
+  // can't be ordered by PostgREST). Default matches the previous behaviour.
+  const [sortColumn, setSortColumn] = useState<SortColumn>('created_at')
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
   const [page, setPage] = useState(0)
+
+  function handleSort(key: SortColumn) {
+    if (key === sortColumn) {
+      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
+    } else {
+      setSortColumn(key)
+      // Dates read newest-first by default; text/enum columns A→Z.
+      setSortDir(key === 'created_at' ? 'desc' : 'asc')
+    }
+    setPage(0)
+  }
 
   // Sync URL → state on soft-navigation. The top-bar AdminSearchBar calls
   // router.push('/admin/bookings?search=X'); when the user is already on
@@ -81,6 +103,8 @@ export function BookingsListClient({ clientId, isContractorAdmin, isContractorUs
     setStatusFilter(searchParams.get('status') ?? '')
     setAreaFilter(searchParams.get('area') ?? '')
     setTypeFilter(searchParams.get('type') ?? '')
+    setDateFrom(searchParams.get('date_from') ?? '')
+    setDateTo(searchParams.get('date_to') ?? '')
     setPage(0)
   }, [searchParams])
 
@@ -93,6 +117,8 @@ export function BookingsListClient({ clientId, isContractorAdmin, isContractorUs
     ...(statusFilter ? { status: statusFilter } : {}),
     ...(areaFilter ? { area: areaFilter } : {}),
     ...(typeFilter ? { type: typeFilter } : {}),
+    ...(dateFrom ? { date_from: dateFrom } : {}),
+    ...(dateTo ? { date_to: dateTo } : {}),
   }).toString()
   const detailHref = (bookingId: string) =>
     `/admin/bookings/${bookingId}${listStateQuery ? `?from=${encodeURIComponent(listStateQuery)}` : ''}`
@@ -116,7 +142,7 @@ export function BookingsListClient({ clientId, isContractorAdmin, isContractorUs
 
   // Fetch bookings
   const { data: bookingsData, isLoading } = useQuery({
-    queryKey: ['admin-bookings', clientId, search, statusFilter, areaFilter, typeFilter, page],
+    queryKey: ['admin-bookings', clientId, search, statusFilter, areaFilter, typeFilter, dateFrom, dateTo, sortColumn, sortDir, page],
     queryFn: async () => {
       // Multi-column search: match against booking.ref, property formatted_address,
       // and contact full_name. booking.property_id and booking.contact_id are both
@@ -144,17 +170,29 @@ export function BookingsListClient({ clientId, isContractorAdmin, isContractorUs
         matchingContactIds = contactMatches.data?.map((r) => r.id) ?? []
       }
 
+      // Collection-date range filters the parent booking, so booking_item must
+      // be an inner join when a bound is set (a LEFT-joined embed can't filter
+      // parents — §21). Without a date filter, keep it LEFT so bookings with no
+      // items still appear. Mirrors the reports BcCard pattern.
+      const dateFilterActive = !!(dateFrom || dateTo)
+      const itemsEmbed = dateFilterActive
+        ? 'booking_item!inner(no_services, service!inner(name), collection_date!inner(id, date))'
+        : 'booking_item(no_services, service!inner(name), collection_date!inner(id, date))'
+
       let query = supabase
         .from('booking')
         .select(
           `id, ref, status, type, location, created_at, property_id,
            eligible_properties:property_id(formatted_address, address),
            collection_area!inner(code, name),
-           booking_item(no_services, service!inner(name), collection_date!inner(id, date))`,
+           ${itemsEmbed}`,
           { count: 'exact' }
         )
-        .order('created_at', { ascending: false })
+        .order(sortColumn, { ascending: sortDir === 'asc' })
         .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1)
+
+      if (dateFrom) query = query.gte('booking_item.collection_date.date', dateFrom)
+      if (dateTo) query = query.lte('booking_item.collection_date.date', dateTo)
 
       // Scope to the selected tenant. booking.client_id is RLS-gated too, but
       // for a contractor-admin (who can see every client) this is what makes
@@ -317,6 +355,14 @@ export function BookingsListClient({ clientId, isContractorAdmin, isContractorUs
             <option key={t} value={t}>{t}</option>
           ))}
         </FilterSelect>
+
+        <DateRangeFilter
+          label="Collection"
+          from={dateFrom}
+          to={dateTo}
+          onChange={(from, to) => { setDateFrom(from); setDateTo(to); setPage(0) }}
+          ariaPrefix="Collection date"
+        />
       </FilterBar>
 
       {payError && (
@@ -332,14 +378,14 @@ export function BookingsListClient({ clientId, isContractorAdmin, isContractorUs
           <table className="w-full border-collapse tabular-nums">
             <thead>
               <tr>
-                <Th>Ref</Th>
+                <Th sortKey="ref" activeSort={sortColumn} direction={sortDir} onSort={(k) => handleSort(k as SortColumn)}>Ref</Th>
                 <Th>Address</Th>
-                <Th>Type</Th>
+                <Th sortKey="type" activeSort={sortColumn} direction={sortDir} onSort={(k) => handleSort(k as SortColumn)}>Type</Th>
                 <Th>Services</Th>
                 <Th>Collection Date</Th>
                 <Th>Area</Th>
-                <Th>Status</Th>
-                <Th>Created</Th>
+                <Th sortKey="status" activeSort={sortColumn} direction={sortDir} onSort={(k) => handleSort(k as SortColumn)}>Status</Th>
+                <Th sortKey="created_at" activeSort={sortColumn} direction={sortDir} onSort={(k) => handleSort(k as SortColumn)}>Created</Th>
               </tr>
             </thead>
             <tbody>
