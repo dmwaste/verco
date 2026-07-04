@@ -12,6 +12,31 @@ export type Database = {
   __InternalSupabase: {
     PostgrestVersion: "14.4"
   }
+  graphql_public: {
+    Tables: {
+      [_ in never]: never
+    }
+    Views: {
+      [_ in never]: never
+    }
+    Functions: {
+      graphql: {
+        Args: {
+          extensions?: Json
+          operationName?: string
+          query?: string
+          variables?: Json
+        }
+        Returns: Json
+      }
+    }
+    Enums: {
+      [_ in never]: never
+    }
+    CompositeTypes: {
+      [_ in never]: never
+    }
+  }
   public: {
     Tables: {
       allocation_conversion_rule: {
@@ -2815,6 +2840,7 @@ export type Database = {
           value: number
         }[]
       }
+      get_survey_by_token: { Args: { p_token: string }; Returns: Json }
       has_role: {
         Args: { check_role: Database["public"]["Enums"]["app_role"] }
         Returns: boolean
@@ -2838,6 +2864,10 @@ export type Database = {
         }[]
       }
       retry_notification_log: { Args: { log_id: string }; Returns: string }
+      submit_survey_by_token: {
+        Args: { p_responses: Json; p_token: string }
+        Returns: Json
+      }
       update_booking_items_in_place: {
         Args: {
           p_actor_id?: string
@@ -3093,6 +3123,9 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
+  graphql_public: {
+    Enums: {},
+  },
   public: {
     Enums: {
       app_permission_action: ["view", "create", "edit", "delete", "manage"],
