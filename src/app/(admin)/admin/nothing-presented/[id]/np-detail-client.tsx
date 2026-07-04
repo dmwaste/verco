@@ -10,7 +10,7 @@ import { StatusBadge } from '@/components/status-badge'
 import type { Database } from '@/lib/supabase/types'
 import type { ResolvedAuditEntry } from '@/lib/audit/resolve'
 import { AuditTimeline } from '@/components/audit-timeline'
-import { BackLink } from '@/components/admin/back-link'
+import { DetailHeader } from '@/components/admin/detail-header'
 
 type NpStatus = Database['public']['Enums']['np_status']
 
@@ -122,23 +122,17 @@ export function NpDetailClient({ np, availableDates, auditLogs }: NpDetailClient
   return (
     <div className="flex flex-1 flex-col">
       {/* Header */}
-      <div className="border-b border-gray-100 bg-white px-7 pb-5 pt-6">
-        <BackLink href="/admin/nothing-presented" label="Nothing Presented" />
-        <div className="flex items-start justify-between">
-          <div>
-            <h1 className="font-[family-name:var(--font-heading)] text-xl font-bold text-[#293F52]">
-              NP — {booking?.ref ?? 'Unknown'}
-            </h1>
-            <p className="mt-0.5 text-body-sm text-gray-500">{address}</p>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className={`inline-flex items-center whitespace-nowrap rounded-full px-2.5 py-0.5 text-caption font-semibold ${np.contractor_fault ? 'bg-status-error-bg text-status-error' : 'bg-gray-100 text-gray-600'}`}>
-              {np.contractor_fault ? 'Contractor Fault' : 'Resident Fault'}
-            </span>
-            <StatusBadge entity="np" status={np.status} />
-          </div>
-        </div>
-      </div>
+      <DetailHeader
+        backHref="/admin/nothing-presented"
+        backLabel="Nothing Presented"
+        title={`NP — ${booking?.ref ?? 'Unknown'}`}
+        subtitle={address}
+      >
+        <span className={`inline-flex items-center whitespace-nowrap rounded-full px-2.5 py-0.5 text-caption font-semibold ${np.contractor_fault ? 'bg-status-error-bg text-status-error' : 'bg-gray-100 text-gray-600'}`}>
+          {np.contractor_fault ? 'Contractor Fault' : 'Resident Fault'}
+        </span>
+        <StatusBadge entity="np" status={np.status} />
+      </DetailHeader>
 
       {/* Content */}
       <div className="flex-1 px-7 py-5">

@@ -10,7 +10,7 @@ import { StatusBadge } from '@/components/status-badge'
 import type { Database } from '@/lib/supabase/types'
 import type { ResolvedAuditEntry } from '@/lib/audit/resolve'
 import { AuditTimeline } from '@/components/audit-timeline'
-import { BackLink } from '@/components/admin/back-link'
+import { DetailHeader } from '@/components/admin/detail-header'
 
 type NcnStatus = Database['public']['Enums']['ncn_status']
 
@@ -125,18 +125,14 @@ export function NcnDetailClient({ ncn, availableDates, auditLogs }: NcnDetailCli
   return (
     <div className="flex flex-1 flex-col">
       {/* Header */}
-      <div className="border-b border-gray-100 bg-white px-7 pb-5 pt-6">
-        <BackLink href="/admin/non-conformance" label="Non-Conformance Notices" />
-        <div className="flex items-start justify-between">
-          <div>
-            <h1 className="font-[family-name:var(--font-heading)] text-xl font-bold text-[#293F52]">
-              NCN — {booking?.ref ?? 'Unknown'}
-            </h1>
-            <p className="mt-0.5 text-body-sm text-gray-500">{address}</p>
-          </div>
-          <StatusBadge entity="ncn" status={ncn.status} />
-        </div>
-      </div>
+      <DetailHeader
+        backHref="/admin/non-conformance"
+        backLabel="Non-Conformance Notices"
+        title={`NCN — ${booking?.ref ?? 'Unknown'}`}
+        subtitle={address}
+      >
+        <StatusBadge entity="ncn" status={ncn.status} />
+      </DetailHeader>
 
       {/* Content */}
       <div className="flex-1 px-7 py-5">

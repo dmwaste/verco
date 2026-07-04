@@ -9,7 +9,7 @@ import { StatusBadge } from '@/components/status-badge'
 import type { Database } from '@/lib/supabase/types'
 import type { ResolvedAuditEntry } from '@/lib/audit/resolve'
 import { AuditTimeline } from '@/components/audit-timeline'
-import { BackLink } from '@/components/admin/back-link'
+import { DetailHeader } from '@/components/admin/detail-header'
 
 type TicketStatus = Database['public']['Enums']['ticket_status']
 type TicketPriority = Database['public']['Enums']['ticket_priority']
@@ -198,18 +198,14 @@ export function AdminTicketDetailClient({
   return (
     <div className="flex flex-1 flex-col">
       {/* Header */}
-      <div className="border-b border-gray-100 bg-white px-7 pb-5 pt-6">
-        <BackLink href="/admin/service-tickets" label="Service Tickets" />
-        <div className="flex items-start justify-between">
-          <div>
-            <h1 className="font-[family-name:var(--font-heading)] text-xl font-bold text-[#293F52]">
-              {ticket.subject}
-            </h1>
-            <p className="mt-0.5 font-mono text-body-sm text-gray-400">{ticket.displayId}</p>
-          </div>
-          <StatusBadge entity="ticket" status={status} dot />
-        </div>
-      </div>
+      <DetailHeader
+        backHref="/admin/service-tickets"
+        backLabel="Service Tickets"
+        title={ticket.subject}
+        subtitle={<span className="font-mono text-gray-400">{ticket.displayId}</span>}
+      >
+        <StatusBadge entity="ticket" status={status} dot />
+      </DetailHeader>
 
       {/* Content */}
       <div className="flex-1 px-7 py-5">

@@ -7,6 +7,7 @@ import { createClient as createBrowserClient } from '@/lib/supabase/client'
 import type { Database } from '@/lib/supabase/types'
 import { createSubClient, updateSubClient } from '../../actions'
 import { Pill } from '@/components/status-badge'
+import { Th } from '@/components/admin/th'
 
 type Client = Database['public']['Tables']['client']['Row']
 
@@ -121,12 +122,12 @@ export function SubClientsTab({ client, subClients: initialSubClients }: { clien
       <div className="overflow-x-auto rounded-xl bg-white shadow-sm">
         <table className="w-full border-collapse tabular-nums">
           <thead>
-            <tr className="border-b border-gray-100">
-              <th className="px-4 py-3 text-left text-caption font-semibold uppercase tracking-wider text-gray-400">Name</th>
-              <th className="px-4 py-3 text-left text-caption font-semibold uppercase tracking-wider text-gray-400">Code</th>
-              <th className="px-4 py-3 text-left text-caption font-semibold uppercase tracking-wider text-gray-400">Areas</th>
-              <th className="px-4 py-3 text-left text-caption font-semibold uppercase tracking-wider text-gray-400">Status</th>
-              <th className="px-4 py-3 text-right text-caption font-semibold uppercase tracking-wider text-gray-400">Actions</th>
+            <tr>
+              <Th>Name</Th>
+              <Th>Code</Th>
+              <Th>Areas</Th>
+              <Th>Status</Th>
+              <Th className="text-right">Actions</Th>
             </tr>
           </thead>
           <tbody>

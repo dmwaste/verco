@@ -9,8 +9,9 @@ import { AllocationFormModal } from '@/app/(admin)/admin/allocations/allocation-
 import { MudDetailSection } from './mud-detail-section'
 import type { ResolvedAuditEntry } from '@/lib/audit/resolve'
 import { AuditTimeline } from '@/components/audit-timeline'
-import { BackLink } from '@/components/admin/back-link'
 import { StatusBadge, Pill } from '@/components/status-badge'
+import { DetailHeader } from '@/components/admin/detail-header'
+import { Th } from '@/components/admin/th'
 
 /* ------------------------------------------------------------------ */
 /*  Props — shaped by what page.tsx actually passes                    */
@@ -235,29 +236,21 @@ export function PropertyDetailClient({
   return (
     <>
       {/* ── 1. Header bar ─────────────────────────────────────────── */}
-      <div className="border-b border-gray-100 bg-white px-7 pb-5 pt-6">
-        <BackLink href="/admin/properties" label="Properties" />
-
-        <h1 className="mt-2 font-[family-name:var(--font-heading)] text-xl font-bold text-[#293F52]">
-          {property.formatted_address ?? property.address}
-        </h1>
-
-        <p className="mt-0.5 text-body-sm text-gray-500">
-          {property.collection_area.code} &mdash;{' '}
-          {property.collection_area.name}
-        </p>
-
-        <div className="mt-2 flex items-center gap-2">
-          {property.is_mud && (
-            <span className="inline-flex items-center rounded-full bg-[#F3EEFF] px-2.5 py-0.5 text-caption font-semibold text-[#805AD5]">
-              MUD
-            </span>
-          )}
-          {!property.is_eligible && (
-            <Pill tone="error">Ineligible</Pill>
-          )}
-        </div>
-      </div>
+      <DetailHeader
+        backHref="/admin/properties"
+        backLabel="Properties"
+        title={property.formatted_address ?? property.address}
+        subtitle={<>{property.collection_area.code} &mdash; {property.collection_area.name}</>}
+      >
+        {property.is_mud && (
+          <span className="inline-flex items-center rounded-full bg-[#F3EEFF] px-2.5 py-0.5 text-caption font-semibold text-[#805AD5]">
+            MUD
+          </span>
+        )}
+        {!property.is_eligible && (
+          <Pill tone="error">Ineligible</Pill>
+        )}
+      </DetailHeader>
 
       {/* ── 2. Stats row ──────────────────────────────────────────── */}
       <div className="px-7 py-5">
@@ -305,22 +298,12 @@ export function PropertyDetailClient({
             <div className="overflow-x-auto">
               <table className="w-full border-collapse tabular-nums">
                 <thead>
-                  <tr className="border-t border-gray-100">
-                    <th className="px-5 py-2.5 text-left text-caption font-medium uppercase tracking-wide text-gray-400">
-                      Category
-                    </th>
-                    <th className="px-5 py-2.5 text-left text-caption font-medium uppercase tracking-wide text-gray-400">
-                      Max
-                    </th>
-                    <th className="px-5 py-2.5 text-left text-caption font-medium uppercase tracking-wide text-gray-400">
-                      Used
-                    </th>
-                    <th className="px-5 py-2.5 text-left text-caption font-medium uppercase tracking-wide text-gray-400">
-                      Extra
-                    </th>
-                    <th className="px-5 py-2.5 text-left text-caption font-medium uppercase tracking-wide text-gray-400">
-                      Remaining
-                    </th>
+                  <tr>
+                    <Th className="px-5">Category</Th>
+                    <Th className="px-5">Max</Th>
+                    <Th className="px-5">Used</Th>
+                    <Th className="px-5">Extra</Th>
+                    <Th className="px-5">Remaining</Th>
                   </tr>
                 </thead>
                 <tbody>
