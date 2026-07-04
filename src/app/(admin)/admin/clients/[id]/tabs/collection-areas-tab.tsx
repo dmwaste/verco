@@ -7,6 +7,7 @@ import { createClient as createBrowserClient } from '@/lib/supabase/client'
 import type { Database } from '@/lib/supabase/types'
 import { createCollectionArea, updateCollectionArea } from '../../actions'
 import { Th } from '@/components/admin/th'
+import { Input, Select } from '@/components/admin/form'
 
 type Client = Database['public']['Tables']['client']['Row']
 
@@ -86,8 +87,6 @@ export function CollectionAreasTab({ client, subClients }: { client: Client; sub
     router.refresh()
   }
 
-  const inputClass = 'rounded-lg border-[1.5px] border-gray-100 bg-gray-50 px-3 py-2 text-body-sm text-gray-900 outline-none focus:border-[#293F52] focus:bg-white'
-
   return (
     <div className="max-w-4xl">
       <div className="mb-2 text-2xs text-gray-400">
@@ -109,18 +108,18 @@ export function CollectionAreasTab({ client, subClients }: { client: Client; sub
           <tbody>
             {showAddForm && (
               <tr className="border-b border-gray-50 bg-blue-50/30">
-                <td className="px-4 py-2"><input type="text" value={addCode} onChange={(e) => setAddCode(e.target.value)} placeholder="Code" className={`${inputClass} w-24 font-mono`} /></td>
-                <td className="px-4 py-2"><input type="text" value={addName} onChange={(e) => setAddName(e.target.value)} placeholder="Name" className={inputClass} /></td>
+                <td className="px-4 py-2"><Input mono type="text" aria-label="Area code" value={addCode} onChange={(e) => setAddCode(e.target.value)} placeholder="Code" className="w-24 py-2" /></td>
+                <td className="px-4 py-2"><Input type="text" aria-label="Area name" value={addName} onChange={(e) => setAddName(e.target.value)} placeholder="Name" className="w-auto py-2" /></td>
                 <td className="px-4 py-2">
-                  <select value={addSubClientId} onChange={(e) => setAddSubClientId(e.target.value)} className={inputClass}>
+                  <Select aria-label="Sub-client" value={addSubClientId} onChange={(e) => setAddSubClientId(e.target.value)} className="w-auto py-2">
                     <option value="">None</option>
                     {subClients.filter((sc) => sc.is_active).map((sc) => (
                       <option key={sc.id} value={sc.id}>{sc.name}</option>
                     ))}
-                  </select>
+                  </Select>
                 </td>
                 <td className="px-4 py-2 text-body-sm text-gray-400">&mdash;</td>
-                <td className="px-4 py-2"><input type="text" value={addDmJobCode} onChange={(e) => setAddDmJobCode(e.target.value)} placeholder="Optional" className={`${inputClass} w-24 font-mono`} /></td>
+                <td className="px-4 py-2"><Input mono type="text" aria-label="DM job code" value={addDmJobCode} onChange={(e) => setAddDmJobCode(e.target.value)} placeholder="Optional" className="w-24 py-2" /></td>
                 <td className="px-4 py-2">
                   <div className="flex gap-2">
                     <button type="button" onClick={handleAdd} disabled={addSaving || !addCode || !addName} className="rounded bg-[#293F52] px-3 py-1 text-2xs font-semibold text-white disabled:opacity-50">
