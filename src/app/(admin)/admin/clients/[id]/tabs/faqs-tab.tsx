@@ -6,6 +6,7 @@ import type { Database } from '@/lib/supabase/types'
 import { FaqAnswer } from '@/components/faq-answer'
 import type { FaqItem } from '@/lib/client/branding-defaults'
 import { updateClientFaqs } from '../../actions'
+import { Input, Textarea } from '@/components/admin/form'
 
 type Client = Database['public']['Tables']['client']['Row']
 
@@ -83,8 +84,6 @@ export function FaqsTab({ client }: { client: Client }) {
     router.refresh()
   }
 
-  const inputClass = 'w-full rounded-lg border-[1.5px] border-gray-100 bg-gray-50 px-3 py-2.5 text-body-sm text-gray-900 outline-none focus:border-[#293F52] focus:bg-white'
-
   return (
     <div className="max-w-2xl">
       <div className="mb-2 text-2xs text-gray-400">Displayed on the public contact page. Markdown supported &mdash; lists, tables, links, bold. Reorder with arrows.</div>
@@ -94,19 +93,22 @@ export function FaqsTab({ client }: { client: Client }) {
           <div key={index} className="rounded-xl border-[1.5px] border-gray-100 bg-white shadow-sm">
             {editingIndex === index ? (
               <div className="p-4">
-                <input
+                <Input
                   type="text"
+                  aria-label="FAQ question"
                   value={editQuestion}
                   onChange={(e) => setEditQuestion(e.target.value)}
                   placeholder="Question"
-                  className={`${inputClass} mb-2`}
+                  className="mb-2"
                 />
-                <textarea
+                <Textarea
+                  mono
+                  aria-label="FAQ answer"
                   value={editAnswer}
                   onChange={(e) => setEditAnswer(e.target.value)}
                   placeholder="Answer (markdown supported)"
                   rows={8}
-                  className={`${inputClass} mb-3 resize-y font-mono`}
+                  className="mb-3 resize-y"
                 />
                 {editAnswer.trim() && (
                   <div className="mb-3 rounded-lg border-[1.5px] border-gray-100 bg-gray-50 px-3 py-2.5">

@@ -8,6 +8,7 @@ import type { Database } from '@/lib/supabase/types'
 import { createSubClient, updateSubClient } from '../../actions'
 import { Pill } from '@/components/status-badge'
 import { Th } from '@/components/admin/th'
+import { Input } from '@/components/admin/form'
 
 type Client = Database['public']['Tables']['client']['Row']
 
@@ -111,7 +112,6 @@ export function SubClientsTab({ client, subClients: initialSubClients }: { clien
     router.refresh()
   }
 
-  const inputClass = 'rounded-lg border-[1.5px] border-gray-100 bg-gray-50 px-3 py-2 text-body-sm text-gray-900 outline-none focus:border-[#293F52] focus:bg-white'
 
   return (
     <div className="max-w-2xl">
@@ -133,8 +133,8 @@ export function SubClientsTab({ client, subClients: initialSubClients }: { clien
           <tbody>
             {showAddForm && (
               <tr className="border-b border-gray-50 bg-blue-50/30">
-                <td className="px-4 py-2"><input type="text" value={addName} onChange={(e) => setAddName(e.target.value)} placeholder="Name" className={inputClass} /></td>
-                <td className="px-4 py-2"><input type="text" value={addCode} onChange={(e) => setAddCode(e.target.value)} placeholder="Code" className={`${inputClass} font-mono`} /></td>
+                <td className="px-4 py-2"><Input type="text" aria-label="Sub-client name" value={addName} onChange={(e) => setAddName(e.target.value)} placeholder="Name" className="w-auto py-2" /></td>
+                <td className="px-4 py-2"><Input mono type="text" aria-label="Sub-client code" value={addCode} onChange={(e) => setAddCode(e.target.value)} placeholder="Code" className="w-auto py-2" /></td>
                 <td className="px-4 py-2 text-body-sm text-gray-400">&mdash;</td>
                 <td className="px-4 py-2 text-body-sm text-gray-400">New</td>
                 <td className="px-4 py-2 text-right">
@@ -158,10 +158,10 @@ export function SubClientsTab({ client, subClients: initialSubClients }: { clien
               return (
                 <tr key={sc.id} className="border-b border-gray-50 hover:bg-gray-50/50">
                   <td className="px-4 py-3 text-body-sm font-medium text-[#293F52]">
-                    {isEditing ? <input type="text" value={editName} onChange={(e) => setEditName(e.target.value)} className={inputClass} /> : sc.name}
+                    {isEditing ? <Input type="text" aria-label="Sub-client name" value={editName} onChange={(e) => setEditName(e.target.value)} className="w-auto py-2" /> : sc.name}
                   </td>
                   <td className="px-4 py-3 font-mono text-body-sm text-gray-600">
-                    {isEditing ? <input type="text" value={editCode} onChange={(e) => setEditCode(e.target.value)} className={`${inputClass} font-mono`} /> : sc.code}
+                    {isEditing ? <Input mono type="text" aria-label="Sub-client code" value={editCode} onChange={(e) => setEditCode(e.target.value)} className="w-auto py-2" /> : sc.code}
                   </td>
                   <td className="px-4 py-3 text-body-sm text-gray-600">
                     {areaCount === 0 ? (
