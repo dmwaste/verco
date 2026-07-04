@@ -151,7 +151,7 @@ export function CollectionAreasTab({ client, subClients }: { client: Client; sub
                       onClick={() => handleToggleActive(area)}
                       disabled={togglingId === area.id}
                       title={area.is_active ? 'Live on the new system — click to hold back' : 'Held back — click to make bookable'}
-                      className={`rounded-full px-2 py-0.5 text-2xs font-semibold transition disabled:opacity-50 ${area.is_active ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
+                      className={`rounded-full px-2 py-0.5 text-2xs font-semibold transition hover:brightness-95 disabled:opacity-50 ${area.is_active ? 'bg-status-success-bg text-status-success' : 'bg-gray-100 text-gray-500'}`}
                     >
                       {togglingId === area.id ? '…' : area.is_active ? 'Active' : 'Inactive'}
                     </button>

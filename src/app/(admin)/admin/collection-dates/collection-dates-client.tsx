@@ -672,7 +672,7 @@ export function CollectionDatesClient({ clientId, clientSlug, isContractorAdmin 
                         }
                         const status = closureStatus(input, holidayNames)
                         if (status === 'open') {
-                          return <span className="inline-block size-2 rounded-full bg-emerald-500" title="Open" />
+                          return <span className="inline-block size-2 rounded-full bg-status-success" title="Open" />
                         }
                         const reason = closureReason(input) ?? 'manual'
                         if (status === 'holiday') {
@@ -682,7 +682,7 @@ export function CollectionDatesClient({ clientId, clientSlug, isContractorAdmin 
                               ? `Closed — ${name}`
                               : `Closed — ${name} · ${CLOSURE_REASON[reason].why}`
                           return (
-                            <span className="whitespace-nowrap rounded-full bg-amber-100 px-2 py-0.5 text-2xs font-semibold text-amber-700" title={title}>
+                            <span className="whitespace-nowrap rounded-full bg-status-warn-bg px-2 py-0.5 text-2xs font-semibold text-status-warn" title={title}>
                               {name}
                             </span>
                           )

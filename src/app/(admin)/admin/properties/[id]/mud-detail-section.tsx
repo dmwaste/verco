@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { format } from 'date-fns'
 import { MudEditForm } from './mud-edit-form'
 import { MudStatusActions } from './mud-status-actions'
+import { StatusBadge } from '@/components/status-badge'
 
 type StrataContact = {
   id: string
@@ -33,12 +34,6 @@ interface MudDetailSectionProps {
   authFormSignedUrl: string | null
 }
 
-const STATUS_STYLES: Record<string, string> = {
-  'Contact Made': 'bg-gray-100 text-gray-700',
-  Registered: 'bg-emerald-50 text-emerald-700',
-  Inactive: 'bg-red-50 text-red-700',
-}
-
 export function MudDetailSection({
   property,
   strataContact,
@@ -46,7 +41,6 @@ export function MudDetailSection({
   authFormSignedUrl,
 }: MudDetailSectionProps) {
   const status = property.mud_onboarding_status ?? 'Contact Made'
-  const statusClasses = STATUS_STYLES[status] ?? STATUS_STYLES['Contact Made']
   const [isEditing, setIsEditing] = useState(false)
 
   if (isEditing) {
@@ -56,9 +50,7 @@ export function MudDetailSection({
           <h2 className="text-caption font-semibold uppercase tracking-wide text-gray-500">
             Edit MUD details
           </h2>
-          <span className={`rounded-full px-2.5 py-0.5 text-caption font-semibold ${statusClasses}`}>
-            {status}
-          </span>
+          <StatusBadge entity="mudOnboarding" status={status} />
         </div>
         <MudEditForm
           property={{
@@ -86,9 +78,7 @@ export function MudDetailSection({
             MUD onboarding
           </h2>
           <div className="flex items-center gap-2">
-            <span className={`rounded-full px-2.5 py-0.5 text-caption font-semibold ${statusClasses}`}>
-              {status}
-            </span>
+            <StatusBadge entity="mudOnboarding" status={status} />
             <button
               type="button"
               onClick={() => setIsEditing(true)}

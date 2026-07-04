@@ -6,6 +6,7 @@ import { format } from 'date-fns'
 import { fetchAuditLogs } from './actions'
 import { Pagination } from '@/components/admin/pagination'
 import { PageHeader } from '@/components/admin/page-header'
+import { StatusBadge } from '@/components/status-badge'
 
 const TABLE_OPTIONS = [
   { value: '', label: 'All Tables' },
@@ -50,16 +51,10 @@ export function AuditLogClient() {
   const total = result?.ok ? result.total : 0
 
   const actionBadge = (a: string) => {
-    switch (a) {
-      case 'INSERT':
-        return <span className="inline-flex items-center rounded-full bg-emerald-50 px-2 py-0.5 text-2xs font-semibold text-emerald-700">Created</span>
-      case 'UPDATE':
-        return <span className="inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 text-2xs font-semibold text-blue-700">Updated</span>
-      case 'DELETE':
-        return <span className="inline-flex items-center rounded-full bg-red-50 px-2 py-0.5 text-2xs font-semibold text-red-700">Deleted</span>
-      default:
-        return <span className="text-2xs text-gray-500">{a}</span>
+    if (a === 'INSERT' || a === 'UPDATE' || a === 'DELETE') {
+      return <StatusBadge entity="auditAction" status={a} />
     }
+    return <span className="text-2xs text-gray-500">{a}</span>
   }
 
   return (

@@ -293,7 +293,7 @@ export function IdRequestForm({
   if (submitted) {
     return (
       <div className="mx-auto mt-10 flex w-full max-w-xl flex-col items-center rounded-xl bg-white px-8 py-10 shadow-sm">
-        <div className="flex size-14 items-center justify-center rounded-full bg-emerald-50">
+        <div className="flex size-14 items-center justify-center rounded-full bg-status-success-bg">
           <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#059669" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
             <polyline points="20 6 9 17 4 12" />
           </svg>

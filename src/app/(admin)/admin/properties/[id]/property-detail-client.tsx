@@ -10,7 +10,7 @@ import { MudDetailSection } from './mud-detail-section'
 import type { ResolvedAuditEntry } from '@/lib/audit/resolve'
 import { AuditTimeline } from '@/components/audit-timeline'
 import { BackLink } from '@/components/admin/back-link'
-import { StatusBadge } from '@/components/status-badge'
+import { StatusBadge, Pill } from '@/components/status-badge'
 
 /* ------------------------------------------------------------------ */
 /*  Props — shaped by what page.tsx actually passes                    */
@@ -249,14 +249,12 @@ export function PropertyDetailClient({
 
         <div className="mt-2 flex items-center gap-2">
           {property.is_mud && (
-            <span className="inline-flex items-center rounded-full bg-purple-50 px-2.5 py-0.5 text-caption font-semibold text-purple-700">
+            <span className="inline-flex items-center rounded-full bg-[#F3EEFF] px-2.5 py-0.5 text-caption font-semibold text-[#805AD5]">
               MUD
             </span>
           )}
           {!property.is_eligible && (
-            <span className="inline-flex items-center rounded-full bg-red-50 px-2.5 py-0.5 text-caption font-semibold text-red-700">
-              Ineligible
-            </span>
+            <Pill tone="error">Ineligible</Pill>
           )}
         </div>
       </div>
@@ -349,15 +347,9 @@ export function PropertyDetailClient({
                         {a.extra > 0 ? `+${a.extra}` : '0'}
                       </td>
                       <td className="px-5 py-3">
-                        <span
-                          className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-caption font-semibold ${
-                            a.remaining > 0
-                              ? 'bg-emerald-50 text-emerald-700'
-                              : 'bg-red-50 text-red-700'
-                          }`}
-                        >
+                        <Pill tone={a.remaining > 0 ? 'success' : 'error'}>
                           {a.remaining}
-                        </span>
+                        </Pill>
                       </td>
                     </tr>
                   ))}
@@ -487,15 +479,9 @@ export function PropertyDetailClient({
                       >
                         <td className="px-5 py-3">
                           <Link href={detailPath}>
-                            <span
-                              className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-caption font-semibold ${
-                                issue._type === 'NCN'
-                                  ? 'bg-red-50 text-red-700'
-                                  : 'bg-amber-50 text-amber-700'
-                              }`}
-                            >
+                            <Pill tone={issue._type === 'NCN' ? 'error' : 'warn'}>
                               {issue._type}
-                            </span>
+                            </Pill>
                           </Link>
                         </td>
                         <td className="px-5 py-3">
@@ -519,15 +505,9 @@ export function PropertyDetailClient({
                           {format(new Date(issue.reported_at), 'd MMM yyyy')}
                         </td>
                         <td className="px-5 py-3">
-                          <span
-                            className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-caption font-semibold ${
-                              issue.contractor_fault
-                                ? 'bg-red-50 text-red-700'
-                                : 'bg-gray-100 text-gray-600'
-                            }`}
-                          >
+                          <Pill tone={issue.contractor_fault ? 'error' : 'neutral'}>
                             {issue.contractor_fault ? 'Contractor' : 'Resident'}
-                          </span>
+                          </Pill>
                         </td>
                       </tr>
                     )
@@ -639,9 +619,9 @@ export function PropertyDetailClient({
                           </span>
                         </td>
                         <td className="px-5 py-3">
-                          <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-caption font-semibold ${o.extra_allocations < 0 ? 'bg-red-50 text-red-600' : 'bg-emerald-50 text-emerald-700'}`}>
+                          <Pill tone={o.extra_allocations < 0 ? 'error' : 'success'}>
                             {o.extra_allocations > 0 ? '+' : ''}{o.extra_allocations}
-                          </span>
+                          </Pill>
                         </td>
                         <td className="px-5 py-3 text-body-sm text-gray-700">
                           {o.reason}

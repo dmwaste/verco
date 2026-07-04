@@ -6,6 +6,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { createClient as createBrowserClient } from '@/lib/supabase/client'
 import type { Database } from '@/lib/supabase/types'
 import { createSubClient, updateSubClient } from '../../actions'
+import { Pill } from '@/components/status-badge'
 
 type Client = Database['public']['Tables']['client']['Row']
 
@@ -163,13 +164,13 @@ export function SubClientsTab({ client, subClients: initialSubClients }: { clien
                   </td>
                   <td className="px-4 py-3 text-body-sm text-gray-600">
                     {areaCount === 0 ? (
-                      <span className="rounded-full bg-amber-50 px-2 py-0.5 text-2xs font-semibold text-amber-700">No areas</span>
+                      <Pill tone="warn">No areas</Pill>
                     ) : areaCount}
                   </td>
                   <td className="px-4 py-3">
-                    <span className={`rounded-full px-2 py-0.5 text-2xs font-semibold ${sc.is_active ? 'bg-emerald-50 text-emerald-700' : 'bg-gray-100 text-gray-500'}`}>
+                    <Pill tone={sc.is_active ? 'success' : 'neutral'}>
                       {sc.is_active ? 'Active' : 'Inactive'}
-                    </span>
+                    </Pill>
                   </td>
                   <td className="px-4 py-3 text-right">
                     {isEditing ? (

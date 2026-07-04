@@ -22,6 +22,9 @@ const ERROR = { bg: 'bg-status-error-bg', text: 'text-status-error' }
 const INFO = { bg: 'bg-status-info-bg', text: 'text-status-info' }
 // Non-semantic accent for "parked with us" states (Scheduled, waiting, rebooked-away)
 const PURPLE = { bg: 'bg-[#F3EEFF]', text: 'text-[#805AD5]' }
+// Brand-navy tint — a literal brand pair (not a semantic status colour), used for
+// contractor-tier role badges. Allowed as a literal pair, same as PURPLE.
+const NAVY = { bg: 'bg-[#293F52]/10', text: 'text-[#293F52]' }
 
 // ── Booking statuses ─────────────────────────────────────────────────────────
 
@@ -101,6 +104,46 @@ const BUG: Record<string, StatusStyle> = {
   wont_fix:     { bg: 'bg-gray-100', text: 'text-gray-500', label: "Won't Fix" },
 }
 
+// ── Bug report priorities ────────────────────────────────────────────────────
+
+const BUG_PRIORITY: Record<string, StatusStyle> = {
+  low:      { bg: 'bg-gray-100', text: 'text-gray-600', label: 'Low' },
+  medium:   { ...INFO, label: 'Medium' },
+  high:     { ...WARN, label: 'High' },
+  critical: { ...ERROR, label: 'Critical' },
+}
+
+// ── User roles ───────────────────────────────────────────────────────────────
+
+const ROLE: Record<string, StatusStyle> = {
+  'contractor-admin': { ...NAVY, label: 'Contractor Admin' },
+  'contractor-staff': { ...NAVY, label: 'Contractor Staff' },
+  field:              { ...PURPLE, label: 'Contractor Field' },
+  'client-admin':     { ...INFO, label: 'Client Admin' },
+  'client-staff':     { ...INFO, label: 'Client Staff' },
+  ranger:             { ...WARN, label: 'Client Ranger' },
+  resident:           { bg: 'bg-gray-100', text: 'text-gray-600', label: 'Resident' },
+  strata:             { bg: 'bg-gray-100', text: 'text-gray-600', label: 'Strata' },
+}
+
+// ── MUD onboarding statuses ──────────────────────────────────────────────────
+// Contact Made = WARN (action needed to progress), Registered = SUCCESS,
+// Inactive = neutral grey (D2 decision — grey, not red).
+
+const MUD_ONBOARDING: Record<string, StatusStyle> = {
+  'Contact Made': { ...WARN, label: 'Contact Made' },
+  Registered:     { ...SUCCESS, label: 'Registered' },
+  Inactive:       { bg: 'bg-gray-100', text: 'text-gray-600', label: 'Inactive' },
+}
+
+// ── Audit-log actions (no DB enum — audit_log.action is free text) ───────────
+
+const AUDIT_ACTION: Record<string, StatusStyle> = {
+  INSERT: { ...SUCCESS, label: 'Created' },
+  UPDATE: { ...INFO, label: 'Updated' },
+  DELETE: { ...ERROR, label: 'Deleted' },
+}
+
 // ── Lookup ───────────────────────────────────────────────────────────────────
 
 const ENTITIES = {
@@ -111,6 +154,10 @@ const ENTITIES = {
   ticketPriority: TICKET_PRIORITY,
   refund: REFUND,
   bug: BUG,
+  bugPriority: BUG_PRIORITY,
+  role: ROLE,
+  mudOnboarding: MUD_ONBOARDING,
+  auditAction: AUDIT_ACTION,
 } as const
 
 export type StatusEntity = keyof typeof ENTITIES
