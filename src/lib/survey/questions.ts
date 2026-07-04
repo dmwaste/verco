@@ -103,7 +103,7 @@ export const SURVEY_QUESTIONS: readonly SurveyQuestion[] = [
     type: 'radio',
     section: 'Overall Feedback',
     required: true,
-    label: 'Would you prefer this service over traditional bulk verge collection?',
+    label: 'Do you prefer this service over traditional bulk verge collection?',
     options: ['Yes', 'No', 'Indifferent'],
   },
   {
