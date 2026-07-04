@@ -1,4 +1,5 @@
 import { notFound } from 'next/navigation'
+import { headers } from 'next/headers'
 import { createClient } from '@/lib/supabase/server'
 import { SurveyForm } from './survey-form'
 import { AlreadySubmitted } from './already-submitted'
@@ -14,6 +15,43 @@ interface SurveyByToken {
   booking_ref: string
   collection_date: string | null
   service_chips: Array<{ name: string; qty: number; isExtra: boolean }>
+}
+
+interface SurveyBranding {
+  logoUrl: string | null
+  serviceName: string
+  clientName: string
+}
+
+/**
+ * Tenant branding for the survey header — resolved from the host (`x-client-id`,
+ * set by the proxy) via the public-SELECT client table, the same source the
+ * (public) layout uses for the nav logo + brand colours. Falls back to a
+ * generic label if the header/row is missing.
+ */
+async function getSurveyBranding(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+): Promise<SurveyBranding> {
+  const fallback: SurveyBranding = {
+    logoUrl: null,
+    serviceName: 'Verge Collection',
+    clientName: 'Verge Collection',
+  }
+  const clientId = (await headers()).get('x-client-id')
+  if (!clientId) return fallback
+
+  const { data } = await supabase
+    .from('client')
+    .select('name, service_name, logo_light_url')
+    .eq('id', clientId)
+    .single()
+  if (!data) return fallback
+
+  return {
+    logoUrl: data.logo_light_url,
+    serviceName: data.service_name ?? data.name,
+    clientName: data.name,
+  }
 }
 
 export default async function SurveyPage({ params }: SurveyPageProps) {
@@ -56,6 +94,8 @@ export default async function SurveyPage({ params }: SurveyPageProps) {
     )
   }
 
+  const branding = await getSurveyBranding(supabase)
+
   return (
     <main className="mx-auto w-full max-w-2xl">
       <SurveyForm
@@ -63,6 +103,9 @@ export default async function SurveyPage({ params }: SurveyPageProps) {
         bookingRef={survey.booking_ref}
         collectionDate={survey.collection_date ?? ''}
         serviceChips={survey.service_chips}
+        clientLogoUrl={branding.logoUrl}
+        serviceName={branding.serviceName}
+        clientName={branding.clientName}
       />
     </main>
   )

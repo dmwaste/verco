@@ -19,6 +19,9 @@ interface SurveyFormProps {
   bookingRef: string
   collectionDate: string
   serviceChips: ServiceChip[]
+  clientLogoUrl: string | null
+  serviceName: string
+  clientName: string
 }
 
 const REPAIR_OPTIONS = [
@@ -79,6 +82,9 @@ export function SurveyForm({
   bookingRef,
   collectionDate,
   serviceChips,
+  clientLogoUrl,
+  serviceName,
+  clientName,
 }: SurveyFormProps) {
   const router = useRouter()
 
@@ -174,19 +180,20 @@ export function SurveyForm({
       {/* Header */}
       <div className="shrink-0 bg-[var(--brand)] px-5 pb-5 pt-4 sm:mt-6 sm:rounded-xl">
         <div className="mb-2.5 flex items-center gap-2">
-          <div className="flex size-[26px] items-center justify-center rounded-[6px] bg-[var(--brand-accent)] font-[family-name:var(--font-heading)] text-sm font-bold text-[var(--brand)]">
-            V
-          </div>
-          <span className="font-[family-name:var(--font-heading)] text-body font-bold text-white">
-            Verge Collection
-          </span>
+          {clientLogoUrl ? (
+            <img src={clientLogoUrl} alt={clientName} className="h-8 w-auto" />
+          ) : (
+            <div className="flex size-[26px] items-center justify-center rounded-[6px] bg-[var(--brand-accent)] font-[family-name:var(--font-heading)] text-sm font-bold text-[var(--brand)]">
+              {serviceName.charAt(0) || 'V'}
+            </div>
+          )}
         </div>
         <h1 className="mb-1 font-[family-name:var(--font-heading)] text-lg font-bold text-white">
           Customer Satisfaction Survey
         </h1>
         <p className="text-xs leading-snug text-[#8FA5B8]">
-          Thank you for using the Verge Collection service. Your feedback helps
-          us improve.
+          Thank you for using the {serviceName} service. Your feedback helps us
+          improve.
         </p>
         <div className="mt-3 flex items-center justify-between rounded-lg bg-white/[0.08] px-3 py-2">
           <span className="text-caption text-[#8FA5B8]">Booking reference</span>
@@ -439,7 +446,7 @@ export function SurveyForm({
 
               <div className="flex flex-col gap-1.5">
                 <label className="text-xs font-medium text-gray-700">
-                  Would you prefer this service over traditional bulk verge
+                  Do you prefer this service over traditional bulk verge
                   collection? <span className="text-[var(--brand-accent-dark)]">*</span>
                 </label>
                 <div className="flex flex-col gap-2">
