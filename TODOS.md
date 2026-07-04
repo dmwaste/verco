@@ -55,3 +55,12 @@
 - **Context:** Surfaced during the 2026-06-17 per-tenant favicon eng review (deliberately kept out of the favicon PRs to keep that diff surgical). Both call sites build the same `--brand*` CSS-var object.
 - **Effort:** S (human) → XS with CC. **Priority:** P3.
 
+## Survey system — deferred follow-ups (shipped 04/07/2026: #284/#285/#287/#288)
+
+- **What:** Open threads after the resident survey system shipped + was prod-verified end-to-end.
+- **Delete the `PEP-10636` test survey row** (`token = 'verco-review-form-20260704'`, a synthetic 5★ response left in prod for the admin-module review) **before real collections generate real surveys** — it skews the aggregate metrics. `DELETE FROM booking_survey WHERE token = 'verco-review-form-20260704'`.
+- **Per-tenant configurable questions (deferred, decision D2):** the survey renders a fixed shared `SURVEY_QUESTIONS` set (`src/lib/survey/questions.ts`) — stable, cross-council-comparable analytics keys. The `client_survey_config` table exists but is unwired. Wire it (admin question editor + config-driven form + config-driven aggregation, keyed on question id) when a council needs custom questions beyond the core set. The `id`s ARE the analytics keys — never rename an existing one (orphans history).
+- **Optional hardening:** survey reminder email for non-responders (new cron); token rate-limiting / attempt logging (low priority — the 128-bit token is unguessable).
+- **Context:** Full detail in memory `survey-public-access-pipeline.md`; specs reconciled in PRD §11 / TECH_SPEC §13 (v1.1, #290).
+- **Priority:** P1 (test-row delete, before first collections), P3 (config editor + hardening).
+
