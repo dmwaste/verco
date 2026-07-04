@@ -8,6 +8,7 @@ import { createMudBooking } from './actions'
 import { clientHasTerms } from '@/lib/booking/terms'
 import { TermsAcceptanceDialog } from '@/app/(public)/book/confirm/terms-acceptance-dialog'
 import type { MudAllowanceServiceResult } from '@/lib/mud/allowance'
+import { Select, Textarea } from '@/components/admin/form'
 
 export interface ServiceOption {
   service_id: string
@@ -303,10 +304,11 @@ export function MudBookingForm({
                 No MUD collection dates available for this area in the next 12 months.
               </p>
             ) : (
-              <select
+              <Select
+                aria-label="Collection date"
                 value={selectedDateId}
                 onChange={(e) => setSelectedDateId(e.target.value)}
-                className="mt-3 w-full rounded-lg border-[1.5px] border-gray-100 bg-white px-3 py-2.5 text-body-sm outline-none focus:border-[#293F52]"
+                className="mt-3 bg-white"
               >
                 <option value="">Select a date...</option>
                 {dates.map((d) => (
@@ -316,7 +318,7 @@ export function MudBookingForm({
                     {d.bulk_closed ? 'closed' : `${d.bulk_remaining} left`}
                   </option>
                 ))}
-              </select>
+              </Select>
             )}
             {dateCapacityWarning && (
               <div className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">
@@ -334,11 +336,12 @@ export function MudBookingForm({
             <h2 className="text-caption font-semibold uppercase tracking-wide text-gray-500">
               Notes (optional)
             </h2>
-            <textarea
+            <Textarea
+              aria-label="Notes"
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               placeholder="Anything the crew needs to know about this collection"
-              className="mt-3 h-20 w-full resize-none rounded-lg border-[1.5px] border-gray-100 bg-white px-3 py-2 text-body-sm outline-none placeholder:text-gray-400 focus:border-[#293F52]"
+              className="mt-3 h-20 resize-none bg-white py-2 placeholder:text-gray-400"
               maxLength={500}
             />
           </div>

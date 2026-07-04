@@ -5,6 +5,7 @@ import { useMutation, useQuery } from '@tanstack/react-query'
 import { Dialog } from '@base-ui/react/dialog'
 import { createClient } from '@/lib/supabase/client'
 import { VercoButton } from '@/components/ui/verco-button'
+import { FieldLabel, Input, Select, Textarea } from '@/components/admin/form'
 
 interface AllocationFormModalProps {
   open: boolean
@@ -191,9 +192,8 @@ export function AllocationFormModal({ open, onOpenChange, onSave, propertyId, pr
     },
   })
 
-  const inputClass =
-    'w-full rounded-[10px] border-[1.5px] border-gray-100 bg-gray-50 px-3.5 py-3 text-body text-gray-900 outline-none placeholder:text-gray-300 focus:border-[var(--brand)] focus:bg-white'
-  const labelClass = 'mb-1 block text-xs font-medium text-gray-700'
+  // Modal-field visual delta over the shared Input base (roomier dialog inputs).
+  const modalField = 'rounded-[10px] px-3.5 py-3 text-body placeholder:text-gray-300 focus:border-[var(--brand)]'
   const errorClass = 'mt-1 text-caption text-red-500'
 
   return (
@@ -217,7 +217,7 @@ export function AllocationFormModal({ open, onOpenChange, onSave, propertyId, pr
               <div className="flex flex-col gap-3">
                 {/* Property — read-only */}
                 <div>
-                  <label className={labelClass}>Property</label>
+                  <FieldLabel>Property</FieldLabel>
                   <p className="rounded-[10px] border-[1.5px] border-gray-100 bg-gray-100 px-3.5 py-3 text-body text-gray-700">
                     {propertyAddress}
                   </p>
@@ -225,7 +225,7 @@ export function AllocationFormModal({ open, onOpenChange, onSave, propertyId, pr
 
                 {/* Financial Year — auto-selected */}
                 <div>
-                  <label className={labelClass}>Financial Year</label>
+                  <FieldLabel>Financial Year</FieldLabel>
                   <p className="rounded-[10px] border-[1.5px] border-gray-100 bg-gray-100 px-3.5 py-3 text-body text-gray-700">
                     {effectiveFyLabel}
                   </p>
@@ -234,14 +234,15 @@ export function AllocationFormModal({ open, onOpenChange, onSave, propertyId, pr
 
                 {/* Service */}
                 <div>
-                  <label className={labelClass}>
+                  <FieldLabel htmlFor="service_id">
                     Service<span className="ml-0.5 text-red-500">*</span>
-                  </label>
-                  <select
+                  </FieldLabel>
+                  <Select
+                    id="service_id"
                     value={formData.service_id}
                     onChange={(e) => setFormData({ ...formData, service_id: e.target.value })}
                     disabled={isEdit}
-                    className={`${inputClass} disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-gray-500`}
+                    className={`${modalField} disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-gray-500`}
                   >
                     <option value="">Select a service</option>
                     {services?.map((s) => {
@@ -252,22 +253,23 @@ export function AllocationFormModal({ open, onOpenChange, onSave, propertyId, pr
                         </option>
                       )
                     })}
-                  </select>
+                  </Select>
                   {errors.service_id && <p className={errorClass}>{errors.service_id}</p>}
                 </div>
 
                 {/* Adjustment */}
                 <div>
-                  <label className={labelClass}>
+                  <FieldLabel htmlFor="extra_allocations">
                     Adjustment (positive to add, negative to reduce)<span className="ml-0.5 text-red-500">*</span>
-                  </label>
-                  <input
+                  </FieldLabel>
+                  <Input
+                    id="extra_allocations"
                     type="number"
                     step="1"
                     value={formData.extra_allocations}
                     onChange={(e) => setFormData({ ...formData, extra_allocations: e.target.value })}
                     placeholder="e.g. 1 or -1"
-                    className={inputClass}
+                    className={modalField}
                   />
                   {errors.extra_allocations && (
                     <p className={errorClass}>{errors.extra_allocations}</p>
@@ -279,15 +281,16 @@ export function AllocationFormModal({ open, onOpenChange, onSave, propertyId, pr
 
                 {/* Reason */}
                 <div>
-                  <label className={labelClass}>
+                  <FieldLabel htmlFor="reason">
                     Reason for Override<span className="ml-0.5 text-red-500">*</span>
-                  </label>
-                  <textarea
+                  </FieldLabel>
+                  <Textarea
+                    id="reason"
                     value={formData.reason}
                     onChange={(e) => setFormData({ ...formData, reason: e.target.value })}
                     placeholder="e.g., New owner reinstatement, Council credit, Correction of prior error..."
                     rows={3}
-                    className={inputClass}
+                    className={modalField}
                   />
                   {errors.reason && <p className={errorClass}>{errors.reason}</p>}
                 </div>
