@@ -35,5 +35,21 @@ export default async function RunSheetsPage({ searchParams }: RunSheetsPageProps
   const stops = await fetchDayStops(supabase, date)
   const runs = groupStopsIntoRuns(stops)
 
-  return <RunSheetsListClient date={date} runs={runs} />
+  // Most recent routes_pulled_at for the date — powers the "synced X ago" hint.
+  const { data: latestSync } = await supabase
+    .from('collection_stop')
+    .select('routes_pulled_at, collection_date!inner(date)')
+    .eq('collection_date.date', date)
+    .not('routes_pulled_at', 'is', null)
+    .order('routes_pulled_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  return (
+    <RunSheetsListClient
+      date={date}
+      runs={runs}
+      lastSyncedAt={latestSync?.routes_pulled_at ?? null}
+    />
+  )
 }
