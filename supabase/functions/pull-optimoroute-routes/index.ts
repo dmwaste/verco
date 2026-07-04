@@ -139,7 +139,14 @@ serve(async (req) => {
       const driversSeen = new Set<string>()
 
       for (const route of routes) {
-        driversSeen.add(route.driverSerial)
+        // D&M's OptimoRoute drivers leave the "Serial No." field blank and
+        // carry their code (KWN1 / VV3 / KWNA) in the driver name, so
+        // get_routes returns driverSerial:''. driver_serial is the run key
+        // everywhere (grouping, the run-sheet URL segment, run_meta, the field
+        // picker) — an empty serial collapses every driver into one run — so
+        // fall back to the name when the serial is blank.
+        const serial = route.driverSerial || route.driverName
+        driversSeen.add(serial)
         // Order stops carry an orderNo and no type; depot/break entries are
         // discriminated by the documented `type` field.
         const orderStops = route.stops.filter((s) => s.orderNo && !s.type)
@@ -150,7 +157,7 @@ serve(async (req) => {
           const current = stopByRef.get(stop.orderNo!)
           if (!current) continue // not ours / terminal — nothing to stamp
           const unchanged =
-            current.driver_serial === route.driverSerial &&
+            current.driver_serial === serial &&
             current.driver_name === route.driverName &&
             current.stop_sequence === stop.stopNumber &&
             (current.scheduled_at ?? '').slice(0, 5) === (stop.scheduledAt ?? '')
@@ -159,7 +166,7 @@ serve(async (req) => {
           const { error: stampError } = await supabase
             .from('collection_stop')
             .update({
-              driver_serial: route.driverSerial,
+              driver_serial: serial,
               driver_name: route.driverName,
               stop_sequence: stop.stopNumber,
               scheduled_at: stop.scheduledAt ?? null,
@@ -183,7 +190,7 @@ serve(async (req) => {
           .sort()
         const { error: metaError } = await supabase.from('collection_run_meta').upsert(
           {
-            driver_serial: route.driverSerial,
+            driver_serial: serial,
             date,
             driver_name: route.driverName,
             start_time: times[0] ?? null,
@@ -198,7 +205,7 @@ serve(async (req) => {
         if (metaError) {
           results.failed++
           console.error(
-            `Run meta upsert failed for ${route.driverSerial}/${date}: ${metaError.message}`,
+            `Run meta upsert failed for ${serial}/${date}: ${metaError.message}`,
           )
         } else {
           results.run_meta_upserts++
