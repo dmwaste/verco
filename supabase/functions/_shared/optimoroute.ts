@@ -39,6 +39,8 @@ export interface OrOrderInput {
   /** Required vehicle-feature codes — router only assigns to a matching vehicle. */
   vehicleFeatures?: string[]
   notes?: string
+  /** Resident email — OR stores it on the order (enables OR customer notifications). */
+  email?: string
   location: {
     address?: string
     locationName?: string
@@ -138,6 +140,7 @@ export async function createOrUpdateOrders(
         priority: o.priority,
         vehicleFeatures: o.vehicleFeatures ?? [],
         notes: o.notes,
+        email: o.email,
         location: o.location,
       })),
     })
