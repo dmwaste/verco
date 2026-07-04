@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { format } from 'date-fns'
 import { createClient } from '@/lib/supabase/client'
-import { getStatusStyle } from '@/lib/ui/status-styles'
+import { StatusBadge } from '@/components/status-badge'
 import type { Database } from '@/lib/supabase/types'
 import type { ResolvedAuditEntry } from '@/lib/audit/resolve'
 import { AuditTimeline } from '@/components/audit-timeline'
@@ -100,8 +100,6 @@ export function AdminTicketDetailClient({
   const [sendError, setSendError] = useState<string | null>(null)
   const [copied, setCopied] = useState<string | null>(null)
   const threadEndRef = useRef<HTMLDivElement>(null)
-
-  const statusStyle = getStatusStyle('ticket', status)
 
   useEffect(() => {
     threadEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -209,9 +207,7 @@ export function AdminTicketDetailClient({
             </h1>
             <p className="mt-0.5 font-mono text-body-sm text-gray-400">{ticket.displayId}</p>
           </div>
-          <span className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-0.5 text-caption font-semibold ${statusStyle.bg} ${statusStyle.text}`}>
-            {statusStyle.label}
-          </span>
+          <StatusBadge entity="ticket" status={status} dot />
         </div>
       </div>
 

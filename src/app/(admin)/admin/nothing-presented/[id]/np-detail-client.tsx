@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation'
 import { format } from 'date-fns'
 import { Dialog } from '@base-ui/react/dialog'
 import { updateNpStatus, rebookNp, resolveNpWithRefund } from './actions'
-import { getStatusStyle } from '@/lib/ui/status-styles'
+import { StatusBadge } from '@/components/status-badge'
 import type { Database } from '@/lib/supabase/types'
 import type { ResolvedAuditEntry } from '@/lib/audit/resolve'
 import { AuditTimeline } from '@/components/audit-timeline'
@@ -70,7 +70,6 @@ export function NpDetailClient({ np, availableDates, auditLogs }: NpDetailClient
   const status = np.status as string
   const isActionable = status === 'Disputed' || status === 'Under Review'
   const isIssued = status === 'Issued'
-  const ss = getStatusStyle('np', np.status)
 
   const paidItems = booking?.booking_item.filter((i) => i.is_extra) ?? []
   const paidAmountCents = paidItems.reduce((sum, i) => sum + i.unit_price_cents * i.no_services, 0)
@@ -136,9 +135,7 @@ export function NpDetailClient({ np, availableDates, auditLogs }: NpDetailClient
             <span className={`inline-flex items-center whitespace-nowrap rounded-full px-2.5 py-0.5 text-caption font-semibold ${np.contractor_fault ? 'bg-status-error-bg text-status-error' : 'bg-gray-100 text-gray-600'}`}>
               {np.contractor_fault ? 'Contractor Fault' : 'Resident Fault'}
             </span>
-            <span className={`inline-flex items-center whitespace-nowrap rounded-full px-2.5 py-0.5 text-caption font-semibold ${ss.bg} ${ss.text}`}>
-              {np.status}
-            </span>
+            <StatusBadge entity="np" status={np.status} />
           </div>
         </div>
       </div>
@@ -439,7 +436,7 @@ export function NpDetailClient({ np, availableDates, auditLogs }: NpDetailClient
           <Dialog.Backdrop className="fixed inset-0 z-40 bg-black/40" />
           <Dialog.Popup className="fixed inset-0 z-50 flex items-center justify-center p-4">
             <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl">
-              <div className="mb-4 flex size-10 items-center justify-center rounded-full bg-amber-50">
+              <div className="mb-4 flex size-10 items-center justify-center rounded-full bg-status-warn-bg">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#D97706" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
                   <line x1="12" y1="9" x2="12" y2="13" />

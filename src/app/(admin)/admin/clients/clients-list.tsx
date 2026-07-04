@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
 import Link from 'next/link'
 import { PageHeader } from '@/components/admin/page-header'
+import { Pill } from '@/components/status-badge'
 
 export function ClientsList() {
   const supabase = createClient()
@@ -83,15 +84,9 @@ export function ClientsList() {
                       <div className="truncate text-body font-semibold text-[#293F52]">{client.name}</div>
                       <div className="text-2xs text-gray-400">{client.slug}</div>
                     </div>
-                    <span
-                      className={`shrink-0 rounded-full px-2 py-0.5 text-2xs font-semibold ${
-                        client.is_active
-                          ? 'bg-emerald-50 text-emerald-700'
-                          : 'bg-gray-100 text-gray-500'
-                      }`}
-                    >
+                    <Pill tone={client.is_active ? 'success' : 'neutral'} className="shrink-0">
                       {client.is_active ? 'Active' : 'Inactive'}
-                    </span>
+                    </Pill>
                   </div>
                   <div className="grid grid-cols-2 gap-2 text-2xs text-gray-500">
                     <div><span className="text-gray-400">Areas:</span> {areaCount}</div>

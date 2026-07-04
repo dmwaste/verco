@@ -14,6 +14,8 @@ import { Th } from '@/components/admin/th'
 import { Pagination } from '@/components/admin/pagination'
 import { PageHeader } from '@/components/admin/page-header'
 import { FilterBar, SearchInput, FilterSelect } from '@/components/admin/filter-bar'
+import { StatusBadge } from '@/components/status-badge'
+import { getStatusStyle } from '@/lib/ui/status-styles'
 
 type AppRole = Database['public']['Enums']['app_role']
 
@@ -26,16 +28,6 @@ const ROLE_OPTIONS: AppRole[] = [
   'ranger',
 ]
 
-const ROLE_STYLE: Record<AppRole, { bg: string; text: string; label: string }> = {
-  'contractor-admin': { bg: 'bg-[#293F52]/10', text: 'text-[#293F52]', label: 'Contractor Admin' },
-  'contractor-staff': { bg: 'bg-[#293F52]/10', text: 'text-[#293F52]', label: 'Contractor Staff' },
-  field: { bg: 'bg-purple-50', text: 'text-purple-700', label: 'Contractor Field' },
-  'client-admin': { bg: 'bg-blue-50', text: 'text-blue-700', label: 'Client Admin' },
-  'client-staff': { bg: 'bg-blue-50', text: 'text-blue-700', label: 'Client Staff' },
-  ranger: { bg: 'bg-amber-50', text: 'text-amber-700', label: 'Client Ranger' },
-  resident: { bg: 'bg-gray-100', text: 'text-gray-600', label: 'Resident' },
-  strata: { bg: 'bg-gray-100', text: 'text-gray-600', label: 'Strata' },
-}
 
 const PAGE_SIZE = 50
 
@@ -202,7 +194,7 @@ export function UsersClient({ clientId }: UsersClientProps) {
         >
           <option value="">All Roles</option>
           {ROLE_OPTIONS.map((r) => (
-            <option key={r} value={r}>{ROLE_STYLE[r].label}</option>
+            <option key={r} value={r}>{getStatusStyle('role', r).label}</option>
           ))}
         </FilterSelect>
 
@@ -247,7 +239,6 @@ export function UsersClient({ clientId }: UsersClientProps) {
                 const client = ur.client as { name: string } | null
                 const contractor = ur.contractor as { name: string } | null
                 const subClient = (ur as unknown as { sub_client: { code: string; name: string } | null }).sub_client
-                const rs = ROLE_STYLE[ur.role as AppRole]
                 const name = profile?.contacts?.full_name ?? profile?.display_name ?? '—'
                 const org = contractor?.name ?? client?.name ?? '—'
                 const subClientLabel = subClient ? `${subClient.code} — ${subClient.name}` : '—'
@@ -261,9 +252,7 @@ export function UsersClient({ clientId }: UsersClientProps) {
                       {profile?.email ?? '—'}
                     </td>
                     <td className="px-4 py-3">
-                      <span className={`inline-flex items-center whitespace-nowrap rounded-full px-2.5 py-0.5 text-caption font-semibold ${rs.bg} ${rs.text}`}>
-                        {rs.label}
-                      </span>
+                      <StatusBadge entity="role" status={ur.role} />
                     </td>
                     <td className="px-4 py-3 text-xs text-gray-500">
                       {org}

@@ -11,6 +11,7 @@ import { Th } from '@/components/admin/th'
 import { Pagination } from '@/components/admin/pagination'
 import { PageHeader } from '@/components/admin/page-header'
 import { FilterBar, SearchInput, FilterSelect } from '@/components/admin/filter-bar'
+import { StatusBadge, Pill } from '@/components/status-badge'
 
 const PAGE_SIZE = 50
 
@@ -280,13 +281,7 @@ export function MudsClient({ clientId, isContractorAdmin }: MudsClientProps) {
                     <td className="px-4 py-2.5 text-right text-gray-700">{m.unit_count ?? '—'}</td>
                     <td className="px-4 py-2.5">
                       {m.mud_onboarding_status ? (
-                        <span className={`text-xs font-medium ${
-                          m.mud_onboarding_status === 'Registered' ? 'text-emerald-600' :
-                          m.mud_onboarding_status === 'Inactive' ? 'text-red-500' :
-                          'text-amber-600'
-                        }`}>
-                          {m.mud_onboarding_status}
-                        </span>
+                        <StatusBadge entity="mudOnboarding" status={m.mud_onboarding_status} />
                       ) : (
                         <span className="text-xs text-gray-400">Not set</span>
                       )}
@@ -297,7 +292,7 @@ export function MudsClient({ clientId, isContractorAdmin }: MudsClientProps) {
                     <td className="px-4 py-2.5 text-gray-600">{m.collection_cadence ?? <span className="text-gray-400">—</span>}</td>
                     <td className="px-4 py-2.5">
                       {m.auth_form_url ? (
-                        <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-2xs font-semibold text-emerald-700">✓ PDF</span>
+                        <Pill tone="success">✓ PDF</Pill>
                       ) : (
                         <span className="text-2xs text-gray-400">—</span>
                       )}

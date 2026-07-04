@@ -19,6 +19,11 @@ describe('status-styles covers every DB enum value', () => {
     ['ticket', Constants.public.Enums.ticket_status],
     ['ticketPriority', Constants.public.Enums.ticket_priority],
     ['bug', Constants.public.Enums.bug_report_status],
+    ['bugPriority', Constants.public.Enums.bug_report_priority],
+    ['role', Constants.public.Enums.app_role],
+    ['mudOnboarding', Constants.public.Enums.mud_onboarding_status],
+    // auditAction has no DB enum — audit_log.action is free text; pin the set we style.
+    ['auditAction', ['INSERT', 'UPDATE', 'DELETE']],
   ]
 
   it.each(cases)('%s map has an explicit style for every enum value', (entity, values) => {
