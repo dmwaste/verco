@@ -46,8 +46,14 @@ const TYPE_DOT_COLOR: Record<string, string> = {
 
 const PAGE_SIZE = 20
 
-/** Sortable columns — top-level booking columns PostgREST can `.order()` on. */
-type SortColumn = 'ref' | 'type' | 'status' | 'created_at'
+/**
+ * Sortable columns. 'ref'/'type'/'status'/'created_at' are top-level booking
+ * columns; 'area' orders by the to-one collection_area.code embed (PostgREST
+ * `referencedTable` ordering). Nested collection_date (booking_item→…) can't be
+ * ordered server-side, so Collection Date stays a plain header (date-range
+ * filter covers that need).
+ */
+type SortColumn = 'ref' | 'type' | 'status' | 'created_at' | 'area'
 
 interface BookingsListClientProps {
   /** The selected tenant from the admin switcher. Scopes every query so the
@@ -70,12 +76,13 @@ export function BookingsListClient({ clientId, isContractorAdmin, isContractorUs
   const [statusFilter, setStatusFilter] = useState(searchParams.get('status') ?? '')
   const [areaFilter, setAreaFilter] = useState(searchParams.get('area') ?? '')
   const [typeFilter, setTypeFilter] = useState(searchParams.get('type') ?? '')
+  // Service id — filters to bookings containing that service (booking_item!inner).
+  const [serviceFilter, setServiceFilter] = useState(searchParams.get('service') ?? '')
   // Collection-date range (booking_item.collection_date.date), both YYYY-MM-DD
   // or empty. Filters parents via an !inner join when either bound is set.
   const [dateFrom, setDateFrom] = useState(searchParams.get('date_from') ?? '')
   const [dateTo, setDateTo] = useState(searchParams.get('date_to') ?? '')
-  // Server-side sort on top-level booking columns only (nested collection_date
-  // can't be ordered by PostgREST). Default matches the previous behaviour.
+  // Server-side sort (see SortColumn). Default matches the previous behaviour.
   const [sortColumn, setSortColumn] = useState<SortColumn>('created_at')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
   const [page, setPage] = useState(0)
@@ -103,6 +110,7 @@ export function BookingsListClient({ clientId, isContractorAdmin, isContractorUs
     setStatusFilter(searchParams.get('status') ?? '')
     setAreaFilter(searchParams.get('area') ?? '')
     setTypeFilter(searchParams.get('type') ?? '')
+    setServiceFilter(searchParams.get('service') ?? '')
     setDateFrom(searchParams.get('date_from') ?? '')
     setDateTo(searchParams.get('date_to') ?? '')
     setPage(0)
@@ -117,6 +125,7 @@ export function BookingsListClient({ clientId, isContractorAdmin, isContractorUs
     ...(statusFilter ? { status: statusFilter } : {}),
     ...(areaFilter ? { area: areaFilter } : {}),
     ...(typeFilter ? { type: typeFilter } : {}),
+    ...(serviceFilter ? { service: serviceFilter } : {}),
     ...(dateFrom ? { date_from: dateFrom } : {}),
     ...(dateTo ? { date_to: dateTo } : {}),
   }).toString()
@@ -140,9 +149,23 @@ export function BookingsListClient({ clientId, isContractorAdmin, isContractorUs
     },
   })
 
+  // Services for the filter dropdown. `service` is a global catalog (not
+  // tenant-scoped) — a service unused by the tenant simply returns no rows.
+  const { data: services } = useQuery({
+    queryKey: ['services-active'],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from('service')
+        .select('id, name')
+        .eq('is_active', true)
+        .order('name')
+      return data ?? []
+    },
+  })
+
   // Fetch bookings
   const { data: bookingsData, isLoading } = useQuery({
-    queryKey: ['admin-bookings', clientId, search, statusFilter, areaFilter, typeFilter, dateFrom, dateTo, sortColumn, sortDir, page],
+    queryKey: ['admin-bookings', clientId, search, statusFilter, areaFilter, typeFilter, serviceFilter, dateFrom, dateTo, sortColumn, sortDir, page],
     queryFn: async () => {
       // Multi-column search: match against booking.ref, property formatted_address,
       // and contact full_name. booking.property_id and booking.contact_id are both
@@ -170,15 +193,18 @@ export function BookingsListClient({ clientId, isContractorAdmin, isContractorUs
         matchingContactIds = contactMatches.data?.map((r) => r.id) ?? []
       }
 
-      // Collection-date range filters the parent booking, so booking_item must
-      // be an inner join when a bound is set (a LEFT-joined embed can't filter
-      // parents — §21). Without a date filter, keep it LEFT so bookings with no
-      // items still appear. Mirrors the reports BcCard pattern.
+      // The collection-date range and the service filter both filter the parent
+      // booking through booking_item, so that embed must be an inner join when
+      // either is active (a LEFT-joined embed can't filter parents — §21).
+      // Without them, keep it LEFT so bookings with no items still appear.
+      // Mirrors the reports BcCard pattern.
       const dateFilterActive = !!(dateFrom || dateTo)
-      const itemsEmbed = dateFilterActive
+      const itemJoinActive = dateFilterActive || !!serviceFilter
+      const itemsEmbed = itemJoinActive
         ? 'booking_item!inner(no_services, service!inner(name), collection_date!inner(id, date))'
         : 'booking_item(no_services, service!inner(name), collection_date!inner(id, date))'
 
+      const asc = sortDir === 'asc'
       let query = supabase
         .from('booking')
         .select(
@@ -188,11 +214,16 @@ export function BookingsListClient({ clientId, isContractorAdmin, isContractorUs
            ${itemsEmbed}`,
           { count: 'exact' }
         )
-        .order(sortColumn, { ascending: sortDir === 'asc' })
-        .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1)
+      // Area sorts by the to-one collection_area.code embed (referencedTable
+      // ordering); everything else is a top-level booking column.
+      query = sortColumn === 'area'
+        ? query.order('code', { referencedTable: 'collection_area', ascending: asc })
+        : query.order(sortColumn, { ascending: asc })
+      query = query.range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1)
 
       if (dateFrom) query = query.gte('booking_item.collection_date.date', dateFrom)
       if (dateTo) query = query.lte('booking_item.collection_date.date', dateTo)
+      if (serviceFilter) query = query.eq('booking_item.service_id', serviceFilter)
 
       // Scope to the selected tenant. booking.client_id is RLS-gated too, but
       // for a contractor-admin (who can see every client) this is what makes
@@ -356,6 +387,17 @@ export function BookingsListClient({ clientId, isContractorAdmin, isContractorUs
           ))}
         </FilterSelect>
 
+        <FilterSelect
+          value={serviceFilter}
+          onChange={(e) => { setServiceFilter(e.target.value); setPage(0) }}
+          aria-label="Filter by service"
+        >
+          <option value="">All Services</option>
+          {(services ?? []).map((s) => (
+            <option key={s.id} value={s.id}>{s.name}</option>
+          ))}
+        </FilterSelect>
+
         <DateRangeFilter
           label="Collection"
           from={dateFrom}
@@ -383,7 +425,7 @@ export function BookingsListClient({ clientId, isContractorAdmin, isContractorUs
                 <Th sortKey="type" activeSort={sortColumn} direction={sortDir} onSort={(k) => handleSort(k as SortColumn)}>Type</Th>
                 <Th>Services</Th>
                 <Th>Collection Date</Th>
-                <Th>Area</Th>
+                <Th sortKey="area" activeSort={sortColumn} direction={sortDir} onSort={(k) => handleSort(k as SortColumn)}>Area</Th>
                 <Th sortKey="status" activeSort={sortColumn} direction={sortDir} onSort={(k) => handleSort(k as SortColumn)}>Status</Th>
                 <Th sortKey="created_at" activeSort={sortColumn} direction={sortDir} onSort={(k) => handleSort(k as SortColumn)}>Created</Th>
               </tr>
