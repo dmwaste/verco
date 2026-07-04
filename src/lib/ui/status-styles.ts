@@ -136,6 +136,16 @@ const MUD_ONBOARDING: Record<string, StatusStyle> = {
   Inactive:       { bg: 'bg-gray-100', text: 'text-gray-600', label: 'Inactive' },
 }
 
+// ── Run statuses (derived from a run's stop counts — see runStatus()) ────────
+// Exceptions win, so "Has exceptions" is error-toned even for a fully-worked run.
+
+const RUN: Record<string, StatusStyle> = {
+  'Not started':    { bg: 'bg-gray-100', text: 'text-gray-600', label: 'Not started' },
+  'In progress':    { ...INFO, label: 'In progress' },
+  Complete:         { ...SUCCESS, label: 'Complete' },
+  'Has exceptions': { ...ERROR, label: 'Has exceptions' },
+}
+
 // ── Survey response statuses (derived: submitted_at IS NULL ? Pending) ───────
 
 const SURVEY: Record<string, StatusStyle> = {
@@ -164,6 +174,7 @@ const ENTITIES = {
   bugPriority: BUG_PRIORITY,
   role: ROLE,
   mudOnboarding: MUD_ONBOARDING,
+  run: RUN,
   survey: SURVEY,
   auditAction: AUDIT_ACTION,
 } as const

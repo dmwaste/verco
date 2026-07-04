@@ -1,9 +1,9 @@
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
-import { fetchAllRows } from '@/lib/supabase/fetch-all'
 import { awstDateFromUtc } from '@/lib/booking/schedule-transition'
-import { groupStopsIntoRuns, UNASSIGNED_RUN_SEGMENT, type PickerStop } from '@/lib/stops/runs'
+import { groupStopsIntoRuns, UNASSIGNED_RUN_SEGMENT } from '@/lib/stops/runs'
+import { fetchDayStops } from '@/lib/stops/run-sheet-data'
 import { STREAM_LABEL } from '@/lib/stops/labels'
 import type { WasteStream } from '@/lib/stops/stops'
 
@@ -12,16 +12,6 @@ import type { WasteStream } from '@/lib/stops/stops'
  * derived as (driver_serial, date) from the day's stops, never stored.
  * Also gives the proxy's redirect-to-/field a real page to land on.
  */
-
-interface StopRow {
-  id: string
-  stream: WasteStream
-  status: PickerStop['status']
-  driver_serial: string | null
-  driver_name: string | null
-  stop_sequence: number | null
-  client: { name: string } | null
-}
 
 export default async function RunPickerPage() {
   const supabase = await createClient()
@@ -34,34 +24,7 @@ export default async function RunPickerPage() {
 
   const today = awstDateFromUtc(new Date())
 
-  // Paginate past PostgREST max_rows (1000) — a big suburb day's stop count
-  // across all drivers can exceed one page.
-  const rows = await fetchAllRows<StopRow>((from, to) =>
-    supabase
-      .from('collection_stop')
-      .select(
-        `id, stream, status, driver_serial, driver_name, stop_sequence,
-         client:client_id(name),
-         collection_date!inner(date)`,
-      )
-      .eq('collection_date.date', today)
-      .order('id')
-      .range(from, to) as unknown as PromiseLike<{
-      data: StopRow[] | null
-      error: { message: string } | null
-    }>,
-  )
-
-  const stops: PickerStop[] = rows.map((row) => ({
-    id: row.id,
-    stream: row.stream,
-    status: row.status,
-    driver_serial: row.driver_serial,
-    driver_name: row.driver_name,
-    stop_sequence: row.stop_sequence,
-    client_name: row.client?.name ?? '',
-  }))
-
+  const stops = await fetchDayStops(supabase, today)
   const runs = groupStopsIntoRuns(stops)
 
   return (

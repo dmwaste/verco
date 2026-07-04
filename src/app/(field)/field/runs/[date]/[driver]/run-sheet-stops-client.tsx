@@ -7,33 +7,12 @@ import { format, parseISO } from 'date-fns'
 import { StreamBadge } from '@/components/field/stream-badge'
 import { StopStatusBadge } from '@/components/field/stop-status-badge'
 import { getStopMapsUrl } from '@/lib/stops/labels'
-import type { ServiceSummaryEntry, StopStatus, WasteStream } from '@/lib/stops/stops'
+import type { StopStatus } from '@/lib/stops/stops'
+import type { RunStop, RunMeta } from '@/lib/stops/run-sheet-data'
 import { completeStop } from '../../../stops/[id]/actions'
 import { useRefreshOnFocus } from './use-refresh-on-focus'
 
-export interface RunStop {
-  id: string
-  stream: WasteStream
-  status: StopStatus
-  address: string | null
-  latitude: number | null
-  longitude: number | null
-  services_summary: ServiceSummaryEntry[]
-  waste_location: string | null
-  driver_notes: string | null
-  stop_sequence: number | null
-  scheduled_at: string | null
-  driver_serial: string | null
-  driver_name: string | null
-  booking: { id: string; ref: string; status: string; type: string }
-}
-
-interface RunMeta {
-  driverName: string | null
-  startTime: string | null
-  finishTime: string | null
-  depotLabels: string[]
-}
+export type { RunStop } from '@/lib/stops/run-sheet-data'
 
 interface RunSheetStopsClientProps {
   date: string

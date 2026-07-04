@@ -26,6 +26,8 @@ describe('status-styles covers every DB enum value', () => {
     ['auditAction', ['INSERT', 'UPDATE', 'DELETE']],
     // refund has no DB enum either — pin the styled set so a renamed state can't fall through.
     ['refund', ['Pending', 'Approved', 'Rejected']],
+    // run is derived (runStatus()) — pin the set so a renamed state can't fall through to grey.
+    ['run', ['Not started', 'In progress', 'Complete', 'Has exceptions']],
   ]
 
   it.each(cases)('%s map has an explicit style for every enum value', (entity, values) => {
