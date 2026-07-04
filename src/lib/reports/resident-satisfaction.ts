@@ -145,3 +145,34 @@ export function computeServicePreference(
   }
   return { yes, no, indifferent, total: yes + no + indifferent }
 }
+
+export interface ResponseRateResult {
+  submitted: number
+  created: number
+  completed: number
+  /** submitted / completed × 100, or null when there are no completed bookings. */
+  pct: number | null
+  /**
+   * True when fewer surveys were created than bookings completed — a hint the
+   * completion-email hook is dropping surveys, so a healthy-looking
+   * submitted/created ratio would mask leaked feedback. Denominator is
+   * completed bookings (authoritative), never surveys-created.
+   */
+  gap: boolean
+}
+
+/** Response rate against completed bookings, with a data-quality gap flag. */
+export function computeResponseRate(args: {
+  submitted: number
+  created: number
+  completed: number
+}): ResponseRateResult {
+  const { submitted, created, completed } = args
+  return {
+    submitted,
+    created,
+    completed,
+    pct: completed > 0 ? (submitted / completed) * 100 : null,
+    gap: created < completed,
+  }
+}

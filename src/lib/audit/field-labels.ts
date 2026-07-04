@@ -51,6 +51,11 @@ export const FIELD_LABELS: Record<string, string> = {
   unit_price_cents: 'Unit Price',
   is_extra: 'Extra Item',
 
+  // Survey
+  responses: 'Survey Responses',
+  submitted_at: 'Submitted',
+  token: 'Survey Token',
+
   // Contact
   full_name: 'Name', // generated column — kept for legacy audit_log entries
   first_name: 'First name',

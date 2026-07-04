@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/server'
 import { PublicNav } from '@/components/public/public-nav'
 import { MobileFab } from '@/components/public/mobile-fab'
 import { MobileBottomNav } from '@/components/public/mobile-bottom-nav'
+import { HideOnSurvey } from '@/components/public/hide-on-survey'
 import { adminOrigin, isAdminHostname, isFieldHostname } from '@/lib/proxy/hostnames'
 import { STAFF_ROLES } from '@/lib/auth/roles'
 import { faviconToIcons } from '@/lib/client/favicon'
@@ -138,19 +139,23 @@ export default async function PublicLayout({
         '--brand-accent-dark': `color-mix(in srgb, ${accentColour} 75%, black)`,
       } as React.CSSProperties}
     >
-      <PublicNav
-        serviceName={branding?.service_name ?? 'Verge Collection'}
-        logoUrl={branding?.logo_light_url ?? null}
-        showPoweredBy={branding?.show_powered_by ?? true}
-        showAdminLink={isStaff}
-        showSignOut={isAuthenticated}
-        adminUrl={adminUrl}
-      />
+      <HideOnSurvey>
+        <PublicNav
+          serviceName={branding?.service_name ?? 'Verge Collection'}
+          logoUrl={branding?.logo_light_url ?? null}
+          showPoweredBy={branding?.show_powered_by ?? true}
+          showAdminLink={isStaff}
+          showSignOut={isAuthenticated}
+          adminUrl={adminUrl}
+        />
+      </HideOnSurvey>
       <div className="pb-16 tablet:pb-0">
         {children}
       </div>
-      <MobileFab />
-      <MobileBottomNav showAdminLink={isStaff} showSignOut={isAuthenticated} adminUrl={adminUrl} />
+      <HideOnSurvey>
+        <MobileFab />
+        <MobileBottomNav showAdminLink={isStaff} showSignOut={isAuthenticated} adminUrl={adminUrl} />
+      </HideOnSurvey>
     </div>
   )
 }

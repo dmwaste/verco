@@ -103,6 +103,17 @@ export default async function AdminDashboardPage() {
     openExceptionsListQuery.eq('client_id', clientId)
   }
 
+  // Recent submitted survey responses for the dashboard feed. booking_survey is
+  // RLS-scoped to staff; the explicit client_id keeps a contractor-admin's feed
+  // on the switcher tenant.
+  const recentSurveysQuery = supabase
+    .from('booking_survey')
+    .select('id, submitted_at, responses, booking!inner(ref)')
+    .not('submitted_at', 'is', null)
+    .order('submitted_at', { ascending: false })
+    .limit(5)
+  if (clientId) recentSurveysQuery.eq('client_id', clientId)
+
   const [
     completedResult,
     ncnResult,
@@ -113,6 +124,7 @@ export default async function AdminDashboardPage() {
     openExceptionsResult,
     weekDatesResult,
     mudRemindersResult,
+    recentSurveysResult,
   ] = await Promise.all([
     completedQuery,
     ncnQuery,
@@ -146,6 +158,7 @@ export default async function AdminDashboardPage() {
       .in('property_id', tenantMudIds)
       .order('next_expected_date', { ascending: true, nullsFirst: false })
       .limit(20),
+    recentSurveysQuery,
   ])
 
   const openExceptions = (ncnResult.count ?? 0) + (npResult.count ?? 0)
@@ -185,6 +198,14 @@ export default async function AdminDashboardPage() {
   const upcomingDates = upcomingDatesResult.data ?? []
   const openTickets = openTicketsResult.data ?? []
   const openExceptionBookings = openExceptionsResult.data ?? []
+  const recentSurveys = recentSurveysResult.data ?? []
+  const surveyOverall = (responses: unknown): number | null => {
+    if (responses === null || typeof responses !== 'object' || Array.isArray(responses)) return null
+    const raw = (responses as Record<string, unknown>).overall_rating
+    if (typeof raw !== 'number' && typeof raw !== 'string') return null
+    const n = Number(raw)
+    return Number.isInteger(n) && n >= 1 && n <= 5 ? n : null
+  }
 
   // For any pool-member areas in the upcoming-dates list, fetch authoritative
   // pool counters — per-area `collection_date.*` stays at 0 by design for
@@ -443,6 +464,41 @@ export default async function AdminDashboardPage() {
           })}
           {openTickets.length === 0 && (
             <p className="flex flex-1 items-center justify-center py-8 text-sm text-gray-400">No open tickets</p>
+          )}
+        </div>
+
+        {/* Recent survey feedback — newest submitted responses; rows link to the
+            survey detail. Mirrors the Open Service Tickets tile. */}
+        <div className="flex flex-col rounded-xl bg-white p-5 shadow-sm">
+          <div className="mb-3.5 flex items-center justify-between">
+            <h2 className="font-[family-name:var(--font-heading)] text-sm font-semibold text-[#293F52]">
+              Recent Survey Feedback
+            </h2>
+            <Link href="/admin/surveys" className="text-xs font-medium text-[#00B864] hover:underline">View all &rarr;</Link>
+          </div>
+          {recentSurveys.map((s) => {
+            const booking = s.booking as unknown as { ref: string }
+            const rating = surveyOverall(s.responses)
+            return (
+              <Link
+                key={s.id}
+                href={`/admin/surveys/${s.id}`}
+                className="flex items-center gap-3 border-b border-gray-100 py-2.5 last:border-b-0 last:pb-0 hover:bg-gray-50"
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="text-body-sm font-medium text-gray-900">{booking.ref}</div>
+                  <div className="text-xs text-gray-500">{rating !== null ? `${rating}/5 overall` : 'No rating'}</div>
+                </div>
+                <span className="shrink-0 text-caption text-gray-500">
+                  {s.submitted_at ? formatDistanceToNow(new Date(s.submitted_at), { addSuffix: false }) : ''}
+                </span>
+              </Link>
+            )
+          })}
+          {recentSurveys.length === 0 && (
+            <p className="flex flex-1 items-center justify-center py-8 text-center text-sm text-gray-400">
+              No responses yet — surveys are emailed after each collection is completed
+            </p>
           )}
         </div>
 
