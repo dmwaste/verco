@@ -216,14 +216,16 @@ export function SurveysListClient({ clientId }: SurveysListClientProps) {
                 <Th>Ref</Th>
                 <Th>Area</Th>
                 <Th>Submitted</Th>
+                <Th>Booking</Th>
+                <Th>Collection</Th>
                 <Th>Overall</Th>
                 <Th>Status</Th>
               </tr>
             </thead>
             <tbody>
-              {isLoading && Array.from({ length: 5 }).map((_, i) => <SkeletonRow key={i} columns={5} />)}
+              {isLoading && Array.from({ length: 5 }).map((_, i) => <SkeletonRow key={i} columns={7} />)}
               {!isLoading && rows.length === 0 && (
-                <tr><td colSpan={5} className="px-4 py-8 text-center text-sm text-gray-400">No surveys found</td></tr>
+                <tr><td colSpan={7} className="px-4 py-8 text-center text-sm text-gray-400">No surveys found</td></tr>
               )}
               {rows.map((row) => {
                 const submitted = row.submitted_at !== null
@@ -242,6 +244,12 @@ export function SurveysListClient({ clientId }: SurveysListClientProps) {
                     </td>
                     <td className="px-4 py-3 text-body-sm text-gray-900">
                       {row.submitted_at ? format(new Date(row.submitted_at), 'd MMM yyyy') : '—'}
+                    </td>
+                    <td className="px-4 py-3">
+                      <MiniStars value={extractRating(row.responses, 'booking_rating')} />
+                    </td>
+                    <td className="px-4 py-3">
+                      <MiniStars value={extractRating(row.responses, 'collection_rating')} />
                     </td>
                     <td className="px-4 py-3">
                       <MiniStars value={extractRating(row.responses, 'overall_rating')} />
