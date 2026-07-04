@@ -99,7 +99,7 @@ export function SlaCard({
           {isLoading ? '—' : value}
         </p>
         {provenance && (
-          <p className="mt-1.5 text-[10px] font-medium uppercase tracking-wide text-gray-500">
+          <p className="mt-1.5 text-caption font-medium uppercase tracking-wide text-gray-500">
             {provenance}
           </p>
         )}
@@ -129,7 +129,7 @@ export function CardLabel({ text }: { text: string }) {
  */
 export function ProvenanceStamp({ text }: { text: string }) {
   return (
-    <p className="mt-1.5 text-[10px] font-medium uppercase tracking-wide text-gray-500">
+    <p className="mt-1.5 text-caption font-medium uppercase tracking-wide text-gray-500">
       {text}
     </p>
   )

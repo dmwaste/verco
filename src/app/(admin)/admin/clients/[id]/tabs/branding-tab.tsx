@@ -73,7 +73,7 @@ export function BrandingTab({ client }: { client: Client }) {
   }
 
   const inputClass = 'w-full rounded-lg border-[1.5px] border-gray-100 bg-gray-50 px-3 py-2.5 font-mono text-body-sm text-gray-900 outline-none focus:border-[#293F52] focus:bg-white'
-  const sectionHeader = 'mb-3 text-2xs font-semibold uppercase tracking-wide text-gray-500'
+  const sectionHeader = 'mb-3 text-caption font-semibold uppercase tracking-wide text-gray-500'
 
   function UploadZone({ type, currentUrl, onClear, dark, accept = 'image/png,image/svg+xml,image/jpeg' }: { type: 'logo-light' | 'logo-dark' | 'hero-banner' | 'favicon'; currentUrl: string; onClear: () => void; dark?: boolean; accept?: string }) {
     const isUploading = uploading === type

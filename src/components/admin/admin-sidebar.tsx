@@ -202,7 +202,7 @@ export function AdminSidebar({ counts, role }: AdminSidebarProps) {
     <aside className="flex w-60 shrink-0 flex-col overflow-y-auto border-r border-gray-100 bg-white py-4">
       {sections.map((section) => (
         <div key={section.title} className="mb-1">
-          <div className="px-5 pb-1 pt-2 text-2xs font-semibold uppercase tracking-[0.8px] text-gray-300">
+          <div className="px-5 pb-1 pt-2 text-caption font-semibold uppercase tracking-[0.8px] text-gray-300">
             {section.title}
           </div>
           {section.items.map((item) => {

@@ -189,7 +189,7 @@ export function BugReportsClient() {
                   return (
                     <tr key={bug.id} className="border-b border-gray-50 hover:bg-gray-50/50">
                       <td className="px-4 py-2.5">
-                        <span className="font-mono text-[12px] text-gray-400">{bug.display_id}</span>
+                        <span className="font-mono text-xs text-gray-400">{bug.display_id}</span>
                       </td>
                       <td className="max-w-[240px] px-4 py-2.5">
                         <Link

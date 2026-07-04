@@ -79,7 +79,7 @@ export function ClientSwitcher({ current, accessible }: ClientSwitcherProps) {
             aria-label="Close switcher"
           />
           <div className="absolute left-0 top-full z-50 mt-1.5 min-w-[220px] overflow-hidden rounded-lg bg-white shadow-lg ring-1 ring-black/5">
-            <div className="border-b border-gray-100 px-3 py-2 text-2xs font-semibold uppercase tracking-wide text-gray-400">
+            <div className="border-b border-gray-100 px-3 py-2 text-caption font-semibold uppercase tracking-wide text-gray-400">
               Switch client
             </div>
             <div className="max-h-72 overflow-y-auto py-1">

@@ -192,7 +192,7 @@ export function MudsClient({ clientId, isContractorAdmin }: MudsClientProps) {
             onClick={() => { setStatusFilter(statusFilter === pill.key ? '' : pill.key); setPage(0) }}
             className={`rounded-xl border px-4 py-3 text-left transition-colors ${pill.color} ${statusFilter === pill.key ? 'ring-2 ring-[#293F52]' : ''}`}
           >
-            <div className="text-2xs font-semibold uppercase tracking-wide">{pill.label}</div>
+            <div className="text-caption font-semibold uppercase tracking-wide">{pill.label}</div>
             <div className="mt-1 text-xl font-bold">{statusCounts?.[pill.key] ?? 0}</div>
           </button>
         ))}

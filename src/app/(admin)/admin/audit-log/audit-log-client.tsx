@@ -95,11 +95,11 @@ export function AuditLogClient() {
           <table className="w-full border-collapse tabular-nums">
             <thead>
               <tr className="border-b border-gray-100">
-                <th className="px-4 py-3 text-left text-2xs font-semibold uppercase tracking-wider text-gray-400">When</th>
-                <th className="px-4 py-3 text-left text-2xs font-semibold uppercase tracking-wider text-gray-400">Action</th>
-                <th className="px-4 py-3 text-left text-2xs font-semibold uppercase tracking-wider text-gray-400">Summary</th>
-                <th className="px-4 py-3 text-left text-2xs font-semibold uppercase tracking-wider text-gray-400">By</th>
-                <th className="px-4 py-3 text-left text-2xs font-semibold uppercase tracking-wider text-gray-400">Changes</th>
+                <th className="px-4 py-3 text-left text-caption font-semibold uppercase tracking-wider text-gray-400">When</th>
+                <th className="px-4 py-3 text-left text-caption font-semibold uppercase tracking-wider text-gray-400">Action</th>
+                <th className="px-4 py-3 text-left text-caption font-semibold uppercase tracking-wider text-gray-400">Summary</th>
+                <th className="px-4 py-3 text-left text-caption font-semibold uppercase tracking-wider text-gray-400">By</th>
+                <th className="px-4 py-3 text-left text-caption font-semibold uppercase tracking-wider text-gray-400">Changes</th>
               </tr>
             </thead>
             <tbody>

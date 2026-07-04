@@ -354,7 +354,7 @@ export function IdRequestForm({
     <div className="mx-auto w-full max-w-2xl space-y-4">
       {/* Location */}
       <div className="rounded-xl bg-white p-5 shadow-sm">
-        <div className="text-2xs font-semibold uppercase tracking-wide text-gray-500">
+        <div className="text-caption font-semibold uppercase tracking-wide text-gray-500">
           Location
         </div>
         <div className="mt-3 flex flex-col gap-1.5">
@@ -414,7 +414,7 @@ export function IdRequestForm({
 
       {/* Waste description */}
       <div className="rounded-xl bg-white p-5 shadow-sm">
-        <div className="text-2xs font-semibold uppercase tracking-wide text-gray-500">
+        <div className="text-caption font-semibold uppercase tracking-wide text-gray-500">
           Waste Description
         </div>
         <fieldset className="mt-3">
@@ -480,7 +480,7 @@ export function IdRequestForm({
 
       {/* Photos — optional for phoned-in reports */}
       <div className="rounded-xl bg-white p-5 shadow-sm">
-        <div className="text-2xs font-semibold uppercase tracking-wide text-gray-500">
+        <div className="text-caption font-semibold uppercase tracking-wide text-gray-500">
           Photos{' '}
           <span className="text-2xs font-normal normal-case tracking-normal text-gray-400">
             (optional)
@@ -539,7 +539,7 @@ export function IdRequestForm({
 
       {/* Collection date */}
       <div className="rounded-xl bg-white p-5 shadow-sm">
-        <div className="text-2xs font-semibold uppercase tracking-wide text-gray-500">
+        <div className="text-caption font-semibold uppercase tracking-wide text-gray-500">
           Collection Date
         </div>
         <div className="mt-3 flex flex-col gap-1.5">
@@ -651,7 +651,7 @@ export function IdRequestForm({
       <div className="rounded-xl bg-white p-5 shadow-sm">
         <label
           htmlFor="id-notes"
-          className="text-2xs font-semibold uppercase tracking-wide text-gray-500"
+          className="text-caption font-semibold uppercase tracking-wide text-gray-500"
         >
           Additional Notes
         </label>

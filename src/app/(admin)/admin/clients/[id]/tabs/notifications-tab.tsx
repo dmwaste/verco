@@ -62,7 +62,7 @@ export function NotificationsTab({ client }: { client: Client }) {
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="max-w-2xl">
       <div className="mb-6 rounded-xl bg-white p-5 shadow-sm">
-        <div className="mb-3 text-2xs font-semibold uppercase tracking-wide text-gray-500">Email & SMS</div>
+        <div className="mb-3 text-caption font-semibold uppercase tracking-wide text-gray-500">Email & SMS</div>
         <div className="grid grid-cols-2 gap-4">
           <div>
             <label className={labelClass}>Email From Name</label>
