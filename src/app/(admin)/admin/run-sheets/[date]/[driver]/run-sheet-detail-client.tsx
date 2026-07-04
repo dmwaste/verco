@@ -5,7 +5,7 @@ import { DetailHeader } from '@/components/admin/detail-header'
 import { Th } from '@/components/admin/th'
 import { StatusBadge } from '@/components/status-badge'
 import { StopStatusBadge } from '@/components/field/stop-status-badge'
-import { getStopMapsUrl } from '@/lib/stops/labels'
+import { getStopMapsUrl, splitAddress, formatTime } from '@/lib/stops/labels'
 import {
   runStatus,
   TERMINAL_STOP_STATUSES,
@@ -18,21 +18,6 @@ interface RunSheetDetailClientProps {
   driverSerial: string | null
   stops: RunStop[]
   runMeta: RunMeta | null
-}
-
-/** 'HH:MM:SS' (Postgres time) → 'h:mma'. Time-of-day only, so TZ-agnostic. */
-function formatTime(time: string | null): string | null {
-  const match = time?.match(/^(\d{2}):(\d{2})/)
-  if (!match) return null
-  const d = new Date()
-  d.setHours(Number(match[1]), Number(match[2]), 0, 0)
-  return format(d, 'h:mmaaa')
-}
-
-function splitAddress(address: string | null): { street: string; suburb: string } {
-  const full = address ?? ''
-  const parts = full.split(',')
-  return { street: parts[0]?.trim() ?? full, suburb: parts.slice(1).join(',').trim() || '' }
 }
 
 export function RunSheetDetailClient({

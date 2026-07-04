@@ -1,3 +1,4 @@
+import { format } from 'date-fns'
 import type { WasteStream } from './stops'
 
 /**
@@ -24,4 +25,30 @@ export function getStopMapsUrl(
   if (latitude && longitude) return `https://maps.google.com/?q=${latitude},${longitude}`
   if (address) return `https://maps.google.com/?q=${encodeURIComponent(address)}`
   return null
+}
+
+/**
+ * Split a denormalised stop address into a prominent street line + a smaller
+ * suburb line. Commas beyond the first stay with the suburb; a comma-less
+ * address is treated as all-street.
+ */
+export function splitAddress(address: string | null): { street: string; suburb: string } {
+  const full = address ?? ''
+  const parts = full.split(',')
+  return {
+    street: parts[0]?.trim() ?? full,
+    suburb: parts.slice(1).join(',').trim() || '',
+  }
+}
+
+/**
+ * 'HH:MM:SS' (Postgres `time`) → 'h:mma' for run-sheet headers. Time-of-day
+ * only, so it's timezone-agnostic (no date component crosses a TZ boundary).
+ */
+export function formatTime(time: string | null): string | null {
+  const match = time?.match(/^(\d{2}):(\d{2})/)
+  if (!match) return null
+  const d = new Date()
+  d.setHours(Number(match[1]), Number(match[2]), 0, 0)
+  return format(d, 'h:mmaaa')
 }

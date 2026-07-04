@@ -29,8 +29,10 @@ export default async function RunSheetDetailPage({ params }: RunSheetDetailPageP
   const driver = decodeURIComponent(rawDriver)
   const isUnassigned = driver === UNASSIGNED_RUN_SEGMENT
 
-  const stops = await fetchRunStops(supabase, date, driver)
-  const runMeta = await fetchRunMeta(supabase, date, driver)
+  const [stops, runMeta] = await Promise.all([
+    fetchRunStops(supabase, date, driver),
+    fetchRunMeta(supabase, date, driver),
+  ])
 
   return (
     <RunSheetDetailClient
