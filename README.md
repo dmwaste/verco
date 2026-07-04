@@ -57,3 +57,4 @@ pnpm dev
 
 - [Product Requirements (PRD)](docs/VERCO_V2_PRD.md)
 - [Technical Specification](docs/VERCO_V2_TECH_SPEC.md)
+- [Admin Design System](docs/admin-design-system.md) — tokens, shared components, status pills (read before touching an admin page)

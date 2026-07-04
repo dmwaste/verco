@@ -1,9 +1,19 @@
 # Verco v2 — Technical Specification
 
-**Version:** 1.0  
-**Date:** 2026-03-26  
+**Version:** 1.1  
+**Date:** 2026-03-26 (last reconciled 2026-07-04 — see Change Log)  
 **Status:** APPROVED — implementation basis for Claude Code  
-**Companion docs:** `VERCO_V2_PRD.md`, `CLAUDE.md` (forthcoming)
+**Companion docs:** `VERCO_V2_PRD.md`, `CLAUDE.md`
+
+---
+
+## Change Log
+
+Reconciles this spec with what actually shipped (the original 2026-03-26 text described intended, not as-built, designs in the noted sections).
+
+| Date | Ver | Change |
+|---|---|---|
+| 2026-07-04 | 1.1 | **Survey system reconciled to as-built (§13).** The `booking.status → Completed` DB trigger was **dropped** — survey rows are created by the field closeout action (`maybeCreateCompletionSurvey`), and public token access goes through anon-callable `SECURITY DEFINER` RPCs `get_survey_by_token(text)` / `submit_survey_by_token(text, jsonb)` (migration `20260704000000`), replacing the `/api/survey` route + direct `booking_survey` access (which RLS blocked for anon). Survey questions are a **fixed code constant** (`src/lib/survey/questions.ts`), not loaded from `client_survey_config` (defined but unwired — deferred). `tenant_*` names throughout are the legacy names; the shipped schema uses `client_*` (see §7 rename table). Shipped as PRs #284 / #285 / #287 / #288. |
 
 ---
 
@@ -1661,41 +1671,31 @@ $$ LANGUAGE sql SECURITY DEFINER;
 
 ## 13. Survey System
 
-### 13.1 Token Generation
+_As-built, reconciled 2026-07-04 (shipped #284/#285/#287/#288). The original 1.0 design (DB trigger + `/api/survey` route + per-tenant `client_survey_config`) was superseded — see Change Log. Full detail: memory `survey-public-access-pipeline.md`._
 
-On `booking.status → Completed`, a DB trigger inserts into `booking_survey` with a signed token:
+### 13.1 Survey Creation
 
-```sql
-CREATE OR REPLACE FUNCTION create_survey_on_completion()
-RETURNS TRIGGER AS $$
-BEGIN
-  IF NEW.status = 'Completed' AND OLD.status != 'Completed' THEN
-    INSERT INTO booking_survey (booking_id, client_id, token)
-    VALUES (
-      NEW.id,
-      NEW.client_id,
-      encode(gen_random_bytes(32), 'hex')
-    )
-    ON CONFLICT (booking_id) DO NOTHING;
-  END IF;
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-```
+Survey rows are **not** created by a DB trigger — the legacy `create_survey_on_completion` trigger was dropped (`20260610120000`; it ran as the invoking role and violated `booking_survey` RLS). The field closeout server action creates the row when the final `collection_stop` closes and the rollup lands the booking on `Completed`:
 
-### 13.2 Survey Route
+- `maybeCreateCompletionSurvey(supabase, bookingId, clientId)` in `app/(field)/field/stops/[id]/actions.ts` inserts `booking_survey (booking_id, client_id, token)` with `token = crypto.randomUUID()` (unguessable, `UNIQUE`), then sends the `completion_survey` email via `invokeSendNotification`.
+- Guarded: only when `booking.status = 'Completed'`, only once (existence check + `UNIQUE (booking_id)`), and behind the `DISABLE_SURVEY_EMAIL` env kill-switch.
 
-`/survey/[token]` — public route, no auth required. Token validated against `booking_survey.token`. Survey questions loaded from `tenant_survey_config` for the booking's tenant.
+### 13.2 Public Token Access (RPCs)
 
-### 13.3 Response Storage
+`/survey/[token]` is a public route (no auth) on a **standalone layout** (`HideOnSurvey` strips the resident app chrome). The logged-out page cannot touch `booking_survey` directly — RLS has no anon SELECT and no UPDATE. Two anon-callable `SECURITY DEFINER` RPCs (migration `20260704000000`, `search_path` pinned, anon EXECUTE intentional — do NOT revoke) are the access layer:
 
-```typescript
-// POST /api/survey/[token]
-{
-  responses: { [question_id: string]: string | number | string[] }
-}
-// Updates booking_survey.responses (jsonb) and submitted_at
-```
+- `get_survey_by_token(p_token text) RETURNS jsonb` — `{ submitted, booking_ref, collection_date, service_chips[] }`, computed inside the definer. `NULL` for an unknown token → `notFound()`; never returns prior responses.
+- `submit_survey_by_token(p_token text, p_responses jsonb) RETURNS jsonb` — `SELECT ... FOR UPDATE` (single-submission), structural guards, writes `responses` + `submitted_at`.
+
+Survey questions are a **fixed shared code constant** `SURVEY_QUESTIONS` (`src/lib/survey/questions.ts`) — the ids are stable analytics keys, not loaded from `client_survey_config` (defined but unwired; per-tenant custom questions deferred).
+
+### 13.3 Submission
+
+The public `submitSurvey` server action validates responses against `SURVEY_QUESTIONS` (`validateResponses` — server-authoritative: unknown keys, required, rating range, option membership), then calls `submit_survey_by_token`. There is no `/api/survey` route.
+
+### 13.4 Admin + Reporting
+
+`/admin/surveys` (list / detail / CSV export / aggregate summary) is staff-scoped via the `booking_survey_staff_select` RLS policy (excludes field/ranger). Response rate is computed against **completed bookings** (not surveys-created) with a data-quality gap flag; a "Recent Survey Feedback" card surfaces on the admin dashboard.
 
 ---
 

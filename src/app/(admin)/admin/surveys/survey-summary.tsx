@@ -8,6 +8,10 @@ import {
   computeResponseRate,
   type ResidentSatisfactionRow,
 } from '@/lib/reports/resident-satisfaction'
+import { csatSeries, percentPoints } from '@/lib/reports/monthly-series'
+import { useReportsMonthly } from '../reports/use-reports-monthly'
+import { Sparkline } from '../reports/sparkline'
+import { DonutChart } from '../reports/donut-chart'
 
 interface SurveySummaryProps {
   clientId: string
@@ -15,7 +19,7 @@ interface SurveySummaryProps {
 
 function Card({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="rounded-xl bg-white p-5 shadow-sm">
+    <div className="flex flex-col rounded-xl bg-white p-5 shadow-sm">
       <div className="mb-2 text-xs font-medium text-gray-500">{label}</div>
       {children}
     </div>
@@ -63,6 +67,14 @@ export function SurveySummary({ clientId }: SurveySummaryProps) {
     },
   })
 
+  // Rolling-12 CSAT trend — reuses the reports RPC (one deduped fetch). Only
+  // renders off a SUCCESSFUL fetch: a failed one must draw no tail, never a
+  // flat-zero year. Mirrors the Overall Rating card on the Reports page.
+  const monthly = useReportsMonthly(clientId, '')
+  const overallTrend = monthly.isSuccess
+    ? percentPoints(monthly.rows, csatSeries('overall', 'good'), csatSeries('overall', 'n'))
+    : []
+
   const rows = data?.rows ?? []
   const overall = computeSurveyRating(rows, 'overall_rating')
   const pref = computeServicePreference(rows)
@@ -72,24 +84,8 @@ export function SurveySummary({ clientId }: SurveySummaryProps) {
     completed: data?.completed ?? 0,
   })
 
-  const prefPct = (n: number) => (pref.total > 0 ? Math.round((n / pref.total) * 100) : 0)
-
   return (
     <div className="grid grid-cols-2 gap-4 px-7 pb-1 pt-5 lg:grid-cols-4">
-      <Card label="Response rate">
-        <div className="font-[family-name:var(--font-heading)] text-display font-bold text-[#293F52]">
-          {rate.pct === null ? '—' : `${Math.round(rate.pct)}%`}
-        </div>
-        <div className="mt-1 text-caption text-gray-500">
-          {rate.submitted} of {rate.completed} collections
-        </div>
-        {rate.gap && (
-          <div className="mt-1.5 text-caption text-status-warn">
-            ⚠ {rate.created} surveys created for {rate.completed} completed — check the completion emails
-          </div>
-        )}
-      </Card>
-
       <Card label="Overall satisfaction">
         {overall.isEmpty ? (
           <div className="font-[family-name:var(--font-heading)] text-display font-bold text-gray-300">—</div>
@@ -103,20 +99,27 @@ export function SurveySummary({ clientId }: SurveySummaryProps) {
             </div>
           </>
         )}
+        {overallTrend.length > 0 && (
+          <div className="mt-auto pt-3">
+            <Sparkline points={overallTrend} caption="Rated 4+ % · last 12 months" />
+          </div>
+        )}
       </Card>
 
       <Card label="Prefer this service">
         {pref.total === 0 ? (
           <div className="font-[family-name:var(--font-heading)] text-display font-bold text-gray-300">—</div>
         ) : (
-          <>
-            <div className="font-[family-name:var(--font-heading)] text-display font-bold text-[#293F52]">
-              {prefPct(pref.yes)}%
-            </div>
-            <div className="mt-1 text-caption text-gray-500">
-              {pref.yes} yes · {pref.no} no · {pref.indifferent} indifferent
-            </div>
-          </>
+          <div className="flex flex-1 items-center py-1">
+            <DonutChart
+              ariaLabel="Prefer this service over traditional verge collection"
+              segments={[
+                { label: 'Yes', value: pref.yes, color: '#10B981' },
+                { label: 'No', value: pref.no, color: '#F59E0B' },
+                { label: 'Indifferent', value: pref.indifferent, color: '#8FA5B8' },
+              ]}
+            />
+          </div>
         )}
       </Card>
 
@@ -126,6 +129,15 @@ export function SurveySummary({ clientId }: SurveySummaryProps) {
         </div>
         <div className="mt-1 text-caption text-gray-500">
           {rate.created - rate.submitted} awaiting response
+        </div>
+      </Card>
+
+      <Card label="Response rate">
+        <div className="font-[family-name:var(--font-heading)] text-display font-bold text-[#293F52]">
+          {rate.pct === null ? '—' : `${Math.round(rate.pct)}%`}
+        </div>
+        <div className="mt-1 text-caption text-gray-500">
+          {rate.submitted} of {rate.completed} collections
         </div>
       </Card>
     </div>
