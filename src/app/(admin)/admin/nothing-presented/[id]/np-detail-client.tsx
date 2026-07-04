@@ -6,11 +6,11 @@ import { useRouter } from 'next/navigation'
 import { format } from 'date-fns'
 import { Dialog } from '@base-ui/react/dialog'
 import { updateNpStatus, rebookNp, resolveNpWithRefund } from './actions'
-import { getStatusStyle } from '@/lib/ui/status-styles'
+import { StatusBadge, Pill } from '@/components/status-badge'
 import type { Database } from '@/lib/supabase/types'
 import type { ResolvedAuditEntry } from '@/lib/audit/resolve'
 import { AuditTimeline } from '@/components/audit-timeline'
-import { BackLink } from '@/components/admin/back-link'
+import { DetailHeader } from '@/components/admin/detail-header'
 
 type NpStatus = Database['public']['Enums']['np_status']
 
@@ -70,7 +70,6 @@ export function NpDetailClient({ np, availableDates, auditLogs }: NpDetailClient
   const status = np.status as string
   const isActionable = status === 'Disputed' || status === 'Under Review'
   const isIssued = status === 'Issued'
-  const ss = getStatusStyle('np', np.status)
 
   const paidItems = booking?.booking_item.filter((i) => i.is_extra) ?? []
   const paidAmountCents = paidItems.reduce((sum, i) => sum + i.unit_price_cents * i.no_services, 0)
@@ -123,25 +122,17 @@ export function NpDetailClient({ np, availableDates, auditLogs }: NpDetailClient
   return (
     <div className="flex flex-1 flex-col">
       {/* Header */}
-      <div className="border-b border-gray-100 bg-white px-7 pb-5 pt-6">
-        <BackLink href="/admin/nothing-presented" label="Nothing Presented" />
-        <div className="flex items-start justify-between">
-          <div>
-            <h1 className="font-[family-name:var(--font-heading)] text-xl font-bold text-[#293F52]">
-              NP — {booking?.ref ?? 'Unknown'}
-            </h1>
-            <p className="mt-0.5 text-body-sm text-gray-500">{address}</p>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className={`inline-flex items-center whitespace-nowrap rounded-full px-2.5 py-0.5 text-caption font-semibold ${np.contractor_fault ? 'bg-status-error-bg text-status-error' : 'bg-gray-100 text-gray-600'}`}>
-              {np.contractor_fault ? 'Contractor Fault' : 'Resident Fault'}
-            </span>
-            <span className={`inline-flex items-center whitespace-nowrap rounded-full px-2.5 py-0.5 text-caption font-semibold ${ss.bg} ${ss.text}`}>
-              {np.status}
-            </span>
-          </div>
-        </div>
-      </div>
+      <DetailHeader
+        backHref="/admin/nothing-presented"
+        backLabel="Nothing Presented"
+        title={`NP — ${booking?.ref ?? 'Unknown'}`}
+        subtitle={address}
+      >
+        <Pill tone={np.contractor_fault ? 'error' : 'neutral'}>
+          {np.contractor_fault ? 'Contractor Fault' : 'Resident Fault'}
+        </Pill>
+        <StatusBadge entity="np" status={np.status} />
+      </DetailHeader>
 
       {/* Content */}
       <div className="flex-1 px-7 py-5">
@@ -155,15 +146,15 @@ export function NpDetailClient({ np, availableDates, auditLogs }: NpDetailClient
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           {/* NP info */}
           <div className="rounded-xl bg-white p-5 shadow-sm">
-            <div className="mb-3 text-2xs font-semibold uppercase tracking-wide text-gray-500">
+            <div className="mb-3 text-caption font-semibold uppercase tracking-wide text-gray-500">
               Nothing Presented Details
             </div>
             <div className="flex flex-col gap-2.5">
               <div className="flex items-center justify-between text-body-sm">
                 <span className="text-gray-500">Fault Type</span>
-                <span className={`inline-flex items-center whitespace-nowrap rounded-full px-2.5 py-0.5 text-caption font-semibold ${np.contractor_fault ? 'bg-status-error-bg text-status-error' : 'bg-gray-100 text-gray-600'}`}>
+                <Pill tone={np.contractor_fault ? 'error' : 'neutral'}>
                   {np.contractor_fault ? 'Contractor' : 'Resident'}
-                </span>
+                </Pill>
               </div>
               <div className="flex items-center justify-between text-body-sm">
                 <span className="text-gray-500">Reported</span>
@@ -215,7 +206,7 @@ export function NpDetailClient({ np, availableDates, auditLogs }: NpDetailClient
 
           {/* Booking info */}
           <div className="rounded-xl bg-white p-5 shadow-sm">
-            <div className="mb-3 text-2xs font-semibold uppercase tracking-wide text-gray-500">
+            <div className="mb-3 text-caption font-semibold uppercase tracking-wide text-gray-500">
               Booking Details
             </div>
             <div className="flex flex-col gap-2.5">
@@ -247,7 +238,7 @@ export function NpDetailClient({ np, availableDates, auditLogs }: NpDetailClient
                   </div>
                 </>
               )}
-              <div className="mt-1 text-2xs font-semibold uppercase tracking-wide text-gray-500">
+              <div className="mt-1 text-caption font-semibold uppercase tracking-wide text-gray-500">
                 Services
               </div>
               {booking?.booking_item.map((item) => (
@@ -274,7 +265,7 @@ export function NpDetailClient({ np, availableDates, auditLogs }: NpDetailClient
         {/* Photos */}
         {np.photos.length > 0 && (
           <div className="mt-4 rounded-xl bg-white p-5 shadow-sm">
-            <div className="mb-3 text-2xs font-semibold uppercase tracking-wide text-gray-500">
+            <div className="mb-3 text-caption font-semibold uppercase tracking-wide text-gray-500">
               Photos ({np.photos.length})
             </div>
             <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
@@ -299,7 +290,7 @@ export function NpDetailClient({ np, availableDates, auditLogs }: NpDetailClient
         {/* Resolution section */}
         {isActionable && (
           <div className="mt-4 rounded-xl bg-white p-5 shadow-sm">
-            <div className="mb-3 text-2xs font-semibold uppercase tracking-wide text-gray-500">
+            <div className="mb-3 text-caption font-semibold uppercase tracking-wide text-gray-500">
               Resolution
             </div>
 
@@ -365,7 +356,7 @@ export function NpDetailClient({ np, availableDates, auditLogs }: NpDetailClient
               </svg>
               Awaiting resident response — no action required
             </div>
-            <p className="mt-1.5 text-[12px] text-gray-400">
+            <p className="mt-1.5 text-xs text-gray-400">
               The resident has 14 days to dispute this notice. If undisputed, it will auto-close.
             </p>
           </div>
@@ -374,7 +365,7 @@ export function NpDetailClient({ np, availableDates, auditLogs }: NpDetailClient
         {/* Resolved resolution notes (read-only) */}
         {!isActionable && !isIssued && np.resolution_notes && (
           <div className="mt-4 rounded-xl bg-white p-5 shadow-sm">
-            <div className="mb-3 text-2xs font-semibold uppercase tracking-wide text-gray-500">
+            <div className="mb-3 text-caption font-semibold uppercase tracking-wide text-gray-500">
               Resolution Notes
             </div>
             <p className="rounded-lg bg-gray-50 px-3 py-2.5 text-body-sm text-gray-700">
@@ -416,14 +407,14 @@ export function NpDetailClient({ np, availableDates, auditLogs }: NpDetailClient
                 ))}
               </select>
               <div className="mt-5 flex gap-2.5">
-                <Dialog.Close className="flex-1 rounded-xl border-[1.5px] border-gray-100 bg-white px-3.5 py-3 font-[family-name:var(--font-heading)] text-[14px] font-semibold text-[#293F52]">
+                <Dialog.Close className="flex-1 rounded-xl border-[1.5px] border-gray-100 bg-white px-3.5 py-3 font-[family-name:var(--font-heading)] text-sm font-semibold text-[#293F52]">
                   Cancel
                 </Dialog.Close>
                 <button
                   type="button"
                   onClick={handleRebook}
                   disabled={!selectedDateId || isSubmitting}
-                  className="flex-1 rounded-xl bg-[#293F52] px-3.5 py-3 font-[family-name:var(--font-heading)] text-[14px] font-semibold text-white disabled:opacity-50"
+                  className="flex-1 rounded-xl bg-[#293F52] px-3.5 py-3 font-[family-name:var(--font-heading)] text-sm font-semibold text-white disabled:opacity-50"
                 >
                   {isSubmitting ? 'Rebooking...' : 'Confirm Rebook'}
                 </button>
@@ -439,7 +430,7 @@ export function NpDetailClient({ np, availableDates, auditLogs }: NpDetailClient
           <Dialog.Backdrop className="fixed inset-0 z-40 bg-black/40" />
           <Dialog.Popup className="fixed inset-0 z-50 flex items-center justify-center p-4">
             <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl">
-              <div className="mb-4 flex size-10 items-center justify-center rounded-full bg-amber-50">
+              <div className="mb-4 flex size-10 items-center justify-center rounded-full bg-status-warn-bg">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#D97706" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
                   <line x1="12" y1="9" x2="12" y2="13" />
@@ -454,14 +445,14 @@ export function NpDetailClient({ np, availableDates, auditLogs }: NpDetailClient
                 A refund will be issued automatically because Contractor fault is selected.
               </p>
               <div className="mt-5 flex gap-2.5">
-                <Dialog.Close className="flex-1 rounded-xl border-[1.5px] border-gray-100 bg-white px-3.5 py-3 font-[family-name:var(--font-heading)] text-[14px] font-semibold text-[#293F52]">
+                <Dialog.Close className="flex-1 rounded-xl border-[1.5px] border-gray-100 bg-white px-3.5 py-3 font-[family-name:var(--font-heading)] text-sm font-semibold text-[#293F52]">
                   Cancel
                 </Dialog.Close>
                 <button
                   type="button"
                   onClick={handleResolveWithRefund}
                   disabled={isSubmitting}
-                  className="flex-1 rounded-xl bg-amber-500 px-3.5 py-3 font-[family-name:var(--font-heading)] text-[14px] font-semibold text-white disabled:opacity-50"
+                  className="flex-1 rounded-xl bg-amber-500 px-3.5 py-3 font-[family-name:var(--font-heading)] text-sm font-semibold text-white disabled:opacity-50"
                 >
                   {isSubmitting ? 'Processing...' : 'Resolve & Refund'}
                 </button>

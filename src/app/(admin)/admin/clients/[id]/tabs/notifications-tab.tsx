@@ -7,6 +7,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import type { Database } from '@/lib/supabase/types'
 import { updateClient } from '../../actions'
+import { FieldLabel, Input, Textarea } from '@/components/admin/form'
 
 type Client = Database['public']['Tables']['client']['Row']
 
@@ -56,36 +57,33 @@ export function NotificationsTab({ client }: { client: Client }) {
     router.refresh()
   }
 
-  const inputClass = 'w-full rounded-lg border-[1.5px] border-gray-100 bg-gray-50 px-3 py-2.5 text-body-sm text-gray-900 outline-none focus:border-[#293F52] focus:bg-white'
-  const labelClass = 'mb-1.5 block text-xs font-medium text-gray-500'
-
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="max-w-2xl">
       <div className="mb-6 rounded-xl bg-white p-5 shadow-sm">
-        <div className="mb-3 text-2xs font-semibold uppercase tracking-wide text-gray-500">Email & SMS</div>
+        <div className="mb-3 text-caption font-semibold uppercase tracking-wide text-gray-500">Email & SMS</div>
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className={labelClass}>Email From Name</label>
-            <input type="text" {...register('email_from_name')} placeholder="e.g. City of Kwinana" className={inputClass} />
+            <FieldLabel htmlFor="email_from_name">Email From Name</FieldLabel>
+            <Input id="email_from_name" type="text" {...register('email_from_name')} placeholder="e.g. City of Kwinana" />
           </div>
           <div>
-            <label className={labelClass}>Reply-To Email</label>
-            <input type="email" {...register('reply_to_email')} placeholder="e.g. waste@council.gov.au" className={inputClass} />
+            <FieldLabel htmlFor="reply_to_email">Reply-To Email</FieldLabel>
+            <Input id="reply_to_email" type="email" {...register('reply_to_email')} placeholder="e.g. waste@council.gov.au" />
             {errors.reply_to_email && <p className="mt-1 text-2xs text-red-500">Must be a valid email</p>}
           </div>
           <div>
-            <label className={labelClass}>SMS Sender ID</label>
-            <input type="text" {...register('sms_sender_id')} maxLength={11} placeholder="e.g. Kwinana" className={inputClass} />
+            <FieldLabel htmlFor="sms_sender_id">SMS Sender ID</FieldLabel>
+            <Input id="sms_sender_id" type="text" {...register('sms_sender_id')} maxLength={11} placeholder="e.g. Kwinana" />
             <p className="mt-1 text-2xs text-gray-400">Max 11 chars, alphanumeric</p>
           </div>
           <div>
-            <label className={labelClass}>SMS Reminder Days Before</label>
-            <input type="number" {...register('sms_reminder_days_before', { valueAsNumber: true })} min={1} max={7} className={inputClass} />
+            <FieldLabel htmlFor="sms_reminder_days_before">SMS Reminder Days Before</FieldLabel>
+            <Input id="sms_reminder_days_before" type="number" {...register('sms_reminder_days_before', { valueAsNumber: true })} min={1} max={7} />
           </div>
         </div>
         <div className="mt-4">
-          <label className={labelClass}>Email Footer HTML</label>
-          <textarea {...register('email_footer_html')} rows={4} className={`${inputClass} resize-none font-mono text-2xs`} placeholder="<p>City of Kwinana &middot; PO Box 21...</p>" />
+          <FieldLabel htmlFor="email_footer_html">Email Footer HTML</FieldLabel>
+          <Textarea id="email_footer_html" mono {...register('email_footer_html')} rows={4} className="resize-none text-2xs" placeholder="<p>City of Kwinana &middot; PO Box 21...</p>" />
         </div>
       </div>
 

@@ -191,7 +191,7 @@ export function RulesGroupRow({ group, categories, services }: RulesGroupRowProp
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           {/* Allocation rules */}
           <div>
-            <div className="mb-2 text-2xs font-semibold uppercase tracking-wide text-gray-500">
+            <div className="mb-2 text-caption font-semibold uppercase tracking-wide text-gray-500">
               Category max per year
             </div>
             <div className="flex flex-col gap-2">
@@ -212,7 +212,7 @@ export function RulesGroupRow({ group, categories, services }: RulesGroupRowProp
 
           {/* Service rules */}
           <div>
-            <div className="mb-2 text-2xs font-semibold uppercase tracking-wide text-gray-500">
+            <div className="mb-2 text-caption font-semibold uppercase tracking-wide text-gray-500">
               Service max + extra price
             </div>
             <div className="flex flex-col gap-2">

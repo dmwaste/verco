@@ -47,14 +47,6 @@ const CATEGORY_OPTIONS: { value: BugCategory | ''; label: string }[] = [
   { value: 'other', label: 'Other' },
 ]
 
-
-const PRIORITY_STYLE: Record<BugPriority, { bg: string; text: string; label: string }> = {
-  low: { bg: 'bg-gray-100', text: 'text-gray-600', label: 'Low' },
-  medium: { bg: 'bg-status-info-bg', text: 'text-status-info', label: 'Medium' },
-  high: { bg: 'bg-status-warn-bg', text: 'text-status-warn', label: 'High' },
-  critical: { bg: 'bg-status-error-bg', text: 'text-status-error', label: 'Critical' },
-}
-
 const CATEGORY_LABELS: Record<BugCategory, string> = {
   ui: 'UI',
   data: 'Data',
@@ -184,12 +176,11 @@ export function BugReportsClient() {
                 bugs.map((bug) => {
                   const reporter = bug.reporter as { display_name: string | null } | null
                   const assigned = bug.assigned as { display_name: string | null } | null
-                  const ps = PRIORITY_STYLE[bug.priority as BugPriority]
 
                   return (
                     <tr key={bug.id} className="border-b border-gray-50 hover:bg-gray-50/50">
                       <td className="px-4 py-2.5">
-                        <span className="font-mono text-[12px] text-gray-400">{bug.display_id}</span>
+                        <span className="font-mono text-xs text-gray-400">{bug.display_id}</span>
                       </td>
                       <td className="max-w-[240px] px-4 py-2.5">
                         <Link
@@ -208,9 +199,7 @@ export function BugReportsClient() {
                         </span>
                       </td>
                       <td className="px-4 py-2.5">
-                        <span className={`rounded-full px-2 py-0.5 text-caption font-semibold ${ps.bg} ${ps.text}`}>
-                          {ps.label}
-                        </span>
+                        <StatusBadge entity="bugPriority" status={bug.priority} />
                       </td>
                       <td className="px-4 py-2.5">
                         <StatusBadge entity="bug" status={bug.status} />

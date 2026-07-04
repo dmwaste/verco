@@ -13,8 +13,10 @@
   --text-body-sm: 13px;       /* descriptions, secondary text, table cells */
   --text-body: 15px;          /* buttons, inputs, primary body */
   --text-subtitle: 17px;      /* card headings */
-  --text-title: 22px;         /* page headings */
-  --text-display: 28px;       /* large section headings */
+  --text-title: 22px;         /* modal/hero headings (admin page titles are text-xl via PageHeader) */
+  --text-display: 28px;       /* large section headings; dashboard stat numbers */
+  /* 12px → text-xs, 14px → text-sm (Tailwind built-ins); no arbitrary text-[Npx].
+     Uppercase section labels use text-caption; text-2xs is tiny chips/badges only. */
 
   /* Semantic status colours — the single palette for status badges/pills.
      Use bg-status-*-bg + text-status-* pairs (see lib/ui/status-styles.ts);

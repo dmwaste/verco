@@ -7,6 +7,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import type { Database } from '@/lib/supabase/types'
 import { updateClient } from '../../actions'
+import { FieldLabel, Input, Textarea } from '@/components/admin/form'
 
 type Client = Database['public']['Tables']['client']['Row']
 
@@ -72,9 +73,7 @@ export function GeneralTab({ client }: { client: Client }) {
     router.refresh()
   }
 
-  const inputClass = 'w-full rounded-lg border-[1.5px] border-gray-100 bg-gray-50 px-3 py-2.5 text-body-sm text-gray-900 outline-none focus:border-[#293F52] focus:bg-white'
-  const labelClass = 'mb-1.5 block text-xs font-medium text-gray-500'
-  const sectionHeader = 'mb-3 text-2xs font-semibold uppercase tracking-wide text-gray-500'
+  const sectionHeader = 'mb-3 text-caption font-semibold uppercase tracking-wide text-gray-500'
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="max-w-2xl">
@@ -83,22 +82,22 @@ export function GeneralTab({ client }: { client: Client }) {
         <div className={sectionHeader}>Identity</div>
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className={labelClass}>Client Name *</label>
-            <input type="text" {...register('name')} className={inputClass} />
+            <FieldLabel htmlFor="name">Client Name *</FieldLabel>
+            <Input id="name" type="text" {...register('name')} />
             {errors.name && <p className="mt-1 text-2xs text-red-500">{errors.name.message}</p>}
           </div>
           <div>
-            <label className={labelClass}>Slug *</label>
-            <input type="text" {...register('slug')} className={`${inputClass} font-mono`} />
+            <FieldLabel htmlFor="slug">Slug *</FieldLabel>
+            <Input id="slug" type="text" mono {...register('slug')} />
             {errors.slug && <p className="mt-1 text-2xs text-red-500">{errors.slug.message}</p>}
           </div>
           <div>
-            <label className={labelClass}>Service Name</label>
-            <input type="text" {...register('service_name')} placeholder="e.g. Verge Collection" className={inputClass} />
+            <FieldLabel htmlFor="service_name">Service Name</FieldLabel>
+            <Input id="service_name" type="text" {...register('service_name')} placeholder="e.g. Verge Collection" />
           </div>
           <div>
-            <label className={labelClass}>Custom Domain</label>
-            <input type="text" {...register('custom_domain')} placeholder="e.g. bookings.council.gov.au" className={inputClass} />
+            <FieldLabel htmlFor="custom_domain">Custom Domain</FieldLabel>
+            <Input id="custom_domain" type="text" {...register('custom_domain')} placeholder="e.g. bookings.council.gov.au" />
           </div>
         </div>
         <div className="mt-3 flex items-center gap-2">
@@ -112,20 +111,20 @@ export function GeneralTab({ client }: { client: Client }) {
         <div className={sectionHeader}>Contact Information</div>
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className={labelClass}>Contact Name</label>
-            <input type="text" {...register('contact_name')} className={inputClass} />
+            <FieldLabel htmlFor="contact_name">Contact Name</FieldLabel>
+            <Input id="contact_name" type="text" {...register('contact_name')} />
           </div>
           <div>
-            <label className={labelClass}>Contact Phone</label>
-            <input type="text" {...register('contact_phone')} className={inputClass} />
+            <FieldLabel htmlFor="contact_phone">Contact Phone</FieldLabel>
+            <Input id="contact_phone" type="text" {...register('contact_phone')} />
           </div>
           <div>
-            <label className={labelClass}>Contact Email</label>
-            <input type="email" {...register('contact_email')} className={inputClass} />
+            <FieldLabel htmlFor="contact_email">Contact Email</FieldLabel>
+            <Input id="contact_email" type="email" {...register('contact_email')} />
           </div>
           <div>
-            <label className={labelClass}>Privacy Policy URL</label>
-            <input type="url" {...register('privacy_policy_url')} className={inputClass} />
+            <FieldLabel htmlFor="privacy_policy_url">Privacy Policy URL</FieldLabel>
+            <Input id="privacy_policy_url" type="url" {...register('privacy_policy_url')} />
           </div>
         </div>
       </div>
@@ -135,12 +134,12 @@ export function GeneralTab({ client }: { client: Client }) {
         <div className={sectionHeader}>Landing Page Copy</div>
         <div className="flex flex-col gap-4">
           <div>
-            <label className={labelClass}>Headline</label>
-            <input type="text" {...register('landing_headline')} className={inputClass} />
+            <FieldLabel htmlFor="landing_headline">Headline</FieldLabel>
+            <Input id="landing_headline" type="text" {...register('landing_headline')} />
           </div>
           <div>
-            <label className={labelClass}>Subheading</label>
-            <textarea {...register('landing_subheading')} rows={3} className={`${inputClass} resize-none`} />
+            <FieldLabel htmlFor="landing_subheading">Subheading</FieldLabel>
+            <Textarea id="landing_subheading" {...register('landing_subheading')} rows={3} className="resize-none" />
           </div>
         </div>
       </div>

@@ -67,7 +67,7 @@ export function TemplateDetail({
               Preview
             </h2>
             <div className="flex items-center gap-2">
-              <span className="text-2xs font-medium uppercase tracking-wide text-gray-400">
+              <span className="text-caption font-medium uppercase tracking-wide text-gray-400">
                 Tenant
               </span>
               <div className="inline-flex rounded-lg border border-gray-100 bg-gray-50 p-0.5">
@@ -90,7 +90,7 @@ export function TemplateDetail({
 
           {/* Subject line */}
           <div className="mb-3 rounded-md bg-gray-50 px-3 py-2">
-            <span className="mr-2 text-2xs font-medium uppercase tracking-wide text-gray-400">
+            <span className="mr-2 text-caption font-medium uppercase tracking-wide text-gray-400">
               Subject
             </span>
             <span className="text-body-sm text-gray-700">{selected.email.subject}</span>
@@ -110,7 +110,7 @@ export function TemplateDetail({
           {/* SMS phone mock — only if SMS variant exists */}
           {selected.sms && (
             <div className="mt-6">
-              <div className="mb-2 text-2xs font-medium uppercase tracking-wide text-gray-400">
+              <div className="mb-2 text-caption font-medium uppercase tracking-wide text-gray-400">
                 SMS body
               </div>
               <div className="mx-auto max-w-sm rounded-2xl bg-gray-100 p-4 shadow-inner">
@@ -137,7 +137,7 @@ export function TemplateDetail({
             <h2 className="font-[family-name:var(--font-heading)] text-base font-semibold text-gray-900">
               Sample inputs
             </h2>
-            <span className="text-2xs font-medium uppercase tracking-wide text-gray-400">
+            <span className="text-caption font-medium uppercase tracking-wide text-gray-400">
               {showJson ? 'Hide' : 'Show'}
             </span>
           </button>

@@ -8,6 +8,9 @@ import { createMudBooking } from './actions'
 import { clientHasTerms } from '@/lib/booking/terms'
 import { TermsAcceptanceDialog } from '@/app/(public)/book/confirm/terms-acceptance-dialog'
 import type { MudAllowanceServiceResult } from '@/lib/mud/allowance'
+import { Select, Textarea } from '@/components/admin/form'
+import { DetailHeader } from '@/components/admin/detail-header'
+import { Pill } from '@/components/status-badge'
 
 export interface ServiceOption {
   service_id: string
@@ -165,48 +168,33 @@ export function MudBookingForm({
 
   return (
     <div className="flex h-full flex-col">
-      {/* Header */}
-      <div className="border-b border-gray-100 bg-white px-7 pb-5 pt-6">
-        <Link
-          href={`/admin/properties/${property.id}`}
-          className="mb-2 inline-flex items-center gap-1.5 text-[12px] font-medium text-gray-500 hover:text-[#293F52]"
-        >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <polyline points="15 18 9 12 15 6" />
-          </svg>
-          Property
-        </Link>
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <h1 className="font-[family-name:var(--font-heading)] text-xl font-bold text-[#293F52]">
-              New MUD booking
-            </h1>
-            <p className="mt-0.5 text-[13px] text-gray-500">
-              {property.formatted_address}
-            </p>
-          </div>
-          {property.mud_code && (
-            <span className="rounded-full bg-[#F3EEFF] px-3 py-1 text-caption font-semibold text-[#805AD5]">
-              {property.mud_code} · {property.unit_count}u
-            </span>
-          )}
-        </div>
-      </div>
+      <DetailHeader
+        backHref={`/admin/properties/${property.id}`}
+        backLabel="Property"
+        title="New MUD booking"
+        subtitle={property.formatted_address}
+      >
+        {property.mud_code && (
+          <Pill tone="accent" className="px-3 py-1">
+            {property.mud_code} · {property.unit_count}u
+          </Pill>
+        )}
+      </DetailHeader>
 
       <div className="flex-1 overflow-y-auto bg-[#F8F9FA] px-7 py-5">
         <div className="mx-auto max-w-2xl space-y-5">
           {/* Pre-filled context — read only */}
           <div className="rounded-xl bg-white p-5 shadow-sm">
-            <h2 className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">
+            <h2 className="text-caption font-semibold uppercase tracking-wide text-gray-500">
               Pre-filled from MUD record
             </h2>
-            <div className="mt-3 grid grid-cols-2 gap-4 text-[13px]">
+            <div className="mt-3 grid grid-cols-2 gap-4 text-body-sm">
               <div>
                 <div className="text-caption font-semibold text-gray-500">Strata contact</div>
                 <div className="mt-0.5 text-[#293F52]">{strataContact.full_name}</div>
-                <div className="text-[12px] text-gray-500">{strataContact.email}</div>
+                <div className="text-xs text-gray-500">{strataContact.email}</div>
                 {strataContact.mobile_e164 && (
-                  <div className="text-[12px] text-gray-500">{strataContact.mobile_e164}</div>
+                  <div className="text-xs text-gray-500">{strataContact.mobile_e164}</div>
                 )}
               </div>
               <div>
@@ -220,7 +208,7 @@ export function MudBookingForm({
 
           {/* Service selection */}
           <div className="rounded-xl bg-white p-5 shadow-sm">
-            <h2 className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">
+            <h2 className="text-caption font-semibold uppercase tracking-wide text-gray-500">
               Services
             </h2>
             <p className="mt-1 text-caption text-gray-500">
@@ -228,7 +216,7 @@ export function MudBookingForm({
               capacity. Allowance figures show this MUD&apos;s current FY usage.
             </p>
             {services.length === 0 ? (
-              <p className="mt-3 text-[12px] text-gray-400">No services configured for this area.</p>
+              <p className="mt-3 text-xs text-gray-400">No services configured for this area.</p>
             ) : (
               <div className="mt-3 space-y-2">
                 {services.map((s) => {
@@ -256,7 +244,7 @@ export function MudBookingForm({
                           className="h-4 w-4 rounded border-gray-300"
                         />
                         <div>
-                          <div className="text-[13px] font-medium text-[#293F52]">{s.name}</div>
+                          <div className="text-body-sm font-medium text-[#293F52]">{s.name}</div>
                           <div className="text-caption text-gray-500">
                             {s.category_code} · cap {cap} per FY
                           </div>
@@ -278,7 +266,7 @@ export function MudBookingForm({
               </div>
             )}
             {allowanceWarning && (
-              <div className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-[12px] text-red-700">
+              <div className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">
                 <div className="font-semibold">Allowance would be exceeded:</div>
                 <ul className="mt-1 list-disc pl-4">
                   {allowanceWarning.map((w) => <li key={w}>{w}</li>)}
@@ -292,21 +280,22 @@ export function MudBookingForm({
 
           {/* Collection date */}
           <div className="rounded-xl bg-white p-5 shadow-sm">
-            <h2 className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">
+            <h2 className="text-caption font-semibold uppercase tracking-wide text-gray-500">
               Collection date
             </h2>
             <p className="mt-1 text-caption text-gray-500">
               MUD-enabled dates within the next 12 months for {property.area_code}.
             </p>
             {dates.length === 0 ? (
-              <p className="mt-3 text-[12px] text-gray-400">
+              <p className="mt-3 text-xs text-gray-400">
                 No MUD collection dates available for this area in the next 12 months.
               </p>
             ) : (
-              <select
+              <Select
+                aria-label="Collection date"
                 value={selectedDateId}
                 onChange={(e) => setSelectedDateId(e.target.value)}
-                className="mt-3 w-full rounded-lg border-[1.5px] border-gray-100 bg-white px-3 py-2.5 text-[13px] outline-none focus:border-[#293F52]"
+                className="mt-3 bg-white"
               >
                 <option value="">Select a date...</option>
                 {dates.map((d) => (
@@ -316,10 +305,10 @@ export function MudBookingForm({
                     {d.bulk_closed ? 'closed' : `${d.bulk_remaining} left`}
                   </option>
                 ))}
-              </select>
+              </Select>
             )}
             {dateCapacityWarning && (
-              <div className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-[12px] text-red-700">
+              <div className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">
                 <div className="font-semibold">Day capacity insufficient:</div>
                 <ul className="mt-1 list-disc pl-4">
                   {dateCapacityWarning.map((w) => <li key={w}>{w}</li>)}
@@ -331,20 +320,21 @@ export function MudBookingForm({
 
           {/* Notes */}
           <div className="rounded-xl bg-white p-5 shadow-sm">
-            <h2 className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">
+            <h2 className="text-caption font-semibold uppercase tracking-wide text-gray-500">
               Notes (optional)
             </h2>
-            <textarea
+            <Textarea
+              aria-label="Notes"
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               placeholder="Anything the crew needs to know about this collection"
-              className="mt-3 h-20 w-full resize-none rounded-lg border-[1.5px] border-gray-100 bg-white px-3 py-2 text-[13px] outline-none placeholder:text-gray-400 focus:border-[#293F52]"
+              className="mt-3 h-20 resize-none bg-white py-2 placeholder:text-gray-400"
               maxLength={500}
             />
           </div>
 
           {error && (
-            <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[12px] text-red-700">
+            <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
               {error}
             </div>
           )}

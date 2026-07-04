@@ -6,6 +6,9 @@ import { format } from 'date-fns'
 import { fetchAuditLogs } from './actions'
 import { Pagination } from '@/components/admin/pagination'
 import { PageHeader } from '@/components/admin/page-header'
+import { FilterBar, FilterSelect } from '@/components/admin/filter-bar'
+import { Th } from '@/components/admin/th'
+import { StatusBadge } from '@/components/status-badge'
 
 const TABLE_OPTIONS = [
   { value: '', label: 'All Tables' },
@@ -50,16 +53,10 @@ export function AuditLogClient() {
   const total = result?.ok ? result.total : 0
 
   const actionBadge = (a: string) => {
-    switch (a) {
-      case 'INSERT':
-        return <span className="inline-flex items-center rounded-full bg-emerald-50 px-2 py-0.5 text-2xs font-semibold text-emerald-700">Created</span>
-      case 'UPDATE':
-        return <span className="inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 text-2xs font-semibold text-blue-700">Updated</span>
-      case 'DELETE':
-        return <span className="inline-flex items-center rounded-full bg-red-50 px-2 py-0.5 text-2xs font-semibold text-red-700">Deleted</span>
-      default:
-        return <span className="text-2xs text-gray-500">{a}</span>
+    if (a === 'INSERT' || a === 'UPDATE' || a === 'DELETE') {
+      return <StatusBadge entity="auditAction" status={a} />
     }
+    return <span className="text-2xs text-gray-500">{a}</span>
   }
 
   return (
@@ -68,38 +65,38 @@ export function AuditLogClient() {
       <PageHeader title="Audit Log" subtitle={`${total} ${total === 1 ? 'entry' : 'entries'}`} />
 
       {/* Filters */}
-      <div className="flex items-center gap-3 bg-white px-7 py-3">
-        <select
+      <FilterBar>
+        <FilterSelect
+          aria-label="Filter by table"
           value={tableName}
           onChange={(e) => { setTableName(e.target.value); setPage(0) }}
-          className="rounded-lg border-[1.5px] border-gray-100 bg-gray-50 px-3 py-2 text-body-sm text-gray-700 outline-none focus:border-[#293F52] focus:bg-white"
         >
           {TABLE_OPTIONS.map((o) => (
             <option key={o.value} value={o.value}>{o.label}</option>
           ))}
-        </select>
-        <select
+        </FilterSelect>
+        <FilterSelect
+          aria-label="Filter by action"
           value={action}
           onChange={(e) => { setAction(e.target.value); setPage(0) }}
-          className="rounded-lg border-[1.5px] border-gray-100 bg-gray-50 px-3 py-2 text-body-sm text-gray-700 outline-none focus:border-[#293F52] focus:bg-white"
         >
           {ACTION_OPTIONS.map((o) => (
             <option key={o.value} value={o.value}>{o.label}</option>
           ))}
-        </select>
-      </div>
+        </FilterSelect>
+      </FilterBar>
 
       {/* Table */}
       <div className="flex-1 px-7 pb-6">
         <div className="overflow-x-auto rounded-xl bg-white shadow-sm">
           <table className="w-full border-collapse tabular-nums">
             <thead>
-              <tr className="border-b border-gray-100">
-                <th className="px-4 py-3 text-left text-2xs font-semibold uppercase tracking-wider text-gray-400">When</th>
-                <th className="px-4 py-3 text-left text-2xs font-semibold uppercase tracking-wider text-gray-400">Action</th>
-                <th className="px-4 py-3 text-left text-2xs font-semibold uppercase tracking-wider text-gray-400">Summary</th>
-                <th className="px-4 py-3 text-left text-2xs font-semibold uppercase tracking-wider text-gray-400">By</th>
-                <th className="px-4 py-3 text-left text-2xs font-semibold uppercase tracking-wider text-gray-400">Changes</th>
+              <tr>
+                <Th>When</Th>
+                <Th>Action</Th>
+                <Th>Summary</Th>
+                <Th>By</Th>
+                <Th>Changes</Th>
               </tr>
             </thead>
             <tbody>

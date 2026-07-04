@@ -5,11 +5,11 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { format } from 'date-fns'
 import { createClient } from '@/lib/supabase/client'
-import { getStatusStyle } from '@/lib/ui/status-styles'
+import { StatusBadge } from '@/components/status-badge'
 import type { Database } from '@/lib/supabase/types'
 import type { ResolvedAuditEntry } from '@/lib/audit/resolve'
 import { AuditTimeline } from '@/components/audit-timeline'
-import { BackLink } from '@/components/admin/back-link'
+import { DetailHeader } from '@/components/admin/detail-header'
 
 type TicketStatus = Database['public']['Enums']['ticket_status']
 type TicketPriority = Database['public']['Enums']['ticket_priority']
@@ -100,8 +100,6 @@ export function AdminTicketDetailClient({
   const [sendError, setSendError] = useState<string | null>(null)
   const [copied, setCopied] = useState<string | null>(null)
   const threadEndRef = useRef<HTMLDivElement>(null)
-
-  const statusStyle = getStatusStyle('ticket', status)
 
   useEffect(() => {
     threadEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -200,20 +198,14 @@ export function AdminTicketDetailClient({
   return (
     <div className="flex flex-1 flex-col">
       {/* Header */}
-      <div className="border-b border-gray-100 bg-white px-7 pb-5 pt-6">
-        <BackLink href="/admin/service-tickets" label="Service Tickets" />
-        <div className="flex items-start justify-between">
-          <div>
-            <h1 className="font-[family-name:var(--font-heading)] text-xl font-bold text-[#293F52]">
-              {ticket.subject}
-            </h1>
-            <p className="mt-0.5 font-mono text-body-sm text-gray-400">{ticket.displayId}</p>
-          </div>
-          <span className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-0.5 text-caption font-semibold ${statusStyle.bg} ${statusStyle.text}`}>
-            {statusStyle.label}
-          </span>
-        </div>
-      </div>
+      <DetailHeader
+        backHref="/admin/service-tickets"
+        backLabel="Service Tickets"
+        title={ticket.subject}
+        subtitle={<span className="font-mono text-gray-400">{ticket.displayId}</span>}
+      >
+        <StatusBadge entity="ticket" status={status} />
+      </DetailHeader>
 
       {/* Content */}
       <div className="flex-1 px-7 py-5">
@@ -239,7 +231,7 @@ export function AdminTicketDetailClient({
 
           {/* Conversation thread */}
           <div className="rounded-xl bg-white p-5 shadow-sm">
-            <div className="mb-4 text-2xs font-semibold uppercase tracking-wide text-gray-500">
+            <div className="mb-4 text-caption font-semibold uppercase tracking-wide text-gray-500">
               Conversation
             </div>
             <div className="flex flex-col gap-3">
@@ -288,7 +280,7 @@ export function AdminTicketDetailClient({
           {/* Internal notes */}
           {internalNotes.length > 0 && (
             <div className="rounded-xl border border-amber-200 bg-amber-50/50 p-5">
-              <div className="mb-4 text-2xs font-semibold uppercase tracking-wide text-amber-600">
+              <div className="mb-4 text-caption font-semibold uppercase tracking-wide text-amber-600">
                 Internal Notes
               </div>
               <div className="flex flex-col gap-3">
@@ -372,7 +364,7 @@ export function AdminTicketDetailClient({
         <div className="flex flex-col gap-4 lg:w-1/3">
           {/* Status & Priority controls */}
           <div className="rounded-xl bg-white p-4 shadow-sm">
-            <div className="mb-3 text-2xs font-semibold uppercase tracking-wide text-gray-500">
+            <div className="mb-3 text-caption font-semibold uppercase tracking-wide text-gray-500">
               Manage
             </div>
             <div className="flex flex-col gap-3">
@@ -421,7 +413,7 @@ export function AdminTicketDetailClient({
 
           {/* Ticket metadata */}
           <div className="rounded-xl bg-white p-4 shadow-sm">
-            <div className="mb-3 text-2xs font-semibold uppercase tracking-wide text-gray-500">
+            <div className="mb-3 text-caption font-semibold uppercase tracking-wide text-gray-500">
               Details
             </div>
             <div className="flex flex-col gap-2">
@@ -451,7 +443,7 @@ export function AdminTicketDetailClient({
           {/* Resident card */}
           {contact && (
             <div className="rounded-xl bg-white p-4 shadow-sm">
-              <div className="mb-3 text-2xs font-semibold uppercase tracking-wide text-gray-500">
+              <div className="mb-3 text-caption font-semibold uppercase tracking-wide text-gray-500">
                 Resident
               </div>
               <div className="flex flex-col gap-2">
@@ -500,7 +492,7 @@ export function AdminTicketDetailClient({
           {/* Linked booking */}
           {linkedBooking && (
             <div className="rounded-xl bg-white p-4 shadow-sm">
-              <div className="mb-3 text-2xs font-semibold uppercase tracking-wide text-gray-500">
+              <div className="mb-3 text-caption font-semibold uppercase tracking-wide text-gray-500">
                 Linked Booking
               </div>
               <Link
@@ -514,7 +506,7 @@ export function AdminTicketDetailClient({
                   <div className="mt-1 text-body-sm text-[#293F52]">{linkedBooking.address}</div>
                 )}
                 {linkedBooking.collectionDate && (
-                  <div className="mt-0.5 text-[12px] text-gray-500">
+                  <div className="mt-0.5 text-xs text-gray-500">
                     {format(new Date(linkedBooking.collectionDate + 'T00:00:00'), 'EEE d MMM yyyy')}
                   </div>
                 )}

@@ -6,11 +6,11 @@ import { useRouter } from 'next/navigation'
 import { format } from 'date-fns'
 import { Dialog } from '@base-ui/react/dialog'
 import { updateNcnStatus, rebookNcn, resolveWithRefund } from './actions'
-import { getStatusStyle } from '@/lib/ui/status-styles'
+import { StatusBadge } from '@/components/status-badge'
 import type { Database } from '@/lib/supabase/types'
 import type { ResolvedAuditEntry } from '@/lib/audit/resolve'
 import { AuditTimeline } from '@/components/audit-timeline'
-import { BackLink } from '@/components/admin/back-link'
+import { DetailHeader } from '@/components/admin/detail-header'
 
 type NcnStatus = Database['public']['Enums']['ncn_status']
 
@@ -71,7 +71,6 @@ export function NcnDetailClient({ ncn, availableDates, auditLogs }: NcnDetailCli
   const status = ncn.status as string
   const isActionable = status === 'Disputed' || status === 'Under Review'
   const isIssued = status === 'Issued'
-  const ss = getStatusStyle('ncn', ncn.status)
 
   // Calculate paid amount for refund dialog
   const paidItems = booking?.booking_item.filter((i) => i.is_extra) ?? []
@@ -126,20 +125,14 @@ export function NcnDetailClient({ ncn, availableDates, auditLogs }: NcnDetailCli
   return (
     <div className="flex flex-1 flex-col">
       {/* Header */}
-      <div className="border-b border-gray-100 bg-white px-7 pb-5 pt-6">
-        <BackLink href="/admin/non-conformance" label="Non-Conformance Notices" />
-        <div className="flex items-start justify-between">
-          <div>
-            <h1 className="font-[family-name:var(--font-heading)] text-xl font-bold text-[#293F52]">
-              NCN — {booking?.ref ?? 'Unknown'}
-            </h1>
-            <p className="mt-0.5 text-body-sm text-gray-500">{address}</p>
-          </div>
-          <span className={`inline-flex items-center whitespace-nowrap rounded-full px-2.5 py-0.5 text-caption font-semibold ${ss.bg} ${ss.text}`}>
-            {ncn.status}
-          </span>
-        </div>
-      </div>
+      <DetailHeader
+        backHref="/admin/non-conformance"
+        backLabel="Non-Conformance Notices"
+        title={`NCN — ${booking?.ref ?? 'Unknown'}`}
+        subtitle={address}
+      >
+        <StatusBadge entity="ncn" status={ncn.status} />
+      </DetailHeader>
 
       {/* Content */}
       <div className="flex-1 px-7 py-5">
@@ -153,7 +146,7 @@ export function NcnDetailClient({ ncn, availableDates, auditLogs }: NcnDetailCli
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           {/* NCN info */}
           <div className="rounded-xl bg-white p-5 shadow-sm">
-            <div className="mb-3 text-2xs font-semibold uppercase tracking-wide text-gray-500">
+            <div className="mb-3 text-caption font-semibold uppercase tracking-wide text-gray-500">
               Non-Conformance Details
             </div>
             <div className="flex flex-col gap-2.5">
@@ -196,7 +189,7 @@ export function NcnDetailClient({ ncn, availableDates, auditLogs }: NcnDetailCli
                 </>
               )}
               {ncn.contractor_fault && (
-                <div className="flex items-center gap-1.5 rounded-lg bg-amber-50 px-3 py-2 text-[12px] font-medium text-amber-700">
+                <div className="flex items-center gap-1.5 rounded-lg bg-amber-50 px-3 py-2 text-xs font-medium text-amber-700">
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
                     <line x1="12" y1="9" x2="12" y2="13" />
@@ -221,7 +214,7 @@ export function NcnDetailClient({ ncn, availableDates, auditLogs }: NcnDetailCli
 
           {/* Booking info */}
           <div className="rounded-xl bg-white p-5 shadow-sm">
-            <div className="mb-3 text-2xs font-semibold uppercase tracking-wide text-gray-500">
+            <div className="mb-3 text-caption font-semibold uppercase tracking-wide text-gray-500">
               Booking Details
             </div>
             <div className="flex flex-col gap-2.5">
@@ -253,7 +246,7 @@ export function NcnDetailClient({ ncn, availableDates, auditLogs }: NcnDetailCli
                   </div>
                 </>
               )}
-              <div className="mt-1 text-2xs font-semibold uppercase tracking-wide text-gray-500">
+              <div className="mt-1 text-caption font-semibold uppercase tracking-wide text-gray-500">
                 Services
               </div>
               {booking?.booking_item.map((item) => (
@@ -280,7 +273,7 @@ export function NcnDetailClient({ ncn, availableDates, auditLogs }: NcnDetailCli
         {/* Photos */}
         {ncn.photos.length > 0 && (
           <div className="mt-4 rounded-xl bg-white p-5 shadow-sm">
-            <div className="mb-3 text-2xs font-semibold uppercase tracking-wide text-gray-500">
+            <div className="mb-3 text-caption font-semibold uppercase tracking-wide text-gray-500">
               Photos ({ncn.photos.length})
             </div>
             <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
@@ -305,7 +298,7 @@ export function NcnDetailClient({ ncn, availableDates, auditLogs }: NcnDetailCli
         {/* Resolution section */}
         {isActionable && (
           <div className="mt-4 rounded-xl bg-white p-5 shadow-sm">
-            <div className="mb-3 text-2xs font-semibold uppercase tracking-wide text-gray-500">
+            <div className="mb-3 text-caption font-semibold uppercase tracking-wide text-gray-500">
               Resolution
             </div>
 
@@ -371,7 +364,7 @@ export function NcnDetailClient({ ncn, availableDates, auditLogs }: NcnDetailCli
               </svg>
               Awaiting resident response — no action required
             </div>
-            <p className="mt-1.5 text-[12px] text-gray-400">
+            <p className="mt-1.5 text-xs text-gray-400">
               The resident has 14 days to dispute this notice. If undisputed, it will auto-close.
             </p>
           </div>
@@ -380,7 +373,7 @@ export function NcnDetailClient({ ncn, availableDates, auditLogs }: NcnDetailCli
         {/* Resolved resolution notes (read-only) */}
         {!isActionable && !isIssued && ncn.resolution_notes && (
           <div className="mt-4 rounded-xl bg-white p-5 shadow-sm">
-            <div className="mb-3 text-2xs font-semibold uppercase tracking-wide text-gray-500">
+            <div className="mb-3 text-caption font-semibold uppercase tracking-wide text-gray-500">
               Resolution Notes
             </div>
             <p className="rounded-lg bg-gray-50 px-3 py-2.5 text-body-sm text-gray-700">
@@ -422,14 +415,14 @@ export function NcnDetailClient({ ncn, availableDates, auditLogs }: NcnDetailCli
                 ))}
               </select>
               <div className="mt-5 flex gap-2.5">
-                <Dialog.Close className="flex-1 rounded-xl border-[1.5px] border-gray-100 bg-white px-3.5 py-3 font-[family-name:var(--font-heading)] text-[14px] font-semibold text-[#293F52]">
+                <Dialog.Close className="flex-1 rounded-xl border-[1.5px] border-gray-100 bg-white px-3.5 py-3 font-[family-name:var(--font-heading)] text-sm font-semibold text-[#293F52]">
                   Cancel
                 </Dialog.Close>
                 <button
                   type="button"
                   onClick={handleRebook}
                   disabled={!selectedDateId || isSubmitting}
-                  className="flex-1 rounded-xl bg-[#293F52] px-3.5 py-3 font-[family-name:var(--font-heading)] text-[14px] font-semibold text-white disabled:opacity-50"
+                  className="flex-1 rounded-xl bg-[#293F52] px-3.5 py-3 font-[family-name:var(--font-heading)] text-sm font-semibold text-white disabled:opacity-50"
                 >
                   {isSubmitting ? 'Rebooking...' : 'Confirm Rebook'}
                 </button>
@@ -445,7 +438,7 @@ export function NcnDetailClient({ ncn, availableDates, auditLogs }: NcnDetailCli
           <Dialog.Backdrop className="fixed inset-0 z-40 bg-black/40" />
           <Dialog.Popup className="fixed inset-0 z-50 flex items-center justify-center p-4">
             <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl">
-              <div className="mb-4 flex size-10 items-center justify-center rounded-full bg-amber-50">
+              <div className="mb-4 flex size-10 items-center justify-center rounded-full bg-status-warn-bg">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#D97706" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
                   <line x1="12" y1="9" x2="12" y2="13" />
@@ -460,14 +453,14 @@ export function NcnDetailClient({ ncn, availableDates, auditLogs }: NcnDetailCli
                 A refund will be issued automatically because contractor fault is selected.
               </p>
               <div className="mt-5 flex gap-2.5">
-                <Dialog.Close className="flex-1 rounded-xl border-[1.5px] border-gray-100 bg-white px-3.5 py-3 font-[family-name:var(--font-heading)] text-[14px] font-semibold text-[#293F52]">
+                <Dialog.Close className="flex-1 rounded-xl border-[1.5px] border-gray-100 bg-white px-3.5 py-3 font-[family-name:var(--font-heading)] text-sm font-semibold text-[#293F52]">
                   Cancel
                 </Dialog.Close>
                 <button
                   type="button"
                   onClick={handleResolveWithRefund}
                   disabled={isSubmitting}
-                  className="flex-1 rounded-xl bg-amber-500 px-3.5 py-3 font-[family-name:var(--font-heading)] text-[14px] font-semibold text-white disabled:opacity-50"
+                  className="flex-1 rounded-xl bg-amber-500 px-3.5 py-3 font-[family-name:var(--font-heading)] text-sm font-semibold text-white disabled:opacity-50"
                 >
                   {isSubmitting ? 'Processing...' : 'Resolve & Refund'}
                 </button>

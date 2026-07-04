@@ -9,6 +9,7 @@ import {
   createAuthFormUploadUrl,
 } from '../actions'
 import { COLLECTION_CADENCES, type CollectionCadence } from '@/lib/mud/validation'
+import { FieldLabel, Input, Select, Textarea } from '@/components/admin/form'
 
 type StrataContact = {
   id: string
@@ -169,107 +170,119 @@ export function MudEditForm({ property, strataContact, onCancel }: MudEditFormPr
     }
   }
 
+  // MUD-field visual delta over the shared Input base (white fill inside cards).
+  const mudField = 'bg-white py-2 placeholder:text-gray-400'
+
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-3">
         <div>
-          <label className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">
+          <FieldLabel htmlFor="mud-unit-count" className="mb-0">
             Unit count
-          </label>
-          <input
+          </FieldLabel>
+          <Input
+            id="mud-unit-count"
             type="number"
             min={8}
             value={unitCount}
             onChange={(e) => setUnitCount(Number.parseInt(e.target.value, 10) || 0)}
-            className="mt-1 w-full rounded-lg border-[1.5px] border-gray-100 bg-white px-3 py-2 text-[13px] outline-none focus:border-[#293F52]"
+            className={`mt-1 ${mudField}`}
           />
         </div>
         <div>
-          <label className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">
+          <FieldLabel htmlFor="mud-code" className="mb-0">
             MUD code
-          </label>
-          <input
+          </FieldLabel>
+          <Input
+            id="mud-code"
             type="text"
+            mono
             value={mudCode}
             onChange={(e) => setMudCode(e.target.value.toUpperCase())}
-            className="mt-1 w-full rounded-lg border-[1.5px] border-gray-100 bg-white px-3 py-2 font-mono text-[13px] outline-none focus:border-[#293F52]"
+            className={`mt-1 ${mudField}`}
           />
         </div>
       </div>
 
       <div>
-        <label className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">
+        <FieldLabel htmlFor="mud-cadence" className="mb-0">
           Cadence
-        </label>
-        <select
+        </FieldLabel>
+        <Select
+          id="mud-cadence"
           value={cadence}
           onChange={(e) => setCadence(e.target.value as CollectionCadence)}
-          className="mt-1 w-full rounded-lg border-[1.5px] border-gray-100 bg-white px-3 py-2 text-[13px] outline-none focus:border-[#293F52]"
+          className={`mt-1 ${mudField}`}
         >
           {COLLECTION_CADENCES.map((c) => (
             <option key={c} value={c}>{c}</option>
           ))}
-        </select>
+        </Select>
       </div>
 
       <div>
-        <label className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">
+        <FieldLabel htmlFor="mud-waste-notes" className="mb-0">
           Waste location notes
-        </label>
-        <textarea
+        </FieldLabel>
+        <Textarea
+          id="mud-waste-notes"
           value={wasteNotes}
           onChange={(e) => setWasteNotes(e.target.value)}
           placeholder="e.g. Collect all from the corner of Eric and Gadson"
-          className="mt-1 h-20 w-full resize-none rounded-lg border-[1.5px] border-gray-100 bg-white px-3 py-2 text-[13px] outline-none placeholder:text-gray-400 focus:border-[#293F52]"
+          className={`mt-1 h-20 resize-none ${mudField}`}
         />
       </div>
 
       <div className="rounded-xl border border-gray-100 p-3.5">
-        <div className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-gray-500">
+        <div className="mb-2 text-caption font-semibold uppercase tracking-wide text-gray-500">
           Strata contact
         </div>
         <div className="space-y-2">
           <div className="grid grid-cols-2 gap-2">
-            <input
+            <Input
               type="text"
+              aria-label="Strata contact first name"
               autoComplete="given-name"
               value={contactFirstName}
               onChange={(e) => setContactFirstName(e.target.value)}
               placeholder="First name"
-              className="w-full rounded-lg border-[1.5px] border-gray-100 bg-white px-3 py-2 text-[13px] outline-none placeholder:text-gray-400 focus:border-[#293F52]"
+              className={mudField}
             />
-            <input
+            <Input
               type="text"
+              aria-label="Strata contact last name"
               autoComplete="family-name"
               value={contactLastName}
               onChange={(e) => setContactLastName(e.target.value)}
               placeholder="Last name"
-              className="w-full rounded-lg border-[1.5px] border-gray-100 bg-white px-3 py-2 text-[13px] outline-none placeholder:text-gray-400 focus:border-[#293F52]"
+              className={mudField}
             />
           </div>
-          <input
+          <Input
             type="tel"
+            aria-label="Strata contact mobile"
             value={contactMobile}
             onChange={(e) => setContactMobile(e.target.value)}
             placeholder="Mobile (04XX or +614XX)"
-            className="w-full rounded-lg border-[1.5px] border-gray-100 bg-white px-3 py-2 text-[13px] outline-none placeholder:text-gray-400 focus:border-[#293F52]"
+            className={mudField}
           />
-          <input
+          <Input
             type="email"
+            aria-label="Strata contact email"
             value={contactEmail}
             onChange={(e) => setContactEmail(e.target.value)}
             placeholder="Email"
-            className="w-full rounded-lg border-[1.5px] border-gray-100 bg-white px-3 py-2 text-[13px] outline-none placeholder:text-gray-400 focus:border-[#293F52]"
+            className={mudField}
           />
         </div>
       </div>
 
       <div className="rounded-xl border border-gray-100 p-3.5">
-        <div className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-gray-500">
+        <div className="mb-2 text-caption font-semibold uppercase tracking-wide text-gray-500">
           Authorisation form
         </div>
         {authFormPath ? (
-          <div className="flex items-center justify-between rounded-lg bg-emerald-50 px-3 py-2 text-[12px]">
+          <div className="flex items-center justify-between rounded-lg bg-emerald-50 px-3 py-2 text-xs">
             <span className="truncate text-emerald-700">
               ✓ {authFormJustUploaded ?? 'Uploaded'}
             </span>
@@ -292,14 +305,14 @@ export function MudEditForm({ property, strataContact, onCancel }: MudEditFormPr
             accept=".pdf,.jpg,.jpeg,.png,.heic,application/pdf,image/jpeg,image/png,image/heic"
             onChange={handleFileSelect}
             disabled={isUploading}
-            className="block w-full text-[12px] text-gray-500 file:mr-3 file:rounded-lg file:border-0 file:bg-gray-100 file:px-3 file:py-1.5 file:text-[12px] file:font-medium file:text-gray-700"
+            className="block w-full text-xs text-gray-500 file:mr-3 file:rounded-lg file:border-0 file:bg-gray-100 file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-gray-700"
           />
         )}
         {isUploading && <p className="mt-2 text-caption text-gray-500">Uploading...</p>}
       </div>
 
       {error && (
-        <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[12px] text-red-700">
+        <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
           {error}
         </div>
       )}
@@ -309,7 +322,7 @@ export function MudEditForm({ property, strataContact, onCancel }: MudEditFormPr
           type="button"
           onClick={onCancel}
           disabled={isSubmitting}
-          className="flex-1 rounded-xl border-[1.5px] border-gray-100 bg-white px-3.5 py-2.5 text-[13px] font-semibold text-[#293F52]"
+          className="flex-1 rounded-xl border-[1.5px] border-gray-100 bg-white px-3.5 py-2.5 text-body-sm font-semibold text-[#293F52]"
         >
           Cancel
         </button>
@@ -317,7 +330,7 @@ export function MudEditForm({ property, strataContact, onCancel }: MudEditFormPr
           type="button"
           onClick={handleSave}
           disabled={isSubmitting || isUploading}
-          className="flex-1 rounded-xl bg-[#293F52] px-3.5 py-2.5 text-[13px] font-semibold text-white disabled:opacity-50"
+          className="flex-1 rounded-xl bg-[#293F52] px-3.5 py-2.5 text-body-sm font-semibold text-white disabled:opacity-50"
         >
           {isSubmitting ? 'Saving...' : 'Save changes'}
         </button>

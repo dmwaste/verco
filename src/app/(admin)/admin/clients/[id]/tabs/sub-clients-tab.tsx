@@ -6,6 +6,9 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { createClient as createBrowserClient } from '@/lib/supabase/client'
 import type { Database } from '@/lib/supabase/types'
 import { createSubClient, updateSubClient } from '../../actions'
+import { Pill } from '@/components/status-badge'
+import { Th } from '@/components/admin/th'
+import { Input } from '@/components/admin/form'
 
 type Client = Database['public']['Tables']['client']['Row']
 
@@ -109,8 +112,6 @@ export function SubClientsTab({ client, subClients: initialSubClients }: { clien
     router.refresh()
   }
 
-  const inputClass = 'rounded-lg border-[1.5px] border-gray-100 bg-gray-50 px-3 py-2 text-body-sm text-gray-900 outline-none focus:border-[#293F52] focus:bg-white'
-
   return (
     <div className="max-w-2xl">
       <div className="mb-2 text-2xs text-gray-400">
@@ -120,19 +121,19 @@ export function SubClientsTab({ client, subClients: initialSubClients }: { clien
       <div className="overflow-x-auto rounded-xl bg-white shadow-sm">
         <table className="w-full border-collapse tabular-nums">
           <thead>
-            <tr className="border-b border-gray-100">
-              <th className="px-4 py-3 text-left text-2xs font-semibold uppercase tracking-wider text-gray-400">Name</th>
-              <th className="px-4 py-3 text-left text-2xs font-semibold uppercase tracking-wider text-gray-400">Code</th>
-              <th className="px-4 py-3 text-left text-2xs font-semibold uppercase tracking-wider text-gray-400">Areas</th>
-              <th className="px-4 py-3 text-left text-2xs font-semibold uppercase tracking-wider text-gray-400">Status</th>
-              <th className="px-4 py-3 text-right text-2xs font-semibold uppercase tracking-wider text-gray-400">Actions</th>
+            <tr>
+              <Th>Name</Th>
+              <Th>Code</Th>
+              <Th>Areas</Th>
+              <Th>Status</Th>
+              <Th className="text-right">Actions</Th>
             </tr>
           </thead>
           <tbody>
             {showAddForm && (
               <tr className="border-b border-gray-50 bg-blue-50/30">
-                <td className="px-4 py-2"><input type="text" value={addName} onChange={(e) => setAddName(e.target.value)} placeholder="Name" className={inputClass} /></td>
-                <td className="px-4 py-2"><input type="text" value={addCode} onChange={(e) => setAddCode(e.target.value)} placeholder="Code" className={`${inputClass} font-mono`} /></td>
+                <td className="px-4 py-2"><Input type="text" aria-label="Sub-client name" value={addName} onChange={(e) => setAddName(e.target.value)} placeholder="Name" className="w-auto py-2" /></td>
+                <td className="px-4 py-2"><Input mono type="text" aria-label="Sub-client code" value={addCode} onChange={(e) => setAddCode(e.target.value)} placeholder="Code" className="w-auto py-2" /></td>
                 <td className="px-4 py-2 text-body-sm text-gray-400">&mdash;</td>
                 <td className="px-4 py-2 text-body-sm text-gray-400">New</td>
                 <td className="px-4 py-2 text-right">
@@ -156,20 +157,20 @@ export function SubClientsTab({ client, subClients: initialSubClients }: { clien
               return (
                 <tr key={sc.id} className="border-b border-gray-50 hover:bg-gray-50/50">
                   <td className="px-4 py-3 text-body-sm font-medium text-[#293F52]">
-                    {isEditing ? <input type="text" value={editName} onChange={(e) => setEditName(e.target.value)} className={inputClass} /> : sc.name}
+                    {isEditing ? <Input type="text" aria-label="Sub-client name" value={editName} onChange={(e) => setEditName(e.target.value)} className="w-auto py-2" /> : sc.name}
                   </td>
                   <td className="px-4 py-3 font-mono text-body-sm text-gray-600">
-                    {isEditing ? <input type="text" value={editCode} onChange={(e) => setEditCode(e.target.value)} className={`${inputClass} font-mono`} /> : sc.code}
+                    {isEditing ? <Input mono type="text" aria-label="Sub-client code" value={editCode} onChange={(e) => setEditCode(e.target.value)} className="w-auto py-2" /> : sc.code}
                   </td>
                   <td className="px-4 py-3 text-body-sm text-gray-600">
                     {areaCount === 0 ? (
-                      <span className="rounded-full bg-amber-50 px-2 py-0.5 text-2xs font-semibold text-amber-700">No areas</span>
+                      <Pill tone="warn">No areas</Pill>
                     ) : areaCount}
                   </td>
                   <td className="px-4 py-3">
-                    <span className={`rounded-full px-2 py-0.5 text-2xs font-semibold ${sc.is_active ? 'bg-emerald-50 text-emerald-700' : 'bg-gray-100 text-gray-500'}`}>
+                    <Pill tone={sc.is_active ? 'success' : 'neutral'}>
                       {sc.is_active ? 'Active' : 'Inactive'}
-                    </span>
+                    </Pill>
                   </td>
                   <td className="px-4 py-3 text-right">
                     {isEditing ? (

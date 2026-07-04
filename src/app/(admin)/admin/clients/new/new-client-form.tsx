@@ -7,6 +7,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import Link from 'next/link'
 import { createNewClient } from '../actions'
+import { FieldLabel, Input } from '@/components/admin/form'
 
 const schema = z.object({
   name: z.string().min(1, 'Client name is required'),
@@ -53,10 +54,11 @@ export function NewClientForm() {
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="mx-auto w-full max-w-lg rounded-xl bg-white p-6 shadow-sm">
       <div className="mb-5">
-        <label className="mb-1.5 block text-body-sm font-medium text-gray-700">
+        <FieldLabel htmlFor="name">
           Client Name <span className="text-red-500">*</span>
-        </label>
-        <input
+        </FieldLabel>
+        <Input
+          id="name"
           type="text"
           {...register('name', {
             onChange: (e) => {
@@ -71,20 +73,20 @@ export function NewClientForm() {
             },
           })}
           placeholder="e.g. City of Kwinana"
-          className="w-full rounded-lg border-[1.5px] border-gray-100 bg-gray-50 px-3 py-2.5 text-body-sm text-gray-900 outline-none focus:border-[#293F52] focus:bg-white"
         />
         {errors.name && <p className="mt-1 text-2xs text-red-500">{errors.name.message}</p>}
       </div>
 
       <div className="mb-5">
-        <label className="mb-1.5 block text-body-sm font-medium text-gray-700">
+        <FieldLabel htmlFor="slug">
           Slug <span className="text-red-500">*</span>
-        </label>
-        <input
+        </FieldLabel>
+        <Input
+          id="slug"
+          mono
           type="text"
           {...register('slug')}
           placeholder="e.g. kwn"
-          className="w-full rounded-lg border-[1.5px] border-gray-100 bg-gray-50 px-3 py-2.5 font-mono text-body-sm text-gray-900 outline-none focus:border-[#293F52] focus:bg-white"
         />
         <p className="mt-1 text-2xs text-gray-400">Used in the URL: <span className="font-mono">{watch('slug') || 'slug'}.verco.app</span></p>
         {errors.slug && <p className="mt-1 text-2xs text-red-500">{errors.slug.message}</p>}
@@ -92,32 +94,24 @@ export function NewClientForm() {
 
       <div className="mb-5 grid grid-cols-2 gap-4">
         <div>
-          <label className="mb-1.5 block text-body-sm font-medium text-gray-700">Primary Colour</label>
+          <FieldLabel htmlFor="primary_colour">Primary Colour</FieldLabel>
           <div className="flex items-center gap-2">
             <div
               className="size-8 shrink-0 rounded-md border border-gray-200"
               style={{ backgroundColor: watch('primary_colour') }}
             />
-            <input
-              type="text"
-              {...register('primary_colour')}
-              className="w-full rounded-lg border-[1.5px] border-gray-100 bg-gray-50 px-3 py-2.5 font-mono text-body-sm text-gray-900 outline-none focus:border-[#293F52] focus:bg-white"
-            />
+            <Input id="primary_colour" mono type="text" {...register('primary_colour')} />
           </div>
           {errors.primary_colour && <p className="mt-1 text-2xs text-red-500">Must be a valid hex colour</p>}
         </div>
         <div>
-          <label className="mb-1.5 block text-body-sm font-medium text-gray-700">Accent Colour</label>
+          <FieldLabel htmlFor="accent_colour">Accent Colour</FieldLabel>
           <div className="flex items-center gap-2">
             <div
               className="size-8 shrink-0 rounded-md border border-gray-200"
               style={{ backgroundColor: watch('accent_colour') }}
             />
-            <input
-              type="text"
-              {...register('accent_colour')}
-              className="w-full rounded-lg border-[1.5px] border-gray-100 bg-gray-50 px-3 py-2.5 font-mono text-body-sm text-gray-900 outline-none focus:border-[#293F52] focus:bg-white"
-            />
+            <Input id="accent_colour" mono type="text" {...register('accent_colour')} />
           </div>
           {errors.accent_colour && <p className="mt-1 text-2xs text-red-500">Must be a valid hex colour</p>}
         </div>

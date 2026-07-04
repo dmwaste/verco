@@ -6,6 +6,7 @@ import type { Database } from '@/lib/supabase/types'
 import { FaqAnswer } from '@/components/faq-answer'
 import { clientHasTerms } from '@/lib/booking/terms'
 import { updateClientTerms } from '../../actions'
+import { Textarea } from '@/components/admin/form'
 
 type Client = Database['public']['Tables']['client']['Row']
 
@@ -32,9 +33,6 @@ export function TermsTab({ client }: { client: Client }) {
     router.refresh()
   }
 
-  const inputClass =
-    'w-full rounded-lg border-[1.5px] border-gray-100 bg-gray-50 px-3 py-2.5 text-body-sm text-gray-900 outline-none focus:border-[#293F52] focus:bg-white'
-
   return (
     <div className="max-w-2xl">
       <div className="mb-2 text-2xs text-gray-400">
@@ -50,17 +48,19 @@ export function TermsTab({ client }: { client: Client }) {
         </div>
       )}
 
-      <textarea
+      <Textarea
+        mono
+        aria-label="Terms &amp; Conditions markdown"
         value={markdown}
         onChange={(e) => setMarkdown(e.target.value)}
         placeholder="Enter the council's Terms &amp; Conditions (markdown supported)"
         rows={14}
-        className={`${inputClass} resize-y font-mono`}
+        className="resize-y"
       />
 
       {hasTerms && (
         <div className="mt-3 rounded-lg border-[1.5px] border-gray-100 bg-gray-50 px-3 py-2.5">
-          <div className="mb-1 text-2xs font-semibold uppercase tracking-wide text-gray-400">
+          <div className="mb-1 text-caption font-semibold uppercase tracking-wide text-gray-400">
             Preview
           </div>
           <div className="text-body-sm leading-relaxed text-gray-600">

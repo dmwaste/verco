@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { createClient as createBrowserClient } from '@/lib/supabase/client'
 import type { Database } from '@/lib/supabase/types'
 import { updateClient } from '../../actions'
+import { FieldLabel, Input } from '@/components/admin/form'
 
 type Client = Database['public']['Tables']['client']['Row']
 
@@ -72,8 +73,7 @@ export function BrandingTab({ client }: { client: Client }) {
     router.refresh()
   }
 
-  const inputClass = 'w-full rounded-lg border-[1.5px] border-gray-100 bg-gray-50 px-3 py-2.5 font-mono text-body-sm text-gray-900 outline-none focus:border-[#293F52] focus:bg-white'
-  const sectionHeader = 'mb-3 text-2xs font-semibold uppercase tracking-wide text-gray-500'
+  const sectionHeader = 'mb-3 text-caption font-semibold uppercase tracking-wide text-gray-500'
 
   function UploadZone({ type, currentUrl, onClear, dark, accept = 'image/png,image/svg+xml,image/jpeg' }: { type: 'logo-light' | 'logo-dark' | 'hero-banner' | 'favicon'; currentUrl: string; onClear: () => void; dark?: boolean; accept?: string }) {
     const isUploading = uploading === type
@@ -110,17 +110,17 @@ export function BrandingTab({ client }: { client: Client }) {
         <div className={sectionHeader}>Colours</div>
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className="mb-1.5 block text-xs font-medium text-gray-500">Primary Colour</label>
+            <FieldLabel htmlFor="primary_colour">Primary Colour</FieldLabel>
             <div className="flex items-center gap-2">
               <div className="size-8 shrink-0 rounded-md border border-gray-200" style={{ backgroundColor: primaryColour }} />
-              <input type="text" value={primaryColour} onChange={(e) => setPrimaryColour(e.target.value)} className={inputClass} />
+              <Input id="primary_colour" mono type="text" value={primaryColour} onChange={(e) => setPrimaryColour(e.target.value)} />
             </div>
           </div>
           <div>
-            <label className="mb-1.5 block text-xs font-medium text-gray-500">Accent Colour</label>
+            <FieldLabel htmlFor="accent_colour">Accent Colour</FieldLabel>
             <div className="flex items-center gap-2">
               <div className="size-8 shrink-0 rounded-md border border-gray-200" style={{ backgroundColor: accentColour }} />
-              <input type="text" value={accentColour} onChange={(e) => setAccentColour(e.target.value)} className={inputClass} />
+              <Input id="accent_colour" mono type="text" value={accentColour} onChange={(e) => setAccentColour(e.target.value)} />
             </div>
           </div>
         </div>
@@ -131,11 +131,11 @@ export function BrandingTab({ client }: { client: Client }) {
         <div className={sectionHeader}>Logos</div>
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className="mb-1.5 block text-xs font-medium text-gray-500">Logo (Light Background)</label>
+            <FieldLabel>Logo (Light Background)</FieldLabel>
             <UploadZone type="logo-light" currentUrl={logoLightUrl} onClear={() => setLogoLightUrl('')} />
           </div>
           <div>
-            <label className="mb-1.5 block text-xs font-medium text-gray-500">Logo (Dark Background)</label>
+            <FieldLabel>Logo (Dark Background)</FieldLabel>
             <UploadZone type="logo-dark" currentUrl={logoDarkUrl} onClear={() => setLogoDarkUrl('')} dark />
           </div>
         </div>

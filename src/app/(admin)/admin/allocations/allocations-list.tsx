@@ -8,6 +8,7 @@ import { AllocationFormModal } from './allocation-form-modal'
 import { Th } from '@/components/admin/th'
 import { PageHeader } from '@/components/admin/page-header'
 import { FilterBar, SearchInput, FilterSelect } from '@/components/admin/filter-bar'
+import { Pill } from '@/components/status-badge'
 
 interface AllocationOverrideRow {
   id: string
@@ -172,9 +173,9 @@ export function AllocationsList({ clientId, canManage }: AllocationsListProps) {
                     {override.financial_year?.label}
                   </td>
                   <td className="px-4 py-3 text-right">
-                    <span className={`inline-flex items-center justify-center rounded-full px-2.5 py-0.5 text-caption font-semibold ${override.extra_allocations < 0 ? 'bg-red-50 text-red-600' : 'bg-gray-100 text-[#293F52]'}`}>
+                    <Pill tone={override.extra_allocations < 0 ? 'error' : 'neutral'} className="justify-center">
                       {override.extra_allocations > 0 ? '+' : ''}{override.extra_allocations}
-                    </span>
+                    </Pill>
                   </td>
                   <td className="max-w-[180px] truncate px-4 py-3 text-body-sm text-gray-700">
                     {override.reason}
