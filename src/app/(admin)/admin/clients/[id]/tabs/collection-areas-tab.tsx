@@ -6,6 +6,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { createClient as createBrowserClient } from '@/lib/supabase/client'
 import type { Database } from '@/lib/supabase/types'
 import { createCollectionArea, updateCollectionArea } from '../../actions'
+import { Th } from '@/components/admin/th'
 
 type Client = Database['public']['Tables']['client']['Row']
 
@@ -96,13 +97,13 @@ export function CollectionAreasTab({ client, subClients }: { client: Client; sub
       <div className="overflow-x-auto rounded-xl bg-white shadow-sm">
         <table className="w-full border-collapse tabular-nums">
           <thead>
-            <tr className="border-b border-gray-100">
-              <th className="px-4 py-3 text-left text-caption font-semibold uppercase tracking-wider text-gray-400">Code</th>
-              <th className="px-4 py-3 text-left text-caption font-semibold uppercase tracking-wider text-gray-400">Name</th>
-              <th className="px-4 py-3 text-left text-caption font-semibold uppercase tracking-wider text-gray-400">Sub-Client</th>
-              <th className="px-4 py-3 text-left text-caption font-semibold uppercase tracking-wider text-gray-400">Properties</th>
-              <th className="px-4 py-3 text-left text-caption font-semibold uppercase tracking-wider text-gray-400">DM Job Code</th>
-              <th className="px-4 py-3 text-left text-caption font-semibold uppercase tracking-wider text-gray-400">Status</th>
+            <tr>
+              <Th>Code</Th>
+              <Th>Name</Th>
+              <Th>Sub-Client</Th>
+              <Th>Properties</Th>
+              <Th>DM Job Code</Th>
+              <Th>Status</Th>
             </tr>
           </thead>
           <tbody>

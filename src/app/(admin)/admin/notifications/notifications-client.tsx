@@ -6,6 +6,9 @@ import { formatDistanceToNow } from 'date-fns'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import { SkeletonRow } from '@/components/ui/skeleton'
+import { PageHeader } from '@/components/admin/page-header'
+import { FilterBar, FilterSelect } from '@/components/admin/filter-bar'
+import { Th } from '@/components/admin/th'
 import { retryNotification } from './actions'
 
 const NOTIFICATION_TYPE_LABELS: Record<string, string> = {
@@ -100,46 +103,44 @@ export function NotificationsClient({ clientId }: NotificationsClientProps) {
   return (
     <div>
       {/* Header */}
-      <div className="border-b border-gray-100 bg-white px-7 pb-5 pt-6">
-        <h1 className="font-[family-name:var(--font-heading)] text-title font-semibold text-gray-900">
-          Notifications
-        </h1>
-        <p className="mt-1 text-body-sm text-gray-500">
-          {isLoading
+      <PageHeader
+        title="Notifications"
+        subtitle={
+          isLoading
             ? 'Loading...'
             : failedCount === 0
               ? 'No failed notifications in the past 7 days'
-              : `${failedCount} failed in the past 7 days`}
-        </p>
-      </div>
+              : `${failedCount} failed in the past 7 days`
+        }
+      />
 
       {/* Filters */}
-      <div className="flex items-center gap-3 px-7 py-4">
-        <select
+      <FilterBar>
+        <FilterSelect
+          aria-label="Filter by type"
           value={typeFilter}
           onChange={(e) => setTypeFilter(e.target.value)}
-          className="rounded-md border border-gray-200 bg-white px-3 py-1.5 text-body-sm text-gray-700"
         >
           {TYPE_OPTIONS.map((opt) => (
             <option key={opt.value} value={opt.value}>
               {opt.label}
             </option>
           ))}
-        </select>
-      </div>
+        </FilterSelect>
+      </FilterBar>
 
       {/* Table */}
       <div className="flex-1 px-7 pb-6">
         <div className="overflow-x-auto rounded-xl bg-white shadow-sm">
           <table className="w-full border-collapse tabular-nums">
           <thead>
-            <tr className="border-b border-gray-100 text-left">
-              <th className="px-4 py-2 text-caption font-semibold uppercase tracking-wider text-gray-400">Booking</th>
-              <th className="px-4 py-2 text-caption font-semibold uppercase tracking-wider text-gray-400">Type</th>
-              <th className="px-4 py-2 text-caption font-semibold uppercase tracking-wider text-gray-400">Recipient</th>
-              <th className="px-4 py-2 text-caption font-semibold uppercase tracking-wider text-gray-400">Error</th>
-              <th className="px-4 py-2 text-caption font-semibold uppercase tracking-wider text-gray-400">Time</th>
-              <th className="px-4 py-2 text-caption font-semibold uppercase tracking-wider text-gray-400"></th>
+            <tr>
+              <Th>Booking</Th>
+              <Th>Type</Th>
+              <Th>Recipient</Th>
+              <Th>Error</Th>
+              <Th>Time</Th>
+              <Th />
             </tr>
           </thead>
           <tbody>

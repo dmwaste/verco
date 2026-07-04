@@ -9,6 +9,7 @@ import { format } from 'date-fns'
 import { createClient } from '@/lib/supabase/client'
 import { invokeEfWithUserToken } from '@/lib/supabase/invoke-ef-client'
 import { BookingStatusBadge } from '@/components/booking/booking-status-badge'
+import { DetailHeader } from '@/components/admin/detail-header'
 import { LOCATION_OPTIONS, type LocationOption } from '@/lib/booking/schemas'
 import { canEditCollectionDetails } from '@/lib/booking/collection-details-edit'
 import { confirmBooking, cancelBooking, updateContact, updateCollectionDetails, updateNotes } from './actions'
@@ -352,70 +353,54 @@ export function BookingDetailClient({
   return (
     <div className="flex flex-1 flex-col">
       {/* Header */}
-      <div className="border-b border-gray-100 bg-white px-7 pb-5 pt-6">
-        <Link
-          href={backHref}
-          className="mb-2.5 flex items-center gap-1.5 text-body-sm font-medium text-[#8FA5B8] hover:text-[#293F52]"
-        >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-            <polyline points="15 18 9 12 15 6" />
-          </svg>
-          Bookings
-        </Link>
-        <div className="flex flex-wrap items-end justify-between gap-3">
-          <div>
-            <div className="flex items-center gap-2.5">
-              <h1 className="font-[family-name:var(--font-heading)] text-xl font-bold text-[#293F52]">
-                {booking.ref}
-              </h1>
-              <BookingStatusBadge status={booking.status} />
-            </div>
-            <p className="mt-0.5 text-body-sm text-gray-500">
-              {booking.type} &middot; {area.name}
-            </p>
+      <DetailHeader
+        backHref={backHref}
+        backLabel="Bookings"
+        title={booking.ref}
+        subtitle={<>{booking.type} &middot; {area.name}</>}
+      >
+        <BookingStatusBadge status={booking.status} />
+        {(canConfirm || canCancel || booking.status === 'Pending Payment') && (
+          <div className="flex flex-wrap items-center gap-2">
+            {booking.status === 'Pending Payment' && (
+              <button
+                type="button"
+                onClick={handlePayNow}
+                disabled={isPaying}
+                className="flex items-center gap-1.5 rounded-lg border-[1.5px] border-[#00B864] bg-[#E8FDF0] px-4 py-2 text-body-sm font-semibold text-[#006A38] disabled:opacity-50"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="1" y="4" width="22" height="16" rx="2" ry="2" />
+                  <line x1="1" y1="10" x2="23" y2="10" />
+                </svg>
+                {isPaying ? 'Redirecting to payment...' : 'Pay Now'}
+              </button>
+            )}
+            {canConfirm && (
+              <button
+                type="button"
+                onClick={handleConfirm}
+                disabled={isPending}
+                className="flex items-center gap-1.5 rounded-lg bg-[#00E47C] px-4 py-2 text-body-sm font-semibold text-[#293F52] disabled:opacity-50"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                {isPending ? 'Confirming...' : 'Confirm Booking'}
+              </button>
+            )}
+            {canCancel && (
+              <button
+                type="button"
+                onClick={() => setShowCancelDialog(true)}
+                disabled={isPending}
+                className="flex items-center gap-1.5 rounded-lg border-[1.5px] border-[#E53E3E] bg-[#FFF0F0] px-4 py-2 text-body-sm font-semibold text-[#E53E3E] disabled:opacity-50"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
+                {isPending ? 'Cancelling...' : 'Cancel Booking'}
+              </button>
+            )}
           </div>
-          {(canConfirm || canCancel || booking.status === 'Pending Payment') && (
-            <div className="flex flex-wrap items-center gap-2">
-              {booking.status === 'Pending Payment' && (
-                <button
-                  type="button"
-                  onClick={handlePayNow}
-                  disabled={isPaying}
-                  className="flex items-center gap-1.5 rounded-lg border-[1.5px] border-[#00B864] bg-[#E8FDF0] px-4 py-2 text-body-sm font-semibold text-[#006A38] disabled:opacity-50"
-                >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <rect x="1" y="4" width="22" height="16" rx="2" ry="2" />
-                    <line x1="1" y1="10" x2="23" y2="10" />
-                  </svg>
-                  {isPaying ? 'Redirecting to payment...' : 'Pay Now'}
-                </button>
-              )}
-              {canConfirm && (
-                <button
-                  type="button"
-                  onClick={handleConfirm}
-                  disabled={isPending}
-                  className="flex items-center gap-1.5 rounded-lg bg-[#00E47C] px-4 py-2 text-body-sm font-semibold text-[#293F52] disabled:opacity-50"
-                >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-                  {isPending ? 'Confirming...' : 'Confirm Booking'}
-                </button>
-              )}
-              {canCancel && (
-                <button
-                  type="button"
-                  onClick={() => setShowCancelDialog(true)}
-                  disabled={isPending}
-                  className="flex items-center gap-1.5 rounded-lg border-[1.5px] border-[#E53E3E] bg-[#FFF0F0] px-4 py-2 text-body-sm font-semibold text-[#E53E3E] disabled:opacity-50"
-                >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
-                  {isPending ? 'Cancelling...' : 'Cancel Booking'}
-                </button>
-              )}
-            </div>
-          )}
-        </div>
-      </div>
+        )}
+      </DetailHeader>
 
       {/* Content */}
       <div className="flex-1 px-7 py-5">
