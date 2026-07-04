@@ -2815,6 +2815,7 @@ export type Database = {
           value: number
         }[]
       }
+      get_survey_by_token: { Args: { p_token: string }; Returns: Json }
       has_role: {
         Args: { check_role: Database["public"]["Enums"]["app_role"] }
         Returns: boolean
@@ -2838,6 +2839,10 @@ export type Database = {
         }[]
       }
       retry_notification_log: { Args: { log_id: string }; Returns: string }
+      submit_survey_by_token: {
+        Args: { p_responses: Json; p_token: string }
+        Returns: Json
+      }
       update_booking_items_in_place: {
         Args: {
           p_actor_id?: string
