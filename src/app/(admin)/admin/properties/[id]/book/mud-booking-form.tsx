@@ -9,6 +9,8 @@ import { clientHasTerms } from '@/lib/booking/terms'
 import { TermsAcceptanceDialog } from '@/app/(public)/book/confirm/terms-acceptance-dialog'
 import type { MudAllowanceServiceResult } from '@/lib/mud/allowance'
 import { Select, Textarea } from '@/components/admin/form'
+import { DetailHeader } from '@/components/admin/detail-header'
+import { Pill } from '@/components/status-badge'
 
 export interface ServiceOption {
   service_id: string
@@ -166,33 +168,18 @@ export function MudBookingForm({
 
   return (
     <div className="flex h-full flex-col">
-      {/* Header */}
-      <div className="border-b border-gray-100 bg-white px-7 pb-5 pt-6">
-        <Link
-          href={`/admin/properties/${property.id}`}
-          className="mb-2 inline-flex items-center gap-1.5 text-xs font-medium text-gray-500 hover:text-[#293F52]"
-        >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <polyline points="15 18 9 12 15 6" />
-          </svg>
-          Property
-        </Link>
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <h1 className="font-[family-name:var(--font-heading)] text-xl font-bold text-[#293F52]">
-              New MUD booking
-            </h1>
-            <p className="mt-0.5 text-body-sm text-gray-500">
-              {property.formatted_address}
-            </p>
-          </div>
-          {property.mud_code && (
-            <span className="rounded-full bg-[#F3EEFF] px-3 py-1 text-caption font-semibold text-[#805AD5]">
-              {property.mud_code} · {property.unit_count}u
-            </span>
-          )}
-        </div>
-      </div>
+      <DetailHeader
+        backHref={`/admin/properties/${property.id}`}
+        backLabel="Property"
+        title="New MUD booking"
+        subtitle={property.formatted_address}
+      >
+        {property.mud_code && (
+          <Pill tone="accent" className="px-3 py-1">
+            {property.mud_code} · {property.unit_count}u
+          </Pill>
+        )}
+      </DetailHeader>
 
       <div className="flex-1 overflow-y-auto bg-[#F8F9FA] px-7 py-5">
         <div className="mx-auto max-w-2xl space-y-5">

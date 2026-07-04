@@ -47,8 +47,6 @@ const CATEGORY_OPTIONS: { value: BugCategory | ''; label: string }[] = [
   { value: 'other', label: 'Other' },
 ]
 
-
-
 const CATEGORY_LABELS: Record<BugCategory, string> = {
   ui: 'UI',
   data: 'Data',

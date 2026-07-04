@@ -204,7 +204,7 @@ export function AdminTicketDetailClient({
         title={ticket.subject}
         subtitle={<span className="font-mono text-gray-400">{ticket.displayId}</span>}
       >
-        <StatusBadge entity="ticket" status={status} dot />
+        <StatusBadge entity="ticket" status={status} />
       </DetailHeader>
 
       {/* Content */}

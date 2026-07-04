@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation'
 import { format } from 'date-fns'
 import { Dialog } from '@base-ui/react/dialog'
 import { updateNpStatus, rebookNp, resolveNpWithRefund } from './actions'
-import { StatusBadge } from '@/components/status-badge'
+import { StatusBadge, Pill } from '@/components/status-badge'
 import type { Database } from '@/lib/supabase/types'
 import type { ResolvedAuditEntry } from '@/lib/audit/resolve'
 import { AuditTimeline } from '@/components/audit-timeline'
@@ -128,9 +128,9 @@ export function NpDetailClient({ np, availableDates, auditLogs }: NpDetailClient
         title={`NP — ${booking?.ref ?? 'Unknown'}`}
         subtitle={address}
       >
-        <span className={`inline-flex items-center whitespace-nowrap rounded-full px-2.5 py-0.5 text-caption font-semibold ${np.contractor_fault ? 'bg-status-error-bg text-status-error' : 'bg-gray-100 text-gray-600'}`}>
+        <Pill tone={np.contractor_fault ? 'error' : 'neutral'}>
           {np.contractor_fault ? 'Contractor Fault' : 'Resident Fault'}
-        </span>
+        </Pill>
         <StatusBadge entity="np" status={np.status} />
       </DetailHeader>
 
@@ -152,9 +152,9 @@ export function NpDetailClient({ np, availableDates, auditLogs }: NpDetailClient
             <div className="flex flex-col gap-2.5">
               <div className="flex items-center justify-between text-body-sm">
                 <span className="text-gray-500">Fault Type</span>
-                <span className={`inline-flex items-center whitespace-nowrap rounded-full px-2.5 py-0.5 text-caption font-semibold ${np.contractor_fault ? 'bg-status-error-bg text-status-error' : 'bg-gray-100 text-gray-600'}`}>
+                <Pill tone={np.contractor_fault ? 'error' : 'neutral'}>
                   {np.contractor_fault ? 'Contractor' : 'Resident'}
-                </span>
+                </Pill>
               </div>
               <div className="flex items-center justify-between text-body-sm">
                 <span className="text-gray-500">Reported</span>

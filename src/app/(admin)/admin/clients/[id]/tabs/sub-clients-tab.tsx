@@ -112,7 +112,6 @@ export function SubClientsTab({ client, subClients: initialSubClients }: { clien
     router.refresh()
   }
 
-
   return (
     <div className="max-w-2xl">
       <div className="mb-2 text-2xs text-gray-400">
