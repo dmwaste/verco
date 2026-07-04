@@ -7,6 +7,7 @@ import { createClient } from '@/lib/supabase/client'
 import { invokeEdgeFunction } from '@/lib/supabase/invoke-ef'
 import { AddressAutocomplete } from '@/components/booking/address-autocomplete'
 import { cn } from '@/lib/utils'
+import { FieldLabel, Input, Select, Textarea } from '@/components/admin/form'
 import {
   ID_WASTE_TYPES,
   ID_VOLUMES,
@@ -358,9 +359,9 @@ export function IdRequestForm({
           Location
         </div>
         <div className="mt-3 flex flex-col gap-1.5">
-          <label htmlFor="id-address-search" className="text-xs font-medium text-gray-700">
+          <FieldLabel htmlFor="id-address-search" className="mb-0">
             Address of the dumped waste <span aria-hidden="true" className="text-[#E53E3E]">*</span>
-          </label>
+          </FieldLabel>
           <AddressAutocomplete
             inputId="id-address-search"
             onSelect={handleAddressSelect}
@@ -394,15 +395,15 @@ export function IdRequestForm({
         </div>
         {isPinned && (
           <div className="mt-3 flex flex-col gap-1.5">
-            <label htmlFor="id-geo-address" className="text-xs font-medium text-gray-700">
+            <FieldLabel htmlFor="id-geo-address" className="mb-0">
               Location description shown to the crew
-            </label>
-            <input
+            </FieldLabel>
+            <Input
               id="id-geo-address"
               type="text"
               value={geoAddress}
               onChange={(e) => setGeoAddress(e.target.value)}
-              className="w-full rounded-lg border-[1.5px] border-gray-100 bg-white px-3 py-2 text-sm text-gray-900 outline-none focus:border-[#293F52]"
+              className="bg-white py-2 text-sm"
             />
             <p className="text-caption text-gray-500">
               Edit freely — e.g. &ldquo;verge opposite 12 Smith St, next to the park entrance&rdquo;.
@@ -465,15 +466,15 @@ export function IdRequestForm({
           </div>
         </fieldset>
         <div className="mt-4 flex flex-col gap-1.5">
-          <label htmlFor="id-description" className="text-xs font-medium text-gray-700">
+          <FieldLabel htmlFor="id-description" className="mb-0">
             Description
-          </label>
-          <textarea
+          </FieldLabel>
+          <Textarea
             id="id-description"
             value={description}
             onChange={(e) => setDescription(e.target.value)}
             placeholder="Describe the reported waste..."
-            className="h-[72px] w-full resize-none rounded-lg border-[1.5px] border-gray-100 bg-gray-50 px-3 py-2 text-body-sm text-gray-900 outline-none placeholder:text-gray-300 focus:border-[#293F52] focus:bg-white"
+            className="h-[72px] resize-none py-2 placeholder:text-gray-300"
           />
         </div>
       </div>
@@ -543,17 +544,17 @@ export function IdRequestForm({
           Collection Date
         </div>
         <div className="mt-3 flex flex-col gap-1.5">
-          <label htmlFor="id-area-select" className="text-xs font-medium text-gray-700">
+          <FieldLabel htmlFor="id-area-select" className="mb-0">
             Collection area <span aria-hidden="true" className="text-[#E53E3E]">*</span>
-          </label>
-          <select
+          </FieldLabel>
+          <Select
             id="id-area-select"
             value={areaId}
             onChange={(e) => {
               setAreaId(e.target.value)
               setSelectedDateId('')
             }}
-            className="w-full max-w-sm rounded-lg border-[1.5px] border-gray-100 bg-white px-3 py-2 text-sm text-gray-700 outline-none focus:border-[#293F52]"
+            className="max-w-sm bg-white py-2 text-sm text-gray-700"
           >
             <option value="">Select an area...</option>
             {areas.map((a) => (
@@ -561,7 +562,7 @@ export function IdRequestForm({
                 {a.code} — {a.name}
               </option>
             ))}
-          </select>
+          </Select>
         </div>
         {areaSuggestion.kind === 'agree' && (
           <p className="mt-2 flex items-center gap-1.5 text-xs text-emerald-600" role="status">
@@ -649,18 +650,15 @@ export function IdRequestForm({
 
       {/* Notes */}
       <div className="rounded-xl bg-white p-5 shadow-sm">
-        <label
-          htmlFor="id-notes"
-          className="text-caption font-semibold uppercase tracking-wide text-gray-500"
-        >
+        <FieldLabel htmlFor="id-notes" className="mb-0">
           Additional Notes
-        </label>
-        <textarea
+        </FieldLabel>
+        <Textarea
           id="id-notes"
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
           placeholder="Access notes, hazards, special instructions for field crew..."
-          className="mt-3 h-[72px] w-full resize-none rounded-lg border-[1.5px] border-gray-100 bg-gray-50 px-3 py-2 text-body-sm text-gray-900 outline-none placeholder:text-gray-300 focus:border-[#293F52] focus:bg-white"
+          className="mt-3 h-[72px] resize-none py-2 placeholder:text-gray-300"
         />
       </div>
 

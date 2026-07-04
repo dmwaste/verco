@@ -10,6 +10,7 @@ import { createClient } from '@/lib/supabase/client'
 import { invokeEfWithUserToken } from '@/lib/supabase/invoke-ef-client'
 import { BookingStatusBadge } from '@/components/booking/booking-status-badge'
 import { DetailHeader } from '@/components/admin/detail-header'
+import { FieldLabel, Input, Select, Textarea } from '@/components/admin/form'
 import { LOCATION_OPTIONS, type LocationOption } from '@/lib/booking/schemas'
 import { canEditCollectionDetails } from '@/lib/booking/collection-details-edit'
 import { confirmBooking, cancelBooking, updateContact, updateCollectionDetails, updateNotes } from './actions'
@@ -604,11 +605,12 @@ export function BookingDetailClient({
               </div>
             </div>
             <div>
-              <label className="mb-1 block text-xs font-medium text-gray-500">Collection Date</label>
-              <select
+              <FieldLabel htmlFor="bd-date">Collection Date</FieldLabel>
+              <Select
+                id="bd-date"
                 value={editDateId}
                 onChange={(e) => setEditDateId(e.target.value)}
-                className="w-full rounded-lg border-[1.5px] border-gray-100 bg-gray-50 px-3 py-2 text-body-sm text-gray-900 outline-none focus:border-[#293F52] focus:bg-white"
+                className="py-2"
               >
                 <option value="">Select date...</option>
                 {(availableDates ?? []).map((d) => {
@@ -620,16 +622,17 @@ export function BookingDetailClient({
                     </option>
                   )
                 })}
-              </select>
+              </Select>
             </div>
             <div>
-              <label className="mb-1 block text-xs font-medium text-gray-500">Notes</label>
-              <textarea
+              <FieldLabel htmlFor="bd-notes">Notes</FieldLabel>
+              <Textarea
+                id="bd-notes"
                 value={editNotesText}
                 onChange={(e) => setEditNotesText(e.target.value)}
                 maxLength={500}
                 placeholder="Notes for driver..."
-                className="h-16 w-full resize-none rounded-lg border-[1.5px] border-gray-100 bg-gray-50 px-3 py-2 text-body-sm text-gray-900 outline-none focus:border-[#293F52] focus:bg-white"
+                className="h-16 resize-none py-2"
               />
             </div>
             <div className="flex gap-2">
@@ -695,43 +698,47 @@ export function BookingDetailClient({
             <div className="flex flex-col gap-2.5">
               <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <label className="mb-1 block text-xs font-medium text-gray-500">First name</label>
-                  <input
+                  <FieldLabel htmlFor="bd-first-name">First name</FieldLabel>
+                  <Input
+                    id="bd-first-name"
                     type="text"
                     autoComplete="given-name"
                     value={editFirstName}
                     onChange={(e) => setEditFirstName(e.target.value)}
-                    className="w-full rounded-lg border-[1.5px] border-gray-100 bg-gray-50 px-3 py-2 text-body-sm text-gray-900 outline-none focus:border-[#293F52] focus:bg-white"
+                    className="py-2"
                   />
                 </div>
                 <div>
-                  <label className="mb-1 block text-xs font-medium text-gray-500">Last name</label>
-                  <input
+                  <FieldLabel htmlFor="bd-last-name">Last name</FieldLabel>
+                  <Input
+                    id="bd-last-name"
                     type="text"
                     autoComplete="family-name"
                     value={editLastName}
                     onChange={(e) => setEditLastName(e.target.value)}
-                    className="w-full rounded-lg border-[1.5px] border-gray-100 bg-gray-50 px-3 py-2 text-body-sm text-gray-900 outline-none focus:border-[#293F52] focus:bg-white"
+                    className="py-2"
                   />
                 </div>
               </div>
               <div>
-                <label className="mb-1 block text-xs font-medium text-gray-500">Email</label>
-                <input
+                <FieldLabel htmlFor="bd-email">Email</FieldLabel>
+                <Input
+                  id="bd-email"
                   type="email"
                   value={editEmail}
                   onChange={(e) => setEditEmail(e.target.value)}
-                  className="w-full rounded-lg border-[1.5px] border-gray-100 bg-gray-50 px-3 py-2 text-body-sm text-gray-900 outline-none focus:border-[#293F52] focus:bg-white"
+                  className="py-2"
                 />
               </div>
               <div>
-                <label className="mb-1 block text-xs font-medium text-gray-500">Mobile</label>
-                <input
+                <FieldLabel htmlFor="bd-mobile">Mobile</FieldLabel>
+                <Input
+                  id="bd-mobile"
                   type="tel"
                   value={editMobile}
                   onChange={(e) => setEditMobile(e.target.value)}
                   placeholder="+614XXXXXXXX"
-                  className="w-full rounded-lg border-[1.5px] border-gray-100 bg-gray-50 px-3 py-2 text-body-sm text-gray-900 outline-none focus:border-[#293F52] focus:bg-white"
+                  className="py-2"
                 />
               </div>
               <div className="flex gap-2">

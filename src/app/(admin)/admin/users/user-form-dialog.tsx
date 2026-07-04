@@ -10,6 +10,7 @@ import { createClient } from '@/lib/supabase/client'
 import { invokeEfWithUserToken } from '@/lib/supabase/invoke-ef-client'
 import { normaliseAuMobile, formatAuMobileDisplay } from '@/lib/booking/schemas'
 import type { Database } from '@/lib/supabase/types'
+import { FieldLabel, Input, Select } from '@/components/admin/form'
 
 type AppRole = Database['public']['Enums']['app_role']
 
@@ -314,9 +315,8 @@ export function UserFormDialog({ callerRole, editData, open, onOpenChange }: Use
     }
   }
 
-  const inputClass =
-    'w-full rounded-[10px] border-[1.5px] border-gray-100 bg-gray-50 px-3.5 py-3 text-sm text-gray-900 outline-none placeholder:text-gray-300 focus:border-[#293F52] focus:bg-white'
-  const labelClass = 'mb-1 block text-xs font-medium text-gray-700'
+  // Modal-field visual delta over the shared Input base (roomier dialog inputs).
+  const modalField = 'rounded-[10px] px-3.5 py-3 text-sm placeholder:text-gray-300'
   const errorClass = 'mt-1 text-caption text-red-500'
 
   return (
@@ -366,31 +366,32 @@ export function UserFormDialog({ callerRole, editData, open, onOpenChange }: Use
                   {/* Name */}
                   <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                     <div>
-                      <label className={labelClass}>
+                      <FieldLabel htmlFor="first_name">
                         First Name<span className="ml-0.5 text-red-500">*</span>
-                      </label>
-                      <input type="text" autoComplete="given-name" placeholder="Jane" {...register('first_name')} className={inputClass} />
+                      </FieldLabel>
+                      <Input id="first_name" type="text" autoComplete="given-name" placeholder="Jane" {...register('first_name')} className={modalField} />
                       {errors.first_name && <p className={errorClass}>{errors.first_name.message}</p>}
                     </div>
                     <div>
-                      <label className={labelClass}>
+                      <FieldLabel htmlFor="last_name">
                         Last Name<span className="ml-0.5 text-red-500">*</span>
-                      </label>
-                      <input type="text" autoComplete="family-name" placeholder="Smith" {...register('last_name')} className={inputClass} />
+                      </FieldLabel>
+                      <Input id="last_name" type="text" autoComplete="family-name" placeholder="Smith" {...register('last_name')} className={modalField} />
                       {errors.last_name && <p className={errorClass}>{errors.last_name.message}</p>}
                     </div>
                   </div>
 
                   {/* Email */}
                   <div>
-                    <label className={labelClass}>
+                    <FieldLabel htmlFor="email">
                       Email<span className="ml-0.5 text-red-500">*</span>
-                    </label>
-                    <input
+                    </FieldLabel>
+                    <Input
+                      id="email"
                       type="email"
                       placeholder="jane@example.com"
                       {...register('email')}
-                      className={`${inputClass} ${isEdit ? 'bg-gray-100 text-gray-500' : ''}`}
+                      className={`${modalField} ${isEdit ? 'bg-gray-100 text-gray-500' : ''}`}
                       readOnly={isEdit}
                     />
                     {errors.email && <p className={errorClass}>{errors.email.message}</p>}
@@ -399,32 +400,32 @@ export function UserFormDialog({ callerRole, editData, open, onOpenChange }: Use
 
                   {/* Mobile */}
                   <div>
-                    <label className={labelClass}>Mobile</label>
-                    <input type="text" placeholder="0412 345 678" {...register('mobile_e164')} className={inputClass} />
+                    <FieldLabel htmlFor="mobile_e164">Mobile</FieldLabel>
+                    <Input id="mobile_e164" type="text" placeholder="0412 345 678" {...register('mobile_e164')} className={modalField} />
                     {errors.mobile_e164 && <p className={errorClass}>{errors.mobile_e164.message}</p>}
                   </div>
 
                   {/* Role */}
                   <div>
-                    <label className={labelClass}>
+                    <FieldLabel htmlFor="role">
                       Role<span className="ml-0.5 text-red-500">*</span>
-                    </label>
-                    <select {...register('role')} className={inputClass}>
+                    </FieldLabel>
+                    <Select id="role" {...register('role')} className={modalField}>
                       {availableRoles.map((r) => (
                         <option key={r.value} value={r.value}>{r.label}</option>
                       ))}
-                    </select>
+                    </Select>
                     {errors.role && <p className={errorClass}>{errors.role.message}</p>}
                   </div>
 
                   {/* Tenant picker — contractor/client/strata all need a scope */}
                   {needsTenant && (
                     <div>
-                      <label className={labelClass}>
+                      <FieldLabel htmlFor="tenant_id">
                         {needsContractor ? 'Contractor' : 'Client'}
                         <span className="ml-0.5 text-red-500">*</span>
-                      </label>
-                      <select {...register('tenant_id')} className={inputClass}>
+                      </FieldLabel>
+                      <Select id="tenant_id" {...register('tenant_id')} className={modalField}>
                         <option value="">Select {needsContractor ? 'contractor' : 'client'}...</option>
                         {needsContractor &&
                           (contractors ?? []).map((c) => (
@@ -434,7 +435,7 @@ export function UserFormDialog({ callerRole, editData, open, onOpenChange }: Use
                           (clients ?? []).map((c) => (
                             <option key={c.id} value={c.id}>{c.name}</option>
                           ))}
-                      </select>
+                      </Select>
                       {errors.tenant_id && <p className={errorClass}>{errors.tenant_id.message}</p>}
                     </div>
                   )}
@@ -443,17 +444,17 @@ export function UserFormDialog({ callerRole, editData, open, onOpenChange }: Use
                       tenant selected AND that tenant has at least one sub_client. */}
                   {showSubClientPicker && (
                     <div>
-                      <label className={labelClass}>
+                      <FieldLabel htmlFor="sub_client_id">
                         Sub-client (optional)
-                      </label>
-                      <select {...register('sub_client_id')} className={inputClass}>
+                      </FieldLabel>
+                      <Select id="sub_client_id" {...register('sub_client_id')} className={modalField}>
                         <option value="">All sub-clients (whole client)</option>
                         {(subClients ?? []).map((sc) => (
                           <option key={sc.id} value={sc.id}>
                             {sc.code} — {sc.name}
                           </option>
                         ))}
-                      </select>
+                      </Select>
                       <p className="mt-0.5 text-caption text-gray-400">
                         Restricts this user to bookings, notices and properties under one
                         sub-client. Leave as &ldquo;All sub-clients&rdquo; for client-wide access.
@@ -465,9 +466,9 @@ export function UserFormDialog({ callerRole, editData, open, onOpenChange }: Use
                   {/* MUD property assignment — strata role only, shown once client is selected */}
                   {isStrata && !!selectedTenantId && (
                     <div>
-                      <label className={labelClass}>
+                      <FieldLabel>
                         MUD Properties<span className="ml-0.5 text-red-500">*</span>
-                      </label>
+                      </FieldLabel>
                       {(mudProperties?.length ?? 0) === 0 ? (
                         <p className="rounded-[10px] border border-dashed border-gray-200 px-3.5 py-3 text-sm text-gray-400">
                           No MUD properties found for this client.
