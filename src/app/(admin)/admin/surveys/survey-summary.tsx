@@ -86,15 +86,6 @@ export function SurveySummary({ clientId }: SurveySummaryProps) {
 
   return (
     <div className="grid grid-cols-2 gap-4 px-7 pb-1 pt-5 lg:grid-cols-4">
-      <Card label="Response rate">
-        <div className="font-[family-name:var(--font-heading)] text-display font-bold text-[#293F52]">
-          {rate.pct === null ? '—' : `${Math.round(rate.pct)}%`}
-        </div>
-        <div className="mt-1 text-caption text-gray-500">
-          {rate.submitted} of {rate.completed} collections
-        </div>
-      </Card>
-
       <Card label="Overall satisfaction">
         {overall.isEmpty ? (
           <div className="font-[family-name:var(--font-heading)] text-display font-bold text-gray-300">—</div>
@@ -138,6 +129,15 @@ export function SurveySummary({ clientId }: SurveySummaryProps) {
         </div>
         <div className="mt-1 text-caption text-gray-500">
           {rate.created - rate.submitted} awaiting response
+        </div>
+      </Card>
+
+      <Card label="Response rate">
+        <div className="font-[family-name:var(--font-heading)] text-display font-bold text-[#293F52]">
+          {rate.pct === null ? '—' : `${Math.round(rate.pct)}%`}
+        </div>
+        <div className="mt-1 text-caption text-gray-500">
+          {rate.submitted} of {rate.completed} collections
         </div>
       </Card>
     </div>
