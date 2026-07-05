@@ -528,7 +528,7 @@ The admin app uses the **same sign-in mechanism as the resident portal** (passwo
 
 > **Audience note:** Most of what's described here is available to anyone with the **client-staff** role. A few actions (importing properties, geocoding the address database, sender configuration) are restricted to **client-admin** or to D&M's contractor-admin team — those are called out inline when they appear.
 
-> **Capture status (v1.3):** the admin section text below is current as of **2026-07-05**, verified against the live app (which had a UAT design refresh — unified pills/filters/headers, the full **Verco logo**, and the booking detail moved from a slide-over panel to a **full page**, §4.3). **Captured live:** `21` dashboard, `22` bookings list, and the new-feature shots `35`/`36` (ID intake), `37` (Reports), `38` (Surveys). **Still shown as placeholders** (`23`–`32`: booking detail, cancel, NCN/NP, refunds, MUDs, properties, service tickets) — these expose resident **names/emails**, so they need a redaction pass before publication; see `docs/screenshots/ADMIN-CAPTURE-CHECKLIST.md`. **Trust the words and outcomes here; the remaining visuals will match once the redaction pass lands.**
+> **Capture status (v1.3):** the admin section text below is current as of **2026-07-05**, verified against the live app (which had a UAT design refresh — unified pills/filters/headers, the full **Verco logo**, and the booking detail moved from a slide-over panel to a **full page**, §4.3). **Captured live (2026-07-05):** the full Part C set `21`–`24` and `26`–`38` — dashboard, bookings list + filtered, booking detail, cancel dialog, NCN/NP lists, refunds, MUDs, properties, service tickets, ID intake, Reports, and Surveys. Shots that would show resident/strata **names, emails or mobiles** (booking detail `24`, cancel `26`, MUDs `30`, tickets `32`) are **redacted** — those fields appear as grey blocks in the guide but are real in the app. **Only `25`** (a *Pending Payment* booking detail) is still a placeholder — there were no Pending-Payment bookings in the data at capture time; it's identical to `24` with a Pay Now button + orange banner. **Trust the words and outcomes throughout.**
 
 ### 4.1 Sign in to the admin app + dashboard orientation
 
@@ -597,7 +597,7 @@ This is the workhorse screen. Click **Bookings** in the sidebar — you land on 
 
 The *"Showing X of Y"* count updates live as you filter.
 
-<!-- SCREENSHOT: 23-admin-bookings-filter-applied.png — same view, filtered to "Confirmed" -->
+![The bookings list filtered — here to Confirmed bookings in the Cottesloe (COT) area.](screenshots/23-admin-bookings-filter-applied.png)
 
 **Table columns:**
 
@@ -640,7 +640,7 @@ Click any row in the bookings list to open the booking's **detail page** with ev
 
 > **Changed since v1.2 — it's a full page now, not a slide-over.** The detail used to open as a panel over the list; it's now a **dedicated full page** (`/admin/bookings/<uuid>`). Use your browser Back button (or the Bookings link) to return to the list. The old "slide-over" screenshots are being re-captured.
 
-<!-- SCREENSHOT: 24-admin-booking-detail-confirmed.png — Confirmed booking detail (full page) -->
+![A Confirmed booking's full detail page — Collection Details, Contact, Services and the Activity timeline. (Contact fields and the timeline's actor names are **redacted here for privacy** — in the app you see the real details.)](screenshots/24-admin-booking-detail-confirmed.png)
 
 The URL is `/admin/bookings/<uuid>` (a long random ID, not the human-readable ref). You can copy this URL to share a specific booking with a colleague — they'll land on the same view.
 
@@ -697,7 +697,7 @@ These change based on the booking's current status:
 | **Scheduled** | **Cancel Booking** (red outline) — staff-only post-cutoff override; see §4.4e. **D&M contractor staff can also Reschedule** a Scheduled booking _(new since v1.2)_ — previously it was locked once scheduled. |
 | **Completed** / **Cancelled** / **Non-conformance** / **Nothing Presented** | No state-changing buttons here; raise a new booking from the bookings list instead |
 
-<!-- SCREENSHOT: 25-admin-booking-detail-pending-payment.png — Pending Payment booking with Pay Now + Cancel Booking buttons visible -->
+<!-- SCREENSHOT 25 (Pending Payment booking detail) not captured: there were no Pending Payment bookings in the data at capture time. The page is identical to the Confirmed detail above, with a Pay Now button and an orange "Payment required" banner. Capture when one exists. -->
 
 ---
 
@@ -745,7 +745,7 @@ Most bookings auto-confirm now (free path → Confirmed immediately; paid path �
 3. A confirmation dialog appears: *"Cancel this booking? This action cannot be undone. Any payment will be refunded to the original payment method."*
 4. Click **Cancel Booking** to confirm, or **Keep Booking** to back out
 
-<!-- SCREENSHOT: 26-admin-cancel-dialog.png — confirmation dialog over dimmed slideover -->
+![The cancellation confirmation dialog over the (redacted) booking detail — *"Cancel this booking? This action cannot be undone."* with Keep Booking / Cancel Booking.](screenshots/26-admin-cancel-dialog.png)
 
 What happens after cancellation:
 - Booking status flips to **Cancelled**
@@ -778,7 +778,7 @@ Both flow into your queue if the resident **disputes** them.
 
 **URL:** `https://vvtest.verco.au/admin/non-conformance`
 
-<!-- SCREENSHOT: 27-admin-ncn-list.png — non-conformance notices list (may be empty in early UAT) -->
+![The Non-Conformance list — columns for booking, address, area, reason, photos, status, and who reported it. (Empty here — notices appear once field crews raise them.)](screenshots/27-admin-ncn-list.png)
 
 **Filter strip:**
 - Search box — by booking ref, address, reason
@@ -820,13 +820,13 @@ If a resident *doesn't* dispute within 14 days of the NCN being issued, the syst
 
 Same flow as NCN but without photos or reasons — the field crew just records "nothing here to collect". A common cause: the resident didn't place items out, or placed them outside the 72-hour window. Same dispute mechanism, same triage decisions, same auto-close.
 
-<!-- SCREENSHOT: 28-admin-np-list.png — nothing-presented list view -->
+![The Nothing Presented list — same shape as the NCN list, without reasons or photos.](screenshots/28-admin-np-list.png)
 
 #### f) Refund Requests
 
 **URL:** `https://vvtest.verco.au/admin/refunds`
 
-<!-- SCREENSHOT: 29-admin-refunds-list.png — refund requests queue -->
+![The Refunds queue — every refund needs a staff approval. (Empty here.)](screenshots/29-admin-refunds-list.png)
 
 Refunds are **never automatic**. Every refund needs a staff approval. The queue feeds from two sources:
 
@@ -857,7 +857,7 @@ A **MUD** is any property where verge collections can't be arranged by individua
 
 #### a) The MUDs list
 
-<!-- SCREENSHOT: 30-admin-muds-list.png — MUDs table with status cards visible -->
+![The MUDs list — the Contact Made / Registered / Inactive / Not Set status cards, plus addresses, MUD codes, units, status, cadence and the **Auth form** column. (Strata-contact names are **redacted here for privacy**.)](screenshots/30-admin-muds-list.png)
 
 Status cards at the top:
 - **Contact Made** — strata manager identified + contacted, but onboarding not yet complete
@@ -875,7 +875,7 @@ Status cards at the top:
 
 Done from the **Properties** page (`/admin/properties`), not from the MUDs list.
 
-<!-- SCREENSHOT: 31-admin-properties-list.png — eligible properties list -->
+![The eligible-properties list — search this to find a property (there are tens of thousands).](screenshots/31-admin-properties-list.png)
 
 1. Open `/admin/properties` (89,390 records on Verge Valet — use the search box)
 2. Find the property by address
@@ -911,7 +911,7 @@ When sharing screenshots of the MUDs list externally, **blur the STRATA CONTACT 
 
 **URL:** `https://vvtest.verco.au/admin/service-tickets`
 
-<!-- SCREENSHOT: 32-admin-service-tickets.png — service tickets list -->
+![The Service Tickets queue — ticket, subject, category, priority, status and assignee. (Resident and staff names are **redacted here for privacy**.)](screenshots/32-admin-service-tickets.png)
 
 The Service Tickets queue is where resident-side enquiries land that aren't directly tied to a booking action. Examples:
 
@@ -1129,7 +1129,7 @@ Inside the admin app, the floating **"Report a bug"** button (bottom-right corne
 
 ### Revision log
 
-- **1.3 — 2026-07-05**: Refreshed for all UAT-era developments. **Resident:** added the **Terms & Conditions** acceptance step (§2.6), **SMS** notifications alongside email (§2.6), the availability-calendar **date step** (§2.4), and the post-collection **feedback survey** (§3.7); reworded the email-verification heading; scrubbed "Submitted" as a normal new-booking state. **Admin (Part C):** added **Illegal Dumping / ID intake** (§4.8), the **Reports** analytics dashboard (§4.9), and the **Surveys** module (§4.10); documented **sub-client scoping** (§4.1), the MUD **Registered** gate + Auth-form column (§4.6), contractor **reschedule** of Scheduled bookings (§4.3), bookings-list date-range/sort/services filters (§4.2), and the sidebar's new **Insights → Reports** / **Customer → Surveys** sections; flagged **Run Sheets** and **Notification Templates** as contractor-only (out of scope). Cross-linked the new ranger field-app guide. **Screenshots re-captured (live, 2026-07-05):** resident flow `01`/`04`/`05`/`06`/`08`/`09`/`11`/`13` (incl. the redesigned landing, the availability-calendar date step, and the new **T&Cs dialog** `33`) and the key admin surfaces `21` dashboard, `22` bookings, plus the new-feature shots `35`/`36` (ID intake), `37` (Reports), `38` (Surveys). **Still pending** (they expose resident **names/emails** and need a redaction pass): admin `23`–`32` — booking detail/cancel, NCN/NP lists, refunds, MUDs, properties, service tickets; and resident survey `34`. **Content corrected against live data:** services are **Bulk Waste / Green Waste** (not "General"); the included allocation is **per member council** (1–6, e.g. Fremantle 1, Vincent 2, Peppermint Grove 6), not a flat 3; location options are Front/Side/Driveway (no Laneway). Text verified current as of 2026-07-05.
+- **1.3 — 2026-07-05**: Refreshed for all UAT-era developments. **Resident:** added the **Terms & Conditions** acceptance step (§2.6), **SMS** notifications alongside email (§2.6), the availability-calendar **date step** (§2.4), and the post-collection **feedback survey** (§3.7); reworded the email-verification heading; scrubbed "Submitted" as a normal new-booking state. **Admin (Part C):** added **Illegal Dumping / ID intake** (§4.8), the **Reports** analytics dashboard (§4.9), and the **Surveys** module (§4.10); documented **sub-client scoping** (§4.1), the MUD **Registered** gate + Auth-form column (§4.6), contractor **reschedule** of Scheduled bookings (§4.3), bookings-list date-range/sort/services filters (§4.2), and the sidebar's new **Insights → Reports** / **Customer → Surveys** sections; flagged **Run Sheets** and **Notification Templates** as contractor-only (out of scope). Cross-linked the new ranger field-app guide. **Screenshots re-captured (live, 2026-07-05):** resident flow `01`/`04`/`05`/`06`/`08`/`09`/`11`/`13` (incl. the redesigned landing, the availability-calendar date step, and the new **T&Cs dialog** `33`) and the full admin Part C set `21`–`24`, `26`–`32` and `35`–`38` (dashboard, bookings, booking detail, cancel dialog, NCN/NP, refunds, MUDs, properties, tickets, ID intake, Reports, Surveys). PII-bearing shots (`24`/`26`/`30`/`32`) are **redacted** — resident/strata names, emails and mobiles show as grey blocks. **Still pending:** `25` (a Pending-Payment booking detail — none existed in the data) and resident survey `34` (needs a completed booking). **Content corrected against live data:** services are **Bulk Waste / Green Waste** (not "General"); the included allocation is **per member council** (1–6, e.g. Fremantle 1, Vincent 2, Peppermint Grove 6), not a flat 3; location options are Front/Side/Driveway (no Laneway). Text verified current as of 2026-07-05.
 - **1.2 — 2026-05-28**: Added Part C (admin operational workflows) covering sign-in, bookings list/detail, confirm/pay/cancel, exception triage (NCN/NP/refunds), MUD admin-on-behalf, and service tickets. Renumbered subsequent sections. Added admin-side dummy-booking scenarios (A1–A10). Renamed file from `wmrc-resident-tester-guide.md` to `wmrc-user-guide.md` to reflect the broader audience. Admin screenshots (21-32) captured separately per `docs/screenshots/ADMIN-CAPTURE-CHECKLIST.md`.
 - **1.1 — 2026-05-19**: Initial release. Resident booking + management flow (Parts A + B), screenshots 01-20.
 
