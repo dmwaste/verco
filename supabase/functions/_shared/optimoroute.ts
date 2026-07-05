@@ -2,8 +2,10 @@
  * OptimoRoute REST API v1 client — plan-only integration (EF-only, Deno).
  *
  * Verco pushes orders at T-3 hard close, ops plan routes in the OptimoRoute
- * web UI, Verco pulls the planned sequences back. No driver-app usage, no
- * status feedback to OptimoRoute.
+ * web UI, Verco pulls the planned sequences back, and reports closeout back as
+ * completion status (update_completion_details) so OR can run its customer
+ * notifications (the "~30 min away" ETA email + completion receipt). Crews
+ * still work in Verco's field UI, not the OR driver app.
  *
  * API notes (docs v1.36):
  *  - Auth is an API key query param (?key=...).
@@ -211,6 +213,62 @@ export async function deleteOrders(apiKey: string, orderNos: string[]): Promise<
       const notFound = r?.code === 'ERR_ORD_NOT_FOUND' || r?.code === 'ORDER_NOT_FOUND'
       results.push({
         orderNo,
+        success: (r?.success ?? false) || notFound,
+        error: r?.success || notFound ? undefined : (r?.message ?? r?.code ?? 'rejected'),
+      })
+    })
+  }
+
+  return results
+}
+
+export interface OrCompletionInput {
+  orderNo: string
+  /** OR completion status. Verco reports every terminal outcome as 'success'
+   *  (OR only needs "done"); the real NCN/NP/Successful outcome lives in Verco. */
+  status: 'success' | 'failed' | 'rejected'
+}
+
+/**
+ * Marks orders complete in OptimoRoute (update_completion_details) so OR
+ * advances its route and fires its customer notifications. Sequential ≤500
+ * chunks; one result per input, positionally matched. A not-found order counts
+ * as success — it's gone from OR either way (retention), which is the
+ * post-condition the completion sweep cares about.
+ */
+export async function updateCompletionDetails(
+  apiKey: string,
+  completions: OrCompletionInput[],
+): Promise<OrOrderResult[]> {
+  const results: OrOrderResult[] = []
+
+  for (const batch of chunk(completions, OR_BULK_LIMIT)) {
+    const res = await post(apiKey, 'update_completion_details', {
+      orders: batch.map((c) => ({ orderNo: c.orderNo, data: { status: c.status } })),
+    })
+
+    if (!res.ok) {
+      const text = await res.text()
+      for (const c of batch) {
+        results.push({ orderNo: c.orderNo, success: false, error: `HTTP ${res.status}: ${text}` })
+      }
+      continue
+    }
+
+    const data = (await res.json()) as OrBulkResponse
+    if (!data.success || !data.orders) {
+      const error = data.message ?? data.code ?? 'update_completion_details failed'
+      for (const c of batch) {
+        results.push({ orderNo: c.orderNo, success: false, error })
+      }
+      continue
+    }
+
+    batch.forEach((c, i) => {
+      const r = data.orders![i]
+      const notFound = r?.code === 'ERR_ORD_NOT_FOUND' || r?.code === 'ORDER_NOT_FOUND'
+      results.push({
+        orderNo: c.orderNo,
         success: (r?.success ?? false) || notFound,
         error: r?.success || notFound ? undefined : (r?.message ?? r?.code ?? 'rejected'),
       })
