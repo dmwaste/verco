@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  averagePoints,
   cleanCollectionPoints,
   countPoints,
   percentPoints,
@@ -43,6 +44,34 @@ describe('percentPoints', () => {
     expect(pts).toEqual([
       { month: '2026-05-01', value: 75 },
       { month: '2026-07-01', value: 0 }, // observed den, missing num row → 0%
+    ])
+  })
+})
+
+describe('averagePoints', () => {
+  const csat: MonthlySeriesRow[] = [
+    { month: '2026-05-01', series: 'csat_overall_n', value: 4 },
+    { month: '2026-05-01', series: 'csat_overall_sum', value: 18 }, // 18/4 = 4.5
+    { month: '2026-06-01', series: 'csat_overall_n', value: 0 }, // no ratings → skipped
+    { month: '2026-06-01', series: 'csat_overall_sum', value: 0 },
+    { month: '2026-07-01', series: 'csat_overall_n', value: 3 }, // no sum row → 0 avg
+  ]
+
+  it('emits sum/n (rounded 1 dp) only for months with a positive denominator', () => {
+    const pts = averagePoints(csat, 'csat_overall_sum', 'csat_overall_n')
+    expect(pts).toEqual([
+      { month: '2026-05-01', value: 4.5 },
+      { month: '2026-07-01', value: 0 }, // observed n, missing sum row → 0
+    ])
+  })
+
+  it('rounds a repeating average to 1 dp', () => {
+    const rows: MonthlySeriesRow[] = [
+      { month: '2026-05-01', series: 'csat_booking_n', value: 3 },
+      { month: '2026-05-01', series: 'csat_booking_sum', value: 10 }, // 10/3 = 3.333…
+    ]
+    expect(averagePoints(rows, 'csat_booking_sum', 'csat_booking_n')).toEqual([
+      { month: '2026-05-01', value: 3.3 },
     ])
   })
 })

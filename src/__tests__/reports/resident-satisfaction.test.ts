@@ -31,18 +31,18 @@ describe('computeResidentSatisfaction', () => {
   })
 
   describe('empty', () => {
-    it('no rows → n 0, good 0, pct null, isEmpty', () => {
+    it('no rows → n 0, sum 0, avg null, isEmpty', () => {
       const result = computeResidentSatisfaction([])
       expect(result).toEqual({
         n: 0,
-        good: 0,
-        pct: null,
+        sum: 0,
+        avg: null,
         isEmpty: true,
         isLowN: false,
       })
     })
 
-    it('rows present but all invalid → behaves as empty (n 0, pct null)', () => {
+    it('rows present but all invalid → behaves as empty (n 0, avg null)', () => {
       const result = computeResidentSatisfaction([
         row(null),
         row(NaN),
@@ -55,29 +55,29 @@ describe('computeResidentSatisfaction', () => {
         rawRow({}),
       ])
       expect(result.n).toBe(0)
-      expect(result.good).toBe(0)
-      expect(result.pct).toBeNull()
+      expect(result.sum).toBe(0)
+      expect(result.avg).toBeNull()
       expect(result.isEmpty).toBe(true)
       expect(result.isLowN).toBe(false)
     })
   })
 
   describe('low-n (0 < n < RS_LOW_N)', () => {
-    it('single good rating → n 1, good 1, pct 100, isLowN', () => {
+    it('single rating → n 1, sum 5, avg 5, isLowN', () => {
       const result = computeResidentSatisfaction([row(5)])
       expect(result.n).toBe(1)
-      expect(result.good).toBe(1)
-      expect(result.pct).toBe(100)
+      expect(result.sum).toBe(5)
+      expect(result.avg).toBe(5)
       expect(result.isEmpty).toBe(false)
       expect(result.isLowN).toBe(true)
     })
 
-    it('4 ratings (just under LOW_N) → still low-n, pct computed', () => {
-      // 3 good (4,4,5), 1 bad (2) → 75%
+    it('4 ratings (just under LOW_N) → still low-n, avg computed', () => {
+      // 4 + 4 + 5 + 2 = 15 over 4 → avg 3.75
       const result = computeResidentSatisfaction([row(4), row(4), row(5), row(2)])
       expect(result.n).toBe(4)
-      expect(result.good).toBe(3)
-      expect(result.pct).toBe(75)
+      expect(result.sum).toBe(15)
+      expect(result.avg).toBeCloseTo(3.75, 5)
       expect(result.isEmpty).toBe(false)
       expect(result.isLowN).toBe(true)
     })
@@ -85,7 +85,7 @@ describe('computeResidentSatisfaction', () => {
 
   describe('at-n (n >= RS_LOW_N)', () => {
     it('exactly RS_LOW_N (5) valid ratings → not low-n', () => {
-      // 4 good (4,4,5,5), 1 bad (1) → 80%
+      // 4 + 4 + 5 + 5 + 1 = 19 over 5 → avg 3.8
       const result = computeResidentSatisfaction([
         row(4),
         row(4),
@@ -94,29 +94,29 @@ describe('computeResidentSatisfaction', () => {
         row(1),
       ])
       expect(result.n).toBe(5)
-      expect(result.good).toBe(4)
-      expect(result.pct).toBe(80)
+      expect(result.sum).toBe(19)
+      expect(result.avg).toBeCloseTo(3.8, 5)
       expect(result.isEmpty).toBe(false)
       expect(result.isLowN).toBe(false)
     })
 
-    it('all good → pct 100', () => {
+    it('all top marks → avg 5', () => {
       const result = computeResidentSatisfaction([
-        row(4),
-        row(5),
-        row(4),
         row(5),
         row(5),
-        row(4),
+        row(5),
+        row(5),
+        row(5),
+        row(5),
       ])
       expect(result.n).toBe(6)
-      expect(result.good).toBe(6)
-      expect(result.pct).toBe(100)
+      expect(result.sum).toBe(30)
+      expect(result.avg).toBe(5)
       expect(result.isLowN).toBe(false)
     })
 
-    it('mixed → fractional pct preserved (not rounded)', () => {
-      // 5 good of 8 → 62.5%
+    it('mixed → fractional avg preserved (not rounded)', () => {
+      // 5+4+4+5+4+3+2+1 = 28 over 8 → avg 3.5
       const result = computeResidentSatisfaction([
         row(5),
         row(4),
@@ -128,41 +128,39 @@ describe('computeResidentSatisfaction', () => {
         row(1),
       ])
       expect(result.n).toBe(8)
-      expect(result.good).toBe(5)
-      expect(result.pct).toBe(62.5)
+      expect(result.sum).toBe(28)
+      expect(result.avg).toBeCloseTo(3.5, 5)
       expect(result.isLowN).toBe(false)
     })
 
-    it('none good → pct 0', () => {
+    it('all lowest marks → avg 1', () => {
       const result = computeResidentSatisfaction([
         row(1),
-        row(2),
-        row(3),
         row(1),
-        row(2),
+        row(1),
+        row(1),
+        row(1),
       ])
       expect(result.n).toBe(5)
-      expect(result.good).toBe(0)
-      expect(result.pct).toBe(0)
+      expect(result.sum).toBe(5)
+      expect(result.avg).toBe(1)
       expect(result.isLowN).toBe(false)
     })
   })
 
-  describe('rating boundary — good = rating >= 4', () => {
-    it('rating 3 is NOT good; rating 4 IS good', () => {
+  describe('sums only valid 1..5 integers', () => {
+    it('sums each valid rating', () => {
       const result = computeResidentSatisfaction([row(3), row(4)])
       expect(result.n).toBe(2)
-      expect(result.good).toBe(1)
+      expect(result.sum).toBe(7)
+      expect(result.avg).toBeCloseTo(3.5, 5)
     })
 
-    it('ratings 1 and 2 are not good', () => {
+    it('low ratings still count toward the sum', () => {
       const result = computeResidentSatisfaction([row(1), row(2)])
-      expect(result.good).toBe(0)
-    })
-
-    it('rating 5 is good', () => {
-      const result = computeResidentSatisfaction([row(5)])
-      expect(result.good).toBe(1)
+      expect(result.n).toBe(2)
+      expect(result.sum).toBe(3)
+      expect(result.avg).toBeCloseTo(1.5, 5)
     })
   })
 
@@ -170,25 +168,25 @@ describe('computeResidentSatisfaction', () => {
     it('skips null and undefined', () => {
       const result = computeResidentSatisfaction([row(null), row(undefined), row(5)])
       expect(result.n).toBe(1)
-      expect(result.good).toBe(1)
+      expect(result.sum).toBe(5)
     })
 
     it('skips NaN', () => {
       const result = computeResidentSatisfaction([row(NaN), row(4)])
       expect(result.n).toBe(1)
-      expect(result.good).toBe(1)
+      expect(result.sum).toBe(4)
     })
 
     it('skips out-of-range (0 and 6)', () => {
       const result = computeResidentSatisfaction([row(0), row(6), row(4)])
       expect(result.n).toBe(1)
-      expect(result.good).toBe(1)
+      expect(result.sum).toBe(4)
     })
 
     it('skips non-integer ratings (3.5, 4.9)', () => {
       const result = computeResidentSatisfaction([row(3.5), row(4.9), row(4)])
       expect(result.n).toBe(1)
-      expect(result.good).toBe(1)
+      expect(result.sum).toBe(4)
     })
 
     it('skips non-numeric junk but keeps a coercible numeric string', () => {
@@ -201,22 +199,22 @@ describe('computeResidentSatisfaction', () => {
         row('4'),
       ])
       expect(result.n).toBe(1)
-      expect(result.good).toBe(1)
+      expect(result.sum).toBe(4)
     })
 
-    it('counts valid ones while skipping interleaved invalid ones', () => {
+    it('sums valid ones while skipping interleaved invalid ones', () => {
       const result = computeResidentSatisfaction([
-        row(5), // valid good
+        row(5), // valid
         row(null), // skip
-        row(2), // valid bad
+        row(2), // valid
         row(6), // skip (out of range)
-        row(4), // valid good
+        row(4), // valid
         row(3.5), // skip (non-integer)
-        row(3), // valid bad
+        row(3), // valid
       ])
       expect(result.n).toBe(4)
-      expect(result.good).toBe(2)
-      expect(result.pct).toBe(50)
+      expect(result.sum).toBe(14)
+      expect(result.avg).toBeCloseTo(3.5, 5)
     })
   })
 
@@ -231,7 +229,7 @@ describe('computeResidentSatisfaction', () => {
         rawRow({ overall_rating: 5 }),
       ])
       expect(result.n).toBe(1)
-      expect(result.good).toBe(1)
+      expect(result.sum).toBe(5)
     })
 
     it('responses present but no overall_rating key → skipped', () => {
@@ -240,7 +238,7 @@ describe('computeResidentSatisfaction', () => {
         rawRow({ overall_rating: 4 }),
       ])
       expect(result.n).toBe(1)
-      expect(result.good).toBe(1)
+      expect(result.sum).toBe(4)
     })
   })
 })
