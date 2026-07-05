@@ -7,7 +7,7 @@ import {
   X_VERCO_ROOT,
   X_VERCO_BREF_MISS,
 } from '@/lib/proxy/hostnames'
-import { VercoLogo } from './logos'
+import { VercoLogo } from '@/components/branding/verco-logo'
 import { Hero } from './hero'
 import { RecoveryBanner } from './recovery-banner'
 import { CouncilPicker } from './council-picker'

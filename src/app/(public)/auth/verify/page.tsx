@@ -1,7 +1,7 @@
 import { Suspense } from 'react'
 import { OtpVerifyForm } from './otp-verify-form'
 import { resolveAuthHostContext } from '../_host-context'
-import { VercoLogo } from '@/app/landing/logos'
+import { VercoLogo } from '@/components/branding/verco-logo'
 import { TenantBrandMark } from '@/components/branding/tenant-brand-mark'
 
 export default async function VerifyPage() {
