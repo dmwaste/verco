@@ -1,7 +1,7 @@
 # Verge Valet — WMRC User Guide
 
 **For:** WMRC team members trialling the Verge Valet portal before go-live — both the **resident** experience (Parts A + B) and the **admin operational** workflows their staff will run after launch (Part C).
-**Version:** 1.3 — 2026-07-05 _(refreshed for all UAT-era developments — T&Cs gate, post-collection surveys, SMS notifications, admin ID intake, Reports dashboard, and more. Several screenshots are flagged for re-capture after the admin UI refresh — see the revision log.)_
+**Version:** 1.3 — 2026-07-05 _(refreshed for all UAT-era developments — T&Cs gate, post-collection surveys, SMS notifications, admin ID intake, Reports dashboard, and more; 15 screenshots re-captured live, content corrected against live data. A few PII-heavy admin shots remain for a redaction pass — see the revision log.)_
 **Audience:** WMRC team members and member-council staff (Mosman Park, Cottesloe, Peppermint Grove, Cambridge, Vincent, Fremantle, South Perth, Subiaco, Victoria Park) — covering resident-side testing AND client-staff back-office training.
 
 ---
@@ -105,14 +105,14 @@ The OTP email arrives from **`bookings@verco.au`** with the subject **"Your VERC
 
 ### Verge Valet service catalogue
 
-Verge Valet currently offers **two** services, both in the **Bulk** category:
+Verge Valet offers **two services** — shown in the portal as **Bulk Waste** and **Green Waste** — which both draw from the same annual **Collection** allocation:
 
-- **General** — Household bulk items (furniture, timber, general rubbish)
-- **Green** — Garden organics (prunings, lawn clippings, branches)
+- **Bulk Waste** — Household bulk items (furniture, equipment, floor coverings)
+- **Green Waste** — Garden organics (prunings, lawn clippings, branches)
 
-The annual allocation is **3 Bulk collections per property per financial year**, shared across General and Green. There are **no ancillary services** on Verge Valet (no mattresses, e-waste, or whitegoods). This is a deliberate difference from other Verco tenants.
+> **The included allocation is set per member council — it is *not* a single fixed number _(corrected 2026-07-05)_.** Most councils allow **3** included collections per property per financial year, but it varies: e.g. **Fremantle 1**, **Vincent 2**, most councils **3**, **Peppermint Grove 6**. Don't quote a flat "3" to residents — the address-eligibility screen (§2.2) always shows that property's exact allocation and how many remain.
 
-A 4th or 5th collection in the same FY becomes a **paid extra** — currently priced at **$195.45 per General unit** (Stripe handles checkout).
+Collections beyond the included allocation become **paid extras** (priced per unit; the amount is shown before payment, and Stripe handles checkout). There are **no ancillary services** on Verge Valet (no mattresses, e-waste, or whitegoods) — a deliberate difference from other Verco tenants.
 
 ---
 
@@ -135,7 +135,7 @@ Open [`https://vvtest.verco.au`](https://vvtest.verco.au). You should see the Ve
 - **Address search box** with placeholder *"Enter your property address to get started…"*
 - **"Why book online"** section with three feature tiles
 - **"How it works"** strip with five numbered steps
-- **"What We Collect"** grid showing General and Green services (both tagged Bulk)
+- **"What we collect"** grid showing Bulk Waste and Green Waste services
 - **"Ready to book your collection?"** CTA band
 - Footer with copyright and a "Powered by VERCO" mark
 
@@ -160,7 +160,7 @@ A **green banner** appears: *"Property found! This property qualifies for verge 
 Below the banner you'll see:
 
 - **Property Location** — a small Leaflet/OpenStreetMap snippet showing the address.
-- **Service Allocations — FY26** — a tile showing *"Bulk — 0 of 3 included used, 3 remaining"*.
+- **Service allocations** — a tile showing that property's included allocation and how many remain (e.g. *"Collection — 0 of 2 included used, 2 remaining"* for a Vincent address; other councils differ — see §1).
 - **Booking History — FY26** — your last 5 bookings this financial year (excludes cancelled and pending-payment). Empty on a fresh test property.
 - **`Book New Collection →`** button.
 
@@ -188,20 +188,20 @@ Page header: **"Select Services"** (step 2).
 
 A single section — **Bulk Collection** — shows a live "**X of Y remaining**" badge at the top right. Each service row has:
 
-- **Service name and category label** (e.g. "General — Bulk", "Green — Bulk")
+- **Service name** — **Bulk Waste** or **Green Waste** (both draw from the same **Collection** allocation)
 - **Stepper** with `−`, current quantity, `+`
 
 #### Adding an included unit
 
-Click `+` on General to add 1. The Bulk badge decrements to "2 of 3 remaining".
+Click `+` on **Bulk Waste** to add 1. The remaining badge decrements (e.g. "1 of 2 remaining").
 
-![One General item selected](screenshots/06-services-one-selected.png)
+![One Bulk Waste item selected](screenshots/06-services-one-selected.png)
 
 **Next Step** stays greyed out until at least one item is in the cart, then it activates.
 
 #### Adding paid extras
 
-Keep clicking `+` past the included allocation. A **green "Extra cost row"** appears beneath the General row:
+Keep clicking `+` past the included allocation. A **green "Extra cost row"** appears beneath the Bulk Waste row:
 
 > *"3 extra general @ $195.45 each ........ $586.35"*
 
@@ -223,7 +223,7 @@ Page header: **"Select Collection Date"** (step 3).
 
 ![Date picker grid (old layout — being re-captured)](screenshots/08-date-picker.png)
 
-Above the calendar, a "Selected Services" chip strip (e.g. *"General × 1"*).
+Above the calendar, a "Selected Services" chip strip (e.g. *"Bulk Waste × 1"*).
 
 Below, a **calendar of available collection dates**. Each bookable date carries a small status chip:
 
@@ -247,7 +247,7 @@ Page header: **"Collection Details"** (step 4). Despite the name, this step is *
 ![Details / Location step](screenshots/10-details-location.png)
 
 - **Address** — shown read-only at the top.
-- **Location on Property** — pill-style buttons: *Front Verge*, *Side Verge*, *Driveway*, *Laneway*.
+- **Location on Property** — pill-style buttons: *Front Verge*, *Side Verge*, *Driveway*. (Items elsewhere: the resident is asked to contact the team first.)
 - **Notes for Driver (Optional)** — free text, 500 character limit. Placeholder: *"e.g. will be on the other street side of the property"*
 
 **Action:** Pick a location, optionally add a note, click **Next Step →**.
@@ -302,7 +302,7 @@ Label changes depending on the booking:
 
 #### Accept the Terms & Conditions _(new since v1.2)_
 
-<!-- SCREENSHOT: 33-tcs-dialog.png — the Terms & Conditions acceptance dialog on the confirm page -->
+![The Terms & Conditions dialog — the council's conditions with a single "I accept" checkbox. The booking is only created after you tick the box and continue.](screenshots/33-tcs-dialog.png)
 
 When you click the submit button, a **Terms & Conditions** dialog appears before the booking is created. It shows the council's terms (scrollable), with a single **"I accept…"** checkbox pinned at the bottom.
 
@@ -398,7 +398,7 @@ Each booking card on the dashboard shows:
 - **Status badge** (Confirmed / Scheduled / Completed / Cancelled / Non-conformance / etc.)
 - **Collection date**
 - **Address**
-- **Service chips** with paid extras tagged: *"General (extra · $195.45)"*
+- **Service chips** with paid extras tagged: *"Bulk Waste (extra · $195.45)"*
 - **Countdown** for bookings ≤7 days out: *"5 days away · cannot cancel after 3:30pm Sunday"*
 - **Place-out reminder** (green banner) for bookings ≤3 days out
 
@@ -528,7 +528,7 @@ The admin app uses the **same sign-in mechanism as the resident portal** (passwo
 
 > **Audience note:** Most of what's described here is available to anyone with the **client-staff** role. A few actions (importing properties, geocoding the address database, sender configuration) are restricted to **client-admin** or to D&M's contractor-admin team — those are called out inline when they appear.
 
-> **Capture status (v1.3):** the admin section text below is current as of **2026-07-05**, verified against the live app. The Part C **screenshots are being re-captured** — the admin UI had a design refresh during UAT (unified status pills, filters, headers and forms), the booking **detail moved from a slide-over panel to a full page** (§4.3), and the header now carries the full **Verco logo**. So the `21-…`–`32-…` placeholders plus the new-feature shots (ID intake, Reports, Surveys) are all pending a fresh capture pass — see `docs/screenshots/ADMIN-CAPTURE-CHECKLIST.md` and the revision log. **Trust the words and outcomes here; the exact visuals will match once the re-shoot lands.**
+> **Capture status (v1.3):** the admin section text below is current as of **2026-07-05**, verified against the live app (which had a UAT design refresh — unified pills/filters/headers, the full **Verco logo**, and the booking detail moved from a slide-over panel to a **full page**, §4.3). **Captured live:** `21` dashboard, `22` bookings list, and the new-feature shots `35`/`36` (ID intake), `37` (Reports), `38` (Surveys). **Still shown as placeholders** (`23`–`32`: booking detail, cancel, NCN/NP, refunds, MUDs, properties, service tickets) — these expose resident **names/emails**, so they need a redaction pass before publication; see `docs/screenshots/ADMIN-CAPTURE-CHECKLIST.md`. **Trust the words and outcomes here; the remaining visuals will match once the redaction pass lands.**
 
 ### 4.1 Sign in to the admin app + dashboard orientation
 
@@ -536,7 +536,7 @@ The admin app uses the **same sign-in mechanism as the resident portal** (passwo
 
 If you're not already signed in, visit `vvtest.verco.au/auth` and complete the OTP exactly as described in §3.1 (the resident sign-in flow). Once signed in, navigate to `/admin` directly, or use the URL above.
 
-<!-- SCREENSHOT: 21-admin-dashboard.png — admin app landing page, full viewport -->
+![The admin dashboard — headline stat cards (Bookings This Week, Collections Completed, Open Exceptions, Open Tickets), upcoming collection dates by council, and the section-grouped sidebar.](screenshots/21-admin-dashboard.png)
 
 The admin dashboard has six visible regions:
 
@@ -584,14 +584,14 @@ Below the stats are panels (the dashboard was reworked during UAT, so the layout
 
 This is the workhorse screen. Click **Bookings** in the sidebar — you land on a table of every booking your role can see.
 
-<!-- SCREENSHOT: 22-admin-bookings-list.png — bookings table with multi-area mix visible -->
+![The bookings list — searchable and filterable by status, area, type, service, and collection-date range, with sortable columns. Addresses show, resident names do not (they're on the detail page).](screenshots/22-admin-bookings-list.png)
 
 **Filter strip** (top of the table):
 - Search box — by ref, address, or contact name
 - **All Statuses** dropdown — narrow to a single status (Confirmed, Pending Payment, Cancelled, Non-conformance, Nothing Presented, Scheduled, Submitted, Completed, Rebooked)
 - **All Areas** dropdown — narrow to a single sub-client area (CAM-A, COT, MOS, PEP, FRE-N, FRE-S, SUB, VIN, SOP, VIC, KWN-1, KWN-2 …)
 - **All Types** dropdown — Residential vs. MUD vs. Illegal Dumping
-- **All Services** dropdown _(new since v1.2)_ — narrow to bookings containing a given service (General, Green, …)
+- **All Services** dropdown _(new since v1.2)_ — narrow to bookings containing a given service (Bulk Waste, Green Waste, …)
 - **Date range** _(new since v1.2)_ — restrict to collection dates within a from/to window
 - **Column sorting** _(new since v1.2)_ — click the Ref / Type / Status / Created / Area headers to sort
 
@@ -606,7 +606,7 @@ The *"Showing X of Y"* count updates live as you filter.
 | REF | e.g. `COT-E88PNN`, `KWN-2-OCN6ID` — the area prefix is your fastest visual filter |
 | ADDRESS | Street + suburb only (resident name is in the detail panel) |
 | TYPE | Residential / MUD / Illegal Dumping |
-| SERVICES | e.g. "General × 1, Green × 1" — what was booked |
+| SERVICES | e.g. "Bulk Waste × 1, Green Waste × 1" — what was booked |
 | COLLECTION DATE | The scheduled day |
 | AREA | The sub-client area code |
 | STATUS | Coloured badge — see legend below |
@@ -655,7 +655,7 @@ The page has the following sections, stacked top-to-bottom:
 #### COLLECTION DETAILS (with pencil icon to edit)
 
 - **Address** — full street + suburb + postcode (resident name is *not* here; that's in CONTACT)
-- **Location** — Front Verge / Side Verge / Driveway / Laneway (whatever the resident selected at step 4 of the wizard)
+- **Location** — Front Verge / Side Verge / Driveway (whatever the resident selected at step 4 of the wizard)
 - **Collection Date** — formatted "Wednesday, 20 May 2026"
 - **Notes** — driver instructions the resident left, or italic *"Nothing"* if blank
 
@@ -894,7 +894,7 @@ Done from the **Properties** page (`/admin/properties`), not from the MUDs list.
 4. Walk through the wizard as you would for a resident: services, date, location, confirm
 5. Submit — the booking lands directly in **Confirmed** status (no OTP step required, because the strata manager has been onboarded already)
 
-> **Allocation maths is different for MUDs.** A 50-unit MUD with the standard 3-bulk-per-property allocation gets `50 × 3 = 150` Bulk units per FY (shared across General and Green). The pricing engine knows this from `UNITS` × per-unit-allocation; you don't manually scale anything.
+> **Allocation maths is different for MUDs.** A 50-unit MUD gets `units × the council's per-property allocation` per FY (shared across Bulk Waste and Green Waste) — e.g. at a council with a 3-per-property allocation that's `50 × 3 = 150`. The pricing engine knows this from `UNITS` × per-unit-allocation; you don't manually scale anything.
 
 #### d) PII handling on MUDs
 
@@ -945,13 +945,13 @@ The Service Tickets queue is where resident-side enquiries land that aren't dire
 
 Illegal dumping (an **ID**) is waste dumped where there's no booking. IDs are raised two ways: by **rangers in the field** (using the ranger app — separate guide) and by **office staff** here in the admin app. This section covers the office-staff path.
 
-<!-- SCREENSHOT: 35-admin-id-list.png — Illegal Dumping list -->
+![The Illegal Dumping list — ID collections raised by rangers in the field and by office staff.](screenshots/35-admin-id-list.png)
 
 The list heading reads **"Illegal Dumping"** with the subtitle *"ID collections — raised by rangers in the field and office staff"*. To log one from the desk:
 
 1. Click **New ID Collection** → `/admin/illegal-dumping/new`.
 
-   <!-- SCREENSHOT: 36-admin-id-new.png — the New ID Collection form -->
+   ![The New ID Collection form — address autocomplete, waste type, volume, photos, and a collection date.](screenshots/36-admin-id-new.png)
 
 2. **Address** — type it in; Google Places autocomplete resolves it to a precise location (place ID → coordinates).
 3. **Collection area** — the form **auto-selects the matching area** from the address. If the address falls outside that area, you get a **soft amber warning** and can switch the area with one click.
@@ -967,12 +967,12 @@ The list heading reads **"Illegal Dumping"** with the subtitle *"ID collections 
 
 **URL:** `https://vvtest.verco.au/admin/reports` — under **INSIGHTS** in the sidebar.
 
-<!-- SCREENSHOT: 37-admin-reports.png — the Reports dashboard -->
+![The Reports dashboard — headline numbers, the Service Breakdown and NCN Types donuts, customer-satisfaction cards, and the Service Level SLA grid with 12-month sparklines.](screenshots/37-admin-reports.png)
 
 The Reports page is your at-a-glance view of how Verge Valet is performing for your council. It has four bands:
 
 1. **Headline numbers** — **Total Collections**, **Open Notices** (NCN + NP), **Open Tickets**.
-2. **Insights** — a **Service Breakdown** donut (General vs Green vs …) and an **NCN Types** donut (why collections were non-conformant).
+2. **Insights** — a **Service Breakdown** donut (Bulk Waste vs Green Waste vs …) and an **NCN Types** donut (why collections were non-conformant).
 3. **Customer Satisfaction** — **Booking**, **Service** and **Overall** rating cards, plus a *"Do you prefer …?"* preference donut (Yes / No / Indifferent). These are fed by the resident **surveys** (§3.7 / §4.10).
 4. **Service Level** — a grid of eight SLA cards, each with a **period selector**, a **value**, a **target**, and a **12-month sparkline**:
    - Service Delivery · On-Time Collection · Rectification ≤ 2 Days · Ticket First Response · Ticket Resolution · Self-Service Rate · Notification Delivery · Property Penetration.
@@ -985,7 +985,7 @@ The Reports page is your at-a-glance view of how Verge Valet is performing for y
 
 **URL:** `https://vvtest.verco.au/admin/surveys` — under **CUSTOMER** in the sidebar.
 
-<!-- SCREENSHOT: 38-admin-surveys.png — Surveys list + summary -->
+![The Surveys module — the response list with the aggregate summary and response rate.](screenshots/38-admin-surveys.png)
 
 After every completed collection, residents are invited to a short feedback survey (§3.7). Their responses land here:
 
@@ -1019,9 +1019,9 @@ Pick three to five testers, give each one a fresh test email, and run the follow
 
 | # | Scenario | Expected outcome |
 |---|---|---|
-| 1 | Book 1 × General (within 3-bulk allocation) | Free booking, no Stripe, booking confirmed immediately |
-| 2 | Book 2 × General + 1 × Green (fills the 3-bulk allocation) | Free booking, confirmed |
-| 3 | Book 4 × General (exceeds the 3-included allocation) | 3 free + 1 paid; Stripe Checkout for the extra; payment with `4242…` card |
+| 1 | Book 1 × Bulk Waste (within the property's included allocation) | Free booking, no Stripe, booking confirmed immediately |
+| 2 | Fill the property's included allocation (a mix of Bulk Waste + Green Waste) | Free booking, confirmed |
+| 3 | Book more than the property's included allocation | Included units free + the excess paid; Stripe Checkout for the extra; payment with `4242…` card |
 | 4 | Test a payment failure | Use card `4000 0000 0000 0002`; booking should stay Pending Payment with **Pay Now** button |
 | 5 | Edit a confirmed booking (add an extra service) | Same booking ref, audit trail updated |
 | 6 | Cancel a confirmed booking before the cutoff | Status → Cancelled; refund request queued if paid |
@@ -1129,7 +1129,7 @@ Inside the admin app, the floating **"Report a bug"** button (bottom-right corne
 
 ### Revision log
 
-- **1.3 — 2026-07-05**: Refreshed for all UAT-era developments. **Resident:** added the **Terms & Conditions** acceptance step (§2.6), **SMS** notifications alongside email (§2.6), the availability-calendar **date step** (§2.4), and the post-collection **feedback survey** (§3.7); reworded the email-verification heading; scrubbed "Submitted" as a normal new-booking state. **Admin (Part C):** added **Illegal Dumping / ID intake** (§4.8), the **Reports** analytics dashboard (§4.9), and the **Surveys** module (§4.10); documented **sub-client scoping** (§4.1), the MUD **Registered** gate + Auth-form column (§4.6), contractor **reschedule** of Scheduled bookings (§4.3), bookings-list date-range/sort/services filters (§4.2), and the sidebar's new **Insights → Reports** / **Customer → Surveys** sections; flagged **Run Sheets** and **Notification Templates** as contractor-only (out of scope). Cross-linked the new ranger field-app guide. **Screenshots pending re-capture:** the admin UI had a design refresh, the booking detail moved from a slide-over panel to a **full page**, and the resident landing + date step were redesigned — so Part A shots `01`, `08`, `09` and all Part C shots (`21`–`32`), plus the new-feature shots (`33`–`38`), are being re-captured in a follow-up pass. Text is verified current as of 2026-07-05.
+- **1.3 — 2026-07-05**: Refreshed for all UAT-era developments. **Resident:** added the **Terms & Conditions** acceptance step (§2.6), **SMS** notifications alongside email (§2.6), the availability-calendar **date step** (§2.4), and the post-collection **feedback survey** (§3.7); reworded the email-verification heading; scrubbed "Submitted" as a normal new-booking state. **Admin (Part C):** added **Illegal Dumping / ID intake** (§4.8), the **Reports** analytics dashboard (§4.9), and the **Surveys** module (§4.10); documented **sub-client scoping** (§4.1), the MUD **Registered** gate + Auth-form column (§4.6), contractor **reschedule** of Scheduled bookings (§4.3), bookings-list date-range/sort/services filters (§4.2), and the sidebar's new **Insights → Reports** / **Customer → Surveys** sections; flagged **Run Sheets** and **Notification Templates** as contractor-only (out of scope). Cross-linked the new ranger field-app guide. **Screenshots re-captured (live, 2026-07-05):** resident flow `01`/`04`/`05`/`06`/`08`/`09`/`11`/`13` (incl. the redesigned landing, the availability-calendar date step, and the new **T&Cs dialog** `33`) and the key admin surfaces `21` dashboard, `22` bookings, plus the new-feature shots `35`/`36` (ID intake), `37` (Reports), `38` (Surveys). **Still pending** (they expose resident **names/emails** and need a redaction pass): admin `23`–`32` — booking detail/cancel, NCN/NP lists, refunds, MUDs, properties, service tickets; and resident survey `34`. **Content corrected against live data:** services are **Bulk Waste / Green Waste** (not "General"); the included allocation is **per member council** (1–6, e.g. Fremantle 1, Vincent 2, Peppermint Grove 6), not a flat 3; location options are Front/Side/Driveway (no Laneway). Text verified current as of 2026-07-05.
 - **1.2 — 2026-05-28**: Added Part C (admin operational workflows) covering sign-in, bookings list/detail, confirm/pay/cancel, exception triage (NCN/NP/refunds), MUD admin-on-behalf, and service tickets. Renumbered subsequent sections. Added admin-side dummy-booking scenarios (A1–A10). Renamed file from `wmrc-resident-tester-guide.md` to `wmrc-user-guide.md` to reflect the broader audience. Admin screenshots (21-32) captured separately per `docs/screenshots/ADMIN-CAPTURE-CHECKLIST.md`.
 - **1.1 — 2026-05-19**: Initial release. Resident booking + management flow (Parts A + B), screenshots 01-20.
 
