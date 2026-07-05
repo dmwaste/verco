@@ -1,11 +1,3 @@
-# Verge Valet — WMRC User Guide
-
-**For:** WMRC team members trialling the Verge Valet portal before go-live — both the **resident** experience (Parts A + B) and the **admin operational** workflows their staff will run after launch (Part C).
-**Version:** 1.3 — 2026-07-05 _(refreshed for all UAT-era developments — T&Cs gate, post-collection surveys, SMS notifications, admin ID intake, Reports dashboard, and more; 15 screenshots re-captured live, content corrected against live data. A few PII-heavy admin shots remain for a redaction pass — see the revision log.)_
-**Audience:** WMRC team members and member-council staff (Mosman Park, Cottesloe, Peppermint Grove, Cambridge, Vincent, Fremantle, South Perth, Subiaco, Victoria Park) — covering resident-side testing AND client-staff back-office training.
-
----
-
 ## What this guide is
 
 This document walks through Verge Valet from **two angles**:
@@ -20,41 +12,6 @@ This guide tells you exactly what to expect, what to type, and where to look —
 > **Related guide — the field app.** Council **rangers** who check verge piles and log illegal dumping in the field use a separate mobile app, documented in **`docs/wmrc-ranger-guide.md`** (Verge Valet — Ranger Field App Guide). This guide does not cover the field/ranger app.
 
 > **What's new since v1.2 (the UAT-era developments).** This revision folds in everything that shipped during UAT: the **Terms & Conditions** acceptance step (§2.6), **SMS** notifications alongside email, the availability-calendar **date step** (§2.4), the post-collection **feedback survey** (§3.7), the admin **Illegal Dumping / ID intake** form (§4.8), the **Reports** analytics dashboard (§4.9), the admin **Surveys** module (§4.10), the **Registered** gate on MUD bookings (§4.6), and per-council **sub-client scoping** (§4.1). The admin UI also had a design refresh and the booking detail moved from a slide-over panel to a full page — so **Part C screenshots are being re-captured** (see revision log).
-
----
-
-## Table of contents
-
-1. [Before you start — environment & test data](#1-before-you-start--environment--test-data)
-2. [Part A — Making a booking (resident flow)](#2-part-a--making-a-booking-resident-flow)
-   - 2.1 Land on the portal
-   - 2.2 Enter and confirm the address
-   - 2.3 Choose services
-   - 2.4 Pick a collection date
-   - 2.5 Confirm collection location & driver notes
-   - 2.6 Enter contact details, verify your email, pay
-3. [Part B — Managing a booking](#3-part-b--managing-a-booking)
-   - 3.1 Sign back in
-   - 3.2 Your dashboard
-   - 3.3 Open a booking
-   - 3.4 Edit a booking
-   - 3.5 Cancel a booking
-   - 3.6 Dispute a non-conformance notice or "nothing presented"
-   - 3.7 After your collection — the feedback survey
-4. [Part C — Admin operational workflows (client-staff)](#4-part-c--admin-operational-workflows-client-staff)
-   - 4.1 Sign in to the admin app + dashboard orientation
-   - 4.2 Looking up a booking
-   - 4.3 Reading the booking detail
-   - 4.4 Helping a resident — confirm, pay, cancel
-   - 4.5 Triaging exceptions — NCN, Nothing Presented, refunds
-   - 4.6 Multi-unit dwellings (strata) — booking on behalf
-   - 4.7 Service tickets — your customer service queue
-   - 4.8 Logging an illegal-dumping collection
-   - 4.9 Reports — the council analytics dashboard
-   - 4.10 Surveys — resident feedback
-5. [Suggested dummy-booking scenarios](#5-suggested-dummy-booking-scenarios)
-6. [Tester tips & FAQs](#6-tester-tips--faqs)
-7. [Reporting issues](#7-reporting-issues)
 
 ---
 
@@ -616,15 +573,15 @@ The *"Showing X of Y"* count updates live as you filter.
 
 | Badge | Meaning |
 |---|---|
-| 🟢 **Confirmed** | Booking is locked in for that date |
-| 🟢 **Completed** | Field crew collected successfully |
-| 🟠 **Pending Payment** | Booking exists but Stripe charge incomplete. Paired with a small green **Pay** pill — clicking it opens Stripe Checkout for the resident's cart. |
-| 🟠 **Submitted** | Legacy state where the booking awaits manual confirmation. Rare — most bookings auto-confirm now. |
-| 🔵 **Scheduled** | Locked in for collection (auto-flipped from Confirmed at 3:25pm AWST the day before) |
-| 🔴 **Cancelled** | No longer active. Refund (if any) tracked separately. |
-| 🔴 **Non-conformance** | Field crew couldn't collect as booked |
-| 🔴 **Nothing Presented** | Field crew visited and found nothing on the verge |
-| 🟣 **Rebooked** | A follow-up booking has been created after an NCN/NP |
+| <span class="tl tl-g"></span> **Confirmed** | Booking is locked in for that date |
+| <span class="tl tl-g"></span> **Completed** | Field crew collected successfully |
+| <span class="tl tl-a"></span> **Pending Payment** | Booking exists but Stripe charge incomplete. Paired with a small green **Pay** pill — clicking it opens Stripe Checkout for the resident's cart. |
+| <span class="tl tl-a"></span> **Submitted** | Legacy state where the booking awaits manual confirmation. Rare — most bookings auto-confirm now. |
+| <span class="tl tl-b"></span> **Scheduled** | Locked in for collection (auto-flipped from Confirmed at 3:25pm AWST the day before) |
+| <span class="tl tl-r"></span> **Cancelled** | No longer active. Refund (if any) tracked separately. |
+| <span class="tl tl-r"></span> **Non-conformance** | Field crew couldn't collect as booked |
+| <span class="tl tl-r"></span> **Nothing Presented** | Field crew visited and found nothing on the verge |
+| <span class="tl tl-p"></span> **Rebooked** | A follow-up booking has been created after an NCN/NP |
 
 **Top-right actions:**
 - **Export CSV** — downloads the current filtered table as a CSV. Useful for ad-hoc reports.
@@ -1123,12 +1080,13 @@ Inside the admin app, the floating **"Report a bug"** button (bottom-right corne
 
 ---
 
-**Document version:** 1.3
+**Document version:** 1.4
 **Last updated:** 2026-07-05
-**Next review:** after the Part C screenshot re-capture pass (see below)
+**Next review:** after WMRC sign-off on the redesigned guide
 
 ### Revision log
 
+- **1.4 — 2026-07-05**: Restyled to the **D&M Waste Management design system** (v1.0, April 2026) — Poppins display / DM Sans body, the navy `#293F52` + green `#00E47C` palette, a navy gradient cover with the D&M logo, brand callout cards (green top bar, not a left border), navy table headers, and a D&M running footer. Replaced the status-badge emoji with brand status dots (design-system rule: no emoji). No content changes from 1.3.
 - **1.3 — 2026-07-05**: Refreshed for all UAT-era developments. **Resident:** added the **Terms & Conditions** acceptance step (§2.6), **SMS** notifications alongside email (§2.6), the availability-calendar **date step** (§2.4), and the post-collection **feedback survey** (§3.7); reworded the email-verification heading; scrubbed "Submitted" as a normal new-booking state. **Admin (Part C):** added **Illegal Dumping / ID intake** (§4.8), the **Reports** analytics dashboard (§4.9), and the **Surveys** module (§4.10); documented **sub-client scoping** (§4.1), the MUD **Registered** gate + Auth-form column (§4.6), contractor **reschedule** of Scheduled bookings (§4.3), bookings-list date-range/sort/services filters (§4.2), and the sidebar's new **Insights → Reports** / **Customer → Surveys** sections; flagged **Run Sheets** and **Notification Templates** as contractor-only (out of scope). Cross-linked the new ranger field-app guide. **Screenshots re-captured (live, 2026-07-05):** resident flow `01`/`04`/`05`/`06`/`08`/`09`/`11`/`13` (incl. the redesigned landing, the availability-calendar date step, and the new **T&Cs dialog** `33`) and the full admin Part C set `21`–`24`, `26`–`32` and `35`–`38` (dashboard, bookings, booking detail, cancel dialog, NCN/NP, refunds, MUDs, properties, tickets, ID intake, Reports, Surveys). PII-bearing shots (`24`/`26`/`30`/`32`) are **redacted** — resident/strata names, emails and mobiles show as grey blocks. **Still pending:** `25` (a Pending-Payment booking detail — none existed in the data) and resident survey `34` (needs a completed booking). **Content corrected against live data:** services are **Bulk Waste / Green Waste** (not "General"); the included allocation is **per member council** (1–6, e.g. Fremantle 1, Vincent 2, Peppermint Grove 6), not a flat 3; location options are Front/Side/Driveway (no Laneway). Text verified current as of 2026-07-05.
 - **1.2 — 2026-05-28**: Added Part C (admin operational workflows) covering sign-in, bookings list/detail, confirm/pay/cancel, exception triage (NCN/NP/refunds), MUD admin-on-behalf, and service tickets. Renumbered subsequent sections. Added admin-side dummy-booking scenarios (A1–A10). Renamed file from `wmrc-resident-tester-guide.md` to `wmrc-user-guide.md` to reflect the broader audience. Admin screenshots (21-32) captured separately per `docs/screenshots/ADMIN-CAPTURE-CHECKLIST.md`.
 - **1.1 — 2026-05-19**: Initial release. Resident booking + management flow (Parts A + B), screenshots 01-20.
