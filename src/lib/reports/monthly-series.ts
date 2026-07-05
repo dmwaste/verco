@@ -39,7 +39,7 @@ export const SERIES = {
   respDen: 'resp_den',
 } as const
 
-export function csatSeries(key: 'booking' | 'service' | 'overall', kind: 'n' | 'sum'): string {
+export function csatSeries(key: 'booking' | 'service' | 'overall', kind: 'n' | 'good' | 'sum'): string {
   return `csat_${key}_${kind}`
 }
 
