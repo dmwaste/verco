@@ -8,7 +8,7 @@ import {
   computeResponseRate,
   type ResidentSatisfactionRow,
 } from '@/lib/reports/resident-satisfaction'
-import { averagePoints, csatSeries } from '@/lib/reports/monthly-series'
+import { csatSeries, percentPoints } from '@/lib/reports/monthly-series'
 import { useReportsMonthly } from '../reports/use-reports-monthly'
 import { Sparkline } from '../reports/sparkline'
 import { DonutChart } from '../reports/donut-chart'
@@ -72,7 +72,7 @@ export function SurveySummary({ clientId }: SurveySummaryProps) {
   // flat-zero year. Mirrors the Overall Rating card on the Reports page.
   const monthly = useReportsMonthly(clientId, '')
   const overallTrend = monthly.isSuccess
-    ? averagePoints(monthly.rows, csatSeries('overall', 'sum'), csatSeries('overall', 'n'))
+    ? percentPoints(monthly.rows, csatSeries('overall', 'good'), csatSeries('overall', 'n'))
     : []
 
   const rows = data?.rows ?? []
@@ -92,16 +92,16 @@ export function SurveySummary({ clientId }: SurveySummaryProps) {
         ) : (
           <>
             <div className="font-[family-name:var(--font-heading)] text-display font-bold text-[#293F52]">
-              {overall.avg === null ? '—' : `${(Math.round(overall.avg * 10) / 10).toFixed(1)} / 5`}
+              {overall.pct === null ? '—' : `${Math.round(overall.pct)}%`}
             </div>
             <div className="mt-1 text-caption text-gray-500">
-              {overall.n} response{overall.n === 1 ? '' : 's'}{overall.isLowN ? ' · building data' : ''}
+              {overall.good} of {overall.n} rated 4★+{overall.isLowN ? ' · building data' : ''}
             </div>
           </>
         )}
         {overallTrend.length > 0 && (
           <div className="mt-auto pt-3">
-            <Sparkline points={overallTrend} caption="Avg rating · last 12 months" />
+            <Sparkline points={overallTrend} caption="Rated 4+ % · last 12 months" />
           </div>
         )}
       </Card>

@@ -238,10 +238,13 @@ function happyRpc(r: RecordedRpc): MockResult {
           { month, series: SERIES.notifTracked, value: 25 },
           { month, series: SERIES.notifDelivered, value: 25 },
           { month, series: csatSeries('booking', 'n'), value: 6 },
+          { month, series: csatSeries('booking', 'good'), value: 6 },
           { month, series: csatSeries('booking', 'sum'), value: 27 },
           { month, series: csatSeries('service', 'n'), value: 6 },
+          { month, series: csatSeries('service', 'good'), value: 3 },
           { month, series: csatSeries('service', 'sum'), value: 18 },
           { month, series: csatSeries('overall', 'n'), value: 6 },
+          { month, series: csatSeries('overall', 'good'), value: 3 },
           { month, series: csatSeries('overall', 'sum'), value: 24 },
           { month, series: SERIES.rectDen, value: 10 },
           { month, series: SERIES.rectNum, value: 8 },
@@ -333,11 +336,11 @@ describe('VER-179 SLA scorecard regression guard (contractor viewer)', () => {
       card('Open Notices').getByText('1 contractor fault · 1 under investigation · 1 resident (incl. presumed)'),
     ).toBeInTheDocument()
     // Customer Satisfaction: each card folds ITS OWN responses key into an
-    // average rating (seeded: booking 4.5, service 3.0, overall 4.0).
+    // average rating to 2 dp (seeded: booking 4.50, service 3.00, overall 4.00).
     expect(screen.getByText('Customer Satisfaction')).toBeInTheDocument()
-    expect(await card('Booking Rating').findByText('4.5 / 5')).toBeInTheDocument()
-    expect(card('Service Rating').getByText('3.0 / 5')).toBeInTheDocument()
-    expect(card('Overall Rating').getByText('4.0 / 5')).toBeInTheDocument()
+    expect(await card('Booking Rating').findByText('4.50')).toBeInTheDocument()
+    expect(card('Service Rating').getByText('3.00')).toBeInTheDocument()
+    expect(card('Overall Rating').getByText('4.00')).toBeInTheDocument()
     expect(await card('Total Collections').findByText('123')).toBeInTheDocument()
     expect(await screen.findByText('Building Waste')).toBeInTheDocument() // NCN types donut legend
     expect(card('Open Tickets').getByText('3')).toBeInTheDocument()
