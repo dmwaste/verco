@@ -289,7 +289,7 @@ These are explicitly out of scope for v2. If a task seems to require one of thes
 
 | Out of scope | Why |
 |---|---|
-| OptimoRoute Driver app usage / status feedback to OptimoRoute | OR is **plan-only** (decision 10/06/2026): Verco pushes orders at T-3 hard close, ops plan in OR web, Verco pulls sequences back. Crews work in Verco's field UI; closeout never flows back to OR. (Stops carry their OR reference on `collection_stop.external_order_ref`; the old `booking.optimo_stop_id` placeholder was dropped 02/07/2026.) |
+| OptimoRoute **driver-app** usage (crews work in Verco's field UI, never the OR app) | Push orders at T-3, ops plan in OR web, pull sequences back. **Completion status DOES flow back to OR now** (reversed 05/07/2026, `sync-completions-to-optimoroute` EF): every terminal closeout (Completed/NCN/NP) is reported to OR as `success` so OR advances its route and fires its customer notifications (~30-min-away ETA + receipt); Verco stays source of truth for the real outcome. Only driver-app usage / pulling status FROM OR stays out of scope. (Stops carry their OR ref on `collection_stop.external_order_ref`; `collection_stop.completion_synced_at` tracks the sync; `booking.optimo_stop_id` was dropped 02/07/2026.) |
 | Stripe Connect | Future — `client_id` on payments is prep only |
 | Cross-client benchmarking in reports | Explicitly excluded — tenant data only |
 | Email template management UI | Templates are code-defined in Edge Functions |

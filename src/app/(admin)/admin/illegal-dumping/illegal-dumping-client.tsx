@@ -11,7 +11,7 @@ import { SkeletonRow } from '@/components/ui/skeleton'
 import { Th } from '@/components/admin/th'
 import { Pagination } from '@/components/admin/pagination'
 import { PageHeader } from '@/components/admin/page-header'
-import { FilterBar, SearchInput, FilterSelect } from '@/components/admin/filter-bar'
+import { FilterBar, SearchInput, FilterSelect, DateRangeFilter } from '@/components/admin/filter-bar'
 import { StatusBadge } from '@/components/status-badge'
 
 const PAGE_SIZE = 50
@@ -44,6 +44,9 @@ export function IllegalDumpingClient({ clientId }: IllegalDumpingClientProps) {
   const [areaFilter, setAreaFilter] = useState('')
   const [search, setSearch] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
+  // Collection-date range (booking_item.collection_date.date), YYYY-MM-DD or ''.
+  const [dateFrom, setDateFrom] = useState('')
+  const [dateTo, setDateTo] = useState('')
 
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   function handleSearchChange(value: string) {
@@ -76,15 +79,23 @@ export function IllegalDumpingClient({ clientId }: IllegalDumpingClientProps) {
   // inner join. booking_item carries the collection_date_id, so embed
   // booking_item(collection_date(...)) for the scheduled date column.
   const { data: idData, isLoading } = useQuery({
-    queryKey: ['admin-illegal-dumping', statusFilter, areaFilter, debouncedSearch, page, clientId],
+    queryKey: ['admin-illegal-dumping', statusFilter, areaFilter, debouncedSearch, dateFrom, dateTo, page, clientId],
     queryFn: async () => {
+      // Collection-date range filters the parent, so booking_item→collection_date
+      // must be inner-joined when a bound is set (a LEFT embed can't filter
+      // parents — §21). No date filter → keep LEFT so undated IDs still show.
+      const dateFilterActive = !!(dateFrom || dateTo)
+      const itemsEmbed = dateFilterActive
+        ? 'booking_item!inner(collection_date!inner(id, date, id_capacity_limit, id_units_booked))'
+        : 'booking_item(collection_date(id, date, id_capacity_limit, id_units_booked))'
+
       let query = supabase
         .from('booking')
         .select(
           `id, ref, status, latitude, longitude, geo_address, notes, photos, created_at,
            collection_area_id,
            collection_area!inner(code, name, client_id),
-           booking_item(collection_date(id, date, id_capacity_limit, id_units_booked))`,
+           ${itemsEmbed}`,
           { count: 'exact' }
         )
         .eq('type', 'Illegal Dumping')
@@ -97,6 +108,8 @@ export function IllegalDumpingClient({ clientId }: IllegalDumpingClientProps) {
       if (areaFilter) {
         query = query.eq('collection_area_id', areaFilter)
       }
+      if (dateFrom) query = query.gte('booking_item.collection_date.date', dateFrom)
+      if (dateTo) query = query.lte('booking_item.collection_date.date', dateTo)
       if (debouncedSearch) {
         query = query.or(
           buildSearchOrFilter(['ref', 'geo_address', 'notes'], debouncedSearch)
@@ -207,6 +220,13 @@ export function IllegalDumpingClient({ clientId }: IllegalDumpingClientProps) {
           ))}
         </FilterSelect>
 
+        <DateRangeFilter
+          label="Collection"
+          from={dateFrom}
+          to={dateTo}
+          onChange={(from, to) => { setDateFrom(from); setDateTo(to); setPage(0) }}
+          ariaPrefix="Collection date"
+        />
       </FilterBar>
 
       {/* Table */}

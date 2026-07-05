@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { cn } from '@/lib/utils'
+import { isContractorStaff } from '@/lib/auth/roles'
 
 interface NavItem {
   label: string
@@ -71,6 +72,9 @@ const ICON = {
   survey: (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
   ),
+  runSheets: (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 2h6a2 2 0 0 1 2 2H7a2 2 0 0 1 2-2z"/><path d="M5 4h14a2 2 0 0 1 2 2v13a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"/><path d="M9 11h6"/><path d="M9 15h4"/></svg>
+  ),
 }
 
 interface AdminSidebarProps {
@@ -109,6 +113,11 @@ export function AdminSidebar({ counts, role }: AdminSidebarProps) {
           href: '/admin/collection-dates',
           icon: ICON.calendar,
         },
+        // Run Sheets are D&M-ops only (see isContractorStaff) — councils don't
+        // see the operator run-sheet surface.
+        ...(isContractorStaff(role)
+          ? [{ label: 'Run Sheets', href: '/admin/run-sheets', icon: ICON.runSheets }]
+          : []),
         { label: 'Properties', href: '/admin/properties', icon: ICON.properties },
         { label: 'MUDs', href: '/admin/muds', icon: ICON.muds },
         { label: 'Illegal Dumping', href: '/admin/illegal-dumping', icon: ICON.illegalDumping },
@@ -203,7 +212,7 @@ export function AdminSidebar({ counts, role }: AdminSidebarProps) {
   } as const
 
   return (
-    <aside className="flex w-60 shrink-0 flex-col overflow-y-auto border-r border-gray-100 bg-white py-4">
+    <aside className="flex w-60 shrink-0 flex-col overflow-y-auto border-r border-gray-100 bg-white py-4 print:hidden">
       {sections.map((section) => (
         <div key={section.title} className="mb-1">
           <div className="px-5 pb-1 pt-2 text-caption font-semibold uppercase tracking-[0.8px] text-gray-300">

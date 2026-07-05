@@ -16,6 +16,12 @@ export const TERMINAL_STOP_STATUSES: ReadonlySet<StopStatus> = new Set([
   'Nothing Presented',
 ])
 
+/** Terminal-but-not-clean statuses — surfaced as a run-level exception flag. */
+export const EXCEPTION_STOP_STATUSES: ReadonlySet<StopStatus> = new Set([
+  'Non-conformance',
+  'Nothing Presented',
+])
+
 export interface PickerStop {
   id: string
   stream: WasteStream
@@ -40,6 +46,23 @@ export interface RunSummary {
   streams: Partial<Record<WasteStream, number>>
   /** True when at least one live stop carries a routing sequence. */
   sequenced: boolean
+  /** Live stops in an exception state (NCN / Nothing Presented). */
+  exceptions: number
+}
+
+/** Derived run-level status for the admin run-sheet list. */
+export type RunStatus = 'Not started' | 'In progress' | 'Complete' | 'Has exceptions'
+
+/**
+ * Rolls a run's stop counts into a single triage status. Exceptions win — a run
+ * with any NCN/NP stop reads "Has exceptions" even if every stop is worked, so
+ * the office can spot it in the list without opening it.
+ */
+export function runStatus(run: Pick<RunSummary, 'total' | 'done' | 'exceptions'>): RunStatus {
+  if (run.exceptions > 0) return 'Has exceptions'
+  if (run.done === 0) return 'Not started'
+  if (run.done >= run.total) return 'Complete'
+  return 'In progress'
 }
 
 /**
@@ -65,12 +88,14 @@ export function groupStopsIntoRuns(stops: PickerStop[]): RunSummary[] {
         done: 0,
         streams: {},
         sequenced: false,
+        exceptions: 0,
       }
       byDriver.set(key, run)
     }
 
     run.total += 1
     if (TERMINAL_STOP_STATUSES.has(stop.status)) run.done += 1
+    if (EXCEPTION_STOP_STATUSES.has(stop.status)) run.exceptions += 1
     run.streams[stop.stream] = (run.streams[stop.stream] ?? 0) + 1
     if (stop.stop_sequence !== null) run.sequenced = true
     if (!run.driverName && stop.driver_name) run.driverName = stop.driver_name

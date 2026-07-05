@@ -7,10 +7,9 @@ import { format } from 'date-fns'
 import { createClient } from '@/lib/supabase/client'
 import { invokeEfWithUserToken } from '@/lib/supabase/invoke-ef-client'
 import { BookingStatusBadge } from '@/components/booking/booking-status-badge'
-import { RefreshRoutesButton } from './refresh-routes-button'
 import { SkeletonRow } from '@/components/ui/skeleton'
 import { PageHeader } from '@/components/admin/page-header'
-import { FilterBar, SearchInput, FilterSelect } from '@/components/admin/filter-bar'
+import { FilterBar, SearchInput, FilterSelect, DateRangeFilter } from '@/components/admin/filter-bar'
 import { Th } from '@/components/admin/th'
 import { Pagination } from '@/components/admin/pagination'
 import Link from 'next/link'
@@ -46,18 +45,24 @@ const TYPE_DOT_COLOR: Record<string, string> = {
 
 const PAGE_SIZE = 20
 
+/**
+ * Sortable columns. 'ref'/'type'/'status'/'created_at' are top-level booking
+ * columns; 'area' orders by the to-one collection_area.code embed (PostgREST
+ * `referencedTable` ordering). Nested collection_date (booking_item→…) can't be
+ * ordered server-side, so Collection Date stays a plain header (date-range
+ * filter covers that need).
+ */
+type SortColumn = 'ref' | 'type' | 'status' | 'created_at' | 'area'
+
 interface BookingsListClientProps {
   /** The selected tenant from the admin switcher. Scopes every query so the
    *  view matches the chosen client (and closes the public-SELECT area-dropdown
    *  cross-tenant leak for client-admins). */
   clientId: string
   isContractorAdmin: boolean
-  /** contractor-admin OR contractor-staff — gates the Refresh Routes button
-   *  (the pull EF's dual auth accepts both). */
-  isContractorUser: boolean
 }
 
-export function BookingsListClient({ clientId, isContractorAdmin, isContractorUser }: BookingsListClientProps) {
+export function BookingsListClient({ clientId, isContractorAdmin }: BookingsListClientProps) {
   const searchParams = useSearchParams()
   const supabase = createClient()
   const [payingBookingId, setPayingBookingId] = useState<string | null>(null)
@@ -67,7 +72,27 @@ export function BookingsListClient({ clientId, isContractorAdmin, isContractorUs
   const [statusFilter, setStatusFilter] = useState(searchParams.get('status') ?? '')
   const [areaFilter, setAreaFilter] = useState(searchParams.get('area') ?? '')
   const [typeFilter, setTypeFilter] = useState(searchParams.get('type') ?? '')
+  // Service id — filters to bookings containing that service (booking_item!inner).
+  const [serviceFilter, setServiceFilter] = useState(searchParams.get('service') ?? '')
+  // Collection-date range (booking_item.collection_date.date), both YYYY-MM-DD
+  // or empty. Filters parents via an !inner join when either bound is set.
+  const [dateFrom, setDateFrom] = useState(searchParams.get('date_from') ?? '')
+  const [dateTo, setDateTo] = useState(searchParams.get('date_to') ?? '')
+  // Server-side sort (see SortColumn). Default matches the previous behaviour.
+  const [sortColumn, setSortColumn] = useState<SortColumn>('created_at')
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
   const [page, setPage] = useState(0)
+
+  function handleSort(key: SortColumn) {
+    if (key === sortColumn) {
+      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
+    } else {
+      setSortColumn(key)
+      // Dates read newest-first by default; text/enum columns A→Z.
+      setSortDir(key === 'created_at' ? 'desc' : 'asc')
+    }
+    setPage(0)
+  }
 
   // Sync URL → state on soft-navigation. The top-bar AdminSearchBar calls
   // router.push('/admin/bookings?search=X'); when the user is already on
@@ -81,6 +106,9 @@ export function BookingsListClient({ clientId, isContractorAdmin, isContractorUs
     setStatusFilter(searchParams.get('status') ?? '')
     setAreaFilter(searchParams.get('area') ?? '')
     setTypeFilter(searchParams.get('type') ?? '')
+    setServiceFilter(searchParams.get('service') ?? '')
+    setDateFrom(searchParams.get('date_from') ?? '')
+    setDateTo(searchParams.get('date_to') ?? '')
     setPage(0)
   }, [searchParams])
 
@@ -93,6 +121,9 @@ export function BookingsListClient({ clientId, isContractorAdmin, isContractorUs
     ...(statusFilter ? { status: statusFilter } : {}),
     ...(areaFilter ? { area: areaFilter } : {}),
     ...(typeFilter ? { type: typeFilter } : {}),
+    ...(serviceFilter ? { service: serviceFilter } : {}),
+    ...(dateFrom ? { date_from: dateFrom } : {}),
+    ...(dateTo ? { date_to: dateTo } : {}),
   }).toString()
   const detailHref = (bookingId: string) =>
     `/admin/bookings/${bookingId}${listStateQuery ? `?from=${encodeURIComponent(listStateQuery)}` : ''}`
@@ -114,9 +145,23 @@ export function BookingsListClient({ clientId, isContractorAdmin, isContractorUs
     },
   })
 
+  // Services for the filter dropdown. `service` is a global catalog (not
+  // tenant-scoped) — a service unused by the tenant simply returns no rows.
+  const { data: services } = useQuery({
+    queryKey: ['services-active'],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from('service')
+        .select('id, name')
+        .eq('is_active', true)
+        .order('name')
+      return data ?? []
+    },
+  })
+
   // Fetch bookings
   const { data: bookingsData, isLoading } = useQuery({
-    queryKey: ['admin-bookings', clientId, search, statusFilter, areaFilter, typeFilter, page],
+    queryKey: ['admin-bookings', clientId, search, statusFilter, areaFilter, typeFilter, serviceFilter, dateFrom, dateTo, sortColumn, sortDir, page],
     queryFn: async () => {
       // Multi-column search: match against booking.ref, property formatted_address,
       // and contact full_name. booking.property_id and booking.contact_id are both
@@ -144,17 +189,37 @@ export function BookingsListClient({ clientId, isContractorAdmin, isContractorUs
         matchingContactIds = contactMatches.data?.map((r) => r.id) ?? []
       }
 
+      // The collection-date range and the service filter both filter the parent
+      // booking through booking_item, so that embed must be an inner join when
+      // either is active (a LEFT-joined embed can't filter parents — §21).
+      // Without them, keep it LEFT so bookings with no items still appear.
+      // Mirrors the reports BcCard pattern.
+      const dateFilterActive = !!(dateFrom || dateTo)
+      const itemJoinActive = dateFilterActive || !!serviceFilter
+      const itemsEmbed = itemJoinActive
+        ? 'booking_item!inner(no_services, service!inner(name), collection_date!inner(id, date))'
+        : 'booking_item(no_services, service!inner(name), collection_date!inner(id, date))'
+
+      const asc = sortDir === 'asc'
       let query = supabase
         .from('booking')
         .select(
           `id, ref, status, type, location, created_at, property_id,
            eligible_properties:property_id(formatted_address, address),
            collection_area!inner(code, name),
-           booking_item(no_services, service!inner(name), collection_date!inner(id, date))`,
+           ${itemsEmbed}`,
           { count: 'exact' }
         )
-        .order('created_at', { ascending: false })
-        .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1)
+      // Area sorts by the to-one collection_area.code embed (referencedTable
+      // ordering); everything else is a top-level booking column.
+      query = sortColumn === 'area'
+        ? query.order('code', { referencedTable: 'collection_area', ascending: asc })
+        : query.order(sortColumn, { ascending: asc })
+      query = query.range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1)
+
+      if (dateFrom) query = query.gte('booking_item.collection_date.date', dateFrom)
+      if (dateTo) query = query.lte('booking_item.collection_date.date', dateTo)
+      if (serviceFilter) query = query.eq('booking_item.service_id', serviceFilter)
 
       // Scope to the selected tenant. booking.client_id is RLS-gated too, but
       // for a contractor-admin (who can see every client) this is what makes
@@ -253,7 +318,6 @@ export function BookingsListClient({ clientId, isContractorAdmin, isContractorUs
   return (
     <>
       <PageHeader title="Bookings" subtitle={`${total} bookings`}>
-        {isContractorUser && <RefreshRoutesButton />}
         {isContractorAdmin && (
           <button
             type="button"
@@ -317,6 +381,25 @@ export function BookingsListClient({ clientId, isContractorAdmin, isContractorUs
             <option key={t} value={t}>{t}</option>
           ))}
         </FilterSelect>
+
+        <FilterSelect
+          value={serviceFilter}
+          onChange={(e) => { setServiceFilter(e.target.value); setPage(0) }}
+          aria-label="Filter by service"
+        >
+          <option value="">All Services</option>
+          {(services ?? []).map((s) => (
+            <option key={s.id} value={s.id}>{s.name}</option>
+          ))}
+        </FilterSelect>
+
+        <DateRangeFilter
+          label="Collection"
+          from={dateFrom}
+          to={dateTo}
+          onChange={(from, to) => { setDateFrom(from); setDateTo(to); setPage(0) }}
+          ariaPrefix="Collection date"
+        />
       </FilterBar>
 
       {payError && (
@@ -332,14 +415,14 @@ export function BookingsListClient({ clientId, isContractorAdmin, isContractorUs
           <table className="w-full border-collapse tabular-nums">
             <thead>
               <tr>
-                <Th>Ref</Th>
+                <Th sortKey="ref" activeSort={sortColumn} direction={sortDir} onSort={(k) => handleSort(k as SortColumn)}>Ref</Th>
                 <Th>Address</Th>
-                <Th>Type</Th>
+                <Th sortKey="type" activeSort={sortColumn} direction={sortDir} onSort={(k) => handleSort(k as SortColumn)}>Type</Th>
                 <Th>Services</Th>
                 <Th>Collection Date</Th>
-                <Th>Area</Th>
-                <Th>Status</Th>
-                <Th>Created</Th>
+                <Th sortKey="area" activeSort={sortColumn} direction={sortDir} onSort={(k) => handleSort(k as SortColumn)}>Area</Th>
+                <Th sortKey="status" activeSort={sortColumn} direction={sortDir} onSort={(k) => handleSort(k as SortColumn)}>Status</Th>
+                <Th sortKey="created_at" activeSort={sortColumn} direction={sortDir} onSort={(k) => handleSort(k as SortColumn)}>Created</Th>
               </tr>
             </thead>
             <tbody>

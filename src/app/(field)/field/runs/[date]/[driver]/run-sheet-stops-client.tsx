@@ -6,59 +6,17 @@ import { useRouter } from 'next/navigation'
 import { format, parseISO } from 'date-fns'
 import { StreamBadge } from '@/components/field/stream-badge'
 import { StopStatusBadge } from '@/components/field/stop-status-badge'
-import { getStopMapsUrl } from '@/lib/stops/labels'
-import type { ServiceSummaryEntry, StopStatus, WasteStream } from '@/lib/stops/stops'
+import { getStopMapsUrl, splitAddress, formatTime } from '@/lib/stops/labels'
+import type { StopStatus } from '@/lib/stops/stops'
+import type { RunStop, RunMeta } from '@/lib/stops/run-sheet-data'
 import { completeStop } from '../../../stops/[id]/actions'
 import { useRefreshOnFocus } from './use-refresh-on-focus'
-
-export interface RunStop {
-  id: string
-  stream: WasteStream
-  status: StopStatus
-  address: string | null
-  latitude: number | null
-  longitude: number | null
-  services_summary: ServiceSummaryEntry[]
-  waste_location: string | null
-  driver_notes: string | null
-  stop_sequence: number | null
-  scheduled_at: string | null
-  driver_serial: string | null
-  driver_name: string | null
-  booking: { id: string; ref: string; status: string; type: string }
-}
-
-interface RunMeta {
-  driverName: string | null
-  startTime: string | null
-  finishTime: string | null
-  depotLabels: string[]
-}
 
 interface RunSheetStopsClientProps {
   date: string
   driverSerial: string | null
   stops: RunStop[]
   runMeta: RunMeta | null
-}
-
-function splitAddress(address: string | null): { street: string; suburb: string } {
-  const full = address ?? ''
-  const parts = full.split(',')
-  return {
-    street: parts[0]?.trim() ?? full,
-    suburb: parts.slice(1).join(',').trim() || '',
-  }
-}
-
-/** 'HH:MM:SS' (Postgres time) → 'h:mma' for the header strip. */
-function formatTime(time: string | null): string | null {
-  if (!time) return null
-  const match = time.match(/^(\d{2}):(\d{2})/)
-  if (!match) return null
-  const d = new Date()
-  d.setHours(Number(match[1]), Number(match[2]), 0, 0)
-  return format(d, 'h:mmaaa')
 }
 
 const TERMINAL: StopStatus[] = ['Completed', 'Non-conformance', 'Nothing Presented']

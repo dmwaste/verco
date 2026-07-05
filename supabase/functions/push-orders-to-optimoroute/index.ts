@@ -87,6 +87,7 @@ interface ExistingStopRow {
 
 interface PendingStopRow {
   id: string
+  booking_id: string
   stream: WasteStream
   external_order_ref: string
   address: string | null
@@ -435,7 +436,7 @@ serve(async (_req) => {
         supabase
           .from('collection_stop')
           .select(
-            `id, stream, external_order_ref, address, latitude, longitude,
+            `id, booking_id, stream, external_order_ref, address, latitude, longitude,
              services_summary, waste_location, driver_notes, collection_date!inner(date)`,
           )
           .eq('status', 'Pending')
@@ -447,6 +448,27 @@ serve(async (_req) => {
     )
 
     if (stops.length > 0) {
+      // Resident emails for OR order notifications, joined at push time only:
+      // collection_stop is PII-free by design, so email is never persisted on
+      // the stop (booking → contact → email).
+      const bookingIds = [...new Set(stops.map((s) => s.booking_id))]
+      const emailByBooking = new Map<string, string>()
+      if (bookingIds.length > 0) {
+        const emailRows = await fetchAll<{ id: string; contact: { email: string | null } | null }>(
+          (from, to) =>
+            supabase
+              .from('booking')
+              .select('id, contact:contact_id(email)')
+              .in('id', bookingIds)
+              .order('id')
+              .range(from, to),
+          'booking email fetch',
+        )
+        for (const b of emailRows) {
+          if (b.contact?.email) emailByBooking.set(b.id, b.contact.email)
+        }
+      }
+
       const orders: OrOrderInput[] = stops.map((stop) => ({
         orderNo: stop.external_order_ref,
         date: stop.collection_date.date,
@@ -454,6 +476,7 @@ serve(async (_req) => {
         priority: STREAM_PRIORITY[stop.stream],
         vehicleFeatures: vehicleFeaturesForStream(stop.stream),
         notes: buildOrderNotes(stop.services_summary ?? [], stop.waste_location, stop.driver_notes),
+        email: emailByBooking.get(stop.booking_id),
         location:
           stop.latitude !== null && stop.longitude !== null
             ? {
