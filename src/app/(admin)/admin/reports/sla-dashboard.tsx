@@ -72,6 +72,7 @@ import { Sparkline, type TrendPoint } from './sparkline'
 import { DonutChart } from './donut-chart'
 import { MONTHLY_QUERY_OPTIONS, useReportsMonthly } from './use-reports-monthly'
 import {
+  averagePoints,
   cleanCollectionPoints,
   csatSeries,
   pct1Value,
@@ -99,7 +100,6 @@ import { computePenetration } from '@/lib/reports/penetration'
 import {
   computeServicePreference,
   computeSurveyRating,
-  RS_TARGET_PCT,
   type ResidentSatisfactionResult,
   type ServicePreferenceResult,
 } from '@/lib/reports/resident-satisfaction'
@@ -121,6 +121,11 @@ const NP_TERMINAL_IN = `(${NP_TERMINAL_STATUSES.map((s) => `"${s}"`).join(',')})
 /** Format a 0–100 number as a 1-dp percentage. */
 function pct1(pct: number): string {
   return `${(Math.round(pct * 10) / 10).toFixed(1)}%`
+}
+
+/** Format a 1..5 rating mean to 1 dp, e.g. 4.333 → "4.3". */
+function avg1(v: number): string {
+  return (Math.round(v * 10) / 10).toFixed(1)
 }
 
 interface CardScope {
@@ -776,16 +781,14 @@ function CustomerSatisfactionCards({ clientId, area, period }: CardScope) {
     label: string,
     r: ResidentSatisfactionResult | undefined,
     seriesKey: 'booking' | 'service' | 'overall',
-    target?: string,
   ) => {
     if (period.unresolved) {
       return <SlaCard key={label} label={label} value="—" sub="Period unavailable" provenance={liveStamp(period)} />
     }
-    const value = !r || r.isEmpty ? '—'
-      : r.isLowN ? `${r.good} / ${r.n}` : pct1(r.pct!)
+    const value = !r || r.isEmpty ? '—' : `${avg1(r.avg!)} / 5`
     const sub = !r ? undefined
       : r.isEmpty ? 'No responses yet'
-      : r.isLowN ? 'Building data' : `${r.good} / ${r.n} rated 4+`
+      : `${r.n} response${r.n === 1 ? '' : 's'}${r.isLowN ? ' · building data' : ''}`
     return (
       <SlaCard
         key={label}
@@ -795,11 +798,10 @@ function CustomerSatisfactionCards({ clientId, area, period }: CardScope) {
         value={value}
         sub={sub}
         tone="neutral"
-        target={target}
         provenance={liveStamp(period)}
         footer={pctSpark(
-          percentPoints(monthly.rows, csatSeries(seriesKey, 'good'), csatSeries(seriesKey, 'n')),
-          'Rated 4+ % · last 12 months',
+          averagePoints(monthly.rows, csatSeries(seriesKey, 'sum'), csatSeries(seriesKey, 'n')),
+          'Avg rating · last 12 months',
         )}
       />
     )
@@ -809,7 +811,7 @@ function CustomerSatisfactionCards({ clientId, area, period }: CardScope) {
     <>
       {card('Booking Rating', data?.booking, 'booking')}
       {card('Service Rating', data?.service, 'service')}
-      {card('Overall Rating', data?.overall, 'overall', `Reference ≥ ${RS_TARGET_PCT}%`)}
+      {card('Overall Rating', data?.overall, 'overall')}
       <PreferServicePanel
         period={period}
         isLoading={isLoading}
