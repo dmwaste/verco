@@ -1,31 +1,34 @@
 /**
- * RS — Resident Satisfaction insight card (VER-179, spec §3.10).
+ * RS — Resident Satisfaction insight (VER-179, spec §3.10; average-rating
+ * revision 05/07).
  *
  * Pure + deterministic: no Supabase, no network, no wall-clock reads. The caller
  * (reports-client) fetches submitted-only `booking_survey` rows — already
  * RLS-scoped + client/area-filtered — and hands the opaque `responses` jsonb
- * blob in untouched. This fn extracts the single `overall_rating` field and
- * folds it into a satisfaction percentage.
+ * blob in untouched. These fns extract one rating field per key and fold it into
+ * the AVERAGE rating (1..5) — not a "% rated 4+" (dropped 05/07).
  *
- * Definition: `(surveys with overall_rating ≥ 4) / (submitted surveys with a
- * valid 1..5 overall_rating) × 100`. Reference target ≥ 75% (WMRC RS KPI) —
- * rendered as an insight, never pass/fail.
+ * Definition: `sum(valid 1..5 rating) / count(valid 1..5 rating)` for the given
+ * key. Rendered as an insight (X.X / 5), never pass/fail.
  *
- * Rating extraction is `Number(responses.overall_rating)` per spec — never a
- * PostgREST jsonb `.gte`, because jsonb text compares lexically ('10' < '4').
- * A rating is counted only when it is a finite integer in 1..5; everything else
- * (null, NaN, out-of-range, non-integer, non-numeric junk, malformed blob) is
- * skipped so the denominator only ever reflects genuine ratings. `good` is
- * `rating >= 4`.
+ * Rating extraction is `Number(responses.<key>)` per spec — never a PostgREST
+ * jsonb `.gte`, because jsonb text compares lexically ('10' < '4'). A rating is
+ * counted only when it is a finite integer in 1..5; everything else (null, NaN,
+ * out-of-range, non-integer, non-numeric junk, malformed blob) is skipped so the
+ * denominator only ever reflects genuine ratings.
  */
 
-/** WMRC resident-satisfaction reference target (%). Insight only — never pass/fail. */
+/**
+ * WMRC resident-satisfaction reference target — historically "≥ 75% of surveys
+ * rated 4+". Retained for reference, but the dashboard now shows the AVERAGE
+ * rating, so this % target is no longer rendered on the card (05/07).
+ */
 export const RS_TARGET_PCT = 75
 
 /**
- * Minimum valid-rating sample before a % headline is shown. Below this the card
- * shows the raw "good of n" fraction + "Building data" (spec §3.10). Exported so
- * it is testable + tunable.
+ * Minimum valid-rating sample before the headline is treated as settled. Below
+ * this the card still shows the average but flags "building data" (spec §3.10).
+ * Exported so it is testable + tunable.
  */
 export const RS_LOW_N = 5
 
@@ -35,15 +38,15 @@ export interface ResidentSatisfactionRow {
 }
 
 export interface ResidentSatisfactionResult {
-  /** Count of rows with a valid 1..5 integer overall_rating (the denominator). */
+  /** Count of rows with a valid 1..5 integer rating (the denominator). */
   n: number
-  /** Count of valid ratings that are >= 4 (the numerator). */
-  good: number
-  /** Satisfaction % (0–100), or null when there are no valid ratings. */
-  pct: number | null
+  /** Sum of the valid 1..5 ratings (numerator for the average). */
+  sum: number
+  /** Mean rating (1..5), or null when there are no valid ratings. */
+  avg: number | null
   /** True when there are no valid ratings (n === 0). */
   isEmpty: boolean
-  /** True when 0 < n < RS_LOW_N — show the raw fraction, no % headline. */
+  /** True when 0 < n < RS_LOW_N — headline shown, but flagged "building data". */
   isLowN: boolean
 }
 
@@ -84,23 +87,23 @@ export function computeSurveyRating(
   key: SurveyRatingKey,
 ): ResidentSatisfactionResult {
   let n = 0
-  let good = 0
+  let sum = 0
 
   for (const r of rows) {
     const rating = extractRating(r?.responses, key)
     if (rating === null) continue
     n += 1
-    if (rating >= 4) good += 1
+    sum += rating
   }
 
   if (n === 0) {
-    return { n: 0, good: 0, pct: null, isEmpty: true, isLowN: false }
+    return { n: 0, sum: 0, avg: null, isEmpty: true, isLowN: false }
   }
 
   return {
     n,
-    good,
-    pct: (good / n) * 100,
+    sum,
+    avg: sum / n,
     isEmpty: false,
     isLowN: n < RS_LOW_N,
   }

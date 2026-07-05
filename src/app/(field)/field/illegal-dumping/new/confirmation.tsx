@@ -79,9 +79,11 @@ export function Confirmation({
         </div>
       </div>
 
-      {/* Action buttons */}
+      {/* Action buttons — rangers land here (the ID form is role-gated to
+          ranger), and rangers have no Run Sheet tab; their home for tracking
+          logged IDs is My IDs, so the primary CTA and glyph match that tab. */}
       <div className="mt-6 flex w-full flex-col gap-2">
-        <VercoButton href="/field/run-sheet" className="w-full">
+        <VercoButton href="/field/my-ids" className="w-full">
           <svg
             width="16"
             height="16"
@@ -92,10 +94,14 @@ export function Confirmation({
             strokeLinecap="round"
             strokeLinejoin="round"
           >
-            <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
-            <rect x="8" y="2" width="8" height="4" rx="1" />
+            <line x1="8" y1="6" x2="21" y2="6" />
+            <line x1="8" y1="12" x2="21" y2="12" />
+            <line x1="8" y1="18" x2="21" y2="18" />
+            <line x1="3" y1="6" x2="3.01" y2="6" />
+            <line x1="3" y1="12" x2="3.01" y2="12" />
+            <line x1="3" y1="18" x2="3.01" y2="18" />
           </svg>
-          Back to Run Sheet
+          View My IDs
         </VercoButton>
         <Link
           href="/field/illegal-dumping/new"

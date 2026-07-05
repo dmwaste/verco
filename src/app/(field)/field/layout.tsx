@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from 'next'
 import { redirect } from 'next/navigation'
 import { headers } from 'next/headers'
 import { createClient } from '@/lib/supabase/server'
+import { getRangerScope } from '@/lib/field/ranger-scope'
 import { FieldLayoutClient } from './field-layout-client'
 
 // PWA metadata scoped to the field surface via this nested layout — a root
@@ -53,14 +54,24 @@ export default async function FieldLayout({
 
   const roleLabel = role === 'ranger' ? 'Ranger' : 'Field Staff'
 
-  // Get accessible collection area codes for header display
-  const { data: areas } = await supabase
-    .from('collection_area')
-    .select('code')
-    .eq('is_active', true)
-    .order('code')
-
-  const areaCodes = (areas ?? []).map((a) => a.code).join(' · ')
+  // Collection-area codes for the header pill. collection_area is public-SELECT
+  // (RLS USING(true)) — a raw query returns EVERY client's areas, so a ranger
+  // must app-filter to their own scope (else a Verge Valet ranger sees KWN-*).
+  // Rangers are client-scoped via getRangerScope; field crew are
+  // contractor-tier and legitimately span all clients, so they keep the
+  // full active list.
+  let areaCodes = ''
+  if (role === 'ranger') {
+    const scope = await getRangerScope(supabase)
+    areaCodes = scope?.areaCodes.join(' · ') ?? ''
+  } else {
+    const { data: areas } = await supabase
+      .from('collection_area')
+      .select('code')
+      .eq('is_active', true)
+      .order('code')
+    areaCodes = (areas ?? []).map((a) => a.code).join(' · ')
+  }
 
   // Fetch tenant branding for white-label CSS variables
   const headerStore = await headers()

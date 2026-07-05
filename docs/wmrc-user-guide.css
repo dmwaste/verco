@@ -1,185 +1,312 @@
-/* Verge Valet brand-aligned print styles for the WMRC tester guide */
+/* =========================================================
+   D&M Waste Management — print design system
+   Applied to the Verge Valet — WMRC User Guide.
+   Tokens + rules derived from the D&M Waste Management Design
+   System (v1.0, April 2026). Navy dominant, green single accent,
+   Poppins display / DM Sans body, no left-border callouts.
+   ========================================================= */
+
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=DM+Sans:wght@400;500;600;700&display=swap');
+
+:root {
+  --dm-navy: #293F52;
+  --dm-navy-dark: #234054;
+  --dm-green: #00E47C;
+  --navy-900: #1A2D3B;
+  --navy-500: #3A5A73;
+  --navy-300: #8FA5B8;
+  --navy-100: #C7D3DD;
+  --navy-50:  #E8EEF2;
+  --green-900: #009152;
+  --green-700: #00B864;
+  --green-50:  #E8FDF0;
+  --grey-900: #1A1A1A;
+  --grey-700: #4A4A4A;
+  --grey-500: #7A7A7A;
+  --grey-100: #E8E8E8;
+  --grey-50:  #F5F5F5;
+  --amber-700: #CC6E30;
+  --amber-100: #FFE0CC;
+  --warning: #D69E2E;
+  --error: #E53E3E;
+  --info: #3182CE;
+  --purple: #7C5CBF;
+
+  --font-display: 'Poppins', 'Helvetica Neue', Arial, sans-serif;
+  --font-body: 'DM Sans', 'Helvetica Neue', Arial, sans-serif;
+  --font-mono: 'JetBrains Mono', 'SF Mono', 'Menlo', 'Consolas', monospace;
+}
+
+/* ── Page setup ──────────────────────────────────────────── */
 @page {
   size: A4;
-  margin: 18mm 16mm 18mm 16mm;
+  margin: 20mm 18mm 18mm 18mm;
+  @bottom-left {
+    content: "D&M Waste Management  ·  Verge Valet — WMRC User Guide";
+    font-family: 'DM Sans', Arial, sans-serif;
+    font-size: 8pt;
+    color: #7A7A7A;
+  }
   @bottom-right {
     content: "Page " counter(page) " of " counter(pages);
-    font-family: 'Inter', 'Helvetica Neue', Arial, sans-serif;
-    font-size: 9pt;
-    color: #6b7280;
+    font-family: 'DM Sans', Arial, sans-serif;
+    font-size: 8pt;
+    color: #7A7A7A;
   }
-  @bottom-left {
-    content: "Verge Valet — WMRC Tester Guide · v1.1";
-    font-family: 'Inter', 'Helvetica Neue', Arial, sans-serif;
-    font-size: 9pt;
-    color: #6b7280;
-  }
+}
+@page cover {
+  margin: 0;
+  @bottom-left { content: none; }
+  @bottom-right { content: none; }
 }
 
 html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 
 body {
-  font-family: 'Inter', 'Helvetica Neue', Arial, sans-serif;
+  font-family: var(--font-body);
   font-size: 10.5pt;
   line-height: 1.55;
-  color: #1f2937;
-  max-width: 100%;
+  color: var(--grey-700);
   margin: 0;
   padding: 0;
+  -webkit-font-smoothing: antialiased;
 }
 
-h1, h2, h3, h4 {
-  font-family: 'Poppins', 'Helvetica Neue', Arial, sans-serif;
-  color: #293F52;
+/* ── Cover page ──────────────────────────────────────────── */
+.dm-cover {
+  page: cover;
+  page-break-after: always;
+  position: relative;
+  box-sizing: border-box;
+  width: 100%;
+  height: 296mm;
+  padding: 26mm 24mm;
+  background: linear-gradient(135deg, #1A2D3B 0%, #293F52 100%);
+  color: #FFFFFF;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.dm-cover img { border: 0; box-shadow: none; border-radius: 0; margin: 0; max-width: none; width: auto; }
+.dm-cover .dm-cover-logo { width: 58mm; height: auto; display: block; }
+.dm-cover .dm-cover-body { margin-top: auto; }
+.dm-cover .dm-cover-eyebrow {
+  font-family: var(--font-body);
+  font-size: 10pt;
   font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--navy-100);
+  margin: 0 0 10mm 0;
+}
+.dm-cover h1.dm-cover-title {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 33pt;
+  line-height: 1.08;
+  letter-spacing: -0.02em;
+  color: #FFFFFF;
+  margin: 0;
+  border: 0;
+  padding: 0;
+  max-width: 150mm;
+}
+.dm-cover .dm-cover-rule {
+  width: 64px;
+  height: 5px;
+  background: var(--dm-green);
+  border-radius: 999px;
+  margin: 9mm 0 8mm 0;
+}
+.dm-cover .dm-cover-sub {
+  font-family: var(--font-body);
+  font-size: 12.5pt;
+  line-height: 1.5;
+  color: var(--navy-100);
+  margin: 0;
+  max-width: 140mm;
+}
+.dm-cover .dm-cover-meta {
+  margin-top: 14mm;
+  font-family: var(--font-body);
+  font-size: 9.5pt;
+  line-height: 1.7;
+  color: var(--navy-100);
+}
+.dm-cover .dm-cover-meta strong { color: #FFFFFF; font-weight: 600; }
+
+/* ── Typography ──────────────────────────────────────────── */
+h1, h2, h3, h4 {
+  font-family: var(--font-display);
+  color: var(--dm-navy);
+  letter-spacing: -0.01em;
+  line-height: 1.2;
   page-break-after: avoid;
+  text-wrap: balance;
 }
-
 h1 {
-  font-size: 26pt;
-  border-bottom: 3px solid #00E47C;
-  padding-bottom: 8px;
-  margin-top: 0;
-  margin-bottom: 20px;
+  font-size: 23pt;
+  font-weight: 700;
+  line-height: 1.1;
+  margin: 0 0 6px 0;
+  padding-bottom: 9px;
+  border-bottom: 3px solid var(--dm-green);
 }
-
 h2 {
-  font-size: 17pt;
-  margin-top: 32px;
+  font-size: 16pt;
+  font-weight: 600;
+  margin-top: 30px;
   margin-bottom: 10px;
-  border-bottom: 1px solid #e5e7eb;
-  padding-bottom: 4px;
-  page-break-before: auto;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--grey-100);
 }
-
 h3 {
   font-size: 13pt;
+  font-weight: 600;
   margin-top: 20px;
-  margin-bottom: 8px;
-  color: #293F52;
+  margin-bottom: 7px;
+  color: var(--dm-navy);
 }
-
 h4 {
   font-size: 11pt;
-  margin-top: 14px;
-  margin-bottom: 6px;
-  color: #4b5563;
+  font-weight: 600;
+  margin-top: 15px;
+  margin-bottom: 5px;
+  color: var(--navy-500);
 }
 
-p {
-  margin: 8px 0;
-  orphans: 3;
-  widows: 3;
-}
+p { margin: 8px 0; orphans: 3; widows: 3; }
+strong { color: var(--grey-900); font-weight: 600; }
+em { color: var(--grey-700); }
 
-strong { color: #111827; font-weight: 600; }
-em { color: #374151; }
+.eyebrow {
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 9pt;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--green-900);
+}
 
 code {
-  font-family: 'JetBrains Mono', 'Menlo', 'Consolas', monospace;
-  font-size: 9.5pt;
-  background: #f3f4f6;
-  color: #be123c;
+  font-family: var(--font-mono);
+  font-size: 9pt;
+  background: var(--grey-50);
+  color: var(--navy-900);
   padding: 1px 5px;
-  border-radius: 3px;
+  border-radius: 4px;
+  border: 1px solid var(--grey-100);
 }
 
 pre {
-  background: #f9fafb;
-  border: 1px solid #e5e7eb;
-  border-left: 3px solid #00E47C;
-  padding: 10px 14px;
-  border-radius: 4px;
+  background: var(--grey-50);
+  border: 1px solid var(--grey-100);
+  border-top: 3px solid var(--dm-green);
+  padding: 12px 16px;
+  border-radius: 10px;
   overflow-x: auto;
-  font-size: 9.5pt;
+  font-size: 9pt;
   page-break-inside: avoid;
 }
+pre code { background: none; border: 0; color: var(--navy-900); padding: 0; }
 
-pre code { background: none; color: #1f2937; padding: 0; }
-
+/* ── Callouts — brand card with a green TOP bar (never a left-border-only) ── */
 blockquote {
-  border-left: 4px solid #00E47C;
-  margin: 12px 0;
-  padding: 6px 14px;
-  background: #f0fdf4;
-  color: #166534;
-  border-radius: 0 3px 3px 0;
+  margin: 14px 0;
+  padding: 12px 16px 12px 16px;
+  background: var(--navy-50);
+  border: 1px solid var(--grey-100);
+  border-top: 3px solid var(--dm-green);
+  border-radius: 0 0 10px 10px;
+  color: var(--grey-700);
   page-break-inside: avoid;
 }
+blockquote p { margin: 4px 0; }
+blockquote strong { color: var(--dm-navy); }
 
-blockquote strong { color: #14532d; }
-
+/* ── Tables — navy header, hairline rows ─────────────────── */
 table {
   border-collapse: collapse;
   width: 100%;
-  margin: 12px 0;
-  font-size: 10pt;
+  margin: 14px 0;
+  font-size: 9.5pt;
+  font-variant-numeric: tabular-nums;
   page-break-inside: avoid;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid var(--grey-100);
 }
-
 th {
-  background: #293F52;
-  color: white;
-  padding: 8px 10px;
-  text-align: left;
+  background: var(--dm-navy);
+  color: #FFFFFF;
+  font-family: var(--font-display);
   font-weight: 600;
+  font-size: 9pt;
+  letter-spacing: 0.01em;
+  padding: 9px 11px;
+  text-align: left;
 }
-
+/* Inline emphasis / links inside a navy header must stay light (never dark-on-navy) */
+th strong, th a, th em { color: #FFFFFF; }
+th code { color: #FFFFFF; background: rgba(255, 255, 255, 0.14); border-color: rgba(255, 255, 255, 0.22); }
+th a { border-bottom-color: rgba(255, 255, 255, 0.4); }
 td {
-  padding: 7px 10px;
-  border-bottom: 1px solid #e5e7eb;
+  padding: 8px 11px;
+  border-bottom: 1px solid var(--grey-100);
   vertical-align: top;
+  color: var(--grey-700);
+}
+tr:last-child td { border-bottom: 0; }
+tr:nth-child(even) td { background: var(--grey-50); }
+
+/* ── Links ───────────────────────────────────────────────── */
+a {
+  color: var(--navy-500);
+  text-decoration: none;
+  border-bottom: 1px solid var(--navy-100);
 }
 
-tr:nth-child(even) td { background: #f9fafb; }
+/* ── Lists ───────────────────────────────────────────────── */
+ul, ol { margin: 8px 0; padding-left: 22px; }
+li { margin: 3px 0; }
+li::marker { color: var(--green-700); }
 
+hr { border: 0; border-top: 1px solid var(--grey-100); margin: 22px 0; }
+
+/* ── Images — brand card framing (full width; guide mixes phone + desktop shots) ── */
 img {
   max-width: 100%;
   height: auto;
   display: block;
-  margin: 14px auto;
-  border: 1px solid #d1d5db;
-  border-radius: 4px;
-  box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+  margin: 16px auto;
+  border: 1px solid var(--grey-100);
+  border-radius: 12px;
+  box-shadow: 0 8px 20px -6px rgba(26, 45, 59, 0.14), 0 2px 4px rgba(26, 45, 59, 0.06);
   page-break-inside: avoid;
-  page-break-after: auto;
 }
 
-ul, ol {
-  margin: 8px 0;
-  padding-left: 22px;
-}
-
-li { margin: 3px 0; }
-
-a {
-  color: #00874e;
-  text-decoration: none;
-  border-bottom: 1px dotted #00E47C;
-}
-
-hr {
-  border: none;
-  border-top: 1px solid #e5e7eb;
-  margin: 22px 0;
-}
-
-/* Table of contents */
-#TOC, .toc, nav#TOC {
-  background: #f9fafb;
-  border-left: 3px solid #293F52;
-  padding: 10px 18px;
+/* ── Table of contents ───────────────────────────────────── */
+#TOC, nav#TOC {
+  background: var(--grey-50);
+  border: 1px solid var(--grey-100);
+  border-top: 3px solid var(--dm-green);
+  padding: 14px 20px;
   margin: 16px 0 28px 0;
-  border-radius: 0 4px 4px 0;
+  border-radius: 0 0 10px 10px;
   page-break-after: always;
 }
-
 #TOC ul { list-style: none; padding-left: 12px; }
 #TOC > ul { padding-left: 0; }
+#TOC a { border-bottom: 0; color: var(--dm-navy); }
 
-/* Force section breaks for major chapters */
+/* ── Status dots — brand replacement for status emoji ────── */
+.tl { display: inline-block; width: 9px; height: 9px; border-radius: 50%; vertical-align: middle; margin-right: 3px; }
+.tl-g { background: var(--green-700); }
+.tl-a { background: var(--warning); }
+.tl-r { background: var(--error); }
+.tl-b { background: var(--info); }
+.tl-p { background: var(--purple); }
+.tl-n { background: var(--grey-300, #B0B0B0); }
+
+/* Force each major section (H2) onto a new page */
 h2 { page-break-before: always; }
-h1 + h2:first-of-type { page-break-before: avoid; } /* Don't break right after title */
-
-/* But not for the first H2 (Table of contents header if any) */
-.title-block + h2 { page-break-before: avoid; }
