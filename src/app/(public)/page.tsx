@@ -359,7 +359,7 @@ export default async function LandingPage() {
             <img src={branding.logo_light_url} alt={branding.name} className="h-6 w-auto" />
           ) : (
             <div className="flex size-6 items-center justify-center rounded-md bg-[var(--brand-accent)] font-[family-name:var(--font-heading)] text-body-sm md:text-body font-bold text-[var(--brand)]">
-              V
+              {branding.name.charAt(0) || 'V'}
             </div>
           )}
           <span className="text-body-sm md:text-body text-[#8FA5B8]">

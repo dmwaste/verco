@@ -16,6 +16,10 @@ import { isAdminHostname, isFieldHostname } from '@/lib/proxy/hostnames'
 export interface AuthBrandCopy {
   serviceName: string
   contextLabel: string
+  /** 'verco' on the operator hosts (admin/field) → render the Verco logo lockup.
+   *  'tenant' on resident subdomains → render the tenant's own initial + service
+   *  name (never the Verco mark — white-label). */
+  variant: 'verco' | 'tenant'
 }
 
 export function postLoginPathForHost(host: string): string {
@@ -33,20 +37,20 @@ export async function resolveAuthHostContext(): Promise<{
 
   if (isAdminHostname(host)) {
     return {
-      brand: { serviceName: 'Verco Admin', contextLabel: 'Operator sign-in' },
+      brand: { serviceName: 'Verco Admin', contextLabel: 'Operator sign-in', variant: 'verco' },
       postLoginPath: '/admin',
     }
   }
   if (isFieldHostname(host)) {
     return {
-      brand: { serviceName: 'Verco Crew', contextLabel: 'Field sign-in' },
+      brand: { serviceName: 'Verco Crew', contextLabel: 'Field sign-in', variant: 'verco' },
       postLoginPath: '/field',
     }
   }
 
   // Client subdomain: pull display name from the resolved tenant.
   const clientId = headerStore.get('x-client-id')
-  let brand: AuthBrandCopy = { serviceName: 'Verge Collection', contextLabel: '' }
+  let brand: AuthBrandCopy = { serviceName: 'Verge Collection', contextLabel: '', variant: 'tenant' }
 
   if (clientId) {
     const supabase = await createClient()
@@ -59,6 +63,7 @@ export async function resolveAuthHostContext(): Promise<{
       brand = {
         serviceName: client.service_name ?? 'Verge Collection',
         contextLabel: client.name,
+        variant: 'tenant',
       }
     }
   }

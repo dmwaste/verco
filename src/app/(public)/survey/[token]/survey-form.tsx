@@ -171,6 +171,8 @@ export function SurveyForm({
           prefer_service: preferService,
           other_comments: otherComments,
         }}
+        serviceName={serviceName}
+        logoUrl={clientLogoUrl}
       />
     )
   }
