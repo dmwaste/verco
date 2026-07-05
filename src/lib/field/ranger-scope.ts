@@ -7,6 +7,8 @@ export interface RangerScope {
   subClientId: string | null
   /** Active collection-area ids the ranger may see (sub-client narrowed). */
   areaIds: string[]
+  /** Codes for the same scoped areas, ordered — drives the header pill. */
+  areaCodes: string[]
   clientName: string
   placeOutHoursBefore: number
 }
@@ -16,7 +18,9 @@ export interface RangerScope {
  * the proxy never sets x-client-id, and the tables they search
  * (eligible_properties, collection_area, collection_date) are public-SELECT
  * — RLS does NOT tenant-scope them (CLAUDE.md §21). Every ranger query MUST
- * app-filter through this scope's areaIds or clientId.
+ * app-filter through this scope's areaIds or clientId — including the field
+ * layout's header pill, which reads areaCodes (a raw collection_area query
+ * would leak every client's codes, e.g. KWN-* to a Verge Valet ranger).
  *
  * Source of truth is the ranger's own user_roles row (RLS: user_id =
  * auth.uid()), narrowed to a sub-client when user_roles.sub_client_id is set
@@ -44,9 +48,10 @@ export async function getRangerScope(
 
   let areaQuery = supabase
     .from('collection_area')
-    .select('id')
+    .select('id, code')
     .eq('client_id', roleRow.client_id)
     .eq('is_active', true)
+    .order('code')
   if (roleRow.sub_client_id) {
     areaQuery = areaQuery.eq('sub_client_id', roleRow.sub_client_id)
   }
@@ -67,6 +72,7 @@ export async function getRangerScope(
     clientId: roleRow.client_id,
     subClientId: roleRow.sub_client_id,
     areaIds: (areas ?? []).map((a) => a.id),
+    areaCodes: (areas ?? []).map((a) => a.code),
     clientName: client.name,
     placeOutHoursBefore: client.place_out_hours_before,
   }
