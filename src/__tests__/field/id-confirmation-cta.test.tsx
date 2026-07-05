@@ -30,6 +30,17 @@ describe('ID confirmation primary CTA', () => {
     expect(cta).toHaveAttribute('href', '/field/my-ids')
   })
 
+  it('carries the My-IDs list glyph, not the old run-sheet clipboard', () => {
+    renderConfirmation()
+
+    const cta = screen.getByRole('link', { name: /View My IDs/i })
+    // Guard the glyph, not just the href — the My-IDs tab uses a list icon
+    // (<line> strokes), the old run-sheet CTA a clipboard (<rect>). A future
+    // edit could restore the clipboard while keeping the correct link.
+    expect(cta.querySelector('line[x1="8"][y1="6"][x2="21"]')).not.toBeNull()
+    expect(cta.querySelector('rect')).toBeNull()
+  })
+
   it('has no link to /field/run-sheet (rangers cannot open it)', () => {
     renderConfirmation()
 

@@ -22,6 +22,8 @@ interface MockOpts {
   areas: Array<{ id: string; code: string }>
   client: { name: string; place_out_hours_before: number } | null
   record: { areaFilters: EqFilter[] }
+  /** Optional per-table query error — exercises the fail-closed branch. */
+  errors?: { collection_area?: unknown; client?: unknown }
 }
 
 function makeSupabase(opts: MockOpts) {
@@ -37,10 +39,16 @@ function makeSupabase(opts: MockOpts) {
     b.maybeSingle = () =>
       Promise.resolve({ data: table === 'user_roles' ? opts.roleRow : null, error: null })
     b.single = () =>
-      Promise.resolve({ data: table === 'client' ? opts.client : null, error: null })
+      Promise.resolve({
+        data: table === 'client' ? opts.client : null,
+        error: table === 'client' ? (opts.errors?.client ?? null) : null,
+      })
     // collection_area is awaited directly (no single) → the builder is thenable.
-    b.then = (resolve: (r: { data: unknown; error: null }) => void) =>
-      resolve({ data: table === 'collection_area' ? opts.areas : null, error: null })
+    b.then = (resolve: (r: { data: unknown; error: unknown }) => void) =>
+      resolve({
+        data: table === 'collection_area' ? opts.areas : null,
+        error: table === 'collection_area' ? (opts.errors?.collection_area ?? null) : null,
+      })
     return b
   }
   return {
@@ -119,6 +127,58 @@ describe('getRangerScope — tenant-scoped area set', () => {
         record: { areaFilters: [] },
       }),
     )
+    expect(scope).toBeNull()
+  })
+
+  it('returns an empty scope (not null) for a valid ranger with zero areas', async () => {
+    const scope = await getRangerScope(
+      makeSupabase({
+        userId: 'u1',
+        roleRow: { client_id: VV, sub_client_id: null },
+        areas: [],
+        client: { name: 'Verge Valet', place_out_hours_before: 24 },
+        record: { areaFilters: [] },
+      }),
+    )
+
+    // Zero assigned areas is a valid state (blank header pill) — distinct from a
+    // query failure, which must fail closed to null (below).
+    expect(scope).not.toBeNull()
+    expect(scope?.areaCodes).toEqual([])
+    expect(scope?.areaIds).toEqual([])
+  })
+
+  it('fails closed (null) when the collection_area query errors', async () => {
+    const scope = await getRangerScope(
+      makeSupabase({
+        userId: 'u1',
+        roleRow: { client_id: VV, sub_client_id: null },
+        areas: [],
+        client: { name: 'Verge Valet', place_out_hours_before: 24 },
+        record: { areaFilters: [] },
+        errors: { collection_area: { message: 'boom' } },
+      }),
+    )
+
+    // A transient area-query failure must surface as "no scope", never as an
+    // empty area set (which reads as "no areas assigned").
+    expect(scope).toBeNull()
+  })
+
+  it('fails closed (null) when the client query errors', async () => {
+    const scope = await getRangerScope(
+      makeSupabase({
+        userId: 'u1',
+        roleRow: { client_id: VV, sub_client_id: null },
+        areas: VV_AREAS,
+        client: null,
+        record: { areaFilters: [] },
+        errors: { client: { message: 'boom' } },
+      }),
+    )
+
+    // A client-lookup failure must not mint a scope with placeOutHoursBefore: 0
+    // (which would skew the place-out verdict).
     expect(scope).toBeNull()
   })
 })
