@@ -1,6 +1,7 @@
 import { EmailEntryForm } from './email-entry-form'
 import { resolveAuthHostContext } from './_host-context'
 import { VercoLogo } from '@/app/landing/logos'
+import { TenantBrandMark } from '@/components/branding/tenant-brand-mark'
 
 export default async function AuthPage() {
   const { brand } = await resolveAuthHostContext()
@@ -15,9 +16,13 @@ export default async function AuthPage() {
             <VercoLogo variant="colour" />
           ) : (
             <div className="flex items-center gap-2.5">
-              <div className="flex size-10 items-center justify-center rounded-[10px] bg-[var(--brand-accent)] font-[family-name:var(--font-heading)] text-title font-bold text-[var(--brand)]">
-                {brand.serviceName.charAt(0) || 'V'}
-              </div>
+              <TenantBrandMark
+                name={brand.serviceName}
+                logoUrl={brand.logoUrl}
+                boxClass="h-10 rounded-[10px]"
+                logoClass="h-7"
+                textClass="text-title"
+              />
               <span className="font-[family-name:var(--font-heading)] text-title font-bold text-[var(--brand)]">
                 {brand.serviceName}
               </span>

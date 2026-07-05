@@ -20,7 +20,6 @@ interface SurveyByToken {
 interface SurveyBranding {
   logoUrl: string | null
   serviceName: string
-  clientName: string
 }
 
 /**
@@ -35,7 +34,6 @@ async function getSurveyBranding(
   const fallback: SurveyBranding = {
     logoUrl: null,
     serviceName: 'Verge Collection',
-    clientName: 'Verge Collection',
   }
   const clientId = (await headers()).get('x-client-id')
   if (!clientId) return fallback
@@ -53,7 +51,6 @@ async function getSurveyBranding(
     return {
       logoUrl: data.logo_light_url,
       serviceName: data.service_name ?? data.name,
-      clientName: data.name,
     }
   } catch {
     return fallback
@@ -113,7 +110,6 @@ export default async function SurveyPage({ params }: SurveyPageProps) {
         serviceChips={survey.service_chips}
         clientLogoUrl={branding.logoUrl}
         serviceName={branding.serviceName}
-        clientName={branding.clientName}
       />
     </main>
   )

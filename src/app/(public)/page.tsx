@@ -2,6 +2,7 @@ import Link from 'next/link'
 import { headers } from 'next/headers'
 import { createClient } from '@/lib/supabase/server'
 import { HeroSearch } from './hero-search'
+import { TenantBrandMark } from '@/components/branding/tenant-brand-mark'
 
 interface ClientBranding {
   name: string
@@ -355,13 +356,13 @@ export default async function LandingPage() {
       {/* Footer */}
       <footer className="flex flex-col items-center justify-between gap-4 bg-[var(--brand-hover)] px-8 py-8 sm:flex-row lg:px-20">
         <div className="flex items-center gap-3">
-          {branding.logo_light_url ? (
-            <img src={branding.logo_light_url} alt={branding.name} className="h-6 w-auto" />
-          ) : (
-            <div className="flex size-6 items-center justify-center rounded-md bg-[var(--brand-accent)] font-[family-name:var(--font-heading)] text-body-sm md:text-body font-bold text-[var(--brand)]">
-              {branding.name.charAt(0) || 'V'}
-            </div>
-          )}
+          <TenantBrandMark
+            name={branding.name}
+            logoUrl={branding.logo_light_url}
+            boxClass="h-6 rounded-md"
+            logoClass="h-6"
+            textClass="text-body-sm md:text-body"
+          />
           <span className="text-body-sm md:text-body text-[#8FA5B8]">
             &copy; {new Date().getFullYear()} {branding.name}
             {branding.privacy_policy_url && (
