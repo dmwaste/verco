@@ -1,4 +1,4 @@
-import { DmLogo } from './logos'
+import { DmLogo } from '@/components/branding/verco-logo'
 
 /** Operator credibility band + page footer. */
 export function OperatedBy() {
