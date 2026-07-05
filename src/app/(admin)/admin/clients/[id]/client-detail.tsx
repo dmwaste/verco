@@ -4,6 +4,7 @@ import { Suspense } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { cn } from '@/lib/utils'
 import { BackLink } from '@/components/admin/back-link'
+import { TenantBrandMark } from '@/components/branding/tenant-brand-mark'
 import type { Database } from '@/lib/supabase/types'
 import { GeneralTab } from './tabs/general-tab'
 import { BrandingTab } from './tabs/branding-tab'
@@ -60,7 +61,6 @@ export function ClientDetail({ client, subClients, categories, services }: Clien
   const router = useRouter()
   const activeTab = (searchParams.get('tab') as TabKey) || 'general'
   const colour = client.primary_colour ?? '#293F52'
-  const initial = client.name.charAt(0).toUpperCase()
 
   function setTab(tab: TabKey) {
     const params = new URLSearchParams(searchParams.toString())
@@ -75,12 +75,14 @@ export function ClientDetail({ client, subClients, categories, services }: Clien
         <div className="bg-white px-7 pb-0 pt-6">
           <BackLink href="/admin/clients" label="Back to Clients" />
           <div className="mb-4 flex items-center gap-3">
-            <div
-              className="flex size-9 shrink-0 items-center justify-center rounded-lg font-[family-name:var(--font-heading)] text-sm font-bold text-white"
-              style={{ backgroundColor: colour }}
-            >
-              {initial}
-            </div>
+            <TenantBrandMark
+              name={client.name}
+              logoUrl={client.logo_light_url}
+              colour={colour}
+              boxClass="h-9 rounded-lg"
+              logoClass="h-6"
+              textClass="text-sm"
+            />
             <div>
               <h1 className="font-[family-name:var(--font-heading)] text-lg font-bold text-[#293F52]">
                 {client.name}

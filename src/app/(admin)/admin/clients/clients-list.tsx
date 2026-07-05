@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import Link from 'next/link'
 import { PageHeader } from '@/components/admin/page-header'
 import { Pill } from '@/components/status-badge'
+import { TenantBrandMark } from '@/components/branding/tenant-brand-mark'
 
 export function ClientsList() {
   const supabase = createClient()
@@ -14,7 +15,7 @@ export function ClientsList() {
     queryFn: async () => {
       const { data } = await supabase
         .from('client')
-        .select('id, name, slug, is_active, primary_colour, collection_area(count), sub_client(count)')
+        .select('id, name, slug, is_active, primary_colour, logo_light_url, collection_area(count), sub_client(count)')
         .order('name')
       return data ?? []
     },
@@ -65,7 +66,6 @@ export function ClientsList() {
               const areaCount = (client.collection_area as unknown as { count: number }[])?.[0]?.count ?? 0
               const subClientCount = (client.sub_client as unknown as { count: number }[])?.[0]?.count ?? 0
               const colour = client.primary_colour ?? '#293F52'
-              const initial = client.name.charAt(0).toUpperCase()
 
               return (
                 <Link
@@ -74,12 +74,14 @@ export function ClientsList() {
                   className="rounded-xl border-[1.5px] border-gray-100 bg-white p-5 transition-shadow hover:shadow-md"
                 >
                   <div className="mb-3 flex items-center gap-3">
-                    <div
-                      className="flex size-10 shrink-0 items-center justify-center rounded-lg font-[family-name:var(--font-heading)] text-base font-bold text-white"
-                      style={{ backgroundColor: colour }}
-                    >
-                      {initial}
-                    </div>
+                    <TenantBrandMark
+                      name={client.name}
+                      logoUrl={client.logo_light_url}
+                      colour={colour}
+                      boxClass="h-10 rounded-lg"
+                      logoClass="h-7"
+                      textClass="text-base"
+                    />
                     <div className="min-w-0 flex-1">
                       <div className="truncate text-body font-semibold text-[#293F52]">{client.name}</div>
                       <div className="text-2xs text-gray-400">{client.slug}</div>

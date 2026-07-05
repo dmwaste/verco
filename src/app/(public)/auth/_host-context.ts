@@ -16,6 +16,12 @@ import { isAdminHostname, isFieldHostname } from '@/lib/proxy/hostnames'
 export interface AuthBrandCopy {
   serviceName: string
   contextLabel: string
+  /** 'verco' on the operator hosts (admin/field) → render the Verco logo lockup.
+   *  'tenant' on resident subdomains → render the tenant's own logo/initial on
+   *  its primary colour (never the Verco mark — white-label). */
+  variant: 'verco' | 'tenant'
+  /** Tenant light logo (tenant variant only); null → initial fallback. */
+  logoUrl: string | null
 }
 
 export function postLoginPathForHost(host: string): string {
@@ -33,32 +39,39 @@ export async function resolveAuthHostContext(): Promise<{
 
   if (isAdminHostname(host)) {
     return {
-      brand: { serviceName: 'Verco Admin', contextLabel: 'Operator sign-in' },
+      brand: { serviceName: 'Verco Admin', contextLabel: 'Operator sign-in', variant: 'verco', logoUrl: null },
       postLoginPath: '/admin',
     }
   }
   if (isFieldHostname(host)) {
     return {
-      brand: { serviceName: 'Verco Crew', contextLabel: 'Field sign-in' },
+      brand: { serviceName: 'Verco Crew', contextLabel: 'Field sign-in', variant: 'verco', logoUrl: null },
       postLoginPath: '/field',
     }
   }
 
-  // Client subdomain: pull display name from the resolved tenant.
+  // Client subdomain: pull display name + logo from the resolved tenant.
   const clientId = headerStore.get('x-client-id')
-  let brand: AuthBrandCopy = { serviceName: 'Verge Collection', contextLabel: '' }
+  let brand: AuthBrandCopy = {
+    serviceName: 'Verge Collection',
+    contextLabel: '',
+    variant: 'tenant',
+    logoUrl: null,
+  }
 
   if (clientId) {
     const supabase = await createClient()
     const { data: client } = await supabase
       .from('client')
-      .select('name, service_name')
+      .select('name, service_name, logo_light_url')
       .eq('id', clientId)
       .single()
     if (client) {
       brand = {
         serviceName: client.service_name ?? 'Verge Collection',
         contextLabel: client.name,
+        variant: 'tenant',
+        logoUrl: client.logo_light_url,
       }
     }
   }

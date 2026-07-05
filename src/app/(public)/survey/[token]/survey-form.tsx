@@ -6,6 +6,7 @@ import { format } from 'date-fns'
 import { submitSurvey, type SurveyResponses } from './actions'
 import { ThankYou } from './thank-you'
 import { VercoButton } from '@/components/ui/verco-button'
+import { TenantBrandMark } from '@/components/branding/tenant-brand-mark'
 import { cn } from '@/lib/utils'
 
 interface ServiceChip {
@@ -21,7 +22,6 @@ interface SurveyFormProps {
   serviceChips: ServiceChip[]
   clientLogoUrl: string | null
   serviceName: string
-  clientName: string
 }
 
 const REPAIR_OPTIONS = [
@@ -84,7 +84,6 @@ export function SurveyForm({
   serviceChips,
   clientLogoUrl,
   serviceName,
-  clientName,
 }: SurveyFormProps) {
   const router = useRouter()
 
@@ -171,6 +170,8 @@ export function SurveyForm({
           prefer_service: preferService,
           other_comments: otherComments,
         }}
+        serviceName={serviceName}
+        logoUrl={clientLogoUrl}
       />
     )
   }
@@ -180,13 +181,13 @@ export function SurveyForm({
       {/* Header */}
       <div className="shrink-0 bg-[var(--brand)] px-5 pb-5 pt-4 sm:mt-6 sm:rounded-xl">
         <div className="mb-2.5 flex items-center gap-2">
-          {clientLogoUrl ? (
-            <img src={clientLogoUrl} alt={clientName} className="h-8 w-auto" />
-          ) : (
-            <div className="flex size-[26px] items-center justify-center rounded-[6px] bg-[var(--brand-accent)] font-[family-name:var(--font-heading)] text-sm font-bold text-[var(--brand)]">
-              {serviceName.charAt(0) || 'V'}
-            </div>
-          )}
+          <TenantBrandMark
+            name={serviceName}
+            logoUrl={clientLogoUrl}
+            boxClass="h-9 rounded-md"
+            logoClass="h-6"
+            textClass="text-base"
+          />
         </div>
         <h1 className="mb-1 font-[family-name:var(--font-heading)] text-lg font-bold text-white">
           Customer Satisfaction Survey

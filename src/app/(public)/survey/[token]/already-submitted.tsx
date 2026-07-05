@@ -1,20 +1,20 @@
 'use client'
 
 import { VercoButton } from '@/components/ui/verco-button'
+import { SurveyBrandHeader } from './survey-brand-header'
 
-export function AlreadySubmitted() {
+export function AlreadySubmitted({
+  serviceName,
+  logoUrl,
+}: {
+  serviceName: string
+  logoUrl: string | null
+}) {
   return (
     <div className="flex min-h-screen flex-col bg-white">
       {/* Header */}
       <div className="shrink-0 bg-[var(--brand)] px-5 pb-5 pt-4">
-        <div className="flex items-center gap-2">
-          <div className="flex size-[26px] items-center justify-center rounded-[6px] bg-[var(--brand-accent)] font-[family-name:var(--font-heading)] text-sm font-bold text-[var(--brand)]">
-            V
-          </div>
-          <span className="font-[family-name:var(--font-heading)] text-body font-bold text-white">
-            Verge Collection
-          </span>
-        </div>
+        <SurveyBrandHeader serviceName={serviceName} logoUrl={logoUrl} />
       </div>
 
       {/* Content */}
