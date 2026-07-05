@@ -1412,6 +1412,7 @@ export type Database = {
           collection_date_id: string
           completed_at: string | null
           completed_by: string | null
+          completion_synced_at: string | null
           created_at: string
           driver_name: string | null
           driver_notes: string | null
@@ -1440,6 +1441,7 @@ export type Database = {
           collection_date_id: string
           completed_at?: string | null
           completed_by?: string | null
+          completion_synced_at?: string | null
           created_at?: string
           driver_name?: string | null
           driver_notes?: string | null
@@ -1468,6 +1470,7 @@ export type Database = {
           collection_date_id?: string
           completed_at?: string | null
           completed_by?: string | null
+          completion_synced_at?: string | null
           created_at?: string
           driver_name?: string | null
           driver_notes?: string | null
