@@ -1,7 +1,7 @@
 # Verge Valet — WMRC User Guide
 
 **For:** WMRC team members trialling the Verge Valet portal before go-live — both the **resident** experience (Parts A + B) and the **admin operational** workflows their staff will run after launch (Part C).
-**Version:** 1.2 — 2026-05-28 _(Part C admin sections — draft in progress, screenshots pending; see `docs/screenshots/ADMIN-CAPTURE-CHECKLIST.md`)_
+**Version:** 1.3 — 2026-07-05 _(refreshed for all UAT-era developments — T&Cs gate, post-collection surveys, SMS notifications, admin ID intake, Reports dashboard, and more. Several screenshots are flagged for re-capture after the admin UI refresh — see the revision log.)_
 **Audience:** WMRC team members and member-council staff (Mosman Park, Cottesloe, Peppermint Grove, Cambridge, Vincent, Fremantle, South Perth, Subiaco, Victoria Park) — covering resident-side testing AND client-staff back-office training.
 
 ---
@@ -16,6 +16,10 @@ This document walks through Verge Valet from **two angles**:
 Each part is self-contained — if you're a customer service officer, work through A + B; if you're an operations lead or supervisor, A + B will give you context for what residents are seeing, then C tells you what to do about it.
 
 This guide tells you exactly what to expect, what to type, and where to look — with screenshots of every step taken from the live UAT site.
+
+> **Related guide — the field app.** Council **rangers** who check verge piles and log illegal dumping in the field use a separate mobile app, documented in **`docs/wmrc-ranger-guide.md`** (Verge Valet — Ranger Field App Guide). This guide does not cover the field/ranger app.
+
+> **What's new since v1.2 (the UAT-era developments).** This revision folds in everything that shipped during UAT: the **Terms & Conditions** acceptance step (§2.6), **SMS** notifications alongside email, the availability-calendar **date step** (§2.4), the post-collection **feedback survey** (§3.7), the admin **Illegal Dumping / ID intake** form (§4.8), the **Reports** analytics dashboard (§4.9), the admin **Surveys** module (§4.10), the **Registered** gate on MUD bookings (§4.6), and per-council **sub-client scoping** (§4.1). The admin UI also had a design refresh and the booking detail moved from a slide-over panel to a full page — so **Part C screenshots are being re-captured** (see revision log).
 
 ---
 
@@ -36,14 +40,18 @@ This guide tells you exactly what to expect, what to type, and where to look —
    - 3.4 Edit a booking
    - 3.5 Cancel a booking
    - 3.6 Dispute a non-conformance notice or "nothing presented"
+   - 3.7 After your collection — the feedback survey
 4. [Part C — Admin operational workflows (client-staff)](#4-part-c--admin-operational-workflows-client-staff)
    - 4.1 Sign in to the admin app + dashboard orientation
    - 4.2 Looking up a booking
-   - 4.3 Reading the booking detail panel
+   - 4.3 Reading the booking detail
    - 4.4 Helping a resident — confirm, pay, cancel
    - 4.5 Triaging exceptions — NCN, Nothing Presented, refunds
    - 4.6 Multi-unit dwellings (strata) — booking on behalf
    - 4.7 Service tickets — your customer service queue
+   - 4.8 Logging an illegal-dumping collection
+   - 4.9 Reports — the council analytics dashboard
+   - 4.10 Surveys — resident feedback
 5. [Suggested dummy-booking scenarios](#5-suggested-dummy-booking-scenarios)
 6. [Tester tips & FAQs](#6-tester-tips--faqs)
 7. [Reporting issues](#7-reporting-issues)
@@ -211,22 +219,24 @@ And a bottom totals strip shows:
 
 Page header: **"Select Collection Date"** (step 3).
 
-![Date picker grid](screenshots/08-date-picker.png)
+> **Updated since v1.2 — screenshots 08/09 being re-captured.** The date step is now an **availability calendar** (it used to be a plain list of date tiles). The two screenshots below show the old list layout; the wording and outcome are the same, but the visual has changed — the re-shoot is tracked in the revision log.
 
-Above the date grid, a "Selected Services" chip strip (e.g. *"General × 1"*).
+![Date picker grid (old layout — being re-captured)](screenshots/08-date-picker.png)
 
-Below, a **3-column grid of available collection dates**. Each tile shows:
+Above the calendar, a "Selected Services" chip strip (e.g. *"General × 1"*).
 
-- Day of week, day of month, month name
-- Number of remaining "spots" (e.g. *"60 spots"*)
-- Orange **"Almost full"** label if 10 or fewer spots remain
-- A green **"Selected ✓"** highlight on the date you tap
+Below, a **calendar of available collection dates**. Each bookable date carries a small status chip:
 
-If no dates are available for this collection area, you'll see *"No available dates for this collection area."* — that means the collection schedule for this area hasn't been opened up for bookings yet.
+- **Available** (green) — spots free.
+- **Low Availability** (amber) — **10 or fewer** spots left; book soon.
+- Dates with no capacity, or not yet opened for this area, are not selectable.
+- Tapping a date highlights it as **Selected ✓**.
 
-![Date tile selected](screenshots/09-date-selected.png)
+If no dates are available for this collection area, that means the collection schedule for this area hasn't been opened up for bookings yet — or the area hasn't been switched **Active** for go-live (see §4.1 on staged rollout).
 
-**Action:** Click a date tile, then **Next Step →**.
+![Date tile selected (old layout — being re-captured)](screenshots/09-date-selected.png)
+
+**Action:** Click a date, then **Next Step →**.
 
 > **Behind the scenes:** For Verge Valet, multiple sub-clients share a single pooled capacity called the **MCP pool**. The dates and remaining spots you see reflect that pool — not the individual sub-council. (For the Vincent test data above, you'll see Vincent's own dates.)
 
@@ -290,6 +300,18 @@ Label changes depending on the booking:
 - **Confirm Booking** (green) — free booking, no payment required
 - **Proceed to Payment** (yellow-green) — there are paid extras
 
+#### Accept the Terms & Conditions _(new since v1.2)_
+
+<!-- SCREENSHOT: 33-tcs-dialog.png — the Terms & Conditions acceptance dialog on the confirm page -->
+
+When you click the submit button, a **Terms & Conditions** dialog appears before the booking is created. It shows the council's terms (scrollable), with a single **"I accept…"** checkbox pinned at the bottom.
+
+- **Tick the box** to enable the accept/continue button, then proceed.
+- Verco records *which version* of the terms you accepted, *when*, and *how* (web) against the booking — so there's a clear audit trail.
+- This step appears for **both guest and signed-in residents**, and for bookings staff make on a resident's behalf.
+
+> **Data-driven — it only appears when a council has published terms.** Verge Valet's terms are live, so residents see this step. If a council hasn't entered terms yet, the step is silently skipped. Staff enter/maintain the terms in the admin app (`/admin/clients/{id}` → **Terms & Conditions** tab).
+
 #### What happens when you click Submit
 
 **If you're already signed in** (e.g. you previously verified your email earlier in the session), the booking is created immediately.
@@ -298,7 +320,7 @@ Label changes depending on the booking:
 
 ![Inline OTP verification panel on confirm page](screenshots/14-otp-panel.png)
 
-> *"Verify Email — We sent a 6-digit code to {your email}"*
+> *"Verify email to confirm booking — We sent a 6-digit code to {your email}"*
 
 1. **Check your inbox.** The email subject is *"Your VERCO OTP"* from **`bookings@verco.au`** and arrives within seconds.
 2. **Type the 6 digits** into the boxes. The form auto-submits when you finish the last digit.
@@ -317,6 +339,8 @@ Label changes depending on the booking:
 - A green "Payment received — confirming your booking…" banner shows briefly while the system catches the Stripe webhook and flips the status to **Confirmed**.
 
 If you cancel out of Stripe, you return to your booking page in **Pending Payment** status with a "Pay Now" button you can click to try again.
+
+> **You'll get an SMS too _(new since v1.2)_.** Once a booking is confirmed, Verge Valet sends **both an email and an SMS** confirmation (sender ID **"VergeValet"**), and again as a **collection reminder** a couple of days before the collection date. The SMS carries a short link (`verco.au/b/{ref}`) back to the booking. Testers should expect a text as well as the email.
 
 > **Common tester mistake:** Forgetting to check email for the OTP. The form sits there waiting and looks frozen. The fix is always to check the inbox.
 
@@ -482,6 +506,18 @@ Same shape as NCN but without the photos and reason — just the date the field 
 
 NCNs and NPs auto-close to **Closed** after **14 days** if not disputed. After auto-close, the dispute button no longer appears.
 
+### 3.7 After your collection — the feedback survey _(new since v1.2)_
+
+<!-- SCREENSHOT: 34-survey.png — the standalone tenant-branded feedback survey page -->
+
+Once a collection is marked **Completed**, the resident is emailed a short **feedback survey** with a link to `/survey/{token}`.
+
+- The survey page is a **standalone, tenant-branded form** — just the council logo and the questions, no site navigation. It opens **without signing in** (the link itself is the key).
+- It asks a fixed set of questions: whether they tried to **repair or sell** the items first, **star ratings** for the booking and the collection, an **overall rating**, free-text comments, and a *"Do you prefer …?"* service-preference question.
+- **One response per link.** Re-opening a link you've already submitted shows an "already submitted" screen; a network hiccup shows a friendly retry screen (never a broken-page error).
+
+Staff don't need to do anything here — responses flow into the admin **Surveys** module and the dashboard's "Recent Survey Feedback" card (§4.10), and feed the satisfaction metrics on the **Reports** dashboard (§4.9).
+
 ---
 
 ## 4. Part C — Admin operational workflows (client-staff)
@@ -492,7 +528,7 @@ The admin app uses the **same sign-in mechanism as the resident portal** (passwo
 
 > **Audience note:** Most of what's described here is available to anyone with the **client-staff** role. A few actions (importing properties, geocoding the address database, sender configuration) are restricted to **client-admin** or to D&M's contractor-admin team — those are called out inline when they appear.
 
-> **Capture status (v1.2 draft):** the screenshots referenced as `21-…` through `32-…` will be captured by the WMRC walkthrough described in `docs/screenshots/ADMIN-CAPTURE-CHECKLIST.md`. Section text below has been written from a live walk-through of the UAT app on 2026-05-28 — verify the wording matches what you see when you capture, and flag anything that has shifted.
+> **Capture status (v1.3):** the admin section text below is current as of **2026-07-05**, verified against the live app. The Part C **screenshots are being re-captured** — the admin UI had a design refresh during UAT (unified status pills, filters, headers and forms), the booking **detail moved from a slide-over panel to a full page** (§4.3), and the header now carries the full **Verco logo**. So the `21-…`–`32-…` placeholders plus the new-feature shots (ID intake, Reports, Surveys) are all pending a fresh capture pass — see `docs/screenshots/ADMIN-CAPTURE-CHECKLIST.md` and the revision log. **Trust the words and outcomes here; the exact visuals will match once the re-shoot lands.**
 
 ### 4.1 Sign in to the admin app + dashboard orientation
 
@@ -510,13 +546,16 @@ The admin dashboard has six visible regions:
 - **Global search box** — search bookings by reference (e.g. `COT-E88PNN`), address, or contact name. Hits any booking your role can see.
 - **Avatar initials** (top right) — your account menu
 
-**Sidebar (left), grouped into three:**
+**Sidebar (left), grouped into sections:**
 - **GENERAL** — Dashboard (where you are)
-- **OPERATIONS** — Bookings, Collection Dates, Properties, MUDs, Illegal Dumping, Allocations
+- **OPERATIONS** — Bookings, Collection Dates, Properties, MUDs, Illegal Dumping (§4.8), Allocations _(and **Run Sheets**, which is **D&M-contractor-only** — council staff won't see it)_
 - **EXCEPTIONS** — Non-Conformance, Nothing Presented
-- **CUSTOMER** — Service Tickets, Refunds
+- **CUSTOMER** — Service Tickets, Refunds, **Surveys** (§4.10)
+- **INSIGHTS** — **Reports** (§4.9)
+- **ADMIN** — Users, Notifications, Audit Log
+- **CONFIGURATION** _(contractor-admin only — Bug Reports, Clients, Notification Templates)_
 
-The Bookings link carries a number badge (e.g. **5**) when there are pending-payment bookings still incomplete.
+The Bookings link carries a number badge (e.g. **5**) when there are pending-payment bookings still incomplete. Which items you see depends on your role and **sub-client scoping** (below) — a council-scoped staff account sees a trimmed set.
 
 **Main area — four stat cards:**
 
@@ -527,10 +566,13 @@ The Bookings link carries a number badge (e.g. **5**) when there are pending-pay
 | Open Exceptions | NCN + Nothing-Presented notices still unresolved |
 | Open Tickets | Service tickets in any non-Resolved status |
 
-Below the stats are two side-by-side panels:
+Below the stats are panels (the dashboard was reworked during UAT, so the layout differs from earlier screenshots — a re-capture is tracked in the revision log):
 
 - **Upcoming Collection Dates** — the next collection days for each area, with a small bar showing utilisation (`0/60`, `47/60`, etc.). Click "View all" to drill into the full schedule.
-- **This Week's Summary** — booking counts in each status (Submitted, Confirmed, Completed, Cancelled, Non-Conformance, Nothing Presented). At a glance you can see whether the week looks healthy or whether exceptions are piling up.
+- **This Week's Summary** — booking counts in each status (Confirmed, Completed, Cancelled, Non-Conformance, Nothing Presented).
+- **Recent Survey Feedback** _(new since v1.2)_ — the latest resident survey responses (§4.10), so you can see satisfaction at a glance without leaving the dashboard.
+
+> **Sub-client scoping — what a council-staff user sees may be narrowed to their own council _(new since v1.2)_.** Verge Valet is one Verco "client" with several member councils as **sub-clients**. A staff account can be scoped to a **single sub-client** — e.g. a **City of Cockburn (COT)** login sees only COT bookings, notices, tickets and surveys across the *entire* admin app, and zero Mosman Park or Vincent data. WMRC head-office staff (no narrowing) see everything. This is set when the account is created (§ADMIN → Users). If a colleague "can't see a booking you can see", sub-client scoping is the usual reason.
 
 **Bottom-right floating button:** *"Report a bug"* — opens a small form for logging UI issues to the D&M dev team. Use this for *unexpected app behaviour* (a button doesn't work, a value is wrong). For *customer service problems* (a resident's request you can't fulfil), use Service Tickets — see §4.7.
 
@@ -549,6 +591,9 @@ This is the workhorse screen. Click **Bookings** in the sidebar — you land on 
 - **All Statuses** dropdown — narrow to a single status (Confirmed, Pending Payment, Cancelled, Non-conformance, Nothing Presented, Scheduled, Submitted, Completed, Rebooked)
 - **All Areas** dropdown — narrow to a single sub-client area (CAM-A, COT, MOS, PEP, FRE-N, FRE-S, SUB, VIN, SOP, VIC, KWN-1, KWN-2 …)
 - **All Types** dropdown — Residential vs. MUD vs. Illegal Dumping
+- **All Services** dropdown _(new since v1.2)_ — narrow to bookings containing a given service (General, Green, …)
+- **Date range** _(new since v1.2)_ — restrict to collection dates within a from/to window
+- **Column sorting** _(new since v1.2)_ — click the Ref / Type / Status / Created / Area headers to sort
 
 The *"Showing X of Y"* count updates live as you filter.
 
@@ -589,17 +634,17 @@ The *"Showing X of Y"* count updates live as you filter.
 
 ---
 
-### 4.3 Reading the booking detail panel
+### 4.3 Reading the booking detail
 
-Click any row in the bookings list — the right side of the screen opens a **slide-over panel** with everything about that booking.
+Click any row in the bookings list to open the booking's **detail page** with everything about that booking.
 
-<!-- SCREENSHOT: 24-admin-booking-detail-confirmed.png — Confirmed booking, slideover open -->
+> **Changed since v1.2 — it's a full page now, not a slide-over.** The detail used to open as a panel over the list; it's now a **dedicated full page** (`/admin/bookings/<uuid>`). Use your browser Back button (or the Bookings link) to return to the list. The old "slide-over" screenshots are being re-captured.
 
-The URL updates to `/admin/bookings/<uuid>` (a long random ID, not the human-readable ref). You can copy this URL to share a specific booking with a colleague — they'll land on the same view.
+<!-- SCREENSHOT: 24-admin-booking-detail-confirmed.png — Confirmed booking detail (full page) -->
 
-> **A quirk worth knowing.** The main area to the left of the slideover keeps saying *"Select a booking to view details"* while the panel is open — that's not a bug, it's the empty-state for when you close the panel. To close the panel: click the **X** in the panel's top-right, or hit Esc.
+The URL is `/admin/bookings/<uuid>` (a long random ID, not the human-readable ref). You can copy this URL to share a specific booking with a colleague — they'll land on the same view.
 
-The panel has the following sections, stacked top-to-bottom:
+The page has the following sections, stacked top-to-bottom:
 
 #### Header
 
@@ -636,6 +681,7 @@ Every change to this booking, oldest at the top:
 - "Service item created" — when each service line was added
 - "0 fields updated" — system housekeeping events (often duplicated; safe to ignore for now)
 - Click any entry to expand the field-level diff
+- **Actor names now resolve** _(improved since v1.2)_ — a resident-made change shows the **resident's name** rather than a generic "System", so you can tell who did what at a glance.
 
 Use the timeline to answer disputes: *"the resident says they didn't add Green"* → check whether the Green line came in at create time or was added later, and by whom.
 
@@ -648,7 +694,7 @@ These change based on the booking's current status:
 | **Pending Payment** | **Pay Now** (green outline) → opens Stripe Checkout; **Cancel Booking** (red outline) |
 | **Submitted** (legacy) | **Confirm Booking** (green) → flips to Confirmed; **Cancel Booking** (red outline) |
 | **Confirmed** | **Cancel Booking** (red outline) — until 3:30pm the day before |
-| **Scheduled** | **Cancel Booking** (red outline) — staff-only post-cutoff override; see §4.4e |
+| **Scheduled** | **Cancel Booking** (red outline) — staff-only post-cutoff override; see §4.4e. **D&M contractor staff can also Reschedule** a Scheduled booking _(new since v1.2)_ — previously it was locked once scheduled. |
 | **Completed** / **Cancelled** / **Non-conformance** / **Nothing Presented** | No state-changing buttons here; raise a new booking from the bookings list instead |
 
 <!-- SCREENSHOT: 25-admin-booking-detail-pending-payment.png — Pending Payment booking with Pay Now + Cancel Booking buttons visible -->
@@ -813,15 +859,17 @@ A **MUD** is any property where verge collections can't be arranged by individua
 
 <!-- SCREENSHOT: 30-admin-muds-list.png — MUDs table with status cards visible -->
 
-Four status cards at the top:
-- **Contact Made** — strata manager has been identified + contacted, but not yet onboarded
-- **Registered** — strata manager has an admin-bound account; can be booked on behalf of
-- **Inactive** — strata building is flagged as not currently subscribed (e.g. opted out, demolished)
+Status cards at the top:
+- **Contact Made** — strata manager identified + contacted, but onboarding not yet complete
+- **Registered** — fully onboarded; **this is the only status you can book on behalf of**
+- **Inactive** — flagged as not currently subscribed (e.g. opted out, demolished)
 - **Not Set** — no strata status assigned yet
+
+> **The "Registered" gate _(clarified since v1.2)_.** A MUD only becomes **Registered** — and therefore bookable — once **all three** of these are on file: a **signed Auth form**, a **strata contact** (name + email + mobile), and **waste-location notes**. The admin-on-behalf booking flow **rejects any MUD that isn't Registered**, so if "Book Collection" is blocked, check which of the three is missing. (Admin-on-behalf remains the *only* way to book a MUD — there's still no strata self-service portal.)
 
 **Filter strip:** Search by address/MUD code, All areas, All statuses.
 
-**Columns:** ADDRESS / AREA / MUD CODE (e.g. `FRE-MUD-58`) / UNITS / STATUS / STRATA CONTACT / CADENCE (**Quarterly** = fixed schedule, **Ad-hoc** = request-by-request) / ACTIONS.
+**Columns:** ADDRESS / AREA / MUD CODE (e.g. `FRE-MUD-58`) / UNITS / STATUS / STRATA CONTACT / **AUTH FORM** _(new — the signed authorisation form, opened via a short-lived secure link)_ / CADENCE (**Quarterly** = fixed schedule, **Ad-hoc** = request-by-request) / ACTIONS.
 
 #### b) Converting a property into a MUD
 
@@ -882,7 +930,7 @@ The Service Tickets queue is where resident-side enquiries land that aren't dire
 1. **Filter** to Status = "New" + Assigned = empty — the unclaimed queue
 2. **Open** the highest-priority ticket
 3. **Read** the resident's message + any linked booking
-4. **Assign** yourself (or your colleague) so others don't double-handle
+4. **Assign** yourself (or your colleague) so others don't double-handle — the **Assign-to** list is scoped to staff who can actually take the ticket, and the ticket now surfaces the **contact** to reach the resident on _(improved since v1.2)_
 5. **Reply** via the ticket comment thread (the resident is emailed)
 6. **Change status** to "Awaiting Resident" if you're waiting on them, or "Resolved" once handled
 7. **Close** after the resident confirms or after 7 days of silence on Resolved status
@@ -891,14 +939,75 @@ The Service Tickets queue is where resident-side enquiries land that aren't dire
 
 ---
 
+### 4.8 Logging an illegal-dumping collection _(new since v1.2)_
+
+**URL:** `https://vvtest.verco.au/admin/illegal-dumping`
+
+Illegal dumping (an **ID**) is waste dumped where there's no booking. IDs are raised two ways: by **rangers in the field** (using the ranger app — separate guide) and by **office staff** here in the admin app. This section covers the office-staff path.
+
+<!-- SCREENSHOT: 35-admin-id-list.png — Illegal Dumping list -->
+
+The list heading reads **"Illegal Dumping"** with the subtitle *"ID collections — raised by rangers in the field and office staff"*. To log one from the desk:
+
+1. Click **New ID Collection** → `/admin/illegal-dumping/new`.
+
+   <!-- SCREENSHOT: 36-admin-id-new.png — the New ID Collection form -->
+
+2. **Address** — type it in; Google Places autocomplete resolves it to a precise location (place ID → coordinates).
+3. **Collection area** — the form **auto-selects the matching area** from the address. If the address falls outside that area, you get a **soft amber warning** and can switch the area with one click.
+4. **Waste type**, **estimated volume**, and **at least one photo** of the dump.
+5. **Collection date** — pick from the available dates (capacity is **pool-aware** for Verge Valet's shared pool, so the spots you see are the real remaining capacity).
+6. **Submit** — you'll see **"ID Collection Logged"** and it appears in the list, ready for a crew.
+
+> **Volume is an estimate, not a bill.** The volume you enter is a *guide for the crew*. The amount actually collected — and billed — is confirmed by the crew at closeout, the same way MUD counts work. Don't over-think the estimate.
+
+---
+
+### 4.9 Reports — the council analytics dashboard _(new since v1.2)_
+
+**URL:** `https://vvtest.verco.au/admin/reports` — under **INSIGHTS** in the sidebar.
+
+<!-- SCREENSHOT: 37-admin-reports.png — the Reports dashboard -->
+
+The Reports page is your at-a-glance view of how Verge Valet is performing for your council. It has four bands:
+
+1. **Headline numbers** — **Total Collections**, **Open Notices** (NCN + NP), **Open Tickets**.
+2. **Insights** — a **Service Breakdown** donut (General vs Green vs …) and an **NCN Types** donut (why collections were non-conformant).
+3. **Customer Satisfaction** — **Booking**, **Service** and **Overall** rating cards, plus a *"Do you prefer …?"* preference donut (Yes / No / Indifferent). These are fed by the resident **surveys** (§3.7 / §4.10).
+4. **Service Level** — a grid of eight SLA cards, each with a **period selector**, a **value**, a **target**, and a **12-month sparkline**:
+   - Service Delivery · On-Time Collection · Rectification ≤ 2 Days · Ticket First Response · Ticket Resolution · Self-Service Rate · Notification Delivery · Property Penetration.
+
+> **Some metrics are D&M-internal.** A couple of the SLA cards (Self-Service Rate, Notification Delivery) are contractor-operational and are **hidden from council-staff logins** — so a WMRC/member-council user sees a slightly reduced set. That's by design, not a fault.
+
+---
+
+### 4.10 Surveys — resident feedback _(new since v1.2)_
+
+**URL:** `https://vvtest.verco.au/admin/surveys` — under **CUSTOMER** in the sidebar.
+
+<!-- SCREENSHOT: 38-admin-surveys.png — Surveys list + summary -->
+
+After every completed collection, residents are invited to a short feedback survey (§3.7). Their responses land here:
+
+- **List** — every response, newest first.
+- **Detail** (`/admin/surveys/{id}`) — the resident's answers laid out against each question.
+- **Summary panel** — aggregate ratings and a **response rate** (measured against the number of *completed* bookings, with a data-quality flag if the sample is thin).
+- **Export CSV** — pull the raw responses for your own reporting.
+
+You'll also see the latest handful of responses on the admin **Dashboard** ("Recent Survey Feedback"), and the ratings roll up into the **Reports** dashboard's Customer Satisfaction band (§4.9). No action is required — this is a listening tool.
+
+---
+
 ### What's NOT in this guide (yet)
 
-A few admin surfaces exist but are deferred from v1.2 because they're either contractor-admin-only or not yet relevant to client-staff training:
+A few surfaces are deliberately left out — either they're **D&M-contractor-only** (council staff never see them) or they're not yet relevant to client-staff training:
 
+- **Run Sheets** (`/admin/run-sheets`) — printable daily crew run sheets. **Contractor-only**; hidden from council staff. Not part of council operations.
+- **Notification Templates** (`/admin/notifications/templates`) — a read-only catalog of the transactional email/SMS templates. **Contractor-admin only.**
 - **Collection Dates** — the schedule administration UI. Mostly contractor-admin; client-staff read-only.
 - **Allocations** — per-area allocation rules. Contractor-admin only.
-- **Illegal Dumping** — separate workflow at `/admin/illegal-dumping`; covered in a future revision once the Illegal Dumping module hits broader use.
-- **User management** — creating new admin users for your sub-council. Client-admin only; documented separately in `wmrc-onboarding-staff.md` (planned).
+- **User management** — creating new admin users for your sub-council (and setting their **sub-client scope**, §4.1). Client-admin only; a dedicated onboarding guide is planned.
+- **The ranger field app** — checking piles and logging illegal dumping in the field. Covered in its own guide, **`docs/wmrc-ranger-guide.md`**.
 
 If you find yourself needing one of these in day-to-day work and it's not in this guide yet, ping Dan and we'll prioritise the addition.
 
@@ -922,6 +1031,8 @@ Pick three to five testers, give each one a fresh test email, and run the follow
 | 10 | Run through OTP sign-in with a wrong code | Inline error message, can retry or request a new code |
 | 11 | Hit the OTP rate limit (request 3 codes in quick succession) | "For security purposes, you can only request this after N seconds" |
 | 12 | Receive an NCN (requires coordination with field tester) and dispute it | NCN card with dispute button → Disputed status |
+| 13 | Reach the confirm page and try to submit without ticking Terms & Conditions | Accept-terms dialog appears; submit is blocked until you tick the box |
+| 14 | Complete a booking, then open the survey link from the confirmation email | Standalone tenant-branded survey page; one submission per link |
 
 For each scenario, **note the booking reference** (e.g. `COT-E88PNN`) so the admin testers can pick it up from the back-office side.
 
@@ -941,6 +1052,9 @@ Pair these with resident scenarios above — one tester runs the resident half, 
 | A8 | Convert a residential property into a MUD via `/admin/properties` → kebab menu → "Convert to MUD" | Property disappears from `/admin/properties`, appears in `/admin/muds` with status "Contact Made" |
 | A9 | Raise a service ticket on behalf of a resident (use the kebab menu on a booking) | Ticket appears in `/admin/service-tickets`; resident is notified; status starts as "New" |
 | A10 | Walk a colleague through the audit trail for a booking that's been edited | ACTIVITY timeline shows each change with field-level diff; you can name who made the change and when |
+| A11 | Log an illegal-dumping collection from `/admin/illegal-dumping/new` | Address autocompletes, area auto-selects, "ID Collection Logged" on submit; appears in the Illegal Dumping list |
+| A12 | Open the Reports dashboard (`/admin/reports`) | Headline numbers, service/NCN donuts, satisfaction cards, and the 8 SLA cards render (council view hides the contractor-only metrics) |
+| A13 | Open Surveys (`/admin/surveys`) after a completed booking's survey is submitted | The response appears in the list and detail; the summary panel shows the aggregate rating and response rate |
 
 ---
 
@@ -962,6 +1076,15 @@ A: Three possibilities:
 1. **Stale code** — you requested a new code, which invalidates the previous one. Use only the *latest* code received.
 2. **Rate limit** — repeated request_new_code clicks trigger a Supabase cooldown. Wait 30 seconds before trying again.
 3. **Typo** — easy to do under time pressure. Use copy-paste from the email if you can.
+
+**Q: Do residents get a text message as well as email?**
+A: Yes. Verge Valet sends **both email and SMS** for the booking confirmation and the collection reminder (sender ID "VergeValet"). The SMS has a short link back to the booking. In UAT the SMS goes to whatever mobile number you enter on the booking, so use a real number you can check if you want to test it.
+
+**Q: What's the Terms & Conditions step on the confirm page?**
+A: New during UAT. When a council has published terms, residents must tick "I accept" before the booking is created (§2.6). Verge Valet's terms are live, so you'll see it. It's recorded against the booking for audit.
+
+**Q: A resident got a survey link after their collection — is that real?**
+A: Yes (§3.7). Once a collection is marked Completed, the resident is emailed a short feedback survey at a `/survey/…` link that opens without signing in. Responses show up under admin **Surveys** (§4.10) and on the **Reports** dashboard (§4.9).
 
 **Q: The dashboard says "Good morning" but it's afternoon.**
 A: That's intentional — the greeting changes based on the time of day in **Perth time**. If you're testing from outside WA, it may not match your local clock.
@@ -1000,13 +1123,14 @@ Inside the admin app, the floating **"Report a bug"** button (bottom-right corne
 
 ---
 
-**Document version:** 1.2
-**Last updated:** 2026-05-28
-**Next review:** after first round of WMRC dummy bookings + first admin-side walkthrough
+**Document version:** 1.3
+**Last updated:** 2026-07-05
+**Next review:** after the Part C screenshot re-capture pass (see below)
 
 ### Revision log
 
+- **1.3 — 2026-07-05**: Refreshed for all UAT-era developments. **Resident:** added the **Terms & Conditions** acceptance step (§2.6), **SMS** notifications alongside email (§2.6), the availability-calendar **date step** (§2.4), and the post-collection **feedback survey** (§3.7); reworded the email-verification heading; scrubbed "Submitted" as a normal new-booking state. **Admin (Part C):** added **Illegal Dumping / ID intake** (§4.8), the **Reports** analytics dashboard (§4.9), and the **Surveys** module (§4.10); documented **sub-client scoping** (§4.1), the MUD **Registered** gate + Auth-form column (§4.6), contractor **reschedule** of Scheduled bookings (§4.3), bookings-list date-range/sort/services filters (§4.2), and the sidebar's new **Insights → Reports** / **Customer → Surveys** sections; flagged **Run Sheets** and **Notification Templates** as contractor-only (out of scope). Cross-linked the new ranger field-app guide. **Screenshots pending re-capture:** the admin UI had a design refresh, the booking detail moved from a slide-over panel to a **full page**, and the resident landing + date step were redesigned — so Part A shots `01`, `08`, `09` and all Part C shots (`21`–`32`), plus the new-feature shots (`33`–`38`), are being re-captured in a follow-up pass. Text is verified current as of 2026-07-05.
 - **1.2 — 2026-05-28**: Added Part C (admin operational workflows) covering sign-in, bookings list/detail, confirm/pay/cancel, exception triage (NCN/NP/refunds), MUD admin-on-behalf, and service tickets. Renumbered subsequent sections. Added admin-side dummy-booking scenarios (A1–A10). Renamed file from `wmrc-resident-tester-guide.md` to `wmrc-user-guide.md` to reflect the broader audience. Admin screenshots (21-32) captured separately per `docs/screenshots/ADMIN-CAPTURE-CHECKLIST.md`.
 - **1.1 — 2026-05-19**: Initial release. Resident booking + management flow (Parts A + B), screenshots 01-20.
 
-*Resident-side screenshots (01-20) were captured live from `vvtest.verco.au` on 2026-05-19. Admin-side screenshots (21-32) were captured 2026-05-28. The UI may evolve before go-live — the words and outcomes are stable; the colours and exact layouts may differ slightly.*
+*Resident-side screenshots (01-20) were captured live from `vvtest.verco.au` on 2026-05-19. The UI has since evolved — the words and outcomes are kept current, but several screenshots pre-date the UAT-era redesigns and are flagged inline for re-capture. When in doubt, trust the text.*
