@@ -1,11 +1,3 @@
-# Verge Valet — Ranger Field App Guide
-
-**For:** Council rangers working Verge Valet catchments — checking verge piles against bookings and logging illegal dumping from the field.
-**Version:** 1.1 — 2026-07-05 _(all screens captured live from `field.verco.au`, including the post-submit confirmation via a controlled test booking that was cancelled immediately)_
-**Audience:** WMRC and member-council rangers issued a Verco **ranger** login (e.g. City of Cockburn, Town of Mosman Park, and other Verge Valet member councils). Covers everything the ranger field app does — nothing else in Verco is in your view.
-
----
-
 ## What this guide is
 
 The Verco **ranger app** does two jobs, and only two:
@@ -18,35 +10,6 @@ That's it. You **raise** the report; the **crew collects it**. You will never ma
 The app runs in your phone's web browser (or as a home-screen icon). Everything below is written so you can follow it standing at a pile with one hand on your phone.
 
 > **A note on privacy.** Rangers get **zero contact details** — no names, no emails, no phone numbers, ever. It's not hidden behind a setting; the app simply never loads it. You'll see the **address**, the **booking reference**, the **services booked**, and the **collection status** — enough to judge a pile, nothing that identifies a resident.
-
----
-
-## Table of contents
-
-1. [Before you start — access & orientation](#1-before-you-start--access--orientation)
-   - 1.1 What you can and can't do
-   - 1.2 Signing in
-   - 1.3 Add it to your phone's home screen
-   - 1.4 The screen furniture
-   - 1.5 Your patch — how your areas are set
-2. [The core job — booking or illegal dumping?](#2-the-core-job--booking-or-illegal-dumping)
-   - 2.1 Look up the address
-   - 2.2 Read the verdict
-   - 2.3 The place-out window, explained
-   - 2.4 Quick decision table
-3. [Raising an illegal dumping (ID) report](#3-raising-an-illegal-dumping-id-report)
-   - 3.1 Two ways to start
-   - 3.2 Location
-   - 3.3 Describe the waste
-   - 3.4 Photos
-   - 3.5 Collection date
-   - 3.6 Notes for the crew
-   - 3.7 Submit & confirmation
-   - 3.8 What happens after you submit
-4. [Tracking your reports — My IDs](#4-tracking-your-reports--my-ids)
-5. [Worked field scenarios](#5-worked-field-scenarios)
-6. [Tips & FAQs](#6-tips--faqs)
-7. [Getting help & reporting problems](#7-getting-help--reporting-problems)
 
 ---
 
@@ -148,17 +111,17 @@ This is the heart of the app. You're standing at a verge pile. Is it a resident'
 
 Tapping a property opens its detail screen. At the top: the address and an **Open in Google Maps** button. Then the app shows one of **three colour-coded verdict banners** — this is the answer.
 
-![🟢 Green — "Likely a legitimate booking": there's an upcoming collection and the place-out window is open. Leave it.](screenshots/ranger/R05-verdict-green.png)
+![Green — "Likely a legitimate booking": there's an upcoming collection and the place-out window is open. Leave it.](screenshots/ranger/R05-verdict-green.png)
 
-![🟠 Amber — "Booking exists, but placed out too early": there's a booking, but the resident put the pile out before the window opened.](screenshots/ranger/R05-verdict-amber.png)
+![Amber — "Booking exists, but placed out too early": there's a booking, but the resident put the pile out before the window opened.](screenshots/ranger/R05-verdict-amber.png)
 
-![🔴 Red — "No upcoming booking": nothing is booked at this address — a candidate for an ID.](screenshots/ranger/R05-verdict-red.png)
+![Red — "No upcoming booking": nothing is booked at this address — a candidate for an ID.](screenshots/ranger/R05-verdict-red.png)
 
 | Banner | Colour | What it means | What you do |
 |---|---|---|---|
-| **Likely a legitimate booking** | 🟢 Green | There's an upcoming booking **and** the place-out window is open — the resident is allowed to have the pile out. It shows the collection date and the time the window opened. | Leave it. It's booked and legal. |
-| **Booking exists — but placed out too early** | 🟠 Amber | There **is** a booking, but the resident put the pile out **before** the place-out window opened. It shows the collection date and when residents *may* place out from. | Not dumping — it's a booked pile out early. Handle per your council's early-placement policy (e.g. a courtesy word), **not** as an ID. |
-| **No upcoming booking** | 🔴 Red | No booking exists for this address. | Likely illegal dumping — **Raise ID at this address** (§3). |
+| **Likely a legitimate booking** | <span class="tl tl-g"></span> Green | There's an upcoming booking **and** the place-out window is open — the resident is allowed to have the pile out. It shows the collection date and the time the window opened. | Leave it. It's booked and legal. |
+| **Booking exists — but placed out too early** | <span class="tl tl-a"></span> Amber | There **is** a booking, but the resident put the pile out **before** the place-out window opened. It shows the collection date and when residents *may* place out from. | Not dumping — it's a booked pile out early. Handle per your council's early-placement policy (e.g. a courtesy word), **not** as an ID. |
+| **No upcoming booking** | <span class="tl tl-r"></span> Red | No booking exists for this address. | Likely illegal dumping — **Raise ID at this address** (§3). |
 
 Below the banner you also get context:
 
@@ -179,11 +142,11 @@ The banners always spell out the actual dates and times for that specific addres
 
 | At the pile, the app says… | Your call |
 |---|---|
-| 🟢 Likely a legitimate booking | Move on — booked and within the window. |
-| 🟠 Booking exists — placed out too early | Booked, but early. Council early-placement process, not an ID. |
-| 🔴 No upcoming booking | Raise an ID (§3). |
-| ⚪ No matches (address not eligible) | Raise an ID (§3). |
-| ⚠️ Search failed / Couldn't load history | Connection issue — get signal, retry/reload. Do **not** raise an ID off an error. |
+| <span class="tl tl-g"></span> Likely a legitimate booking | Move on — booked and within the window. |
+| <span class="tl tl-a"></span> Booking exists — placed out too early | Booked, but early. Council early-placement process, not an ID. |
+| <span class="tl tl-r"></span> No upcoming booking | Raise an ID (§3). |
+| <span class="tl tl-n"></span> No matches (address not eligible) | Raise an ID (§3). |
+| <span class="tl tl-a"></span> Search failed / Couldn't load history | Connection issue — get signal, retry/reload. Do **not** raise an ID off an error. |
 
 ---
 
@@ -363,12 +326,13 @@ For anything urgent (the app is down, or you can't sign in at all), contact D&M 
 
 ---
 
-**Document version:** 1.1
+**Document version:** 1.2
 **Last updated:** 2026-07-05
 **Next review:** after the first round of live ranger use
 
 ### Revision log
 
+- **1.2 — 2026-07-05**: Restyled to the **D&M Waste Management design system** (v1.0, April 2026) — Poppins display / DM Sans body, the navy `#293F52` + green `#00E47C` palette, a navy gradient cover with the D&M logo, brand callout cards (green top bar, not a left border), navy table headers, and a D&M running footer. Replaced the traffic-light emoji with brand status dots (design-system rule: no emoji).
 - **1.1 — 2026-07-05**: Added live screenshots captured on `field.verco.au` (sign-in, verify, app frame, address lookup, all three verdict banners — green/amber/red, the New ID form top + bottom, and the My IDs tab). Corrected example values against live data — area codes are bare (`COT`, `MOS`, `PEP`…), ID references are `{AREA}-{code}` e.g. `MOS-9ET76E`. The post-submit confirmation (R09) was captured via a controlled test ID (`PEP-AHMUY5`) that was cancelled immediately — cropped to the success + summary card so it doesn't show the pre-#305 button label. §3.7 documents the confirmation's primary CTA as **View My IDs** to match fix #305 (routes rangers to their My IDs list rather than a crew-only run sheet).
 - **1.0 — 2026-07-05**: Initial release. Full ranger field-app walkthrough — sign-in, orientation, the lookup/verdict flow (place-out window), raising illegal-dumping reports, tracking via My IDs, worked scenarios, and FAQs. Written from a live read of the ranger surfaces in the Verco codebase (`app/(field)/field/lookup`, `.../illegal-dumping/new`, `.../my-ids`).
 
