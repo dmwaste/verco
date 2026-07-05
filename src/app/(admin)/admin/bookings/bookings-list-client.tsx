@@ -7,7 +7,6 @@ import { format } from 'date-fns'
 import { createClient } from '@/lib/supabase/client'
 import { invokeEfWithUserToken } from '@/lib/supabase/invoke-ef-client'
 import { BookingStatusBadge } from '@/components/booking/booking-status-badge'
-import { RefreshRoutesButton } from '@/components/admin/refresh-routes-button'
 import { SkeletonRow } from '@/components/ui/skeleton'
 import { PageHeader } from '@/components/admin/page-header'
 import { FilterBar, SearchInput, FilterSelect, DateRangeFilter } from '@/components/admin/filter-bar'
@@ -61,12 +60,9 @@ interface BookingsListClientProps {
    *  cross-tenant leak for client-admins). */
   clientId: string
   isContractorAdmin: boolean
-  /** contractor-admin OR contractor-staff — gates the Refresh Routes button
-   *  (the pull EF's dual auth accepts both). */
-  isContractorUser: boolean
 }
 
-export function BookingsListClient({ clientId, isContractorAdmin, isContractorUser }: BookingsListClientProps) {
+export function BookingsListClient({ clientId, isContractorAdmin }: BookingsListClientProps) {
   const searchParams = useSearchParams()
   const supabase = createClient()
   const [payingBookingId, setPayingBookingId] = useState<string | null>(null)
@@ -322,7 +318,6 @@ export function BookingsListClient({ clientId, isContractorAdmin, isContractorUs
   return (
     <>
       <PageHeader title="Bookings" subtitle={`${total} bookings`}>
-        {isContractorUser && <RefreshRoutesButton />}
         {isContractorAdmin && (
           <button
             type="button"
