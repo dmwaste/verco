@@ -47,13 +47,13 @@ export const STREAM_SUFFIX: Record<WasteStream, string> = {
 }
 
 /**
- * Routing priority per stream. General runs first so the general and green
- * passes stay segregated — the engine schedules H-priority orders ahead of
- * the rest within a route.
+ * Routing priority per stream. Green runs first (High) so the green pass is
+ * scheduled ahead within a route; bulk (general) and ancillary are Medium.
+ * The engine schedules H-priority orders ahead of the rest within a route.
  */
 export const STREAM_PRIORITY: Record<WasteStream, 'H' | 'M'> = {
-  general: 'H',
-  green: 'M',
+  green: 'H',
+  general: 'M',
   ancillary: 'M',
   illegal_dumping: 'M',
 }

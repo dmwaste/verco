@@ -38,9 +38,9 @@ describe('buildOrderNo', () => {
 })
 
 describe('stream constants', () => {
-  it('general runs first (H priority); all other streams are M', () => {
-    expect(STREAM_PRIORITY.general).toBe('H')
-    expect(STREAM_PRIORITY.green).toBe('M')
+  it('green runs first (H priority); all other streams are M', () => {
+    expect(STREAM_PRIORITY.green).toBe('H')
+    expect(STREAM_PRIORITY.general).toBe('M')
     expect(STREAM_PRIORITY.ancillary).toBe('M')
     expect(STREAM_PRIORITY.illegal_dumping).toBe('M')
   })

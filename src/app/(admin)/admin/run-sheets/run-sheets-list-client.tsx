@@ -2,10 +2,11 @@
 
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { addDays, format, parseISO, subDays } from 'date-fns'
+import { addDays, format, formatDistanceToNow, parseISO, subDays } from 'date-fns'
 import { PageHeader } from '@/components/admin/page-header'
 import { Th } from '@/components/admin/th'
 import { StatusBadge, Pill } from '@/components/status-badge'
+import { RefreshRoutesButton } from '@/components/admin/refresh-routes-button'
 import { runStatus, UNASSIGNED_RUN_SEGMENT, type RunSummary } from '@/lib/stops/runs'
 import { awstDateFromUtc } from '@/lib/booking/schedule-transition'
 import { STREAM_LABEL } from '@/lib/stops/labels'
@@ -14,9 +15,10 @@ import type { WasteStream } from '@/lib/stops/stops'
 interface RunSheetsListClientProps {
   date: string
   runs: RunSummary[]
+  lastSyncedAt: string | null
 }
 
-export function RunSheetsListClient({ date, runs }: RunSheetsListClientProps) {
+export function RunSheetsListClient({ date, runs, lastSyncedAt }: RunSheetsListClientProps) {
   const router = useRouter()
 
   function goto(next: string) {
@@ -35,6 +37,12 @@ export function RunSheetsListClient({ date, runs }: RunSheetsListClientProps) {
         title="Run Sheets"
         subtitle={`${runs.length} ${runs.length === 1 ? 'run' : 'runs'} · ${format(parsed, 'EEEE d MMMM yyyy')}`}
       >
+        {lastSyncedAt && (
+          <span className="hidden text-xs text-gray-400 lg:inline">
+            Synced {formatDistanceToNow(parseISO(lastSyncedAt), { addSuffix: true })}
+          </span>
+        )}
+        <RefreshRoutesButton />
         <div className="flex items-center gap-1.5">
           <button
             type="button"

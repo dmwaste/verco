@@ -1,14 +1,18 @@
 'use client'
 
 import { useState } from 'react'
-import { refreshRoutes } from './actions'
+import { useRouter } from 'next/navigation'
+import { refreshRoutes } from '@/lib/optimoroute/refresh-routes'
 
 /**
- * Pulls the latest routing plan on demand (contractor staff only — the EF
- * enforces the role server-side too). Inline status text instead of a toast:
- * the result counts are operationally meaningful.
+ * Pulls the latest routing plan from OptimoRoute on demand (contractor staff
+ * only — the EF enforces the role server-side too). Inline status text instead
+ * of a toast: the result counts are operationally meaningful. On success it
+ * refreshes the current page so run sheets / bookings re-render with the new
+ * driver + sequence data.
  */
 export function RefreshRoutesButton() {
+  const router = useRouter()
   const [isPending, setIsPending] = useState(false)
   const [status, setStatus] = useState<string | null>(null)
 
@@ -17,11 +21,12 @@ export function RefreshRoutesButton() {
     setStatus(null)
     try {
       const result = await refreshRoutes()
-      setStatus(
-        result.ok
-          ? `✓ ${result.data.routesSeen} routes — ${result.data.stopsStamped} stops updated`
-          : result.error,
-      )
+      if (result.ok) {
+        setStatus(`✓ ${result.data.routesSeen} routes — ${result.data.stopsStamped} stops updated`)
+        router.refresh()
+      } else {
+        setStatus(result.error)
+      }
     } catch {
       setStatus('Route refresh failed — try again.')
     } finally {

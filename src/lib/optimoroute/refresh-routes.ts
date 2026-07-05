@@ -10,14 +10,14 @@ export interface RefreshRoutesSummary {
 }
 
 /**
- * Manual "Refresh routes" — invokes the pull-optimoroute-routes Edge
- * Function with the staff user's JWT (the EF's dual auth accepts
- * contractor-admin/contractor-staff alongside the cron's routing bearer).
- * Lets ops pull a fresh plan immediately after finishing it in the routing
- * engine instead of waiting for the 4-hourly cron tick.
+ * Manual "Refresh routes" — invokes the pull-optimoroute-routes Edge Function
+ * with the staff user's JWT (the EF's dual auth accepts contractor-admin/
+ * contractor-staff alongside the cron's routing bearer). Lets ops pull a fresh
+ * plan immediately after finishing it in the routing engine instead of waiting
+ * for the 4-hourly cron tick. Shared by the bookings list and the run sheets.
  *
- * Direct fetch() per CLAUDE.md §11 — supabase.functions.invoke is
- * unreliable in SSR.
+ * Direct fetch() per CLAUDE.md §11 — supabase.functions.invoke is unreliable
+ * in SSR.
  */
 export async function refreshRoutes(): Promise<Result<RefreshRoutesSummary>> {
   const supabase = await createClient()
