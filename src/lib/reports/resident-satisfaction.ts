@@ -9,7 +9,7 @@
  * the AVERAGE rating (1..5) — not a "% rated 4+" (dropped 05/07).
  *
  * Definition: `sum(valid 1..5 rating) / count(valid 1..5 rating)` for the given
- * key. Rendered as an insight (X.X / 5), never pass/fail.
+ * key. Rendered as an insight (avg to 2 dp, e.g. 4.33), never pass/fail.
  *
  * Rating extraction is `Number(responses.<key>)` per spec — never a PostgREST
  * jsonb `.gte`, because jsonb text compares lexically ('10' < '4'). A rating is

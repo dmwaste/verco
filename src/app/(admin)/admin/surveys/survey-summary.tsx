@@ -92,7 +92,7 @@ export function SurveySummary({ clientId }: SurveySummaryProps) {
         ) : (
           <>
             <div className="font-[family-name:var(--font-heading)] text-display font-bold text-[#293F52]">
-              {overall.avg === null ? '—' : `${(Math.round(overall.avg * 10) / 10).toFixed(1)} / 5`}
+              {overall.avg === null ? '—' : (Math.round(overall.avg * 100) / 100).toFixed(2)}
             </div>
             <div className="mt-1 text-caption text-gray-500">
               {overall.n} response{overall.n === 1 ? '' : 's'}{overall.isLowN ? ' · building data' : ''}

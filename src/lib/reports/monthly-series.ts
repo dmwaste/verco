@@ -98,9 +98,10 @@ export function percentPoints(
 
 /**
  * Average series: months where the `n` (denominator) series is > 0, value =
- * sum/n rounded to 1 dp. Used by the CSAT rating sparklines, which show the
- * monthly AVERAGE rating (1..5) — NOT a percentage, so no ×100. Observed months
- * only, same as percentPoints: a month with no ratings is "no data", never 0.
+ * sum/n rounded to 2 dp (matches the cards' rating display). Used by the CSAT
+ * rating sparklines, which show the monthly AVERAGE rating (1..5) — NOT a
+ * percentage, so no ×100. Observed months only, same as percentPoints: a month
+ * with no ratings is "no data", never 0.
  */
 export function averagePoints(
   rows: readonly MonthlySeriesRow[],
@@ -115,7 +116,7 @@ export function averagePoints(
     .filter((r) => r.series === nSeries && Number(r.value) > 0)
     .map((r) => {
       const month = String(r.month).slice(0, 10)
-      return { month, value: Math.round(((sums.get(month) ?? 0) / Number(r.value)) * 10) / 10 }
+      return { month, value: Math.round(((sums.get(month) ?? 0) / Number(r.value)) * 100) / 100 }
     })
     .sort((a, b) => (a.month < b.month ? -1 : 1))
 }

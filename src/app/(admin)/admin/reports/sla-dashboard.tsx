@@ -123,9 +123,9 @@ function pct1(pct: number): string {
   return `${(Math.round(pct * 10) / 10).toFixed(1)}%`
 }
 
-/** Format a 1..5 rating mean to 1 dp, e.g. 4.333 → "4.3". */
-function avg1(v: number): string {
-  return (Math.round(v * 10) / 10).toFixed(1)
+/** Format a 1..5 rating mean to 2 dp, e.g. 4.333 → "4.33". */
+function avg2(v: number): string {
+  return (Math.round(v * 100) / 100).toFixed(2)
 }
 
 interface CardScope {
@@ -785,7 +785,7 @@ function CustomerSatisfactionCards({ clientId, area, period }: CardScope) {
     if (period.unresolved) {
       return <SlaCard key={label} label={label} value="—" sub="Period unavailable" provenance={liveStamp(period)} />
     }
-    const value = !r || r.isEmpty ? '—' : `${avg1(r.avg!)} / 5`
+    const value = !r || r.isEmpty ? '—' : avg2(r.avg!)
     const sub = !r ? undefined
       : r.isEmpty ? 'No responses yet'
       : `${r.n} response${r.n === 1 ? '' : 's'}${r.isLowN ? ' · building data' : ''}`

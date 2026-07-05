@@ -57,7 +57,7 @@ describe('averagePoints', () => {
     { month: '2026-07-01', series: 'csat_overall_n', value: 3 }, // no sum row → 0 avg
   ]
 
-  it('emits sum/n (rounded 1 dp) only for months with a positive denominator', () => {
+  it('emits sum/n (rounded 2 dp) only for months with a positive denominator', () => {
     const pts = averagePoints(csat, 'csat_overall_sum', 'csat_overall_n')
     expect(pts).toEqual([
       { month: '2026-05-01', value: 4.5 },
@@ -65,13 +65,13 @@ describe('averagePoints', () => {
     ])
   })
 
-  it('rounds a repeating average to 1 dp', () => {
+  it('rounds a repeating average to 2 dp', () => {
     const rows: MonthlySeriesRow[] = [
       { month: '2026-05-01', series: 'csat_booking_n', value: 3 },
       { month: '2026-05-01', series: 'csat_booking_sum', value: 10 }, // 10/3 = 3.333…
     ]
     expect(averagePoints(rows, 'csat_booking_sum', 'csat_booking_n')).toEqual([
-      { month: '2026-05-01', value: 3.3 },
+      { month: '2026-05-01', value: 3.33 },
     ])
   })
 })
