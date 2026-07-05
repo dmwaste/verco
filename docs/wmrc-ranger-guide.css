@@ -1,0 +1,188 @@
+/* Verge Valet brand-aligned print styles for the WMRC ranger field-app guide */
+@page {
+  size: A4;
+  margin: 18mm 16mm 18mm 16mm;
+  @bottom-right {
+    content: "Page " counter(page) " of " counter(pages);
+    font-family: 'Inter', 'Helvetica Neue', Arial, sans-serif;
+    font-size: 9pt;
+    color: #6b7280;
+  }
+  @bottom-left {
+    content: "Verge Valet — Ranger Field App Guide · v1.1";
+    font-family: 'Inter', 'Helvetica Neue', Arial, sans-serif;
+    font-size: 9pt;
+    color: #6b7280;
+  }
+}
+
+html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+
+body {
+  font-family: 'Inter', 'Helvetica Neue', Arial, sans-serif;
+  font-size: 10.5pt;
+  line-height: 1.55;
+  color: #1f2937;
+  max-width: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+h1, h2, h3, h4 {
+  font-family: 'Poppins', 'Helvetica Neue', Arial, sans-serif;
+  color: #293F52;
+  font-weight: 600;
+  page-break-after: avoid;
+}
+
+h1 {
+  font-size: 26pt;
+  border-bottom: 3px solid #00E47C;
+  padding-bottom: 8px;
+  margin-top: 0;
+  margin-bottom: 20px;
+}
+
+h2 {
+  font-size: 17pt;
+  margin-top: 32px;
+  margin-bottom: 10px;
+  border-bottom: 1px solid #e5e7eb;
+  padding-bottom: 4px;
+  page-break-before: auto;
+}
+
+h3 {
+  font-size: 13pt;
+  margin-top: 20px;
+  margin-bottom: 8px;
+  color: #293F52;
+}
+
+h4 {
+  font-size: 11pt;
+  margin-top: 14px;
+  margin-bottom: 6px;
+  color: #4b5563;
+}
+
+p {
+  margin: 8px 0;
+  orphans: 3;
+  widows: 3;
+}
+
+strong { color: #111827; font-weight: 600; }
+em { color: #374151; }
+
+code {
+  font-family: 'JetBrains Mono', 'Menlo', 'Consolas', monospace;
+  font-size: 9.5pt;
+  background: #f3f4f6;
+  color: #be123c;
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+
+pre {
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-left: 3px solid #00E47C;
+  padding: 10px 14px;
+  border-radius: 4px;
+  overflow-x: auto;
+  font-size: 9.5pt;
+  page-break-inside: avoid;
+}
+
+pre code { background: none; color: #1f2937; padding: 0; }
+
+blockquote {
+  border-left: 4px solid #00E47C;
+  margin: 12px 0;
+  padding: 6px 14px;
+  background: #f0fdf4;
+  color: #166534;
+  border-radius: 0 3px 3px 0;
+  page-break-inside: avoid;
+}
+
+blockquote strong { color: #14532d; }
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 12px 0;
+  font-size: 10pt;
+  page-break-inside: avoid;
+}
+
+th {
+  background: #293F52;
+  color: white;
+  padding: 8px 10px;
+  text-align: left;
+  font-weight: 600;
+}
+
+td {
+  padding: 7px 10px;
+  border-bottom: 1px solid #e5e7eb;
+  vertical-align: top;
+}
+
+tr:nth-child(even) td { background: #f9fafb; }
+
+/* All screenshots are 390px-wide phone captures — cap at native width so they
+   render crisp (never upscaled) and read like phone mockups, centred. */
+img {
+  max-width: 360px;
+  width: 100%;
+  height: auto;
+  display: block;
+  margin: 14px auto;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.10);
+  page-break-inside: avoid;
+  page-break-after: auto;
+}
+
+ul, ol {
+  margin: 8px 0;
+  padding-left: 22px;
+}
+
+li { margin: 3px 0; }
+
+a {
+  color: #00874e;
+  text-decoration: none;
+  border-bottom: 1px dotted #00E47C;
+}
+
+hr {
+  border: none;
+  border-top: 1px solid #e5e7eb;
+  margin: 22px 0;
+}
+
+/* Table of contents */
+#TOC, .toc, nav#TOC {
+  background: #f9fafb;
+  border-left: 3px solid #293F52;
+  padding: 10px 18px;
+  margin: 16px 0 28px 0;
+  border-radius: 0 4px 4px 0;
+  page-break-after: always;
+}
+
+#TOC ul { list-style: none; padding-left: 12px; }
+#TOC > ul { padding-left: 0; }
+
+/* Force section breaks for major chapters */
+h2 { page-break-before: always; }
+h1 + h2:first-of-type { page-break-before: avoid; } /* Don't break right after title */
+
+/* But not for the first H2 (Table of contents header if any) */
+.title-block + h2 { page-break-before: avoid; }
