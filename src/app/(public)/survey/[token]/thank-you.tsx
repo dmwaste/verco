@@ -2,10 +2,13 @@
 
 import { VercoButton } from '@/components/ui/verco-button'
 import type { SurveyResponses } from './actions'
+import { SurveyBrandHeader } from './survey-brand-header'
 
 interface ThankYouProps {
   bookingRef: string
   responses: SurveyResponses | null
+  serviceName: string
+  logoUrl: string | null
 }
 
 function MiniStars({ count }: { count: number }) {
@@ -25,7 +28,7 @@ function MiniStars({ count }: { count: number }) {
   )
 }
 
-export function ThankYou({ bookingRef, responses }: ThankYouProps) {
+export function ThankYou({ bookingRef, responses, serviceName, logoUrl }: ThankYouProps) {
   const bookingRating = responses?.booking_rating ?? 0
   const collectionRating = responses?.collection_rating ?? 0
   const overallRating = responses?.overall_rating ?? 0
@@ -34,14 +37,7 @@ export function ThankYou({ bookingRef, responses }: ThankYouProps) {
     <div className="flex min-h-screen flex-col bg-white">
       {/* Header */}
       <div className="shrink-0 bg-[var(--brand)] px-5 pb-5 pt-4">
-        <div className="flex items-center gap-2">
-          <div className="flex size-[26px] items-center justify-center rounded-[6px] bg-[var(--brand-accent)] font-[family-name:var(--font-heading)] text-sm font-bold text-[var(--brand)]">
-            V
-          </div>
-          <span className="font-[family-name:var(--font-heading)] text-body font-bold text-white">
-            Verge Collection
-          </span>
-        </div>
+        <SurveyBrandHeader serviceName={serviceName} logoUrl={logoUrl} />
       </div>
 
       {/* Content */}

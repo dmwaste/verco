@@ -1,5 +1,6 @@
 import Link from 'next/link'
 import { SignOutButton } from '@/components/auth/sign-out-button'
+import { TenantBrandMark } from '@/components/branding/tenant-brand-mark'
 
 interface PublicNavProps {
   serviceName: string
@@ -26,13 +27,13 @@ export function PublicNav({
             Valet logo already reads "VergeValet"). serviceName stays as alt text.
             The lettermark box is the fallback for tenants with no logo. */}
         <Link href="/" className="flex items-center">
-          {logoUrl ? (
-            <img src={logoUrl} alt={serviceName} className="h-8 w-auto" />
-          ) : (
-            <div className="flex size-8 items-center justify-center rounded-lg bg-[var(--brand-accent)] font-[family-name:var(--font-heading)] text-lg md:text-xl font-bold text-[var(--brand)]">
-              {serviceName.charAt(0) || 'V'}
-            </div>
-          )}
+          <TenantBrandMark
+            name={serviceName}
+            logoUrl={logoUrl}
+            boxClass="h-8 rounded-lg"
+            logoClass="h-8"
+            textClass="text-lg md:text-xl"
+          />
         </Link>
 
         {/* Desktop nav */}

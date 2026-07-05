@@ -1,6 +1,7 @@
 'use client'
 
 import { VercoButton } from '@/components/ui/verco-button'
+import { SurveyBrandHeader } from './survey-brand-header'
 
 /**
  * Shown when the get_survey_by_token RPC fails (transport/DB error) rather than
@@ -8,19 +9,18 @@ import { VercoButton } from '@/components/ui/verco-button'
  * offer a retry instead of a 404 — a single slow request on 4G must not turn an
  * emailed survey link into a dead end.
  */
-export function SurveyUnavailable() {
+export function SurveyUnavailable({
+  serviceName,
+  logoUrl,
+}: {
+  serviceName: string
+  logoUrl: string | null
+}) {
   return (
     <div className="flex min-h-screen flex-col bg-white">
       {/* Header */}
       <div className="shrink-0 bg-[var(--brand)] px-5 pb-5 pt-4">
-        <div className="flex items-center gap-2">
-          <div className="flex size-[26px] items-center justify-center rounded-[6px] bg-[var(--brand-accent)] font-[family-name:var(--font-heading)] text-sm font-bold text-[var(--brand)]">
-            V
-          </div>
-          <span className="font-[family-name:var(--font-heading)] text-body font-bold text-white">
-            Verge Collection
-          </span>
-        </div>
+        <SurveyBrandHeader serviceName={serviceName} logoUrl={logoUrl} />
       </div>
 
       {/* Content */}

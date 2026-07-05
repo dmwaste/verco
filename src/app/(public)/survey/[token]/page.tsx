@@ -20,7 +20,6 @@ interface SurveyByToken {
 interface SurveyBranding {
   logoUrl: string | null
   serviceName: string
-  clientName: string
 }
 
 /**
@@ -35,28 +34,36 @@ async function getSurveyBranding(
   const fallback: SurveyBranding = {
     logoUrl: null,
     serviceName: 'Verge Collection',
-    clientName: 'Verge Collection',
   }
   const clientId = (await headers()).get('x-client-id')
   if (!clientId) return fallback
 
-  const { data } = await supabase
-    .from('client')
-    .select('name, service_name, logo_light_url')
-    .eq('id', clientId)
-    .single()
-  if (!data) return fallback
+  // Resilient: this now also feeds the transport-error state (SurveyUnavailable),
+  // so a thrown fetch here must degrade to the generic mark, not crash the page.
+  try {
+    const { data } = await supabase
+      .from('client')
+      .select('name, service_name, logo_light_url')
+      .eq('id', clientId)
+      .single()
+    if (!data) return fallback
 
-  return {
-    logoUrl: data.logo_light_url,
-    serviceName: data.service_name ?? data.name,
-    clientName: data.name,
+    return {
+      logoUrl: data.logo_light_url,
+      serviceName: data.service_name ?? data.name,
+    }
+  } catch {
+    return fallback
   }
 }
 
 export default async function SurveyPage({ params }: SurveyPageProps) {
   const { token } = await params
   const supabase = await createClient()
+
+  // Tenant branding for the header — resolved up front so the terminal states
+  // (unavailable / already-submitted) carry the tenant's mark, not a generic V.
+  const branding = await getSurveyBranding(supabase)
 
   // Token-gated public read. The resident is logged out (anon role), so this
   // goes through the SECURITY DEFINER RPC — booking_survey has no anon RLS.
@@ -75,7 +82,7 @@ export default async function SurveyPage({ params }: SurveyPageProps) {
   if (failed) {
     return (
       <main className="mx-auto w-full max-w-2xl">
-        <SurveyUnavailable />
+        <SurveyUnavailable serviceName={branding.serviceName} logoUrl={branding.logoUrl} />
       </main>
     )
   }
@@ -89,12 +96,10 @@ export default async function SurveyPage({ params }: SurveyPageProps) {
   if (survey.submitted) {
     return (
       <main className="mx-auto w-full max-w-2xl">
-        <AlreadySubmitted />
+        <AlreadySubmitted serviceName={branding.serviceName} logoUrl={branding.logoUrl} />
       </main>
     )
   }
-
-  const branding = await getSurveyBranding(supabase)
 
   return (
     <main className="mx-auto w-full max-w-2xl">
@@ -105,7 +110,6 @@ export default async function SurveyPage({ params }: SurveyPageProps) {
         serviceChips={survey.service_chips}
         clientLogoUrl={branding.logoUrl}
         serviceName={branding.serviceName}
-        clientName={branding.clientName}
       />
     </main>
   )
