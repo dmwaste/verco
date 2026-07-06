@@ -81,6 +81,11 @@ interface OrBulkResponse {
   code?: string
   message?: string
   orders?: Array<{ success: boolean; code?: string; message?: string }>
+  // update_completion_details returns its per-order results under `updates`
+  // (per the API-reference parameter table), NOT `orders` like the other bulk
+  // endpoints. The docs example inconsistently shows `orders`, so callers read
+  // whichever is present.
+  updates?: Array<{ success: boolean; code?: string; message?: string }>
 }
 
 /**
@@ -243,8 +248,12 @@ export async function updateCompletionDetails(
   const results: OrOrderResult[] = []
 
   for (const batch of chunk(completions, OR_BULK_LIMIT)) {
+    // Envelope key is `updates`, NOT `orders` (unlike create_or_update_orders /
+    // delete_orders). Sending `orders` makes OR reject every order — the
+    // mandatory `updates` field is missing — which surfaces as synced:0,
+    // failed:all with an HTTP 500 every cron tick.
     const res = await post(apiKey, 'update_completion_details', {
-      orders: batch.map((c) => ({ orderNo: c.orderNo, data: { status: c.status } })),
+      updates: batch.map((c) => ({ orderNo: c.orderNo, data: { status: c.status } })),
     })
 
     if (!res.ok) {
@@ -256,7 +265,8 @@ export async function updateCompletionDetails(
     }
 
     const data = (await res.json()) as OrBulkResponse
-    if (!data.success || !data.orders) {
+    const orderResults = data.updates ?? data.orders
+    if (!data.success || !orderResults) {
       const error = data.message ?? data.code ?? 'update_completion_details failed'
       for (const c of batch) {
         results.push({ orderNo: c.orderNo, success: false, error })
@@ -265,7 +275,7 @@ export async function updateCompletionDetails(
     }
 
     batch.forEach((c, i) => {
-      const r = data.orders![i]
+      const r = orderResults[i]
       const notFound = r?.code === 'ERR_ORD_NOT_FOUND' || r?.code === 'ORDER_NOT_FOUND'
       results.push({
         orderNo: c.orderNo,
