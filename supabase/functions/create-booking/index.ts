@@ -5,6 +5,7 @@ import { calculatePrice, type ActiveConversion } from '../_shared/pricing.ts'
 import { isAreaBookableServer } from '../_shared/area-gate-server.ts'
 import { type TermsAcceptanceChannel } from '../_shared/terms.ts'
 import { classifyCreator, CREATOR_STAFF_ROLES } from '../_shared/classify-creator.ts'
+import { evaluateEditGuard } from '../_shared/edit-guard.ts'
 
 /**
  * Fire-and-forget POST to the send-notification Edge Function. Returns
@@ -303,6 +304,37 @@ serve(async (req) => {
     // checkout + partial refund of the old, which is out of scope for v1.
     // Such edits should be handled via cancel + rebook.
     if (replaces) {
+      // ── Ownership + cutoff guard (IDOR + late-edit hardening) ──────────────
+      // The smart-diff RPC below runs on the SERVICE-ROLE client (RLS bypassed)
+      // with a client-supplied booking id. Prove access FIRST by reading the
+      // replaced booking through the caller's RLS-scoped anon client: a guest
+      // guessing a UUID, or a staffer outside their client scope, gets no row.
+      // Then block residents editing past the cancellation cutoff (staff exempt).
+      const [{ data: ownedBooking }, { data: callerRole }] = await Promise.all([
+        supabaseAnon
+          .from('booking')
+          .select('id, booking_item(collection_date!inner(date))')
+          .eq('id', replaces)
+          .maybeSingle(),
+        supabaseAnon.rpc('current_user_role'),
+      ])
+
+      const currentCollectionDate =
+        ((ownedBooking?.booking_item ?? []) as Array<{ collection_date: { date: string } | null }>)
+          .map((bi) => bi.collection_date?.date)
+          .filter((d): d is string => !!d)
+          .sort()[0] ?? null
+
+      const guard = evaluateEditGuard({
+        bookingExists: !!ownedBooking,
+        currentCollectionDate,
+        role: (callerRole as string | null) ?? null,
+        now: new Date(),
+      })
+      if (!guard.ok) {
+        return jsonResponse({ error: guard.error }, guard.status)
+      }
+
       if (priceResult.total_cents > 0) {
         return jsonResponse({
           error: 'In-place edit cannot introduce new paid services. Cancel and rebook to change paid items.',

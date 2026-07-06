@@ -68,6 +68,8 @@ sync_one "$SHARED/expiry-decision.ts" "src/lib/payments/expiry-decision.ts" || d
 sync_one "$SHARED/area-gate-server.ts" "src/lib/booking/area-gate-server.ts" || drift=1
 sync_one "$SHARED/terms.ts" "src/lib/booking/terms.ts" || drift=1
 sync_one "$SHARED/classify-creator.ts" "src/lib/bookings/classify-creator.ts" || drift=1
+sync_one "$SHARED/cancellation-cutoff.ts" "src/lib/booking/cancellation-cutoff.ts" || drift=1
+sync_one "$SHARED/edit-guard.ts" "src/lib/booking/edit-guard.ts" || drift=1
 
 if [ "$mode" = "check" ]; then
   if [ "$drift" -eq 1 ]; then
