@@ -1,175 +1,144 @@
-# Lock the collection date on booking edits
+<!-- /autoplan restore point: /Users/danieltaylor/.gstack/projects/dmwaste-verco/claude-nervous-bohr-94bca0-autoplan-restore-20260706-145233.md -->
+# Make the booking-edit Date step edit-aware (keep the held date)
 
 **Date:** 2026-07-06
-**Status:** Approved — ready for implementation planning
-**Type:** Bug fix (wizard flow)
-**Scope:** Client-side only. No DB / RLS / Edge Function / RPC changes.
+**Status:** Approved scope after /autoplan review + product correction — ready for implementation planning
+**Type:** Bug fix
+**Scope:** Client-side (one date-step change + a calendar token) plus a ~3-line Edge Function tweak. No new flow, no migration, no stepper rework.
 
 ---
 
 ## 1. Problem
 
-A resident who wants to **change the services** on an existing booking (fewer, or
-different, items) cannot keep their original collection date. If that date has
-since **closed** — capacity full, admin-closed, holiday, or T-3 locked — the
-booking wizard drops it from the selectable list and forces the resident onto a
-different, still-open date.
+A resident changing the **services** on an existing booking cannot keep their
+original collection date. If that date has since **closed** (capacity full,
+admin-closed, holiday, or T-3 locked) the booking wizard's Date step drops it from
+the selectable list and forces the resident onto a different, still-open date.
 
 ### Root cause
 
-The "Edit Booking" action reuses the **new-booking wizard** end-to-end:
-
-```
-Edit → /book/services → /book/date → /book/details → /book/confirm
-```
-
-The launch link ([booking-detail-client.tsx](../../../src/app/(public)/booking/[ref]/booking-detail-client.tsx))
-carries `collection_date_id=<original>` and `replaces=<booking.id>`. But the
-**Date step** ([date-form.tsx](../../../src/app/(public)/book/date/date-form.tsx))
-rebuilds its list with the "can someone start a *new* booking here?" rules:
+"Edit Booking" reuses the new-booking wizard
+([booking-detail-client.tsx:721](../../../src/app/(public)/booking/[ref]/booking-detail-client.tsx#L721)):
+Services → **Date** → Details → Confirm, carrying `collection_date_id=<held>` and
+`replaces=<booking.id>`. The **Date step**
+([date-form.tsx:82-136](../../../src/app/(public)/book/date/date-form.tsx#L82))
+builds its list with the "can someone start a *new* booking here?" filter:
 
 - `.eq('is_open', true)` — excludes admin/holiday-closed dates
 - `.gte('date', today)` — excludes past dates
-- capacity filter via `effectiveCapacity()` — excludes full buckets
+- `effectiveCapacity()` capacity filter — excludes full buckets
 
-The resident's already-held date is initialised as `selectedDateId` but is
-**absent from the rendered list** when closed, so nothing shows as selected, the
-summary chip vanishes, and the first tap on any open date overwrites the
-original. On confirm, the in-place edit RPC moves the booking to the newly-picked
-date.
+The held date is set as `selectedDateId` but is **absent from the rendered list**
+when closed, so nothing shows as selected and the first tap on any open date
+overwrites it. On confirm, the in-place edit RPC moves the booking off its date.
 
-### Key finding — the server is already correct
-
-[`update_booking_items_in_place`](../../../supabase/migrations/20260518005935_update_booking_items_in_place_smart_diff.sql)
-checks only the capacity **delta** (`new_total − existing_total` per category).
-Reductions, no-ops, and within-allocation swaps always pass regardless of how
-full or closed the date is; the RPC never reads `is_open` / `locked_closed` /
-past. **Re-sending the original closed date with reduced or swapped services is
-valid server-side.** The entire bug lives in one wizard routing decision.
+The filter is correct for a *new* booking and wrong for an *edit* of a booking
+that already holds a date.
 
 ---
 
-## 2. Decision
+## 2. Decision (scope corrected)
 
-Editing a booking is a **services-only** operation. The collection date the
-resident already holds is carried through untouched; the wizard never re-asks for
-it. **Self-service rescheduling is removed** (it was only ever an accidental
-side effect of reusing the new-booking wizard).
+**Make the Date step edit-aware. Do not skip it, do not build a new flow.**
 
-Residents who genuinely need a different date cancel + rebook, or contact
-support. Staff retain full date control via the admin inline editor (see §5).
+Date-change in isolation already exists for both audiences and must be preserved:
+
+- **Staff:** the admin inline editor (`editDateId` →
+  [`updateCollectionDetails`](../../../src/app/(admin)/admin/bookings/[id]/actions.ts#L297),
+  gated by [`canEditCollectionDetails`](../../../src/lib/booking/collection-details-edit.ts)).
+- **Resident:** the same wizard Date step — leave quantities, pick a new date.
+
+So neither *removing* the Date step from edits (loses resident reschedule) nor
+*building* a separate "Change date" action (rebuilds something that exists) is
+right. The fix is to stop the Date step from filtering out the date the resident
+already holds.
+
+**Change:** when `replaces` is present, the held `collection_date_id` is always
+present in the picker, **pre-selected** and labelled "Current date" — even when now
+closed. Candidate *other* dates keep the normal open+capacity filter, so a resident
+can only move onto a date with real headroom.
+
+| Intent | After the fix |
+|---|---|
+| Change **services**, keep the (closed) held date | Held date pinned + pre-selected → click Next, date preserved. **Bug fixed.** |
+| Change the **date** | Same Date step, pick another open date. **Unchanged.** |
+| Staff change date in isolation | Admin inline editor. **Untouched.** |
 
 ---
 
-## 3. Target flow
-
-```
-Before (buggy):   Edit → Services → Date* → Details → Confirm
-                                     └─ *rebuilds date list with "new booking"
-                                        availability → held date filtered out
-                                        if closed → resident forced to move date.
-
-After (fixed):    Edit → Services → Details → Confirm
-                                     └─ collection_date_id carried verbatim from
-                                        the original booking; Date step skipped.
-```
-
-`replaces` (present only on edits) is the single signal that switches the wizard
-into edit mode. It is already threaded through every step's `carryParams`.
-
----
-
-## 4. Changes
-
-All client-side. No migration, no Edge Function, no RPC change.
+## 3. Changes (in scope)
 
 | # | File | Change |
 |---|------|--------|
-| 1 | [`services-form.tsx`](../../../src/app/(public)/book/services/services-form.tsx) `handleContinue()` | When `replaces` is set, route to `/book/details` (not `/book/date`), carrying the original `collection_date_id`. Defensive fallback to `/book/date` **only** if `collection_date_id` is unexpectedly absent, so a malformed edit link degrades to today's behaviour rather than a broken step. |
-| 2 | [`details-form.tsx`](../../../src/app/(public)/book/details/details-form.tsx) `handleBack()` | When `replaces` is set, route back to `/book/services` (not `/book/date`). |
-| 3 | [`date-form.tsx`](../../../src/app/(public)/book/date/date-form.tsx) | Guard: if `replaces` is present on entry (stale link / direct navigation), immediately forward to `/book/details` carrying all params. Makes "date locked" true regardless of entry point and closes the loophole that would otherwise re-open the bug. |
-| 4 | [`booking-stepper.tsx`](../../../src/components/booking/booking-stepper.tsx) | Add an **edit** mode whose sequence is **Services → Details → Confirm** (drops both Date and Address, which an edit never touches). New bookings keep the existing 5-step sequence. |
+| 1 | [`date-form.tsx`](../../../src/app/(public)/book/date/date-form.tsx) | When `replaces` is present: fetch the held `collection_date` row by id (public-SELECT, anon-readable — it may be absent from the filtered list), inject it into `calendarDates` with the new `'current'` status, and pre-select it (`selectedDateId` already initialises from the param). Candidate other dates keep the existing open+capacity filter. Guard against duplicating the held date if it *is* already in the list. |
+| 2 | [`calendar.ts`](../../../src/lib/booking/calendar.ts) + [`availability-calendar.tsx`](../../../src/components/booking/availability-calendar.tsx) | Add a 4th `DateStatus` `'current'` (additive — existing consumers never pass it). Give it a **neutral/brand** chip (NOT the red `closed` style, which would render the resident's own booking as an error — the review's critical design finding), the selection ring, a "Current date" summary pill + legend entry, and an accessible label ("Current booking date — keeping it does not change your booking"). |
+| 3 | [`create-booking` EF](../../../supabase/functions/create-booking/index.ts#L192) (`if (!collDate.is_open)`, L192) | Make the `is_open=false` guard **edit-aware**: when `replaces` is set AND `collection_date_id` equals the booking's current date, allow it (so an admin-closed/holiday *held* date passes). A *different* target date still gets the full bookable check. Without this, the client pin works but the EF rejects an `is_open=false` held date — covers all closure reasons, not just capacity-full. |
+| 4 | [`confirm-form.tsx`](../../../src/app/(public)/book/confirm/confirm-form.tsx) `handleBack()` (~L644) | Carry `replaces` through the back-nav params. Today it's dropped, so Confirm → Back → Next silently loses edit mode (re-submits as a new booking). Small, on the exact path being fixed. |
+| 5 | [`confirm-form.tsx`](../../../src/app/(public)/book/confirm/confirm-form.tsx) FY-usage query (~L233) | Exclude the `replaces` booking from the confirm-step FY-usage preview, matching [`services-form.tsx:99-127`](../../../src/app/(public)/book/services/services-form.tsx#L99). Today confirm counts the booking against itself, so extras can display differently from the services step and the EF. |
 
-### Stepper design detail
-
-The stepper today takes a numeric `currentStep: 1..5` mapped to a fixed 5-item
-`STEPS` array. To support two sequences cleanly:
-
-- Introduce a **semantic** current-step key (`'services' | 'date' | 'details' |
-  'confirm'`) plus a `mode: 'new' | 'edit'` (default `'new'`).
-- `mode` selects the sequence: `STEPS_NEW` (Address, Services, Date, Details,
-  Confirm) or `STEPS_EDIT` (Services, Details, Confirm). The highlighted index is
-  derived from the key's position within the active sequence.
-- Each form passes its own step key and, when `replaces` is present, `mode="edit"`.
-
-This decouples the forms from hard-coded positions and lets the same components
-render either sequence. (Exact prop shape is an implementation detail for the
-plan; the requirement is: edit renders Services → Details → Confirm, new renders
-the current 5 steps.)
+Changes 1–2 fix the reported (capacity-full) case entirely client-side. Change 3
+extends the fix to admin-closed/holiday held dates. Changes 4–5 are small
+correctness fixes on the edit path, rolled in because we're already there.
 
 ---
 
-## 5. Admin parity
+## 4. Findings triage (from the /autoplan dual-voice review)
 
-`services-form.tsx` is shared: the admin "Edit services" launch
-([admin/bookings/[id]/booking-detail-client.tsx](../../../src/app/(admin)/admin/bookings/[id]/booking-detail-client.tsx))
-enters the same wizard with `replaces`. The `replaces` branch therefore fixes
-**both** resident and admin wizard-edits in one change.
+The review (CEO + Design + Eng, Claude subagent + Codex each) ran against an
+earlier, over-scoped draft. Triaged against the corrected scope:
 
-Admin loses no capability: date/location/notes changes stay on the admin
-**inline "Save details" editor** (`handleSaveDetails` → `updateCollectionDetails`,
-using its own `editDateId` picker), which is independent of the wizard.
+**Rolled in (§3):** edit-aware Date step; the `'current'` calendar token (the one
+critical design finding — held date must not render red); EF `is_open` edit-aware;
+confirm back-nav `replaces`; confirm FY-usage exclusion.
 
-> Out of scope: whether the admin inline date picker itself can select a closed
-> date is a separate concern from this bug and is **not** addressed here.
+**Flagged — pre-existing, NOT this bug, recommend separate tickets:**
 
----
+| Finding | Why separate |
+|---|---|
+| **IDOR** — the `replaces` edit branch calls the RPC via service-role with no ownership check ([create-booking EF](../../../supabase/functions/create-booking/index.ts) edit branch). | Exists today for both resident + admin edits; independent of this bug. Real; deserves its own security fix. |
+| **No cutoff enforcement on edits/moves** — `enforce_cancellation_cutoff` fires only on `status → Cancelled`, so a booking_item date/service change after the 3:30pm cutoff is server-unguarded. | Pre-existing on the edit path; not introduced here. |
+| **Capacity delta gap on a pure date-move** — `update_booking_items_in_place` checks a *delta* that is 0 for a same-items move, so a move can overfill a full target (masked only by the UI filter). | Pre-existing; any wizard date-change hits it today. The edit-aware Date step keeps the same UI guarantee (candidate dates still filtered to headroom; the held date is a no-op). Server hardening is its own item. |
+| **Paid bookings can't edit/reschedule** — the EF rejects `total_cents>0` on an edit. | Pre-existing wizard limitation, not caused by this change. |
 
-## 6. Edge cases (correct-by-design)
-
-These are already handled correctly by the server once the date is locked; the
-spec records them so they aren't mistaken for regressions.
-
-- **Adding *more* items on a genuinely full date** → the RPC's delta check
-  rejects with "Insufficient capacity", surfaced in the confirm step's
-  `submitError`. Correct: you cannot add paid extras to a full date. The reported
-  case ("less or different") always passes.
-- **Cross-category swap** (e.g. drop 1 bulk, add 1 ancillary) where the target
-  bucket on that date is full → the `+1` delta fails server-side. Correct.
-- **Within-allocation / same-total change** → delta ≤ 0 per category → always
-  passes, even on a fully-closed date. This is the reported case and the primary
-  path to protect.
+**Dropped (over-scope the correction removed):** a new "Change date" action; skipping
+the Date step; edit-mode stepper + 5-call-site rework; the booking-detail button
+redesign. None are needed — the Date step stays, so the stepper and action row are
+untouched.
 
 ---
 
-## 7. Testing
+## 5. Edge cases (correct-by-design)
+
+- **Held date capacity-full** (the reported case): `is_open=true`, so the EF passes;
+  the RPC delta check passes for a reduction/same-total; UI pins the held date. Works
+  end-to-end with changes 1–2 alone.
+- **Held date admin-closed/holiday** (`is_open=false`): needs change 3 or the EF
+  rejects it. With change 3, works.
+- **Resident moves to another date**: candidate list still filtered to open+capacity,
+  so no overfill via the UI (same guarantee as today).
+- **Adding paid extras on a full held date**: RPC delta check correctly rejects
+  (insufficient capacity); surfaced in confirm's `submitError`.
+
+---
+
+## 6. Testing
 
 | Level | Test |
 |-------|------|
-| E2E (regression for the report) | Resident edits services **down** on a booking whose collection date is capacity-full → the same `collection_date_id` persists end-to-end and the booking is updated in place (no date change). Add to `tests/e2e/`. |
-| Component | `services-form` in edit mode (`replaces` present) routes to `/book/details` with the original `collection_date_id` preserved. |
-| Component | `details-form` back button in edit mode returns to `/book/services`. |
-| Component | `date-form` guard forwards to `/book/details` when `replaces` is present on entry. |
-| Component | `booking-stepper` renders **Services → Details → Confirm** in edit mode and the full 5 steps otherwise. |
-| Regression (unchanged) | A brand-new booking still walks Address → Services → Date → Details → Confirm and can pick any open date. |
+| E2E (regression for the report) | Resident reduces services on a booking whose held date is **capacity-full** → held date shows pinned + pre-selected as "Current date", resident keeps it, booking updated in place on the same date. |
+| Component | `date-form` in edit mode (`replaces`) injects + pre-selects the held date even when closed; renders it with the `'current'` token, not `closed`; candidate other dates still exclude full buckets. |
+| Component | Regression: a **new** booking Date step is unchanged (no `'current'` cell; open+capacity filter intact). |
+| Component | Resident can still move to another open date in edit mode (date-change-in-isolation preserved). |
+| Component | `confirm-form` back-nav preserves `replaces`; confirm FY-usage preview excludes the edited booking. |
+| EF | Edit on an `is_open=false` **held** date succeeds; a *different* non-bookable target still rejected. |
 
 ---
 
-## 8. Non-goals
+## 7. Rollout
 
-- **Resident self-reschedule** — deliberately removed. No new "change date"
-  affordance is added.
-- **Admin inline date-editor filtering** — separate concern, not touched.
-- **`update_booking_items_in_place` RPC** — no change; already correct.
-- **Optional polish, flagged not built:** a one-line hint on the booking detail
-  such as *"To change your collection date, cancel and rebook or contact us."*
-  Can be added later if support volume warrants it.
-
----
-
-## 9. Rollout notes
-
-- Pure client change → ships in a normal `develop → main` batch; no migration
-  ordering, no EF deploy, no types regen.
-- No feature flag needed — the behaviour change is scoped to the `replaces` edit
-  branch and is strictly safer than today.
+- Changes 1, 2, 4, 5: client-side; ship in a `develop → main` batch.
+- Change 3: Edge Function deploy (`create-booking`) with the back-compat pattern
+  (edit-aware branch is additive; new-booking path unchanged).
+- No migration. No types regen (no schema change).
+- The flagged pre-existing items (§4) → separate security/hardening tickets; not
+  gated on this fix.
