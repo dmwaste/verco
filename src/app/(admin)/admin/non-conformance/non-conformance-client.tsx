@@ -12,6 +12,7 @@ import { PageHeader } from '@/components/admin/page-header'
 import { FilterBar, SearchInput, FilterSelect } from '@/components/admin/filter-bar'
 import { Th } from '@/components/admin/th'
 import { Pagination } from '@/components/admin/pagination'
+import { OPEN_EXCEPTION_FILTER_STATUSES } from '@/lib/exceptions/status'
 import type { Database } from '@/lib/supabase/types'
 
 type NcnReason = Database['public']['Enums']['ncn_reason']
@@ -28,7 +29,9 @@ export function NonConformanceClient({ clientId }: NonConformanceClientProps) {
   const supabase = createClient()
 
   const [page, setPage] = useState(0)
-  const [statusFilter, setStatusFilter] = useState('')
+  // Default to the open (unresolved) set — not "All" — so the queue matches the
+  // badge's intent. 'all' shows history; a specific state filters to it.
+  const [statusFilter, setStatusFilter] = useState('open')
   const [reasonFilter, setReasonFilter] = useState('')
   const [search, setSearch] = useState('')
 
@@ -50,6 +53,7 @@ export function NonConformanceClient({ clientId }: NonConformanceClientProps) {
         .from('non_conformance_notice')
         .select(
           `id, reason, status, notes, photos, reported_at, resolved_at,
+           collection_stop:collection_stop_id(stream),
            booking:booking_id(id, ref, status, location,
              eligible_properties:property_id(formatted_address, address),
              collection_area!inner(code)),
@@ -60,7 +64,10 @@ export function NonConformanceClient({ clientId }: NonConformanceClientProps) {
         .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1)
 
       if (clientId) query = query.eq('client_id', clientId)
-      if (statusFilter) query = query.eq('status', statusFilter as never)
+      // Records are the source of truth — never filter by booking.status (a
+      // notice on a still-Scheduled booking is a legitimate exception).
+      if (statusFilter === 'open') query = query.in('status', [...OPEN_EXCEPTION_FILTER_STATUSES])
+      else if (statusFilter !== 'all' && statusFilter) query = query.eq('status', statusFilter as never)
       if (reasonFilter) query = query.eq('reason', reasonFilter as NcnReason)
       if (search) {
         query = query.or(buildSearchOrFilter(['notes', 'reason'], search))
@@ -93,6 +100,16 @@ export function NonConformanceClient({ clientId }: NonConformanceClientProps) {
     return booking?.collection_area?.code ?? '—'
   }
 
+  function getStream(notice: (typeof notices)[number]): string {
+    const stop = notice.collection_stop as unknown as { stream: string } | null
+    return stop?.stream ?? '—'
+  }
+
+  function getBookingStatus(notice: (typeof notices)[number]): string {
+    const booking = notice.booking as unknown as { status: string } | null
+    return booking?.status ?? '—'
+  }
+
   return (
     <>
       <PageHeader title="Non-Conformance Notices" subtitle={`${total} notices`} />
@@ -111,7 +128,8 @@ export function NonConformanceClient({ clientId }: NonConformanceClientProps) {
           onChange={(e) => { setStatusFilter(e.target.value); setPage(0) }}
           aria-label="Filter by status"
         >
-          <option value="">All Statuses</option>
+          <option value="open">Open</option>
+          <option value="all">All Statuses</option>
           {STATUS_OPTIONS.map((s) => (
             <option key={s} value={s}>{s}</option>
           ))}
@@ -136,8 +154,10 @@ export function NonConformanceClient({ clientId }: NonConformanceClientProps) {
             <thead>
               <tr>
                 <Th>Booking</Th>
+                <Th>Booking Status</Th>
                 <Th>Address</Th>
                 <Th>Area</Th>
+                <Th>Stream</Th>
                 <Th>Reason</Th>
                 <Th>Photos</Th>
                 <Th>Status</Th>
@@ -148,10 +168,10 @@ export function NonConformanceClient({ clientId }: NonConformanceClientProps) {
             </thead>
             <tbody>
               {isLoading && Array.from({ length: 5 }).map((_, i) => (
-                <SkeletonRow key={i} columns={9} />
+                <SkeletonRow key={i} columns={11} />
               ))}
               {!isLoading && notices.length === 0 && (
-                <tr><td colSpan={9} className="px-4 py-8 text-center text-sm text-gray-400">No non-conformance notices found</td></tr>
+                <tr><td colSpan={11} className="px-4 py-8 text-center text-sm text-gray-400">No non-conformance notices found</td></tr>
               )}
               {notices.map((ncn) => {
                 const bookingInfo = getBookingRef(ncn)
@@ -168,11 +188,17 @@ export function NonConformanceClient({ clientId }: NonConformanceClientProps) {
                         </Link>
                       ) : '—'}
                     </td>
+                    <td className="px-4 py-3 text-xs text-gray-500">
+                      {getBookingStatus(ncn)}
+                    </td>
                     <td className="max-w-[180px] truncate px-4 py-3 text-body-sm">
                       {getAddress(ncn)}
                     </td>
                     <td className="px-4 py-3 text-xs text-gray-500">
                       {getAreaCode(ncn)}
+                    </td>
+                    <td className="px-4 py-3 text-xs text-gray-500">
+                      {getStream(ncn)}
                     </td>
                     <td className="max-w-[160px] truncate px-4 py-3 text-xs">
                       {ncn.reason}

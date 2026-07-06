@@ -4,6 +4,7 @@ import {
   getCurrentAdminClient,
   getAccessibleAdminClients,
 } from '@/lib/admin/current-client'
+import { OPEN_INVESTIGATION_STATUSES } from '@/lib/exceptions/status'
 import { AdminLayoutClient } from './admin-layout-client'
 
 export default async function AdminLayout({
@@ -57,14 +58,17 @@ export default async function AdminLayout({
     .from('booking')
     .select('id', { count: 'exact', head: true })
     .in('status', ['Submitted', 'Confirmed', 'Scheduled'])
+  // Exception badges count OPEN INVESTIGATIONS (notice records staff are actively
+  // working), NOT bookings-by-status. An exception is a notice record; "open" =
+  // Disputed/Under Review. See the NCN/NP investigations spec.
   const ncnQuery = supabase
-    .from('booking')
+    .from('non_conformance_notice')
     .select('id', { count: 'exact', head: true })
-    .eq('status', 'Non-conformance')
+    .in('status', [...OPEN_INVESTIGATION_STATUSES])
   const npQuery = supabase
-    .from('booking')
+    .from('nothing_presented')
     .select('id', { count: 'exact', head: true })
-    .eq('status', 'Nothing Presented')
+    .in('status', [...OPEN_INVESTIGATION_STATUSES])
   const ticketsQuery = supabase
     .from('service_ticket')
     .select('id', { count: 'exact', head: true })

@@ -5,6 +5,7 @@ import { effectiveCapacity, indexPoolDates } from '@/lib/capacity/effective-capa
 import { getCurrentAdminClient } from '@/lib/admin/current-client'
 import { getTenantMudPropertyIds } from '@/lib/admin/mud-tenant-scope'
 import { awstWeekRange } from '@/lib/date/awst-week'
+import { OPEN_INVESTIGATION_STATUSES } from '@/lib/exceptions/status'
 import { StatusBadge } from '@/components/status-badge'
 
 /** Shared height for every half-width dashboard tile so all rows line up. */
@@ -72,14 +73,17 @@ export default async function AdminDashboardPage() {
     .select('id', { count: 'exact', head: true })
     .eq('status', 'Completed')
   if (fy) completedQuery.eq('fy_id', fy.id)
+  // Exception cards count OPEN INVESTIGATIONS (notice records staff are actively
+  // working — Disputed/Under Review), NOT bookings-by-status. The notice record
+  // is the exception source of truth. See the NCN/NP investigations spec.
   const ncnQuery = supabase
-    .from('booking')
+    .from('non_conformance_notice')
     .select('id', { count: 'exact', head: true })
-    .eq('status', 'Non-conformance')
+    .in('status', [...OPEN_INVESTIGATION_STATUSES])
   const npQuery = supabase
-    .from('booking')
+    .from('nothing_presented')
     .select('id', { count: 'exact', head: true })
-    .eq('status', 'Nothing Presented')
+    .in('status', [...OPEN_INVESTIGATION_STATUSES])
   const ticketsQuery = supabase
     .from('service_ticket')
     .select('id', { count: 'exact', head: true })
@@ -90,21 +94,31 @@ export default async function AdminDashboardPage() {
     .in('status', ['open', 'in_progress'])
     .order('created_at', { ascending: false })
     .limit(5)
-  // Open NCN/NP list — bookings currently sitting in an exception status. Keyed
-  // off booking.status (matching the Open Exceptions stat card + sidebar badges),
-  // NOT the non_conformance_notice / nothing_presented record tables: the field
-  // closeout flow sets booking status without always creating a notice record,
-  // so the record tables under-report (prod 03/07/2026: 5 NCN bookings, 0 records).
-  const openExceptionsListQuery = supabase
-    .from('booking')
-    .select(
-      `id, ref, status, location, updated_at,
-       collection_area!inner(code),
-       eligible_properties:property_id(formatted_address, address)`
-    )
-    .in('status', ['Non-conformance', 'Nothing Presented'])
-    .order('updated_at', { ascending: false })
+  // Open Investigations list — notice records in Disputed/Under Review, both types,
+  // merged + sorted below. A booking embed gives ref/area/address for each row.
+  const NOTICE_LIST_SELECT =
+    `id, status, reported_at,
+     booking:booking_id(id, ref, collection_area!inner(code),
+       eligible_properties:property_id(formatted_address, address))`
+  const openNcnListQuery = supabase
+    .from('non_conformance_notice')
+    .select(NOTICE_LIST_SELECT)
+    .in('status', [...OPEN_INVESTIGATION_STATUSES])
+    .order('reported_at', { ascending: false })
     .limit(6)
+  const openNpListQuery = supabase
+    .from('nothing_presented')
+    .select(NOTICE_LIST_SELECT)
+    .in('status', [...OPEN_INVESTIGATION_STATUSES])
+    .order('reported_at', { ascending: false })
+    .limit(6)
+  // Invariant safety net: bookings sitting in an exception status. Cross-checked
+  // against notice records below to warn if any exception lacks an investigation
+  // record (a future legacy import bypassing closeout would re-break the tables).
+  const exceptionBookingsQuery = supabase
+    .from('booking')
+    .select('id, status')
+    .in('status', ['Non-conformance', 'Nothing Presented'])
   // Collection dates whose date falls in the current AWST week, scoped to the
   // active tenant's areas (collection_date is public-SELECT — RLS won't scope it).
   // These ids drive the two "this week" widgets via their bookings' items.
@@ -120,7 +134,9 @@ export default async function AdminDashboardPage() {
     npQuery.eq('client_id', clientId)
     ticketsQuery.eq('client_id', clientId)
     openTicketsQuery.eq('client_id', clientId)
-    openExceptionsListQuery.eq('client_id', clientId)
+    openNcnListQuery.eq('client_id', clientId)
+    openNpListQuery.eq('client_id', clientId)
+    exceptionBookingsQuery.eq('client_id', clientId)
   }
 
   // Recent submitted survey responses for the dashboard feed. booking_survey is
@@ -141,7 +157,9 @@ export default async function AdminDashboardPage() {
     ticketsResult,
     upcomingDatesResult,
     openTicketsResult,
-    openExceptionsResult,
+    openNcnListResult,
+    openNpListResult,
+    exceptionBookingsResult,
     weekDatesResult,
     mudRemindersResult,
     recentSurveysResult,
@@ -167,7 +185,9 @@ export default async function AdminDashboardPage() {
       .order('date', { ascending: true })
       .limit(60),
     openTicketsQuery,
-    openExceptionsListQuery,
+    openNcnListQuery,
+    openNpListQuery,
+    exceptionBookingsQuery,
     weekDatesQuery,
     // MUD reminders: Registered MUDs with next_expected_date <= 14 days from today
     // (or NULL — for new MUDs that haven't had a booking yet, surfacing them
@@ -182,6 +202,46 @@ export default async function AdminDashboardPage() {
   ])
 
   const openExceptions = (ncnResult.count ?? 0) + (npResult.count ?? 0)
+
+  // Merge the two open-investigation lists (NCN + NP), newest first, cap 6.
+  type OpenInvestigationRow = {
+    id: string
+    reported_at: string
+    booking: {
+      id: string
+      ref: string
+      collection_area: { code: string }
+      eligible_properties: { formatted_address: string | null; address: string } | null
+    } | null
+  }
+  const openInvestigations = [
+    ...((openNcnListResult.data ?? []) as unknown as OpenInvestigationRow[]).map((r) => ({ ...r, type: 'NCN' as const })),
+    ...((openNpListResult.data ?? []) as unknown as OpenInvestigationRow[]).map((r) => ({ ...r, type: 'NP' as const })),
+  ]
+    .sort((a, b) => (a.reported_at < b.reported_at ? 1 : -1))
+    .slice(0, 6)
+
+  // Record-less exception guard: any exception-status booking missing a notice
+  // record. Backfill closes the current gap; this warns loudly if a future legacy
+  // import re-breaks the invariant that every exception has a record.
+  const exceptionBookings = exceptionBookingsResult.data ?? []
+  let recordlessCount = 0
+  if (exceptionBookings.length > 0) {
+    const ncnIds = exceptionBookings.filter((b) => b.status === 'Non-conformance').map((b) => b.id)
+    const npIds = exceptionBookings.filter((b) => b.status === 'Nothing Presented').map((b) => b.id)
+    const [ncnHave, npHave] = await Promise.all([
+      ncnIds.length
+        ? supabase.from('non_conformance_notice').select('booking_id').in('booking_id', ncnIds)
+        : Promise.resolve({ data: [] as { booking_id: string }[] }),
+      npIds.length
+        ? supabase.from('nothing_presented').select('booking_id').in('booking_id', npIds)
+        : Promise.resolve({ data: [] as { booking_id: string }[] }),
+    ])
+    const haveSet = new Set(
+      [...(ncnHave.data ?? []), ...(npHave.data ?? [])].map((r) => r.booking_id),
+    )
+    recordlessCount = exceptionBookings.filter((b) => !haveSet.has(b.id)).length
+  }
 
   // ── "This week" widgets — bookings whose collection_date is in this AWST week ──
   // A booking has no date column; it is dated through booking_item.collection_date_id.
@@ -217,7 +277,6 @@ export default async function AdminDashboardPage() {
 
   const upcomingDates = upcomingDatesResult.data ?? []
   const openTickets = openTicketsResult.data ?? []
-  const openExceptionBookings = openExceptionsResult.data ?? []
   const recentSurveys = recentSurveysResult.data ?? []
   // Pull one 1..5 integer rating out of the opaque responses blob by key —
   // used for the three star columns (booking / collection / overall).
@@ -321,6 +380,18 @@ export default async function AdminDashboardPage() {
         </div>
       </div>
 
+      {/* Invariant guard: an exception-status booking with no notice record means
+          a source (e.g. a legacy import) bypassed closeout — such rows silently
+          drop out of the record-driven exception tables. Loud, actionable warning. */}
+      {recordlessCount > 0 && (
+        <div className="mx-7 mt-5 flex items-start gap-2.5 rounded-lg border border-status-warn/30 bg-status-warn-bg px-4 py-3 text-body-sm text-status-warn">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mt-0.5 shrink-0"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+          <span>
+            <strong>{recordlessCount}</strong> exception{recordlessCount === 1 ? '' : 's'} {recordlessCount === 1 ? 'is' : 'are'} missing an investigation record and won&rsquo;t appear in the exception tables. This usually means a legacy import set the status without a closeout — re-run the exception backfill reconciliation.
+          </span>
+        </div>
+      )}
+
       {/* Stat cards — each links to its drill-down page (the numbers are
           summaries of queues staff act on, not decoration). */}
       <div className="grid grid-cols-2 gap-4 px-7 pt-5 xl:grid-cols-4">
@@ -349,7 +420,7 @@ export default async function AdminDashboardPage() {
           <div className="mb-2.5 flex size-9 items-center justify-center rounded-[10px] bg-[#FFF3EA] text-[#FF8C42]">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
           </div>
-          <div className="mb-2 text-xs font-medium text-gray-500">Open Exceptions</div>
+          <div className="mb-2 text-xs font-medium text-gray-500">Open Investigations</div>
           <div className="font-[family-name:var(--font-heading)] text-display font-bold text-[#293F52]">
             {openExceptions}
           </div>
@@ -550,13 +621,13 @@ export default async function AdminDashboardPage() {
           )}
         </div>
 
-        {/* Open Exceptions — bookings sitting in an NCN/NP status, newest
-            first. Mirrors the Open Service Tickets tile; rows link to the
-            booking detail where the exception is investigated/rebooked. */}
+        {/* Open Investigations — notice records staff are actively working
+            (Disputed/Under Review), both types, newest first. Rows link to the
+            booking detail. Reads 0 when nothing is under investigation. */}
         <div className={HALF_CARD}>
           <div className="mb-3.5 flex items-center justify-between">
             <h2 className="font-[family-name:var(--font-heading)] text-sm font-semibold text-[#293F52]">
-              Open Exceptions
+              Open Investigations
             </h2>
             <span className="flex items-center gap-3">
               <Link href="/admin/non-conformance" className="text-xs font-medium text-[#00B864] hover:underline">NCNs &rarr;</Link>
@@ -564,18 +635,15 @@ export default async function AdminDashboardPage() {
             </span>
           </div>
           <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-          {openExceptionBookings.map((b) => {
-            const isNcn = b.status === 'Non-conformance'
-            const property = b.eligible_properties as unknown as {
-              formatted_address: string | null
-              address: string
-            } | null
-            const area = b.collection_area as unknown as { code: string }
-            const address = property?.formatted_address ?? property?.address ?? b.location ?? b.ref
+          {openInvestigations.map((r) => {
+            const isNcn = r.type === 'NCN'
+            const property = r.booking?.eligible_properties ?? null
+            const area = r.booking?.collection_area
+            const address = property?.formatted_address ?? property?.address ?? r.booking?.ref ?? '—'
             return (
               <Link
-                key={b.id}
-                href={`/admin/bookings/${b.id}`}
+                key={`${r.type}-${r.id}`}
+                href={r.booking ? `/admin/bookings/${r.booking.id}` : `/admin/${isNcn ? 'non-conformance' : 'nothing-presented'}/${r.id}`}
                 className="flex items-center gap-3 border-b border-gray-100 py-2.5 last:border-b-0 last:pb-0 hover:bg-gray-50"
               >
                 <div
@@ -583,20 +651,20 @@ export default async function AdminDashboardPage() {
                     isNcn ? 'bg-status-error-bg text-status-error' : 'bg-status-warn-bg text-status-warn'
                   }`}
                 >
-                  {isNcn ? 'NCN' : 'NP'}
+                  {r.type}
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-body-sm font-medium text-gray-900">{address}</div>
-                  <div className="text-xs text-gray-500">{b.ref} &middot; {area.code}</div>
+                  <div className="text-xs text-gray-500">{r.booking?.ref ?? '—'} &middot; {area?.code ?? '—'}</div>
                 </div>
                 <span className="shrink-0 text-caption text-gray-500">
-                  {formatDistanceToNow(new Date(b.updated_at), { addSuffix: false })}
+                  {formatDistanceToNow(new Date(r.reported_at), { addSuffix: false })}
                 </span>
               </Link>
             )
           })}
-          {openExceptionBookings.length === 0 && (
-            <p className="flex flex-1 items-center justify-center py-8 text-sm text-gray-400">No open exceptions</p>
+          {openInvestigations.length === 0 && (
+            <p className="flex flex-1 items-center justify-center py-8 text-sm text-gray-400">No open investigations</p>
           )}
           </div>
         </div>
