@@ -38,6 +38,8 @@ export default async function DashboardPage() {
   const contactId = profile?.contact_id
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let bookings: any[] | null = null
+  // Track the resolved contact so tickets can be scoped the same way as bookings
+  let resolvedContactId: string | null = contactId ?? null
 
   if (contactId) {
     const { data } = await supabase
@@ -77,6 +79,7 @@ export default async function DashboardPage() {
       .maybeSingle()
 
     if (contactByEmail) {
+      resolvedContactId = contactByEmail.id
       const { data } = await supabase
         .from('booking')
         .select(
@@ -108,12 +111,17 @@ export default async function DashboardPage() {
     }
   }
 
-  // Fetch all service tickets (RLS scopes to own tickets)
-  const { data: tickets } = await supabase
-    .from('service_ticket')
-    .select('id, display_id, subject, status, category, created_at')
-    .order('created_at', { ascending: false })
-    .limit(20)
+  // Fetch the user's own service tickets — scope by contact_id, exactly like the
+  // bookings query above. RLS lets staff/admin roles read ALL client tickets, so
+  // the personal dashboard must filter explicitly rather than rely on RLS alone.
+  const { data: tickets } = resolvedContactId
+    ? await supabase
+        .from('service_ticket')
+        .select('id, display_id, subject, status, category, created_at')
+        .eq('contact_id', resolvedContactId)
+        .order('created_at', { ascending: false })
+        .limit(20)
+    : { data: null }
 
   return (
     <main className="mx-auto w-full max-w-5xl px-6 py-8">
