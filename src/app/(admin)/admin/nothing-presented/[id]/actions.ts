@@ -3,6 +3,7 @@
 import type { Database } from '@/lib/supabase/types'
 import type { Result } from '@/lib/result'
 import { verifyStaffRole } from '@/lib/auth/server'
+import { OPEN_EXCEPTION_FILTER_STATUSES } from '@/lib/exceptions/status'
 
 export async function updateNpStatus(
   npId: string,
@@ -25,12 +26,20 @@ export async function updateNpStatus(
     update.resolved_by = userId
   }
 
-  const { error } = await supabase
+  // Only act on a non-terminal notice. If the row went terminal in another tab
+  // the `.in(...)` matches 0 rows and we return a friendly message, instead of
+  // the enforce_notice_update_rules trigger surfacing a raw Postgres error.
+  const { data, error } = await supabase
     .from('nothing_presented')
     .update(update)
     .eq('id', npId)
+    .in('status', [...OPEN_EXCEPTION_FILTER_STATUSES])
+    .select('id')
 
   if (error) return { ok: false, error: error.message }
+  if (!data || data.length === 0) {
+    return { ok: false, error: 'This record has already been resolved or rebooked.' }
+  }
   return { ok: true, data: undefined }
 }
 

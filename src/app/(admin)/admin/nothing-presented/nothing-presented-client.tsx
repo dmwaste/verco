@@ -11,6 +11,8 @@ import { PageHeader } from '@/components/admin/page-header'
 import { FilterBar, SearchInput, FilterSelect } from '@/components/admin/filter-bar'
 import { Th } from '@/components/admin/th'
 import { Pagination } from '@/components/admin/pagination'
+import { OpenInvestigationButton } from '@/components/admin/open-investigation-button'
+import { OPEN_EXCEPTION_FILTER_STATUSES, OPENABLE_STATUSES } from '@/lib/exceptions/status'
 
 const STATUS_OPTIONS: string[] = ['Issued', 'Disputed', 'Under Review', 'Resolved', 'Rebooked', 'Closed']
 
@@ -24,7 +26,9 @@ export function NothingPresentedClient({ clientId }: NothingPresentedClientProps
   const supabase = createClient()
 
   const [page, setPage] = useState(0)
-  const [statusFilter, setStatusFilter] = useState('')
+  // Default to the open (unresolved) set — not "All" — so the queue matches the
+  // badge's intent. 'all' shows history; a specific state filters to it.
+  const [statusFilter, setStatusFilter] = useState('open')
   const [faultFilter, setFaultFilter] = useState('')
   const [search, setSearch] = useState('')
 
@@ -35,6 +39,7 @@ export function NothingPresentedClient({ clientId }: NothingPresentedClientProps
         .from('nothing_presented')
         .select(
           `id, status, contractor_fault, notes, photos, reported_at, resolved_at,
+           collection_stop:collection_stop_id(stream),
            booking:booking_id(id, ref, status, location,
              eligible_properties:property_id(formatted_address, address),
              collection_area!inner(code)),
@@ -45,7 +50,10 @@ export function NothingPresentedClient({ clientId }: NothingPresentedClientProps
         .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1)
 
       if (clientId) query = query.eq('client_id', clientId)
-      if (statusFilter) query = query.eq('status', statusFilter as never)
+      // Records are the source of truth — never filter by booking.status (a
+      // notice on a still-Scheduled booking is a legitimate exception).
+      if (statusFilter === 'open') query = query.in('status', [...OPEN_EXCEPTION_FILTER_STATUSES])
+      else if (statusFilter !== 'all' && statusFilter) query = query.eq('status', statusFilter as never)
       if (faultFilter === 'dm') query = query.eq('contractor_fault', true)
       if (faultFilter === 'resident') query = query.eq('contractor_fault', false)
       if (search) {
@@ -79,6 +87,16 @@ export function NothingPresentedClient({ clientId }: NothingPresentedClientProps
     return booking?.collection_area?.code ?? '—'
   }
 
+  function getStream(record: (typeof records)[number]): string {
+    const stop = record.collection_stop as unknown as { stream: string } | null
+    return stop?.stream ?? '—'
+  }
+
+  function getBookingStatus(record: (typeof records)[number]): string {
+    const booking = record.booking as unknown as { status: string } | null
+    return booking?.status ?? '—'
+  }
+
   return (
     <>
       <PageHeader title="Nothing Presented" subtitle={`${total} records`} />
@@ -97,7 +115,8 @@ export function NothingPresentedClient({ clientId }: NothingPresentedClientProps
           onChange={(e) => { setStatusFilter(e.target.value); setPage(0) }}
           aria-label="Filter by status"
         >
-          <option value="">All Statuses</option>
+          <option value="open">Open</option>
+          <option value="all">All Statuses</option>
           {STATUS_OPTIONS.map((s) => (
             <option key={s} value={s}>{s}</option>
           ))}
@@ -121,8 +140,10 @@ export function NothingPresentedClient({ clientId }: NothingPresentedClientProps
             <thead>
               <tr>
                 <Th>Booking</Th>
+                <Th>Booking Status</Th>
                 <Th>Address</Th>
                 <Th>Area</Th>
+                <Th>Stream</Th>
                 <Th>Fault</Th>
                 <Th>Photos</Th>
                 <Th>Status</Th>
@@ -133,10 +154,10 @@ export function NothingPresentedClient({ clientId }: NothingPresentedClientProps
             </thead>
             <tbody>
               {isLoading && Array.from({ length: 5 }).map((_, i) => (
-                <SkeletonRow key={i} columns={9} />
+                <SkeletonRow key={i} columns={11} />
               ))}
               {!isLoading && records.length === 0 && (
-                <tr><td colSpan={9} className="px-4 py-8 text-center text-sm text-gray-400">No nothing presented records found</td></tr>
+                <tr><td colSpan={11} className="px-4 py-8 text-center text-sm text-gray-400">No nothing presented records found</td></tr>
               )}
               {records.map((np) => {
                 const bookingInfo = getBookingRef(np)
@@ -153,11 +174,17 @@ export function NothingPresentedClient({ clientId }: NothingPresentedClientProps
                         </Link>
                       ) : '—'}
                     </td>
+                    <td className="px-4 py-3 text-xs text-gray-500">
+                      {getBookingStatus(np)}
+                    </td>
                     <td className="max-w-[180px] truncate px-4 py-3 text-body-sm">
                       {getAddress(np)}
                     </td>
                     <td className="px-4 py-3 text-xs text-gray-500">
                       {getAreaCode(np)}
+                    </td>
+                    <td className="px-4 py-3 text-xs text-gray-500">
+                      {getStream(np)}
                     </td>
                     <td className="px-4 py-3">
                       <span className={`inline-flex items-center whitespace-nowrap rounded-full px-2.5 py-0.5 text-caption font-semibold ${np.contractor_fault ? 'bg-status-error-bg text-status-error' : 'bg-gray-100 text-gray-600'}`}>
@@ -177,12 +204,17 @@ export function NothingPresentedClient({ clientId }: NothingPresentedClientProps
                       {reporter?.display_name ?? '—'}
                     </td>
                     <td className="px-4 py-3">
-                      <Link
-                        href={`/admin/nothing-presented/${np.id}`}
-                        className="inline-flex items-center rounded-md border-[1.5px] border-gray-100 bg-white px-3 py-1 text-xs font-semibold text-[#293F52]"
-                      >
-                        View
-                      </Link>
+                      <div className="flex items-center gap-2">
+                        {(OPENABLE_STATUSES as readonly string[]).includes(np.status) && (
+                          <OpenInvestigationButton kind="np" noticeId={np.id} />
+                        )}
+                        <Link
+                          href={`/admin/nothing-presented/${np.id}`}
+                          className="inline-flex items-center rounded-md border-[1.5px] border-gray-100 bg-white px-3 py-1 text-xs font-semibold text-[#293F52]"
+                        >
+                          View
+                        </Link>
+                      </div>
                     </td>
                   </tr>
                 )
