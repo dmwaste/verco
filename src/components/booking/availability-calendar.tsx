@@ -73,6 +73,13 @@ export function AvailabilityCalendar({
           <span className="size-1.5 rounded-full bg-[var(--brand)]" />
           Today
         </span>
+        {/* Only shown in the edit flow, where a held date is pinned as `current`. */}
+        {dates.some((d) => d.status === 'current') && (
+          <span className="flex items-center gap-1.5">
+            <span className="size-2.5 rounded-full border border-[var(--brand)] bg-[#E8EEF2]" />
+            Current date
+          </span>
+        )}
       </div>
 
       {/* Month navigation — clamped to months that contain dates */}
@@ -159,7 +166,9 @@ export function AvailabilityCalendar({
                   ? 'low availability'
                   : entry.status === 'closed'
                     ? 'closed'
-                    : 'available'
+                    : entry.status === 'current'
+                      ? 'current booking date'
+                      : 'available'
               }`}
               className={cn(
                 'relative flex aspect-square items-center justify-center rounded-lg border text-xs font-semibold transition-shadow',
