@@ -1,0 +1,47 @@
+# Verco gitleaks configuration
+#
+# Extends the gitleaks default ruleset (all built-in secret rules stay ON) and
+# adds allowlists ONLY for values that are public by design. Every entry below
+# was triaged against a full-history scan on 2026-07-06 (see the security
+# hardening handover). A REAL secret — a service_role JWT, an Airtable PAT
+# (pat…) / legacy key (key…), a Stripe sk_live/whsec_, a SendGrid SG. key,
+# an AWS AKIA key — is NOT covered here and will still fail the scan.
+#
+# The CI backstop (.github/workflows/gitleaks.yml) runs with fetch-depth: 0, so
+# it scans all history — hence the allowlists must cover historical commits too.
+
+title = "Verco gitleaks config"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = """
+Supabase anon (publishable) JWTs. These are public by design — shipped to the
+browser as NEXT_PUBLIC_SUPABASE_ANON_KEY and gated entirely by RLS. They appear
+as literals in pg_cron→pg_net bearer tokens (GUCs proved unreliable) and in
+read-only import scripts. Matched on the base64 fragment `cm9sZSI6ImFub24i`
+(= `role":"anon"`): a Supabase project ref is always 20 chars, so this fragment
+lands on a 3-byte boundary and is identical across every project and key
+rotation. A service_role key encodes `role":"service_role"` to a DIFFERENT
+fragment and is therefore NOT allowlisted — a leaked service_role JWT still fails.
+"""
+regexTarget = "match"
+regexes = [
+  '''eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]*cm9sZSI6ImFub24i[A-Za-z0-9_-]*\.[A-Za-z0-9_-]+''',
+]
+
+[[allowlists]]
+description = """
+Airtable base IDs (app… — 17 chars) are public identifiers, not credentials
+(the real Airtable secret is the AIRTABLE_TOKEN pat…/key… read from env). The
+TS identifier `MudPropertyInsert` also happens to be 17 chars and collides with
+the airtable-api-key rule near an `airtable-mud` import. Neither is a secret.
+"""
+regexTarget = "match"
+regexes = [
+  '''app[A-Za-z0-9]{14}''',
+]
+stopwords = [
+  "MudPropertyInsert",
+]

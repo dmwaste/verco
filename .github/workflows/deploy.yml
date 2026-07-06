@@ -23,7 +23,11 @@ jobs:
   # via workflow_call. Deploy only proceeds if CI is green.
   ci:
     uses: ./.github/workflows/ci.yml
-    secrets: inherit
+    # ci.yml is a first-party reusable workflow in this same repo. The
+    # least-privilege refactor (declare explicit secrets in ci.yml's
+    # workflow_call.secrets block and pass them by name here) is a tracked
+    # follow-up hardening item, deliberately not bundled into the scanning PR.
+    secrets: inherit # nosemgrep: yaml.github-actions.security.secrets-inherit.secrets-inherit
 
   # ---------------------------------------------------------------
   # Build + push Docker image to GHCR

@@ -68,38 +68,41 @@ export default async function BookingDetailPage({
     .eq('booking_id', booking.id)
     .order('created_at', { ascending: false })
 
-  // Fetch NCN if booking status is Non-conformance (resident sees reason, photos, status, dispute)
-  let ncnData: { id: string; reason: string; status: string; photos: string[]; reported_at: string; rescheduled_booking: { ref: string } | null } | null = null
+  // A booking can carry SEVERAL notice records — one per stop (waste stream),
+  // even both an NCN and an NP — so fetch ALL of them (newest first), never
+  // maybeSingle (which errors → data:null when >1 row exists, silently hiding
+  // every exception card). Mirrors the admin side (exceptions-card.tsx, #325).
+  let ncnData: { id: string; reason: string; status: string; photos: string[]; reported_at: string; rescheduled_booking: { ref: string } | null }[] = []
   if (booking.status === 'Non-conformance' || booking.status === 'Rebooked') {
-    const { data: ncn } = await supabase
+    const { data: ncns } = await supabase
       .from('non_conformance_notice')
       .select('id, reason, status, photos, reported_at, rescheduled_booking:booking!non_conformance_notice_rescheduled_booking_id_fkey(ref)')
       .eq('booking_id', booking.id)
-      .maybeSingle()
+      .order('reported_at', { ascending: false })
 
-    if (ncn) {
-      ncnData = ncn as unknown as typeof ncnData
+    if (ncns) {
+      ncnData = ncns as unknown as typeof ncnData
     }
   }
 
-  // Fetch NP if booking status is Nothing Presented
-  let npData: { id: string; status: string; photos: string[]; reported_at: string; contractor_fault: boolean; rescheduled_booking: { ref: string } | null } | null = null
+  // Fetch NP records if booking status is Nothing Presented (or Rebooked)
+  let npData: { id: string; status: string; photos: string[]; reported_at: string; contractor_fault: boolean; rescheduled_booking: { ref: string } | null }[] = []
   if (booking.status === 'Nothing Presented' || booking.status === 'Rebooked') {
-    const { data: npRaw } = await supabase
+    const { data: nps } = await supabase
       .from('nothing_presented')
       .select('id, status, photos, reported_at, contractor_fault, rescheduled_booking:booking!nothing_presented_rescheduled_booking_id_fkey(ref)')
       .eq('booking_id', booking.id)
-      .maybeSingle()
+      .order('reported_at', { ascending: false })
 
-    if (npRaw) {
-      npData = {
+    if (nps) {
+      npData = nps.map((npRaw) => ({
         id: npRaw.id,
         status: npRaw.status,
         photos: npRaw.photos,
         reported_at: npRaw.reported_at,
         contractor_fault: npRaw.contractor_fault,
         rescheduled_booking: npRaw.rescheduled_booking as { ref: string } | null,
-      }
+      }))
     }
   }
 
