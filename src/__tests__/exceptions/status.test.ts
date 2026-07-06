@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   OPEN_INVESTIGATION_STATUSES,
   OPEN_EXCEPTION_FILTER_STATUSES,
+  OPENABLE_STATUSES,
 } from '@/lib/exceptions/status'
 
 // The exact status groupings Dan decided in the NCN/NP investigations plan
@@ -31,5 +32,20 @@ describe('exception status sets', () => {
     for (const terminal of ['Resolved', 'Rescheduled', 'Rebooked', 'Closed', 'Issued']) {
       expect(OPEN_INVESTIGATION_STATUSES as readonly string[]).not.toContain(terminal)
     }
+  })
+
+  // "Open on behalf" (staff) advances one of these → Under Review.
+  it('openable = Issued + Disputed', () => {
+    expect([...OPENABLE_STATUSES].sort()).toEqual(['Disputed', 'Issued'])
+  })
+
+  it('openable excludes Under Review (already open) and all terminal states', () => {
+    for (const s of ['Under Review', 'Resolved', 'Rescheduled', 'Rebooked', 'Closed']) {
+      expect(OPENABLE_STATUSES as readonly string[]).not.toContain(s)
+    }
+  })
+
+  it('the open target (Under Review) is an open-investigation status', () => {
+    expect(OPEN_INVESTIGATION_STATUSES as readonly string[]).toContain('Under Review')
   })
 })

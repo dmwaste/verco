@@ -27,3 +27,11 @@ export const OPEN_INVESTIGATION_STATUSES = ['Disputed', 'Under Review'] as const
  * user explicitly filters to them (or "All").
  */
 export const OPEN_EXCEPTION_FILTER_STATUSES = ['Issued', 'Disputed', 'Under Review'] as const
+
+/**
+ * Statuses a staff member can "open on behalf of a resident" from — advancing
+ * the notice to `Under Review`. Excludes `Under Review` (already open) and every
+ * terminal state. Used by both the `openInvestigation` action's guard and the
+ * table row-button visibility check so the two never drift.
+ */
+export const OPENABLE_STATUSES = ['Issued', 'Disputed'] as const
