@@ -107,6 +107,13 @@ export async function proxy(request: NextRequest) {
     return NextResponse.next()
   }
 
+  // Sentry tunnel route (next.config.ts tunnelRoute): the client posts events to
+  // /monitoring on whatever host it's on, and Sentry's route handler forwards
+  // them upstream. Skip tenant resolution / auth / guards so it always passes.
+  if (request.nextUrl.pathname.startsWith('/monitoring')) {
+    return NextResponse.next()
+  }
+
   const hostname = request.headers.get('host') ?? ''
   const path = request.nextUrl.pathname
   if (DEBUG_PROXY) {
