@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+import { withSentryConfig } from "@sentry/nextjs";
 
 const nextConfig: NextConfig = {
   output: "standalone",
@@ -16,4 +17,16 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default nextConfig;
+// Sentry wrapper. Runtime error capture is gated on NEXT_PUBLIC_SENTRY_DSN
+// (set in each Sentry.init); source-map upload only runs when SENTRY_AUTH_TOKEN
+// is present (prod build), so local/CI builds without it just build normally.
+export default withSentryConfig(nextConfig, {
+  org: process.env.SENTRY_ORG,
+  project: process.env.SENTRY_PROJECT,
+  authToken: process.env.SENTRY_AUTH_TOKEN,
+  silent: !process.env.CI,
+  widenClientFileUpload: true,
+  disableLogger: true,
+  automaticVercelMonitors: false,
+  sourcemaps: { disable: !process.env.SENTRY_AUTH_TOKEN },
+});
