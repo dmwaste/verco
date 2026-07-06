@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+# Pre-commit hook — scans staged changes for secrets with gitleaks before the
+# commit is created. This is the local approximation of GitHub push protection;
+# the gitleaks CI workflow (.github/workflows/gitleaks.yml) is the
+# non-bypassable backstop.
+#
+# Wired up by the `prepare` script in package.json, which sets
+# core.hooksPath=scripts/git-hooks during `pnpm install` — so there is nothing
+# to run per clone. gitleaks itself is not a repo dependency; install it once
+# (`brew install gitleaks`, see README) and this gate activates automatically.
+#
+# Honest caveat: a fresh clone that has not installed gitleaks skips this scan
+# (below), and `git commit --no-verify` bypasses it. The CI workflow is the
+# guarantee; this hook just catches the mistake before it ever leaves the laptop.
+#
+# Bypass (when truly intentional): git commit --no-verify
+set -e
+
+# Resolve repo root so this works from any cwd (including hook invocation from .git/).
+ROOT=$(git rev-parse --show-toplevel)
+cd "$ROOT"
+
+if ! command -v gitleaks >/dev/null 2>&1; then
+  echo "⚠️  gitleaks not installed — skipping local secret scan."
+  echo "   Install it so this gate works: brew install gitleaks (see README)."
+  echo "   The gitleaks CI workflow is the non-bypassable backstop."
+  exit 0
+fi
+
+# --staged scans only what's about to be committed. --redact keeps any secret
+# value out of the terminal. Allowlists for public-by-design values live in
+# .gitleaks.toml (same config the CI workflow uses).
+if ! gitleaks git --staged --no-banner --redact --config .gitleaks.toml; then
+  echo ""
+  echo "❌ gitleaks flagged a potential secret in your staged changes (above)."
+  echo "   • If it's a real secret: remove it and rotate the credential."
+  echo "   • If it's a false positive: add a scoped allowlist to .gitleaks.toml."
+  echo "   • To bypass intentionally (rare): git commit --no-verify"
+  exit 1
+fi

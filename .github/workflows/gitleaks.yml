@@ -1,0 +1,42 @@
+name: gitleaks
+
+# Post-push secret-scanning backstop. The local pre-commit hook
+# (scripts/git-hooks/pre-commit) is the first line of defence; this is the
+# non-bypassable one — a `git commit --no-verify` or a fresh clone without the
+# hook installed cannot skip it.
+#
+# Triggers mirror ci.yml: every PR (feature PRs target develop, release batches
+# target main) plus direct pushes to the long-lived branches. A prior CI change
+# once filtered push to a single branch and silently skipped feature PRs for two
+# days (see ci.yml) — keeping `pull_request:` unfiltered avoids that trap.
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+
+jobs:
+  scan:
+    name: Secret Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history so the scan sees every commit in the push
+
+      - name: Install gitleaks CLI
+        run: |
+          # The gitleaks CLI is MIT-licensed and free for everyone. We invoke it
+          # directly rather than gitleaks/gitleaks-action@v2, which requires a
+          # GITLEAKS_LICENSE key for GitHub *organizations* (dmwaste is one).
+          # Pinned to match the version documented for the local hook.
+          VERSION=8.30.1
+          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${VERSION}/gitleaks_${VERSION}_linux_x64.tar.gz" \
+            | tar -xz -C /usr/local/bin gitleaks
+          gitleaks version
+
+      - name: Scan git history
+        # Exits non-zero on any finding (default), failing the check. --redact
+        # keeps secret values out of the public Actions log. Allowlists for
+        # public-by-design values (Supabase anon keys, Airtable base IDs) live
+        # in .gitleaks.toml.
+        run: gitleaks git . --config .gitleaks.toml --no-banner --redact --verbose
