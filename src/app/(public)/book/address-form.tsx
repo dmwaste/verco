@@ -18,6 +18,8 @@ import {
   buildEligibleOrFilter,
   buildLookupCandidates,
   rowsAreSameProperty,
+  extractSuburb,
+  filterBySuburbAgreement,
 } from '@/lib/booking/address-match-key'
 import { decideMudRedirect, type MudLookupCandidate } from '@/lib/mud/mud-lookup'
 import type { Database } from '@/lib/supabase/types'
@@ -119,8 +121,18 @@ export function AddressForm({
           .eq('collection_area.client_id', clientId)
           .order('created_at', { ascending: true })
           .limit(5)
-        if (data && data.length > 0 && rowsAreSameProperty(data as unknown as EligibleProperty[])) {
-          return data[0] as unknown as EligiblePropertyRow
+        // Reject same-street namesakes in a DIFFERENT suburb before resolving.
+        // The street-segment `address` branch above intentionally drops the
+        // suburb, so a "23 Glyde St, Mosman Park" search can match "23 Glyde St,
+        // East Fremantle" (a sibling Verge Valet sub-client); a lone match would
+        // then auto-resolve to the wrong council's area. Only geocoded rows with
+        // a positively-conflicting suburb are dropped — un-geocoded imports stay.
+        const scoped = filterBySuburbAgreement(
+          (data ?? []) as unknown as EligiblePropertyRow[],
+          extractSuburb(s)
+        )
+        if (scoped.length > 0 && rowsAreSameProperty(scoped)) {
+          return scoped[0]!
         }
         return null
       }

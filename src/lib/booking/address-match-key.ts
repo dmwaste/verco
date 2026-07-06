@@ -218,3 +218,64 @@ export function buildLookupCandidates(
   }
   return out
 }
+
+const AU_STATES = /\s+(WA|NSW|VIC|QLD|SA|TAS|NT|ACT)\s*$/i
+
+/**
+ * Extracts the normalised suburb (UPPERCASE, no state/postcode) from a
+ * Google-style comma-form address, or null when none can be determined.
+ *
+ *   "23 Glyde St, East Fremantle WA 6158, Australia" → "EAST FREMANTLE"
+ *   "10 Salvado St, Wembley WA"                       → "WEMBLEY"
+ *   "7/23 Glyde St" (no comma)                        → null
+ *
+ * The suburb lives in the SECOND comma part (`addressMatchKey` keeps exactly
+ * `"<street>, <suburb-state-postcode>"`), so we strip the trailing postcode
+ * then the trailing state to leave the locality name.
+ */
+export function extractSuburb(s: string | null): string | null {
+  if (!s) return null
+  const parts = s.split(',').map((p) => p.trim()).filter(Boolean)
+  if (parts.length < 2) return null
+  const cleaned = parts[1]!
+    .replace(/\s+\d{4}\s*$/, '') // trailing postcode
+    .replace(AU_STATES, '') // trailing state
+    .trim()
+  return cleaned ? cleaned.toUpperCase() : null
+}
+
+/**
+ * True when two suburbs are BOTH present and share no common word — a genuine
+ * cross-suburb mismatch ("MOSMAN PARK" vs "EAST FREMANTLE"). Deliberately
+ * tolerant: identical suburbs and word-overlapping ones ("SOUTH PERTH" vs
+ * "PERTH") are NOT conflicts, so a Google locality-naming quirk never
+ * over-rejects a correct match. A null on either side is indeterminate, never
+ * a conflict.
+ */
+export function suburbsConflict(a: string | null, b: string | null): boolean {
+  if (!a || !b || a === b) return false
+  const tokensA = new Set(a.split(/\s+/).filter(Boolean))
+  return !b.split(/\s+/).filter(Boolean).some((t) => tokensA.has(t))
+}
+
+/**
+ * Drops matched `eligible_properties` rows whose geocoded suburb positively
+ * conflicts with the suburb the resident selected. This restores the "ILIKE
+ * requires suburb agreement" invariant that the street-segment-only `address`
+ * branch breaks: that branch matches a same-street namesake in a sibling
+ * suburb (e.g. "23 Glyde St, East Fremantle" for a "23 Glyde St, Mosman Park"
+ * search — both Verge Valet sub-clients), and a lone match then auto-resolves
+ * to the wrong council's collection area.
+ *
+ * Conservative by design — reject ONLY on positive evidence of a different
+ * suburb (a comma-delimited `formatted_address`). Rows with a null/indeterminate
+ * suburb, or an input with no suburb, are kept, so un-geocoded imports and the
+ * bare-string auto-resolve path are never regressed.
+ */
+export function filterBySuburbAgreement<T extends { formatted_address: string | null }>(
+  rows: T[],
+  inputSuburb: string | null
+): T[] {
+  if (!inputSuburb) return rows
+  return rows.filter((r) => !suburbsConflict(inputSuburb, extractSuburb(r.formatted_address)))
+}
