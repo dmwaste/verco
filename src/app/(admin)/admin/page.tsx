@@ -88,9 +88,15 @@ export default async function AdminDashboardPage() {
     .from('service_ticket')
     .select('id', { count: 'exact', head: true })
     .in('status', ['open', 'in_progress'])
+  // Contact is embedded via the explicit FK column (`contact:contact_id`), NOT
+  // `contact!inner`. On `contacts` (many inbound FKs), a bare-alias inner embed
+  // silently resolves empty for authed users even when the row is readable, and
+  // the `!inner` then drops the whole ticket — so an open ticket vanished from
+  // this card while the sidebar badge (no embed) still counted it (CLAUDE.md §21).
+  // Mirrors the tickets list page. Left embed → contact may be null; render guards.
   const openTicketsQuery = supabase
     .from('service_ticket')
-    .select('id, display_id, subject, status, priority, created_at, contact!inner(full_name)')
+    .select('id, display_id, subject, status, priority, created_at, contact:contact_id(full_name)')
     .in('status', ['open', 'in_progress'])
     .order('created_at', { ascending: false })
     .limit(5)
@@ -484,13 +490,15 @@ export default async function AdminDashboardPage() {
           </div>
           <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
           {openTickets.map((ticket) => {
-            const contact = ticket.contact as unknown as { full_name: string }
-            const initials = contact.full_name
-              .split(' ')
-              .map((n) => n[0])
-              .join('')
-              .toUpperCase()
-              .slice(0, 2)
+            const contact = ticket.contact as unknown as { full_name: string } | null
+            const fullName = contact?.full_name ?? '—'
+            const initials =
+              contact?.full_name
+                ?.split(' ')
+                .map((n) => n[0])
+                .join('')
+                .toUpperCase()
+                .slice(0, 2) || '?'
             return (
               <Link
                 key={ticket.id}
@@ -501,7 +509,7 @@ export default async function AdminDashboardPage() {
                   {initials}
                 </div>
                 <div className="min-w-0 flex-1">
-                  <div className="text-body-sm font-medium text-gray-900">{contact.full_name}</div>
+                  <div className="text-body-sm font-medium text-gray-900">{fullName}</div>
                   <div className="truncate text-xs text-gray-500">{ticket.subject}</div>
                 </div>
                 <div className="flex shrink-0 flex-col items-end gap-1">
