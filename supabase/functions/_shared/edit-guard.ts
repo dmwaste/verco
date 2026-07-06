@@ -45,6 +45,13 @@ const STAFF_ROLES = [
   'client-staff',
 ]
 
+// Roles permitted to EDIT a booking. RLS SELECT-access is necessary but not
+// sufficient: `field` and `ranger` can SELECT bookings in their scope
+// (booking_field_select) yet must never mutate them, so SELECT-visibility alone
+// would over-permit. Residents (resident/strata) edit their own; staff edit
+// on-behalf. Anyone else is rejected even if they could read the row.
+const EDIT_ROLES = ['resident', 'strata', ...STAFF_ROLES]
+
 export function evaluateEditGuard(input: EditGuardInput): EditGuardResult {
   if (!input.bookingExists) {
     return {
@@ -54,7 +61,15 @@ export function evaluateEditGuard(input: EditGuardInput): EditGuardResult {
     }
   }
 
-  const isStaff = input.role != null && STAFF_ROLES.includes(input.role)
+  if (input.role == null || !EDIT_ROLES.includes(input.role)) {
+    return {
+      ok: false,
+      status: 403,
+      error: 'You do not have permission to edit this booking.',
+    }
+  }
+
+  const isStaff = STAFF_ROLES.includes(input.role)
   if (
     !isStaff &&
     input.currentCollectionDate &&

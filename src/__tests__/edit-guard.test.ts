@@ -73,3 +73,40 @@ describe('evaluateEditGuard — cancellation cutoff', () => {
     expect(r.ok).toBe(true)
   })
 })
+
+describe('evaluateEditGuard — edit-role allowlist (SELECT ≠ EDIT)', () => {
+  it('rejects field/ranger even though RLS lets them SELECT the booking', () => {
+    for (const role of ['field', 'ranger']) {
+      const r = evaluateEditGuard({
+        bookingExists: true,
+        currentCollectionDate: DATE,
+        role,
+        now: BEFORE_CUTOFF,
+      })
+      expect(r.ok, `${role} must not be allowed to edit`).toBe(false)
+      expect(r).toMatchObject({ status: 403 })
+    }
+  })
+
+  it('rejects a booking-visible caller with no role', () => {
+    const r = evaluateEditGuard({
+      bookingExists: true,
+      currentCollectionDate: DATE,
+      role: null,
+      now: BEFORE_CUTOFF,
+    })
+    expect(r.ok).toBe(false)
+  })
+
+  it('allows residents and strata to edit their own booking', () => {
+    for (const role of ['resident', 'strata']) {
+      const r = evaluateEditGuard({
+        bookingExists: true,
+        currentCollectionDate: DATE,
+        role,
+        now: BEFORE_CUTOFF,
+      })
+      expect(r.ok, `${role} should be allowed`).toBe(true)
+    }
+  })
+})
