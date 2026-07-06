@@ -6,6 +6,9 @@ import {
   normaliseStreetTypes,
   buildLookupCandidates,
   rowsAreSameProperty,
+  extractSuburb,
+  suburbsConflict,
+  filterBySuburbAgreement,
 } from '@/lib/booking/address-match-key'
 import { stripAddressPrefix } from '@/lib/mud/address-strip'
 
@@ -316,5 +319,96 @@ describe('rowsAreSameProperty', () => {
         { google_place_id: null, formatted_address: '20 Sulphur Rd, Kwinana WA 6167, Australia' },
       ])
     ).toBe(false)
+  })
+})
+
+describe('extractSuburb', () => {
+  it('pulls the suburb from a full Google formatted address, stripping state + postcode', () => {
+    expect(extractSuburb('23 Glyde St, East Fremantle WA 6158, Australia')).toBe(
+      'EAST FREMANTLE'
+    )
+  })
+
+  it('handles a two-part key without a country suffix', () => {
+    expect(extractSuburb('23 Glyde St, Mosman Park WA 6012')).toBe('MOSMAN PARK')
+  })
+
+  it('handles a locality with no postcode', () => {
+    expect(extractSuburb('10 Salvado St, Wembley WA')).toBe('WEMBLEY')
+  })
+
+  it('returns null when there is no comma (no determinable suburb)', () => {
+    expect(extractSuburb('7/23 Glyde St')).toBeNull()
+  })
+
+  it('returns null for null/empty input', () => {
+    expect(extractSuburb(null)).toBeNull()
+    expect(extractSuburb('')).toBeNull()
+  })
+})
+
+describe('suburbsConflict', () => {
+  it('flags a conflict when two suburbs share no common word (Mosman Park vs East Fremantle)', () => {
+    expect(suburbsConflict('MOSMAN PARK', 'EAST FREMANTLE')).toBe(true)
+  })
+
+  it('does NOT flag identical suburbs', () => {
+    expect(suburbsConflict('MOSMAN PARK', 'MOSMAN PARK')).toBe(false)
+  })
+
+  it('does NOT flag suburbs that share a word (tolerant — errs toward keeping)', () => {
+    // South Perth vs Perth share "PERTH": treat as non-conflicting so we never
+    // over-reject a correct match on a Google locality-naming quirk.
+    expect(suburbsConflict('SOUTH PERTH', 'PERTH')).toBe(false)
+  })
+
+  it('is indeterminate (no conflict) when either side is null', () => {
+    expect(suburbsConflict('MOSMAN PARK', null)).toBe(false)
+    expect(suburbsConflict(null, 'EAST FREMANTLE')).toBe(false)
+  })
+})
+
+describe('filterBySuburbAgreement', () => {
+  // The live bug: resident selects "23 Glyde St, Mosman Park" but no Mosman Park
+  // row exists — only the same-street namesake "23 Glyde St, East Fremantle"
+  // (a sibling Verge Valet sub-client). The street-segment `address` ILIKE
+  // branch matched it, and with a single row rowsAreSameProperty() accepted it,
+  // resolving a Mosman Park address to an East Fremantle collection area.
+  const eastFremRow = {
+    google_place_id: 'place-eastfrem',
+    formatted_address: '23 Glyde St, East Fremantle WA 6158, Australia',
+  }
+
+  it('drops a wrong-suburb namesake for a Mosman Park search (the reported bug)', () => {
+    const inputSuburb = extractSuburb('23 Glyde St, Mosman Park WA 6012, Australia')
+    expect(filterBySuburbAgreement([eastFremRow], inputSuburb)).toEqual([])
+  })
+
+  it('after filtering, the single wrong-suburb match no longer resolves', () => {
+    // End-to-end shape of the fix inside tryLookup: filter → rowsAreSameProperty.
+    const inputSuburb = extractSuburb('23 Glyde St, Mosman Park WA 6012, Australia')
+    const scoped = filterBySuburbAgreement([eastFremRow], inputSuburb)
+    const resolves = scoped.length > 0 && rowsAreSameProperty(scoped)
+    expect(resolves).toBe(false)
+  })
+
+  it('keeps a row in the correct suburb', () => {
+    const mosmanRow = {
+      google_place_id: 'place-mosman',
+      formatted_address: '9 Glyde St, Mosman Park WA 6012, Australia',
+    }
+    const inputSuburb = extractSuburb('9 Glyde St, Mosman Park WA 6012, Australia')
+    expect(filterBySuburbAgreement([mosmanRow], inputSuburb)).toEqual([mosmanRow])
+  })
+
+  it('keeps un-geocoded rows (null formatted_address) — no suburb to conflict, never regress', () => {
+    const unGeocoded = { google_place_id: null, formatted_address: null }
+    const inputSuburb = extractSuburb('5 Baring St, Mosman Park WA 6012')
+    expect(filterBySuburbAgreement([unGeocoded], inputSuburb)).toEqual([unGeocoded])
+  })
+
+  it('keeps everything when the input has no determinable suburb', () => {
+    const rows = [eastFremRow]
+    expect(filterBySuburbAgreement(rows, extractSuburb('7/23 Glyde St'))).toEqual(rows)
   })
 })
