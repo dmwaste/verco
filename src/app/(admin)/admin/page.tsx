@@ -112,13 +112,6 @@ export default async function AdminDashboardPage() {
     .in('status', [...OPEN_INVESTIGATION_STATUSES])
     .order('reported_at', { ascending: false })
     .limit(6)
-  // Invariant safety net: bookings sitting in an exception status. Cross-checked
-  // against notice records below to warn if any exception lacks an investigation
-  // record (a future legacy import bypassing closeout would re-break the tables).
-  const exceptionBookingsQuery = supabase
-    .from('booking')
-    .select('id, status')
-    .in('status', ['Non-conformance', 'Nothing Presented'])
   // Collection dates whose date falls in the current AWST week, scoped to the
   // active tenant's areas (collection_date is public-SELECT — RLS won't scope it).
   // These ids drive the two "this week" widgets via their bookings' items.
@@ -136,7 +129,6 @@ export default async function AdminDashboardPage() {
     openTicketsQuery.eq('client_id', clientId)
     openNcnListQuery.eq('client_id', clientId)
     openNpListQuery.eq('client_id', clientId)
-    exceptionBookingsQuery.eq('client_id', clientId)
   }
 
   // Recent submitted survey responses for the dashboard feed. booking_survey is
@@ -159,7 +151,6 @@ export default async function AdminDashboardPage() {
     openTicketsResult,
     openNcnListResult,
     openNpListResult,
-    exceptionBookingsResult,
     weekDatesResult,
     mudRemindersResult,
     recentSurveysResult,
@@ -187,7 +178,6 @@ export default async function AdminDashboardPage() {
     openTicketsQuery,
     openNcnListQuery,
     openNpListQuery,
-    exceptionBookingsQuery,
     weekDatesQuery,
     // MUD reminders: Registered MUDs with next_expected_date <= 14 days from today
     // (or NULL — for new MUDs that haven't had a booking yet, surfacing them
@@ -220,28 +210,6 @@ export default async function AdminDashboardPage() {
   ]
     .sort((a, b) => (a.reported_at < b.reported_at ? 1 : -1))
     .slice(0, 6)
-
-  // Record-less exception guard: any exception-status booking missing a notice
-  // record. Backfill closes the current gap; this warns loudly if a future legacy
-  // import re-breaks the invariant that every exception has a record.
-  const exceptionBookings = exceptionBookingsResult.data ?? []
-  let recordlessCount = 0
-  if (exceptionBookings.length > 0) {
-    const ncnIds = exceptionBookings.filter((b) => b.status === 'Non-conformance').map((b) => b.id)
-    const npIds = exceptionBookings.filter((b) => b.status === 'Nothing Presented').map((b) => b.id)
-    const [ncnHave, npHave] = await Promise.all([
-      ncnIds.length
-        ? supabase.from('non_conformance_notice').select('booking_id').in('booking_id', ncnIds)
-        : Promise.resolve({ data: [] as { booking_id: string }[] }),
-      npIds.length
-        ? supabase.from('nothing_presented').select('booking_id').in('booking_id', npIds)
-        : Promise.resolve({ data: [] as { booking_id: string }[] }),
-    ])
-    const haveSet = new Set(
-      [...(ncnHave.data ?? []), ...(npHave.data ?? [])].map((r) => r.booking_id),
-    )
-    recordlessCount = exceptionBookings.filter((b) => !haveSet.has(b.id)).length
-  }
 
   // ── "This week" widgets — bookings whose collection_date is in this AWST week ──
   // A booking has no date column; it is dated through booking_item.collection_date_id.
@@ -379,18 +347,6 @@ export default async function AdminDashboardPage() {
           </Link>
         </div>
       </div>
-
-      {/* Invariant guard: an exception-status booking with no notice record means
-          a source (e.g. a legacy import) bypassed closeout — such rows silently
-          drop out of the record-driven exception tables. Loud, actionable warning. */}
-      {recordlessCount > 0 && (
-        <div className="mx-7 mt-5 flex items-start gap-2.5 rounded-lg border border-status-warn/30 bg-status-warn-bg px-4 py-3 text-body-sm text-status-warn">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mt-0.5 shrink-0"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-          <span>
-            <strong>{recordlessCount}</strong> exception{recordlessCount === 1 ? '' : 's'} {recordlessCount === 1 ? 'is' : 'are'} missing an investigation record and won&rsquo;t appear in the exception tables. This usually means a legacy import set the status without a closeout — re-run the exception backfill reconciliation.
-          </span>
-        </div>
-      )}
 
       {/* Stat cards — each links to its drill-down page (the numbers are
           summaries of queues staff act on, not decoration). */}
