@@ -29,4 +29,7 @@ export default withSentryConfig(nextConfig, {
   disableLogger: true,
   automaticVercelMonitors: false,
   sourcemaps: { disable: !process.env.SENTRY_AUTH_TOKEN },
+  // Route client events through our own origin so ad-blockers don't drop them.
+  // The proxy short-circuits /monitoring (mirroring the /api/health bypass).
+  tunnelRoute: "/monitoring",
 });

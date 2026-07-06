@@ -3,9 +3,13 @@
 import * as Sentry from "@sentry/nextjs";
 
 export async function register() {
-  // Coolify runs the app on the Node runtime only — no edge runtime (CLAUDE.md §2).
+  // The app server runs on Node (Coolify). Next.js middleware (src/proxy.ts)
+  // runs on the edge runtime regardless, so both configs are loaded.
   if (process.env.NEXT_RUNTIME === "nodejs") {
     await import("./sentry.server.config");
+  }
+  if (process.env.NEXT_RUNTIME === "edge") {
+    await import("./sentry.edge.config");
   }
 }
 
