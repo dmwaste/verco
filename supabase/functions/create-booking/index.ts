@@ -6,6 +6,7 @@ import { isAreaBookableServer } from '../_shared/area-gate-server.ts'
 import { type TermsAcceptanceChannel } from '../_shared/terms.ts'
 import { classifyCreator, CREATOR_STAFF_ROLES } from '../_shared/classify-creator.ts'
 import { evaluateEditGuard } from '../_shared/edit-guard.ts'
+import { withSentry } from '../_shared/sentry.ts'
 
 /**
  * Fire-and-forget POST to the send-notification Edge Function. Returns
@@ -90,7 +91,7 @@ const CreateBookingRequest = z.object({
   terms_accepted: z.boolean().optional(),
 })
 
-serve(async (req) => {
+serve(withSentry('create-booking', async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
   }
@@ -690,4 +691,4 @@ serve(async (req) => {
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     )
   }
-})
+}))
