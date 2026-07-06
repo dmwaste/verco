@@ -10,16 +10,10 @@ import { PageHeader } from '@/components/admin/page-header'
 import { FilterBar, SearchInput, FilterSelect } from '@/components/admin/filter-bar'
 import { Th } from '@/components/admin/th'
 import { Pagination } from '@/components/admin/pagination'
-import { StatusBadge } from '@/components/status-badge'
 import { SkeletonRow } from '@/components/ui/skeleton'
 import { SurveySummary } from './survey-summary'
 
 const PAGE_SIZE = 20
-
-const SUBMITTED_OPTIONS = [
-  { value: 'submitted', label: 'Submitted' },
-  { value: 'pending', label: 'Pending' },
-]
 
 const RATING_OPTIONS = ['5', '4', '3', '2', '1']
 
@@ -72,7 +66,6 @@ export function SurveysListClient({ clientId }: SurveysListClientProps) {
   const supabase = createClient()
 
   const [search, setSearch] = useState(searchParams.get('search') ?? '')
-  const [submittedFilter, setSubmittedFilter] = useState(searchParams.get('submitted') ?? '')
   const [areaFilter, setAreaFilter] = useState(searchParams.get('area') ?? '')
   const [ratingFilter, setRatingFilter] = useState(searchParams.get('rating') ?? '')
   const [page, setPage] = useState(0)
@@ -81,7 +74,6 @@ export function SurveysListClient({ clientId }: SurveysListClientProps) {
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional URL→state sync on soft-navigation
     setSearch(searchParams.get('search') ?? '')
-    setSubmittedFilter(searchParams.get('submitted') ?? '')
     setAreaFilter(searchParams.get('area') ?? '')
     setRatingFilter(searchParams.get('rating') ?? '')
     setPage(0)
@@ -100,7 +92,7 @@ export function SurveysListClient({ clientId }: SurveysListClientProps) {
   })
 
   const { data: surveysData, isLoading } = useQuery({
-    queryKey: ['admin-surveys', clientId, search, submittedFilter, areaFilter, ratingFilter, page],
+    queryKey: ['admin-surveys', clientId, search, areaFilter, ratingFilter, page],
     queryFn: async () => {
       // Ref/address search → pre-fetch matching booking ids (scoped to client),
       // then filter surveys by booking_id. Avoids fragile .or() on an embedded
@@ -132,8 +124,8 @@ export function SurveysListClient({ clientId }: SurveysListClientProps) {
         .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1)
 
       if (clientId) query = query.eq('client_id', clientId)
-      if (submittedFilter === 'submitted') query = query.not('submitted_at', 'is', null)
-      if (submittedFilter === 'pending') query = query.is('submitted_at', null)
+      // Surveys list shows submitted surveys only.
+      query = query.not('submitted_at', 'is', null)
       if (areaFilter) query = query.eq('booking.collection_area_id', areaFilter)
       if (matchingBookingIds) {
         query = query.in('booking_id', matchingBookingIds.length ? matchingBookingIds : ['00000000-0000-0000-0000-000000000000'])
@@ -177,16 +169,6 @@ export function SurveysListClient({ clientId }: SurveysListClientProps) {
           ariaLabel="Search surveys"
         />
         <FilterSelect
-          value={submittedFilter}
-          onChange={(e) => { setSubmittedFilter(e.target.value); setPage(0) }}
-          aria-label="Filter by status"
-        >
-          <option value="">All Statuses</option>
-          {SUBMITTED_OPTIONS.map((s) => (
-            <option key={s.value} value={s.value}>{s.label}</option>
-          ))}
-        </FilterSelect>
-        <FilterSelect
           value={areaFilter}
           onChange={(e) => { setAreaFilter(e.target.value); setPage(0) }}
           aria-label="Filter by area"
@@ -219,17 +201,14 @@ export function SurveysListClient({ clientId }: SurveysListClientProps) {
                 <Th>Booking</Th>
                 <Th>Collection</Th>
                 <Th>Overall</Th>
-                <Th>Status</Th>
               </tr>
             </thead>
             <tbody>
-              {isLoading && Array.from({ length: 5 }).map((_, i) => <SkeletonRow key={i} columns={7} />)}
+              {isLoading && Array.from({ length: 5 }).map((_, i) => <SkeletonRow key={i} columns={6} />)}
               {!isLoading && rows.length === 0 && (
-                <tr><td colSpan={7} className="px-4 py-8 text-center text-sm text-gray-400">No surveys found</td></tr>
+                <tr><td colSpan={6} className="px-4 py-8 text-center text-sm text-gray-400">No surveys found</td></tr>
               )}
-              {rows.map((row) => {
-                const submitted = row.submitted_at !== null
-                return (
+              {rows.map((row) => (
                   <tr key={row.id} className="border-b border-gray-100 last:border-b-0 hover:bg-gray-50">
                     <td className="px-4 py-3">
                       <Link
@@ -254,12 +233,8 @@ export function SurveysListClient({ clientId }: SurveysListClientProps) {
                     <td className="px-4 py-3">
                       <MiniStars value={extractRating(row.responses, 'overall_rating')} />
                     </td>
-                    <td className="px-4 py-3">
-                      <StatusBadge entity="survey" status={submitted ? 'Submitted' : 'Pending'} />
-                    </td>
                   </tr>
-                )
-              })}
+              ))}
             </tbody>
           </table>
         </div>
