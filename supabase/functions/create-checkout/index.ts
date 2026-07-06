@@ -4,6 +4,7 @@ import { z } from 'https://esm.sh/zod@3.23.8'
 import Stripe from 'https://esm.sh/stripe@17.7.0?target=deno'
 import { jsonResponse, optionsResponse, errorResponse } from '../_shared/cors.ts'
 import { reconcileCheckoutSession } from '../_shared/checkout-reconcile.ts'
+import { withSentry } from '../_shared/sentry.ts'
 
 const CreateCheckoutRequest = z.object({
   booking_id: z.string().uuid(),
@@ -11,7 +12,7 @@ const CreateCheckoutRequest = z.object({
   cancel_url: z.string().url(),
 })
 
-serve(async (req) => {
+serve(withSentry('create-checkout', async (req) => {
   if (req.method === 'OPTIONS') return optionsResponse()
 
   const authHeader = req.headers.get('Authorization')
@@ -226,4 +227,4 @@ serve(async (req) => {
     const message = err instanceof Error ? err.message : String(err)
     return errorResponse(`Internal Server Error: ${message}`, 500)
   }
-})
+}))

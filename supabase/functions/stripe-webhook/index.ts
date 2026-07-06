@@ -2,8 +2,9 @@ import { serve } from 'https://deno.land/std@0.177.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.100.0'
 import Stripe from 'https://esm.sh/stripe@17.7.0?target=deno'
 import { reconcileCheckoutSession } from '../_shared/checkout-reconcile.ts'
+import { withSentry } from '../_shared/sentry.ts'
 
-serve(async (req) => {
+serve(withSentry('stripe-webhook', async (req) => {
   // Webhook only accepts POST
   if (req.method !== 'POST') {
     return new Response('Method not allowed', { status: 405 })
@@ -63,7 +64,7 @@ serve(async (req) => {
     console.error(`Error handling ${event.type}:`, err)
     return new Response('Webhook handler error', { status: 500 })
   }
-})
+}))
 
 // ── charge.refunded ──────────────────────────────────────────────────────────
 // Updates refund_request with the Stripe refund ID and marks as Approved.
