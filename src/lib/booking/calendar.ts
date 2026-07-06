@@ -6,12 +6,17 @@ import {
   startOfWeek,
 } from 'date-fns'
 
-export type DateStatus = 'available' | 'low' | 'closed'
+// `current` is the resident's already-held date during an edit — it is always
+// shown and pre-selected even when it has since closed, so it needs a neutral
+// brand-tinted token rather than the red `closed` style (which would render the
+// resident's own booking as an error). See edit-aware-dates.ts.
+export type DateStatus = 'available' | 'low' | 'closed' | 'current'
 
 export const STATUS_LABEL: Record<DateStatus, string> = {
   available: 'Available',
   low: 'Low Availability',
   closed: 'Closed',
+  current: 'Current date',
 }
 
 // Chip/pill colours shared by the calendar cells and the selected-date summary.
@@ -20,6 +25,7 @@ export const STATUS_CHIP: Record<DateStatus, string> = {
     'border-[var(--brand-accent-dark)] bg-[var(--brand-accent-light)] text-[#006A38]',
   low: 'border-[#E2A23B] bg-[#FFF7E6] text-[#B7791F]',
   closed: 'border-[#E53E3E] bg-[#FFF0F0] text-[#E53E3E]',
+  current: 'border-[var(--brand)] bg-[#E8EEF2] text-[var(--brand)]',
 }
 
 export const WEEKDAY_LABELS = [

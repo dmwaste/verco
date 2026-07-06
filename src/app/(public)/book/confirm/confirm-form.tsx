@@ -190,7 +190,7 @@ export function ConfirmForm() {
 
   // Fetch service details + collection date for display
   const { data: summaryData } = useQuery({
-    queryKey: ['booking-summary', itemsParam, collectionDateId, swap],
+    queryKey: ['booking-summary', itemsParam, collectionDateId, swap, replacesParam],
     enabled: selectedItems.size > 0 && !!collectionDateId,
     queryFn: async () => {
       const serviceIds = Array.from(selectedItems.keys())
@@ -231,7 +231,11 @@ export function ConfirmForm() {
       const serviceUsageMap = new Map<string, number>()
       const categoryUsageMap = new Map<string, number>()
       if (fyResult.data) {
-        const { data: usageItems } = await supabase
+        // Edit flow: exclude the booking being edited from its own FY usage, so
+        // the confirm breakdown re-prices as a replacement (matching the
+        // services step + the create-booking EF). Without this, confirm counts
+        // the booking against itself and can show extras differently.
+        let usageQuery = supabase
           .from('booking_item')
           .select(
             'no_services, service_id, service!inner(category!inner(code)), booking!inner(property_id, fy_id, status)'
@@ -239,6 +243,8 @@ export function ConfirmForm() {
           .eq('booking.property_id', propertyId)
           .eq('booking.fy_id', fyResult.data.id)
           .not('booking.status', 'in', '("Cancelled","Pending Payment")')
+        if (replacesParam) usageQuery = usageQuery.neq('booking_id', replacesParam)
+        const { data: usageItems } = await usageQuery
 
         for (const item of usageItems ?? []) {
           serviceUsageMap.set(
@@ -656,6 +662,9 @@ export function ConfirmForm() {
       ...(contactEmail ? { contact_email: contactEmail } : {}),
       ...(contactMobile ? { contact_mobile: contactMobile } : {}),
       ...(returnUrl ? { return_url: returnUrl } : {}),
+      // Carry the edit signal back — without it, Confirm → Back → Next re-enters
+      // the wizard as a NEW booking and creates a duplicate instead of editing.
+      ...(replacesParam ? { replaces: replacesParam } : {}),
     })
     router.push(`/book/details?${params.toString()}`)
   }
