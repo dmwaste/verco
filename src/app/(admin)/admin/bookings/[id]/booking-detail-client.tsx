@@ -19,6 +19,8 @@ import { cn } from '@/lib/utils'
 import type { Database } from '@/lib/supabase/types'
 import type { ResolvedAuditEntry } from '@/lib/audit/resolve'
 import { AuditTimeline } from '@/components/audit-timeline'
+import { ExceptionsCard, type AdminExceptionRecord } from '@/components/admin/exceptions-card'
+import { BookingTicketsCard, type BookingTicket } from '@/components/admin/booking-tickets-card'
 import type { MudContext } from './mud-context'
 
 type BookingStatus = Database['public']['Enums']['booking_status']
@@ -65,6 +67,8 @@ interface BookingDetailClientProps {
   auditLogs: ResolvedAuditEntry[]
   mudContext?: MudContext | null
   userRole: AppRole | null
+  exceptions: AdminExceptionRecord[]
+  tickets: BookingTicket[]
 }
 
 // Pencil icon shared across edit buttons
@@ -82,6 +86,8 @@ export function BookingDetailClient({
   auditLogs,
   mudContext,
   userRole,
+  exceptions,
+  tickets,
 }: BookingDetailClientProps) {
   const router = useRouter()
   const listSearchParams = useSearchParams()
@@ -835,6 +841,8 @@ export function BookingDetailClient({
 
       {/* Activity — right column */}
       <div className="flex min-w-0 flex-col gap-4">
+        <ExceptionsCard records={exceptions} />
+        <BookingTicketsCard tickets={tickets} />
         {auditLogs.length > 0 && (
           <div className="rounded-xl bg-white shadow-sm">
             <AuditTimeline entries={auditLogs} />
