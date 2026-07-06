@@ -11,7 +11,8 @@ import { PageHeader } from '@/components/admin/page-header'
 import { FilterBar, SearchInput, FilterSelect } from '@/components/admin/filter-bar'
 import { Th } from '@/components/admin/th'
 import { Pagination } from '@/components/admin/pagination'
-import { OPEN_EXCEPTION_FILTER_STATUSES } from '@/lib/exceptions/status'
+import { OpenInvestigationButton } from '@/components/admin/open-investigation-button'
+import { OPEN_EXCEPTION_FILTER_STATUSES, OPENABLE_STATUSES } from '@/lib/exceptions/status'
 
 const STATUS_OPTIONS: string[] = ['Issued', 'Disputed', 'Under Review', 'Resolved', 'Rebooked', 'Closed']
 
@@ -203,12 +204,17 @@ export function NothingPresentedClient({ clientId }: NothingPresentedClientProps
                       {reporter?.display_name ?? '—'}
                     </td>
                     <td className="px-4 py-3">
-                      <Link
-                        href={`/admin/nothing-presented/${np.id}`}
-                        className="inline-flex items-center rounded-md border-[1.5px] border-gray-100 bg-white px-3 py-1 text-xs font-semibold text-[#293F52]"
-                      >
-                        View
-                      </Link>
+                      <div className="flex items-center gap-2">
+                        {(OPENABLE_STATUSES as readonly string[]).includes(np.status) && (
+                          <OpenInvestigationButton kind="np" noticeId={np.id} />
+                        )}
+                        <Link
+                          href={`/admin/nothing-presented/${np.id}`}
+                          className="inline-flex items-center rounded-md border-[1.5px] border-gray-100 bg-white px-3 py-1 text-xs font-semibold text-[#293F52]"
+                        >
+                          View
+                        </Link>
+                      </div>
                     </td>
                   </tr>
                 )

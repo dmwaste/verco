@@ -52,6 +52,49 @@ export default async function AdminBookingDetailPage({
         })
       : null
 
+  // Exception records + linked service tickets for the detail cards. A booking
+  // can carry several notice records (one per stream, even both NCN & NP), so
+  // fetch all — not maybeSingle.
+  const [ncnRecords, npRecords, bookingTickets] = await Promise.all([
+    supabase
+      .from('non_conformance_notice')
+      .select('id, reason, status, photos, reported_at, collection_stop:collection_stop_id(stream)')
+      .eq('booking_id', id)
+      .order('reported_at', { ascending: false }),
+    supabase
+      .from('nothing_presented')
+      .select('id, status, photos, reported_at, contractor_fault, collection_stop:collection_stop_id(stream)')
+      .eq('booking_id', id)
+      .order('reported_at', { ascending: false }),
+    supabase
+      .from('service_ticket')
+      .select('id, display_id, subject, status, category, created_at')
+      .eq('booking_id', id)
+      .order('created_at', { ascending: false }),
+  ])
+
+  const exceptions = [
+    ...((ncnRecords.data ?? []).map((r) => ({
+      id: r.id,
+      kind: 'ncn' as const,
+      status: r.status as string,
+      reason: r.reason as string | null,
+      stream: (r.collection_stop as unknown as { stream: string } | null)?.stream ?? null,
+      photos: r.photos,
+      reported_at: r.reported_at,
+    }))),
+    ...((npRecords.data ?? []).map((r) => ({
+      id: r.id,
+      kind: 'np' as const,
+      status: r.status as string,
+      reason: null,
+      stream: (r.collection_stop as unknown as { stream: string } | null)?.stream ?? null,
+      photos: r.photos,
+      reported_at: r.reported_at,
+      contractor_fault: r.contractor_fault,
+    }))),
+  ].sort((a, b) => (a.reported_at < b.reported_at ? 1 : -1))
+
   // Fetch resolved audit trail (booking + child records)
   const auditLogs = await resolveAuditLogs(supabase, 'booking', id, {
     includeChildren: [
@@ -68,6 +111,8 @@ export default async function AdminBookingDetailPage({
       auditLogs={auditLogs}
       mudContext={mudContext}
       userRole={userRole}
+      exceptions={exceptions}
+      tickets={bookingTickets.data ?? []}
     />
   )
 }
