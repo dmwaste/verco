@@ -41,6 +41,17 @@ Start the dev server:
 pnpm dev
 ```
 
+### Secret scanning
+
+Secrets are caught in two places:
+
+- **Locally** — a `pre-commit` hook (wired automatically by `pnpm install` via `core.hooksPath`, no per-clone step) runs [gitleaks](https://github.com/gitleaks/gitleaks) over your staged changes. Install the CLI once so the gate activates:
+  ```bash
+  brew install gitleaks
+  ```
+  Without it installed the hook skips (printing a hint), and `git commit --no-verify` bypasses it — CI is the non-bypassable backstop either way.
+- **In CI** — the `gitleaks` workflow re-scans full history on every push/PR, and the `semgrep` workflow runs SAST (static analysis). Allowlists for public-by-design values (Supabase anon keys, Airtable base IDs) live in [`.gitleaks.toml`](.gitleaks.toml).
+
 ## Scripts
 
 | Command | Description |

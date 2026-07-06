@@ -1,0 +1,39 @@
+name: semgrep
+
+# Static analysis (SAST) — a free, no-account substitute for GitHub CodeQL.
+# Runs the Semgrep OSS engine with the free registry rulesets; no SEMGREP_APP_TOKEN
+# and no telemetry (--metrics=off). Triggers mirror ci.yml / gitleaks.yml.
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+
+jobs:
+  semgrep:
+    name: SAST
+    runs-on: ubuntu-latest
+    # The official image ships the Semgrep CLI pre-installed.
+    container:
+      image: semgrep/semgrep
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Semgrep scan
+        # `semgrep scan --config …` is the tokenless path (the handover's
+        # `semgrep ci` needs a Semgrep AppSec Platform token). Registry rulesets
+        # are fetched fresh each run, so new security rules land automatically —
+        # this can surface a NEW finding on an unrelated PR by design.
+        #
+        # Policy:
+        #  • Gate on ERROR severity only. Advisory WARNING/NOTE findings (e.g.
+        #    unpinned action tags) still print but don't block — the repo pins
+        #    actions to major tags by convention (see ci.yml / deploy.yml).
+        #  • detected-jwt-token is excluded: secret scanning is gitleaks' job
+        #    (.github/workflows/gitleaks.yml), which distinguishes the public
+        #    Supabase anon key from a real service_role key. Semgrep here is
+        #    SAST only, so the two scanners don't produce duplicate findings.
+        run: |
+          semgrep scan \
+            --config p/default --config p/typescript --config p/react \
+            --exclude-rule generic.secrets.security.detected-jwt-token.detected-jwt-token \
+            --severity ERROR --error --metrics=off --oss-only
