@@ -10,8 +10,9 @@ import { BookingCancelLink } from '@/components/booking/booking-cancel-link'
 import { VercoButton } from '@/components/ui/verco-button'
 import { Spinner } from '@/components/ui/spinner'
 import { decodeItems } from '@/lib/booking/search-params'
-import { effectiveCapacity, indexPoolDates } from '@/lib/capacity/effective-capacity'
-import { STATUS_CHIP, STATUS_LABEL, type DateStatus } from '@/lib/booking/calendar'
+import { indexPoolDates } from '@/lib/capacity/effective-capacity'
+import { STATUS_CHIP, STATUS_LABEL } from '@/lib/booking/calendar'
+import { buildCalendarDates } from '@/lib/booking/edit-aware-dates'
 import { AvailabilityCalendar, type CalendarDate } from '@/components/booking/availability-calendar'
 import { cn } from '@/lib/utils'
 
@@ -123,30 +124,20 @@ export function DateForm() {
   // Show loading state if any critical query is loading
   const isLoadingData = neededBucketsLoading || datesLoading || areaLoading || poolDatesLoading
 
-  // Filter dates based on needed capacity buckets. For pooled areas a missing
-  // pool row means the pool hasn't been scheduled for that date — the booking
-  // RPC would reject it, so the shared helper returns it as fully closed.
-  const availableDates = (dates ?? []).filter((d) => {
-    if (!neededBuckets) return true
-    const cap = effectiveCapacity(d, poolId, poolByDate)
-    const { buckets } = neededBuckets
-    if (buckets.has('bulk') && cap.bulk_is_closed) return false
-    if (buckets.has('anc') && cap.anc_is_closed) return false
-    return true
-  })
-
-  // Map the filtered dates into calendar cells with an availability status.
-  // Closed is defensive — full/closed dates are filtered out upstream — so in
-  // practice cells are Available (green) or Low Availability (amber).
-  const calendarDates: CalendarDate[] = availableDates.map((d) => {
-    const cap = effectiveCapacity(d, poolId, poolByDate)
-    const spotsRemaining = Math.max(
-      0,
-      cap.bulk_capacity_limit - cap.bulk_units_booked
-    )
-    const status: DateStatus =
-      spotsRemaining === 0 ? 'closed' : spotsRemaining <= 10 ? 'low' : 'available'
-    return { id: d.id, date: new Date(d.date + 'T00:00:00'), status }
+  // In the edit flow (`replaces` present) the resident's already-held date is
+  // pinned as `current` and never capacity-filtered, so a services edit can keep
+  // a date that has since gone capacity-full or T-3-locked. New bookings pass a
+  // null heldDateId and get the normal available/low/closed filter. See
+  // buildCalendarDates.
+  const heldDateId = searchParams.get('replaces')
+    ? searchParams.get('collection_date_id')
+    : null
+  const calendarDates: CalendarDate[] = buildCalendarDates({
+    dates: dates ?? [],
+    poolId,
+    poolByDate,
+    neededBuckets: neededBuckets?.buckets,
+    heldDateId,
   })
   const selectedOption = calendarDates.find((c) => c.id === selectedDateId)
 
