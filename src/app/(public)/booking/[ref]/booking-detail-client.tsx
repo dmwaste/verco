@@ -76,8 +76,10 @@ interface BookingDetailClientProps {
   booking: Booking
   tickets: Ticket[]
   receiptUrl: string | null
-  ncn: NcnInfo | null
-  np: NpInfo | null
+  // A booking can carry several notice records (one per stop / waste stream,
+  // even both an NCN and an NP), so these are arrays — one card renders per record.
+  ncn: NcnInfo[]
+  np: NpInfo[]
   paymentSuccess?: boolean
   placeOutHoursBefore: number
   serviceName: string | null
@@ -133,7 +135,9 @@ export function BookingDetailClient({ booking, tickets, receiptUrl, ncn, np, pay
   const [isCancelling, setIsCancelling] = useState(false)
   const [cancelError, setCancelError] = useState<string | null>(null)
   const [showCancelDialog, setShowCancelDialog] = useState(false)
-  const [isDisputing, setIsDisputing] = useState(false)
+  // Tracks WHICH notice is being disputed — multiple dispute buttons can be on
+  // screen at once (one per record), so a shared boolean would spinner them all.
+  const [disputingId, setDisputingId] = useState<string | null>(null)
   const [isPaying, setIsPaying] = useState(false)
   const [payError, setPayError] = useState<string | null>(null)
   const [isPolling, setIsPolling] = useState(paymentSuccess && booking.status === 'Pending Payment')
@@ -484,50 +488,50 @@ export function BookingDetailClient({ booking, tickets, receiptUrl, ncn, np, pay
           </div>
         )}
 
-        {/* NCN card — shown when booking is Non-conformance or Rebooked */}
-        {ncn && (
-          <div className="rounded-xl border border-red-100 bg-white p-4 shadow-sm">
+        {/* NCN cards — one per record (Non-conformance or Rebooked bookings) */}
+        {ncn.map((notice) => (
+          <div key={notice.id} className="rounded-xl border border-red-100 bg-white p-4 shadow-sm">
             <div className="mb-2.5 flex items-center gap-2">
               <span className="text-2xs font-semibold uppercase tracking-wide text-gray-500">
                 Non-Conformance Notice
               </span>
               <span className={`inline-flex items-center whitespace-nowrap rounded-full px-2.5 py-0.5 text-caption font-semibold ${
-                ncn.status === 'Issued' ? 'bg-gray-100 text-gray-600'
-                  : ncn.status === 'Disputed' ? 'bg-red-50 text-red-700'
-                  : ncn.status === 'Under Review' ? 'bg-amber-50 text-amber-700'
-                  : ncn.status === 'Resolved' ? 'bg-emerald-50 text-emerald-700'
-                  : ncn.status === 'Closed' ? 'bg-gray-50 text-gray-400'
+                notice.status === 'Issued' ? 'bg-gray-100 text-gray-600'
+                  : notice.status === 'Disputed' ? 'bg-red-50 text-red-700'
+                  : notice.status === 'Under Review' ? 'bg-amber-50 text-amber-700'
+                  : notice.status === 'Resolved' ? 'bg-emerald-50 text-emerald-700'
+                  : notice.status === 'Closed' ? 'bg-gray-50 text-gray-400'
                   : 'bg-blue-50 text-blue-700'
               }`}>
-                {ncn.status}
+                {notice.status}
               </span>
             </div>
             <div className="flex flex-col gap-2">
               <div className="flex items-center justify-between text-body-sm">
                 <span className="text-gray-500">Reason</span>
-                <span className="font-medium text-gray-900">{ncn.reason}</span>
+                <span className="font-medium text-gray-900">{notice.reason}</span>
               </div>
               <div className="flex items-center justify-between text-body-sm">
                 <span className="text-gray-500">Reported</span>
                 <span className="font-medium text-gray-900">
-                  {format(new Date(ncn.reported_at), 'd MMM yyyy')}
+                  {format(new Date(notice.reported_at), 'd MMM yyyy')}
                 </span>
               </div>
-              {ncn.rescheduled_booking && (
+              {notice.rescheduled_booking && (
                 <div className="flex items-center justify-between text-body-sm">
                   <span className="text-gray-500">Rebooked As</span>
                   <Link
-                    href={`/booking/${ncn.rescheduled_booking.ref}`}
+                    href={`/booking/${notice.rescheduled_booking.ref}`}
                     className="font-semibold text-[var(--brand)] hover:underline"
                   >
-                    {ncn.rescheduled_booking.ref} &rarr;
+                    {notice.rescheduled_booking.ref} &rarr;
                   </Link>
                 </div>
               )}
             </div>
-            {ncn.photos.length > 0 && (
+            {notice.photos.length > 0 && (
               <div className="mt-3 flex gap-2 overflow-x-auto">
-                {ncn.photos.map((url, i) => (
+                {notice.photos.map((url, i) => (
                   <a
                     key={i}
                     href={url}
@@ -540,69 +544,68 @@ export function BookingDetailClient({ booking, tickets, receiptUrl, ncn, np, pay
                 ))}
               </div>
             )}
-            {ncn.status === 'Issued' && (
+            {notice.status === 'Issued' && (
               <button
                 type="button"
-                disabled={isDisputing}
+                disabled={disputingId !== null}
                 onClick={async () => {
-                  setIsDisputing(true)
-                  await disputeNcn(ncn.id)
+                  setDisputingId(notice.id)
+                  await disputeNcn(notice.id)
                   router.refresh()
                 }}
                 className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg border-[1.5px] border-[#E53E3E] bg-[#FFF0F0] px-3.5 py-2.5 text-body-sm font-semibold text-[#E53E3E] disabled:opacity-50"
               >
-                {isDisputing ? 'Submitting...' : 'Dispute this Notice'}
+                {disputingId === notice.id ? 'Submitting...' : 'Dispute this Notice'}
               </button>
             )}
-            {ncn.status === 'Disputed' && (
+            {notice.status === 'Disputed' && (
               <p className="mt-3 text-[12px] text-amber-600">
                 Your dispute has been submitted. Our team will review and respond.
               </p>
             )}
           </div>
+        ))}
 
-        )}
-
-        {/* NP card — shown when booking is Nothing Presented or Rebooked */}
-        {np && (
-          <div className="rounded-xl border border-amber-100 bg-white p-4 shadow-sm">
+        {/* NP cards — one per record (Nothing Presented or Rebooked bookings) */}
+        {np.map((notice) => (
+          <div key={notice.id} className="rounded-xl border border-amber-100 bg-white p-4 shadow-sm">
             <div className="mb-2.5 flex items-center gap-2">
               <span className="text-2xs font-semibold uppercase tracking-wide text-gray-500">
                 Nothing Presented
               </span>
               <span className={`inline-flex items-center whitespace-nowrap rounded-full px-2.5 py-0.5 text-caption font-semibold ${
-                np.status === 'Issued' ? 'bg-gray-100 text-gray-600'
-                  : np.status === 'Disputed' ? 'bg-red-50 text-red-700'
-                  : np.status === 'Under Review' ? 'bg-blue-50 text-blue-700'
-                  : np.status === 'Resolved' ? 'bg-emerald-50 text-emerald-700'
-                  : np.status === 'Closed' ? 'bg-gray-50 text-gray-400'
+                notice.status === 'Issued' ? 'bg-gray-100 text-gray-600'
+                  : notice.status === 'Disputed' ? 'bg-red-50 text-red-700'
+                  : notice.status === 'Under Review' ? 'bg-blue-50 text-blue-700'
+                  : notice.status === 'Resolved' ? 'bg-emerald-50 text-emerald-700'
+                  : notice.status === 'Closed' ? 'bg-gray-50 text-gray-400'
                   : 'bg-purple-50 text-purple-700'
               }`}>
-                {np.status}
+                {notice.status}
               </span>
             </div>
             <div className="flex flex-col gap-2">
               <div className="flex items-center justify-between text-body-sm">
                 <span className="text-gray-500">Reported</span>
                 <span className="font-medium text-gray-900">
-                  {format(new Date(np.reported_at), 'd MMM yyyy')}
+                  {format(new Date(notice.reported_at), 'd MMM yyyy')}
                 </span>
               </div>
-              {np.rescheduled_booking && (
+              {notice.rescheduled_booking && (
                 <div className="flex items-center justify-between text-body-sm">
                   <span className="text-gray-500">Rebooked As</span>
                   <Link
-                    href={`/booking/${np.rescheduled_booking.ref}`}
+                    href={`/booking/${notice.rescheduled_booking.ref}`}
                     className="font-semibold text-[var(--brand)] hover:underline"
                   >
-                    {np.rescheduled_booking.ref} &rarr;
+                    {notice.rescheduled_booking.ref} &rarr;
                   </Link>
                 </div>
               )}
             </div>
-            {np.photos.length > 0 && (
+            {notice.photos.length > 0 && (
               <div className="mt-3 flex gap-2 overflow-x-auto">
-                {np.photos.map((url, i) => (
+                {notice.photos.map((url, i) => (
                   <a
                     key={i}
                     href={url}
@@ -615,27 +618,27 @@ export function BookingDetailClient({ booking, tickets, receiptUrl, ncn, np, pay
                 ))}
               </div>
             )}
-            {np.status === 'Issued' && (
+            {notice.status === 'Issued' && (
               <button
                 type="button"
-                disabled={isDisputing}
+                disabled={disputingId !== null}
                 onClick={async () => {
-                  setIsDisputing(true)
-                  await disputeNp(np.id)
+                  setDisputingId(notice.id)
+                  await disputeNp(notice.id)
                   router.refresh()
                 }}
                 className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg border-[1.5px] border-[#E53E3E] bg-[#FFF0F0] px-3.5 py-2.5 text-body-sm font-semibold text-[#E53E3E] disabled:opacity-50"
               >
-                {isDisputing ? 'Submitting...' : 'Dispute this Notice'}
+                {disputingId === notice.id ? 'Submitting...' : 'Dispute this Notice'}
               </button>
             )}
-            {np.status === 'Disputed' && (
+            {notice.status === 'Disputed' && (
               <p className="mt-3 text-[12px] text-amber-600">
                 Your dispute has been submitted. Our team will review and respond.
               </p>
             )}
           </div>
-        )}
+        ))}
 
         {/* Row 3: Enquiries — half width on desktop */}
         {tickets.length > 0 && (
