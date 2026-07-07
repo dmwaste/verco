@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { format } from 'date-fns'
 import { createClient } from '@/lib/supabase/client'
+import { invokeNotifyTicketResponse } from '@/lib/notifications/invoke-ticket-response'
 import { StatusBadge } from '@/components/status-badge'
 import type { Database } from '@/lib/supabase/types'
 import type { ResolvedAuditEntry } from '@/lib/audit/resolve'
@@ -176,6 +177,12 @@ export function AdminTicketDetailClient({
         createdAt: response.created_at,
       },
     ])
+
+    // Email the resident on a public reply (fire-and-forget — never blocks the
+    // UI or the already-committed insert). Internal notes never notify.
+    if (replyMode === 'reply') {
+      void invokeNotifyTicketResponse(supabase, response.id)
+    }
 
     // If replying to resident and ticket was open, set to waiting_on_customer
     if (replyMode === 'reply' && status === 'open') {
