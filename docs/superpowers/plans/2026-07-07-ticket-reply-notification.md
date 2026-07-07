@@ -513,6 +513,28 @@ serve(withSentry('notify-ticket-response', async (req) => {
       return jsonResponse({ status: 'error', error: 'Ticket not found' }, 404)
     }
 
+    // 3b. TENANT GUARD (review finding F2 — cross-tenant IDOR).
+    // Role alone is NOT tenant isolation (CLAUDE.md §4/§12). All reads above
+    // use service role and bypass RLS, so this is the ONLY tenant boundary in
+    // the EF. A client-tier staffer for council A must not trigger a send on
+    // council B's ticket. Service-role callers (EF→EF) are trusted and skip.
+    // The `ticket_response_id` is caller-supplied, so this must run for every
+    // user-JWT caller before we render or send anything.
+    if (!isServiceRole) {
+      const supabaseCaller = createClient(
+        Deno.env.get('SUPABASE_URL') ?? '',
+        Deno.env.get('SUPABASE_ANON_KEY') ?? '',
+        { global: { headers: { Authorization: authHeader } } },
+      )
+      // accessible_client_ids() is SETOF uuid → supabase-js returns string[].
+      const { data: allowed, error: allowedErr } = await supabaseCaller.rpc('accessible_client_ids')
+      const allowedIds = (allowed ?? []) as string[]
+      if (allowedErr || !allowedIds.includes(ticket.client_id)) {
+        log({ status: 'skipped', reason: 'tenant_mismatch' })
+        return jsonResponse({ status: 'skipped', reason: 'tenant_mismatch' }, 403)
+      }
+    }
+
     // 4. Idempotency — a prior `sent` row for this exact response blocks re-send.
     const { data: existing } = await supabase
       .from('notification_log')
@@ -737,3 +759,87 @@ git commit -m "feat(service-tickets): email resident on public staff reply"
 **Placeholder scan:** none — every code step contains complete code; every command has expected output.
 
 **Type consistency:** `TicketResponseEmailData` / `renderTicketResponse` / `shouldNotifyResident` signatures match across Task 1 (definition), Task 1 test, and Task 3 (consumer). `invokeNotifyTicketResponse(supabase, ticketResponseId)` matches across Task 2 (definition/test) and Task 4 (call site). EF request body `{ ticket_response_id }` matches the invoke helper's POST body and the EF's `RequestSchema`. `notification_log` insert fields match the table columns confirmed in the spec. ✅
+
+---
+
+## GSTACK REVIEW REPORT (/autoplan)
+
+**Mode:** single-reviewer (codex absent; independent Claude subagents unavailable — monthly spend limit). Analysis done at full depth by the primary reviewer, findings verified against the actual code, not memory.
+**Base branch:** develop. **UI scope:** yes (scoped-down — one templated email + a one-line client edit). **DX scope:** skipped (EF endpoint is internal infra, not a product API/dev-tool; only 1 keyword hit).
+
+### Phase 1 — CEO (strategy & scope)
+
+**Premises (named + evaluated):**
+- P-1: *Residents want a per-reply email.* Reasonable — a reply they never see is useless. Accepted.
+- P-2: *One email per staff reply is desirable, not noisy.* Accepted for v1 (staff replies are low-frequency, deliberate). Watch item if a ticket generates rapid back-to-back staff replies.
+- P-3: *The ticket contact email is a real resident inbox.* Mostly true, but shared council inboxes exist as ticket contacts (memory `auth-otp-bypasses-notification-log`). Low-impact edge; the email still lands somewhere sensible.
+- P-4: *A parallel ticket notification path (not the booking dispatcher) is the right call.* Accepted — the dispatcher is booking-shaped and money-path; contaminating it for a bookingless entity is worse than a small dedicated path.
+
+**What already exists (leverage map):** send path → `_shared/sendgrid.ts`; branding/responsive shell → `_shared/templates/_layout.ts`; tenant URL → `buildBookingPortalUrl`; idempotency/observability store → `notification_log` (booking_id nullable, reference_id present); tenant-scope helper → `accessible_client_ids()`. The plan reuses all of these; nothing is reinvented (P4 clean).
+
+**Scope calibration:** Correct for a first cut. The one real operational cost of the chosen scope: **a resident who replies in-portal generates NO staff notification** — staff must poll the admin ticket queue. Dan consciously deferred "notify staff on resident reply" at the brainstorming gate. Flagged as a scope note (below), not overridden — single reviewer, and it was an explicit prior decision.
+
+**Alternatives:** Trigger mechanism A/B/C was already decided (A: notify-only EF) with Dan at the design gate. No re-litigation.
+
+### Phase 2 — Design (email UX, scoped)
+
+The only visual artifact is one transactional email reusing the branded, responsive, tested `renderEmailLayout` shell. States considered: **success** (reply + details + CTA — covered), **long reply** (whitespace preserved via `<br>`, layout holds), **HTML in reply** (escaped — injection-safe, tested), **empty optional fields** (display_id/subject/category are all NOT NULL — no empty rows). Hierarchy: heading → reply message (highlighted block) → details table → CTA. Reads correctly. **One UX note (taste):** the email `from` is the tenant `reply_to_email`, so a resident who hits "Reply" in their mail client lands in the council inbox, not the portal — consistent with every existing Verco email, but the copy says "reply from the portal." Acceptable; consistent with the estate.
+
+### Phase 3 — Eng (architecture, correctness, tests, security)
+
+**Architecture (new vs existing):**
+```
+admin-ticket-detail-client.tsx  ──(public reply insert, unchanged)──►  ticket_response
+        │ (fire-and-forget, session JWT)
+        ▼
+invoke-ticket-response.ts (browser)
+        │  POST /functions/v1/notify-ticket-response { ticket_response_id }
+        ▼
+notify-ticket-response EF ──auth(role)──► TENANT GUARD (F2) ──► guard(staff+public)
+        │                                                          │
+        ├─► service-role reads: ticket_response → service_ticket → contacts → client
+        ├─► idempotency: notification_log (reference_id = response.id)
+        ├─► render: _shared/templates/ticket-response.ts → _layout.ts
+        ├─► send: _shared/sendgrid.ts
+        └─► log: notification_log (booking_id NULL)
+```
+
+**Test diagram → coverage:**
+| Codepath / branch | Covered by | Status |
+|---|---|---|
+| render: subject/body/escaping/CTA/branding | Vitest (Task 1) | ✅ |
+| guard: staff+public / resident / internal | Vitest `shouldNotifyResident` (Task 1) | ✅ |
+| invoke helper: URL/bearer/body/error-swallow | Vitest (Task 2) | ✅ |
+| EF: tenant guard, idempotency, no-email, send | Deno — manual smoke only | ⚠️ gap (see F3 note) |
+| client wiring: fires only on public reply | manual smoke | ⚠️ |
+
+**Findings:**
+| # | Sev | Finding | Decision |
+|---|---|---|---|
+| F2 | High | Cross-tenant IDOR: EF gated by role, not tenant; service-role reads bypass RLS | **FIXED in plan** — Task 3 step 3b tenant guard via `accessible_client_ids()` |
+| F1 | Medium | Idempotency SELECT-then-INSERT race → possible duplicate email | **Taste** → gate (matches existing dispatcher pattern; client `isSending` guards double-click) |
+| F4 | Low | Staff reply to a resolved/closed ticket still emails the resident | Accept — arguably desirable; no change |
+| F3 | Low | New EF/template has no automated coverage (Deno) beyond the pure units | Accept for v1 — manual smoke in plan; tickets never field-visible so no PII-leak class |
+| F5 | Low | `author_type` is free text, not enum | Accept — both write paths hardcode the value; guard is sound |
+
+### CONSENSUS TABLES (single-reviewer — outside voices N/A)
+
+```
+CEO:  Premises valid ✓ | Right problem ✓ | Scope calibrated ✓ (1 deferral note) | Alternatives settled ✓
+ENG:  Architecture sound ✓ | Tests: units ✓ / EF manual ⚠ | Security: F2 FIXED | Error paths ✓ | Deploy risk low ✓
+```
+
+### Decision Audit Trail
+
+| # | Phase | Decision | Classification | Principle | Rationale |
+|---|-------|----------|----------------|-----------|-----------|
+| 1 | Eng | Add tenant guard to EF (F2) | Mechanical (security fix) | P1/P2 | Role-only auth breaks §4/§12 tenant isolation; ~10 lines, in blast radius, reuses `accessible_client_ids()` |
+| 2 | Eng | Keep SELECT-then-INSERT idempotency (F1) | Taste → gate | P3/P5 | Matches existing dispatcher; client button already guards double-click; a unique index would be a shared-dispatcher lake, not this feature |
+| 3 | Eng | Don't add EF integration tests (F3) | Mechanical | P3 | EF is Deno (no harness here); pure guard+render are unit-tested; manual smoke documented |
+| 4 | CEO | Keep staff→resident-only scope (defer staff-on-resident-reply) | Taste → gate | — | Dan's explicit prior decision at the design gate; flagged operational cost |
+| 5 | Eng | Accept closed-ticket send (F4) | Mechanical | P3 | Emailing a resident on a reply to their closed ticket is reasonable behaviour |
+
+### Cross-phase theme
+
+**Tenant isolation** surfaced as the single highest-value finding (F2). No other concern spanned phases — the feature is small and the rest is happy-path-plus-escaping, already handled.
+
