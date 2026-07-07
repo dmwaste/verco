@@ -44,9 +44,10 @@ export async function sendOtp(email: string): Promise<Result<void>> {
 }
 
 /**
- * Ends the current session. `scope: 'global'` revokes every refresh token for
- * the user server-side (true sign-out across all devices) — the right default
- * for a council PII portal used on shared devices.
+ * Ends the current session. `scope: 'local'` revokes only THIS device's refresh
+ * token. Field crews share one login across a crew device + personal phones, so
+ * a global sign-out (revoke-everywhere) bumped the whole crew when any one
+ * person logged out. Local scope keeps the other devices signed in.
  *
  * Must run as a server action (not a server component): `server.ts` swallows
  * cookie writes in a server-component context, so the cookie clearing only
@@ -60,6 +61,6 @@ export async function sendOtp(email: string): Promise<Result<void>> {
 export async function signOutAction(formData: FormData): Promise<void> {
   const target = signOutRedirectPath(formData.get('destination'))
   const supabase = await createClient()
-  await supabase.auth.signOut({ scope: 'global' })
+  await supabase.auth.signOut({ scope: 'local' })
   redirect(target)
 }

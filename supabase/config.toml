@@ -160,9 +160,17 @@ jwt_expiry = 3600
 # jwt_issuer = ""
 # Path to JWT signing key. DO NOT commit your signing keys file to git.
 # signing_keys_path = "./signing_keys.json"
-# If disabled, the refresh token will never expire.
-enable_refresh_token_rotation = true
-# Allows refresh tokens to be reused after expiry, up to the specified interval in seconds.
+# Rotation makes each refresh token single-use: a second holder of the same
+# session presenting the old token >reuse_interval later is treated as a replay,
+# and GoTrue revokes the WHOLE session family. Field crews share one login across
+# a crew device + personal phones, so the two clients refresh hours apart and
+# kept knocking each other out ("bumped out during the day"). Disabled so a
+# shared session survives concurrent use. Trade-off: refresh tokens become
+# long-lived/reusable (weaker if a token is lifted off a device) — accepted for
+# trusted crew hardware. Applied to prod via `supabase config push` (syncs the
+# ENTIRE [auth] block, no undo — review before pushing).
+enable_refresh_token_rotation = false
+# Inert while rotation is disabled; kept for when/if rotation is re-enabled.
 # Requires enable_refresh_token_rotation = true.
 refresh_token_reuse_interval = 10
 # Allow/disallow new user signups to your project.
