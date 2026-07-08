@@ -73,6 +73,16 @@ describe('renderNpRaised', () => {
     expect(noPhotos.html).not.toContain('alt="Collection photo')
   })
 
+  it('renders the Still to come line for pending sibling passes, omits otherwise', () => {
+    const booking = makeMockBooking()
+    const withPending = renderNpRaised(booking, APP_URL, { pendingServices: 'Green Waste' })
+    expect(withPending.html).toContain('Still to come:')
+    expect(withPending.html).toContain('Green Waste')
+
+    const withoutPending = renderNpRaised(booking, APP_URL, {})
+    expect(withoutPending.html).not.toContain('Still to come:')
+  })
+
   describe('service type row', () => {
     it('renders a "Service type" row with the booked service label', () => {
       const booking = makeMockBooking()

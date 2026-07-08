@@ -39,6 +39,14 @@ export interface RenderNcnRaisedOptions {
    * The dispatcher maps the `stream` payload key onto this at the boundary.
    */
   serviceLabel?: string | undefined
+  /**
+   * Service label(s) of this booking's OTHER stops still Pending when the
+   * notice was raised — a multi-pass booking is collected by separate trucks,
+   * and "your other collection is still coming" is the single biggest source
+   * of resident confusion/support calls when one pass notices before the
+   * other has run. Omitted when nothing else is pending.
+   */
+  pendingServices?: string | undefined
 }
 
 export function renderNcnRaised(
@@ -61,6 +69,12 @@ export function renderNcnRaised(
     : ''
 
   const photosBlock = renderPhotoBlock(options.photos)
+
+  // Sibling-pass reassurance: kills the "the truck skipped my green waste!"
+  // call when only one of a multi-pass booking's collections has run so far.
+  const pendingBlock = options.pendingServices
+    ? `<p style="margin:0 0 16px 0;padding:12px 16px;background:#F0F6FB;border-radius:8px;color:#293F52;font-size:14px"><strong>Still to come:</strong> ${escapeHtml(options.pendingServices)}. This notice does not affect that collection — please keep those items on the verge. Each service type is collected by a separate truck.</p>`
+    : ''
 
   // City of Kwinana attaches a statutory compliance directive to its
   // non-conformance notices (Waste Local Law 2022 s2.10(1)). Only the resident
@@ -88,6 +102,7 @@ export function renderNcnRaised(
     <p style="margin:0 0 16px 0">${introCopy}</p>
     ${reasonBlock}
     ${notesBlock}
+    ${pendingBlock}
     ${kwnComplianceBlock}
     <p style="margin:0 0 16px 0;color:#8FA5B8;font-size:13px">You have 14 days from the date of this notice to dispute it.</p>
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 16px 0;border-collapse:collapse">

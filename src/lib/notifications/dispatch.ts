@@ -335,6 +335,7 @@ function renderTemplate(
         // Wire key `stream` carries the booked service label(s) — mapped to the
         // template's `serviceLabel` option at this envelope boundary.
         serviceLabel: payload.stream,
+        pendingServices: payload.pending_services,
       }
       return renderNcnRaised(booking, appUrl, opts)
     }
@@ -346,6 +347,7 @@ function renderTemplate(
         // Wire key `stream` carries the booked service label(s) — mapped to the
         // template's `serviceLabel` option at this envelope boundary.
         serviceLabel: payload.stream,
+        pendingServices: payload.pending_services,
       }
       return renderNpRaised(booking, appUrl, opts)
     }

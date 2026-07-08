@@ -81,3 +81,20 @@ export function distinctServiceNames(
   const names = [...new Set((items ?? []).map((item) => item.service.name))].sort()
   return names.length > 0 ? names.join(', ') : undefined
 }
+
+/**
+ * Sibling-pass reassurance label: the distinct service label(s) of a booking's
+ * OTHER stops still Pending at notice time ("Still to come: Green Waste").
+ * `undefined` when nothing is pending → the notice omits the line. Snapshot
+ * semantics: a sibling closing in the same minute may still be listed —
+ * "still scheduled as of this notice" is the intended meaning.
+ */
+export function pendingServicesLabel(
+  siblings: ReadonlyArray<{ stream: WasteStream; services_summary: Json }>,
+): string | undefined {
+  const labels = siblings.map(
+    (sibling) => serviceLabelFromSummary(sibling.services_summary, sibling.stream).label,
+  )
+  const distinct = [...new Set(labels)].sort()
+  return distinct.length > 0 ? distinct.join(', ') : undefined
+}

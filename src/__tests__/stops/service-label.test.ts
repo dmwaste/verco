@@ -3,6 +3,7 @@ import type { Json } from '@/lib/supabase/types'
 import {
   STOP_CLOSEOUT_SELECT,
   distinctServiceNames,
+  pendingServicesLabel,
   serviceLabelFromSummary,
 } from '@/lib/stops/service-label'
 
@@ -88,6 +89,35 @@ describe('distinctServiceNames', () => {
     expect(distinctServiceNames([])).toBeUndefined()
     expect(distinctServiceNames(null)).toBeUndefined()
     expect(distinctServiceNames(undefined)).toBeUndefined()
+  })
+})
+
+describe('pendingServicesLabel', () => {
+  it('labels a pending sibling from its services_summary', () => {
+    const siblings = [
+      { stream: 'green' as const, services_summary: [{ name: 'Green Waste', qty: 1 }] as Json },
+    ]
+    expect(pendingServicesLabel(siblings)).toBe('Green Waste')
+  })
+
+  it('joins distinct labels across multiple pending siblings, sorted', () => {
+    const siblings = [
+      { stream: 'green' as const, services_summary: [{ name: 'Green Waste', qty: 1 }] as Json },
+      {
+        stream: 'ancillary' as const,
+        services_summary: [{ name: 'Mattress', qty: 2 }] as Json,
+      },
+    ]
+    expect(pendingServicesLabel(siblings)).toBe('Green Waste, Mattress')
+  })
+
+  it('falls back to stream vocabulary for a sibling with an empty summary', () => {
+    const siblings = [{ stream: 'ancillary' as const, services_summary: [] as Json }]
+    expect(pendingServicesLabel(siblings)).toBe('Ancillary items')
+  })
+
+  it('returns undefined when nothing is pending (line omitted)', () => {
+    expect(pendingServicesLabel([])).toBeUndefined()
   })
 })
 

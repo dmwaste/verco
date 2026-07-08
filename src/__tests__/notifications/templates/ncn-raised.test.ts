@@ -85,6 +85,37 @@ describe('renderNcnRaised', () => {
     expect(noPhotos.html).not.toContain('alt="Collection photo')
   })
 
+  it('serves a resized rendition inline while linking the full-res original', () => {
+    const booking = makeMockBooking()
+    const storagePhoto =
+      'https://proj.supabase.co/storage/v1/object/public/ncn-photos/b1/p1.jpg'
+    const { html } = renderNcnRaised(booking, APP_URL, {
+      reason: 'Building Waste',
+      photos: [storagePhoto],
+    })
+    // img src → transformation endpoint (1072px = retina 2× of the 536px slot);
+    // & is attribute-escaped to &amp; (correct HTML).
+    expect(html).toContain(
+      '<img src="https://proj.supabase.co/storage/v1/render/image/public/ncn-photos/b1/p1.jpg?width=1072&amp;quality=75"',
+    )
+    // href keeps the full-resolution original.
+    expect(html).toContain(`href="${storagePhoto}"`)
+  })
+
+  it('renders the Still to come line for pending sibling passes, omits otherwise', () => {
+    const booking = makeMockBooking()
+    const withPending = renderNcnRaised(booking, APP_URL, {
+      reason: 'Building Waste',
+      pendingServices: 'Green Waste',
+    })
+    expect(withPending.html).toContain('Still to come:')
+    expect(withPending.html).toContain('Green Waste')
+    expect(withPending.html).toContain('keep those items on the verge')
+
+    const withoutPending = renderNcnRaised(booking, APP_URL, { reason: 'Building Waste' })
+    expect(withoutPending.html).not.toContain('Still to come:')
+  })
+
   it('escapes a hostile photo URL (no attribute breakout)', () => {
     const booking = makeMockBooking()
     const hostile = 'https://cdn.example.com/x.jpg" onerror="alert(1)'
