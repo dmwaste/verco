@@ -71,6 +71,21 @@ export function sanitizePhotoUrls(photos: string[] | undefined): string[] {
 }
 
 /**
+ * Inline rendition for the email `<img src>`: routes public storage objects
+ * through the Supabase image transformation endpoint at 1072px/q75 (retina 2×
+ * of the 536px content slot — verified supported on prod 08/07/2026, a real
+ * closeout photo went 421KB → 232KB; savings grow with multi-MB phone shots).
+ * The wrapping `<a href>` keeps the full-resolution original. Non-storage URLs
+ * (e.g. the admin preview's data URIs) pass through unchanged.
+ */
+export function emailPhotoRenditionUrl(url: string): string {
+  const marker = '/storage/v1/object/public/'
+  if (!url.startsWith('https://') || !url.includes(marker)) return url
+  const rendered = url.replace(marker, '/storage/v1/render/image/public/')
+  return `${rendered}${rendered.includes('?') ? '&' : '?'}width=1072&quality=75`
+}
+
+/**
  * Up to 4 crew evidence photos for NCN/NP notice emails, each an inline `<img>`
  * (NOT a CSS `background-image` — Gmail and Outlook strip that, leaving an empty
  * box) wrapped in a link to the full-resolution file. Photo URLs are the public
@@ -88,9 +103,10 @@ export function renderPhotoBlock(photos: string[] | undefined): string {
   if (visible.length === 0) return ''
   const items = visible
     .map((url, i) => {
-      const safe = escapeHtml(url)
+      const full = escapeHtml(url)
+      const rendition = escapeHtml(emailPhotoRenditionUrl(url))
       const alt = `Collection photo ${i + 1} of ${visible.length} — tap to view full size`
-      return `<a href="${safe}" target="_blank" style="display:block;margin:0 0 8px 0"><img src="${safe}" alt="${alt}" width="536" border="0" style="width:100%;max-width:536px;height:auto;border-radius:4px;display:block;border:1px solid #E6EAED" /></a>`
+      return `<a href="${full}" target="_blank" style="display:block;margin:0 0 8px 0"><img src="${rendition}" alt="${alt}" width="536" border="0" style="width:100%;max-width:536px;height:auto;border-radius:4px;display:block;border:1px solid #E6EAED" /></a>`
     })
     .join('')
   return `<div style="margin:0 0 16px 0">${items}</div>`

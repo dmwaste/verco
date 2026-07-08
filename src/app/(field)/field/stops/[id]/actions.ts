@@ -6,7 +6,11 @@ import { createClient } from '@/lib/supabase/server'
 import { invokeSendNotification } from '@/lib/notifications/invoke'
 import { NCN_REASONS } from '@/lib/ncn/reasons'
 import { STREAM_LABEL } from '@/lib/stops/labels'
-import { serviceLabelFromSummary, STOP_CLOSEOUT_SELECT } from '@/lib/stops/service-label'
+import {
+  pendingServicesLabel,
+  serviceLabelFromSummary,
+  STOP_CLOSEOUT_SELECT,
+} from '@/lib/stops/service-label'
 import type { WasteStream } from '@/lib/stops/stops'
 import type { Database, Json } from '@/lib/supabase/types'
 import type { Result } from '@/lib/result'
@@ -104,6 +108,28 @@ async function loadStopGuarded(
  * silently-empty summary surfaces instead of quietly reverting to a stream
  * label. Booking id only; no PII.
  */
+/**
+ * Service label(s) of this booking's OTHER stops still Pending — runs AFTER
+ * terminaliseStop, so this stop is already terminal and never lists itself.
+ * Query failure or no pending siblings → undefined → the email omits the
+ * "Still to come" line (reassurance is best-effort, never blocks the notice).
+ */
+async function pendingSiblingServices(
+  supabase: SupabaseServerClient,
+  stop: GuardedStop,
+): Promise<string | undefined> {
+  const { data: siblings } = await supabase
+    .from('collection_stop')
+    .select('stream, services_summary')
+    .eq('booking_id', stop.booking_id)
+    .neq('id', stop.id)
+    .eq('status', 'Pending')
+  if (!siblings || siblings.length === 0) return undefined
+  return pendingServicesLabel(
+    siblings as Array<{ stream: WasteStream; services_summary: Json }>,
+  )
+}
+
 function stopServiceLabel(stop: GuardedStop): string {
   const { label, fromFallback } = serviceLabelFromSummary(stop.services_summary, stop.stream)
   if (fromFallback) {
@@ -354,6 +380,7 @@ export async function raiseNcnForStop(
     notes: notes || undefined,
     photos: photoUrls.length > 0 ? photoUrls : undefined,
     stream: stopServiceLabel(stop),
+    pending_services: await pendingSiblingServices(supabase, stop),
   })
 
   return { ok: true, data: undefined }
@@ -438,6 +465,7 @@ export async function raiseNpForStop(
     photos: photoUrls.length > 0 ? photoUrls : undefined,
     contractor_fault: dmFault,
     stream: stopServiceLabel(stop),
+    pending_services: await pendingSiblingServices(supabase, stop),
   })
 
   return { ok: true, data: undefined }

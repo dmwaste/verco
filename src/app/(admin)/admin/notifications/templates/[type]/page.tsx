@@ -60,6 +60,7 @@ function renderEmail(
         photos: SAMPLE_PHOTOS,
         contractor_fault: false,
         serviceLabel: 'E-Waste, Mattress',
+        pendingServices: 'Green Waste',
       })
     case 'np_raised':
       return renderNpRaised(booking, APP_URL, {
@@ -67,6 +68,7 @@ function renderEmail(
         photos: SAMPLE_PHOTOS,
         contractor_fault: false,
         serviceLabel: 'Bulk Waste',
+        pendingServices: 'Green Waste',
       })
     case 'completion_survey':
       return renderCompletionSurvey(booking, APP_URL, 'sample-survey-token')
