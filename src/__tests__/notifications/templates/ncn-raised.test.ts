@@ -51,7 +51,7 @@ describe('renderNcnRaised', () => {
     expect(withoutNotes.html).not.toContain('Notes')
   })
 
-  it('renders photo thumbnails when present (max 4), omits when empty', () => {
+  it('renders photos as inline <img> (max 4, clickable), omits when empty', () => {
     const booking = makeMockBooking()
     const photos = [
       'https://cdn.example.com/1.jpg',
@@ -67,9 +67,33 @@ describe('renderNcnRaised', () => {
     expect(html).toContain('cdn.example.com/1.jpg')
     expect(html).toContain('cdn.example.com/4.jpg')
     expect(html).not.toContain('cdn.example.com/5.jpg')
+    // Real <img> tags, each wrapped in a link to full-res — NOT a CSS
+    // background-image (Gmail/Outlook strip that, leaving an empty box).
+    expect(html).toContain('<img src="https://cdn.example.com/1.jpg"')
+    expect(html).toContain('href="https://cdn.example.com/1.jpg"')
+    expect(html).not.toContain('center/cover')
+    expect(html).not.toContain('background:#F8F9FA url')
+    // Fixed pixel width attribute — Outlook's Word renderer ignores CSS
+    // width/max-width and computes percentage attrs against the image's
+    // natural size; width="536" is what keeps 4000px phone photos in the
+    // 600px layout there.
+    expect(html).toContain('width="536"')
 
+    // Photo-block-specific marker (not a bare '<img>' check, which would
+    // false-fail if the layout ever adds a tenant logo image).
     const noPhotos = renderNcnRaised(booking, APP_URL, { reason: 'Building Waste' })
-    expect(noPhotos.html).not.toContain('<img')
+    expect(noPhotos.html).not.toContain('alt="Collection photo')
+  })
+
+  it('escapes a hostile photo URL (no attribute breakout)', () => {
+    const booking = makeMockBooking()
+    const hostile = 'https://cdn.example.com/x.jpg" onerror="alert(1)'
+    const { html } = renderNcnRaised(booking, APP_URL, {
+      reason: 'Building Waste',
+      photos: [hostile],
+    })
+    expect(html).not.toContain('onerror="alert(1)')
+    expect(html).toContain('x.jpg&quot; onerror=&quot;alert(1)')
   })
 
   it('CTA resolves to the tenant host, not a root-host path segment', () => {

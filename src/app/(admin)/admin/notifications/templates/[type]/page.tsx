@@ -26,6 +26,12 @@ import { TemplateDetail } from './template-detail'
 
 const APP_URL = 'https://verco.au'
 const TENANTS: PreviewTenant[] = ['vergevalet', 'kwn', 'unbranded']
+// Illustrative crew photos for the NCN/NP previews (self-contained data URIs so
+// the preview renders offline). Real notices carry public Supabase storage URLs.
+const SAMPLE_PHOTOS = [
+  'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI2NDAiIGhlaWdodD0iMzgwIj48cmVjdCB3aWR0aD0iNjQwIiBoZWlnaHQ9IjM4MCIgZmlsbD0iI2U3ZWNmMCIvPjxyZWN0IHg9IjAiIHk9IjMwMCIgd2lkdGg9IjY0MCIgaGVpZ2h0PSI4MCIgZmlsbD0iI2QzZGJlMSIvPjxjaXJjbGUgY3g9IjEyMCIgY3k9IjE1MCIgcj0iNDYiIGZpbGw9IiNjMmNjZDQiLz48cmVjdCB4PSIyMzAiIHk9IjEyMCIgd2lkdGg9IjMwMCIgaGVpZ2h0PSIxMjAiIHJ4PSI2IiBmaWxsPSIjY2JkNGRiIi8+PHRleHQgeD0iMzIwIiB5PSIzNTIiIGZvbnQtZmFtaWx5PSJBcmlhbCxzYW5zLXNlcmlmIiBmb250LXNpemU9IjIyIiBmaWxsPSIjNmI3Yzg5IiB0ZXh0LWFuY2hvcj0ibWlkZGxlIj5DcmV3IHBob3RvIOKAlCB2ZXJnZSwgZnJvbnQ8L3RleHQ+PC9zdmc+',
+  'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI2NDAiIGhlaWdodD0iMzgwIj48cmVjdCB3aWR0aD0iNjQwIiBoZWlnaHQ9IjM4MCIgZmlsbD0iI2VjZTdlMiIvPjxyZWN0IHg9IjYwIiB5PSI4MCIgd2lkdGg9IjI0MCIgaGVpZ2h0PSIyMjAiIHJ4PSI4IiBmaWxsPSIjZDhjZmM0Ii8+PHJlY3QgeD0iMzQwIiB5PSIxNTAiIHdpZHRoPSIyNDAiIGhlaWdodD0iMTUwIiByeD0iOCIgZmlsbD0iI2NjYzJiNCIvPjx0ZXh0IHg9IjMyMCIgeT0iMzUyIiBmb250LWZhbWlseT0iQXJpYWwsc2Fucy1zZXJpZiIgZm9udC1zaXplPSIyMiIgZmlsbD0iIzhhN2Q2YyIgdGV4dC1hbmNob3I9Im1pZGRsZSI+Q3JldyBwaG90byDigJQgaXRlbXMgYmVoaW5kIGZlbmNlPC90ZXh0Pjwvc3ZnPg==',
+]
 const GITHUB_REPO = 'dmwaste/verco'
 const GITHUB_BRANCH = 'develop'
 
@@ -51,14 +57,14 @@ function renderEmail(
       return renderNcnRaised(booking, APP_URL, {
         reason: 'Building Waste',
         notes: 'Cement and bricks behind the fence.',
-        photos: [],
+        photos: SAMPLE_PHOTOS,
         contractor_fault: false,
         serviceLabel: 'E-Waste, Mattress',
       })
     case 'np_raised':
       return renderNpRaised(booking, APP_URL, {
         notes: 'Verge was empty at 09:30. Crew checked both sides of driveway.',
-        photos: [],
+        photos: SAMPLE_PHOTOS,
         contractor_fault: false,
         serviceLabel: 'Bulk Waste',
       })

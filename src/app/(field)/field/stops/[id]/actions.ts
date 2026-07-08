@@ -30,7 +30,7 @@ const closeoutDetailsSchema = z.object({
           message: 'Photos must be uploaded evidence.',
         }),
     )
-    .max(8),
+    .max(8, 'Please attach at most 8 photos.'),
 })
 const ncnReasonSchema = z.enum(NCN_REASONS)
 

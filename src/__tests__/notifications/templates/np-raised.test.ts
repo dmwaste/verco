@@ -50,6 +50,29 @@ describe('renderNpRaised', () => {
     expect(html).not.toContain('verco.test/kwn/booking')
   })
 
+  it('renders photos as inline <img> (max 4, clickable), omits when empty', () => {
+    const booking = makeMockBooking()
+    const photos = [
+      'https://cdn.example.com/a.jpg',
+      'https://cdn.example.com/b.jpg',
+      'https://cdn.example.com/c.jpg',
+      'https://cdn.example.com/d.jpg',
+      'https://cdn.example.com/e.jpg',
+    ]
+    const { html } = renderNpRaised(booking, APP_URL, { photos })
+    expect(html).toContain('<img src="https://cdn.example.com/a.jpg"')
+    expect(html).toContain('href="https://cdn.example.com/a.jpg"')
+    expect(html).toContain('cdn.example.com/d.jpg')
+    expect(html).not.toContain('cdn.example.com/e.jpg')
+    // Outlook-safe fixed pixel width (Word renderer ignores CSS max-width).
+    expect(html).toContain('width="536"')
+
+    // Photo-block-specific marker (not a bare '<img>' check, which would
+    // false-fail if the layout ever adds a tenant logo image).
+    const noPhotos = renderNpRaised(booking, APP_URL, {})
+    expect(noPhotos.html).not.toContain('alt="Collection photo')
+  })
+
   describe('service type row', () => {
     it('renders a "Service type" row with the booked service label', () => {
       const booking = makeMockBooking()

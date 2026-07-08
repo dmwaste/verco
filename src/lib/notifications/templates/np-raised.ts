@@ -1,6 +1,6 @@
 import type { BookingForDispatch, RenderedEmail } from './types'
 import { renderEmailLayout } from './_layout'
-import { formatCollectionDate, escapeHtml, buildBookingPortalUrl } from './template-helpers'
+import { formatCollectionDate, escapeHtml, buildBookingPortalUrl, renderPhotoBlock } from './template-helpers'
 
 /**
  * `np_raised` template — sent when a field user records a Nothing Presented notice.
@@ -16,7 +16,7 @@ import { formatCollectionDate, escapeHtml, buildBookingPortalUrl } from './templ
  *         Standard (contractor_fault absent/false): "no items were found on the verge"
  *         Soft (contractor_fault = true): "unable to attend your address"
  *     - Optional notes block
- *     - Optional photo thumbnails (max 4)
+ *     - Optional inline photos (max 4, each linked to full resolution)
  *     - Dispute window: resident has 14 days to dispute
  *     - Details table: ref, collection date, address
  *   CTA: "View booking" → tenant-host /booking/{ref} via buildBookingPortalUrl
@@ -58,16 +58,15 @@ export function renderNpRaised(
     ? `<p style="margin:0 0 16px 0;color:#293F52;font-size:14px"><strong>Notes:</strong> ${escapeHtml(options.notes)}</p>`
     : ''
 
-  const visiblePhotos = (options.photos ?? []).slice(0, 4)
-  const photosBlock =
-    visiblePhotos.length > 0
-      ? `<div style="margin:0 0 16px 0">${visiblePhotos.map((url) => `<img src="${escapeHtml(url)}" alt="Photo" style="max-width:100%;height:auto;border-radius:4px;margin:0 0 8px 0;display:block" />`).join('')}</div>`
-      : ''
+  const photosBlock = renderPhotoBlock(options.photos)
 
+  // Photos render BELOW the details table: full-width portrait shots would
+  // otherwise push the dispute window and details multiple screens down. The
+  // "View booking" CTA (appended by renderEmailLayout after bodyHtml) still
+  // sits below the photos — accepted: evidence-then-action reading order.
   const bodyHtml = `
     <p style="margin:0 0 16px 0">${introCopy}</p>
     ${notesBlock}
-    ${photosBlock}
     <p style="margin:0 0 16px 0;color:#8FA5B8;font-size:13px">You have 14 days from the date of this notice to dispute it.</p>
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 16px 0;border-collapse:collapse">
       <tr><td style="padding:6px 12px 6px 0;color:#8FA5B8;font-size:13px;white-space:nowrap">Reference</td><td style="padding:6px 0;color:#293F52;font-size:13px;text-align:right;font-family:'SF Mono',monospace">${escapeHtml(ref)}</td></tr>
@@ -75,6 +74,7 @@ export function renderNpRaised(
       <tr><td style="padding:6px 12px 6px 0;color:#8FA5B8;font-size:13px;white-space:nowrap">Collection date</td><td style="padding:6px 0;color:#293F52;font-size:13px;text-align:right">${escapeHtml(dateStr)}</td></tr>
       <tr><td style="padding:6px 12px 6px 0;color:#8FA5B8;font-size:13px;white-space:nowrap;vertical-align:top">Address</td><td style="padding:6px 0;color:#293F52;font-size:13px;text-align:right">${escapeHtml(address)}</td></tr>
     </table>
+    ${photosBlock}
   `
 
   const ctaUrl = buildBookingPortalUrl(

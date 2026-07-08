@@ -1,6 +1,6 @@
 import type { BookingForDispatch, RenderedEmail } from './types.ts'
 import { renderEmailLayout } from './_layout.ts'
-import { formatCollectionDate, escapeHtml, buildBookingPortalUrl } from './template-helpers.ts'
+import { formatCollectionDate, escapeHtml, buildBookingPortalUrl, renderPhotoBlock } from './template-helpers.ts'
 
 /**
  * `ncn_raised` template — sent when a field user raises a non-conformance
@@ -13,7 +13,7 @@ import { formatCollectionDate, escapeHtml, buildBookingPortalUrl } from './templ
  *     - Intro copy (softer if contractor_fault is true)
  *     - Reason block (highlighted, HTML-escaped)
  *     - Optional notes
- *     - Optional photo thumbnails (max 4)
+ *     - Optional inline photos (max 4, each linked to full resolution)
  *     - City of Kwinana compliance directive (kwn slug, resident-fault only)
  *     - Dispute window notice (14 days)
  *     - Details table: ref, collection date, address
@@ -60,11 +60,7 @@ export function renderNcnRaised(
     ? `<p style="margin:0 0 16px 0;color:#293F52;font-size:14px"><strong>Notes:</strong> ${escapeHtml(options.notes)}</p>`
     : ''
 
-  const visiblePhotos = (options.photos ?? []).slice(0, 4)
-  const photosBlock =
-    visiblePhotos.length > 0
-      ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 16px 0">${visiblePhotos.map((url) => `<tr><td style="padding:0 0 8px 0"><a href="${escapeHtml(url)}" style="display:block;overflow:hidden;border-radius:4px;background:#F8F9FA url(${escapeHtml(url)}) center/cover no-repeat;height:160px;max-width:100%"> </a></td></tr>`).join('')}</table>`
-      : ''
+  const photosBlock = renderPhotoBlock(options.photos)
 
   // City of Kwinana attaches a statutory compliance directive to its
   // non-conformance notices (Waste Local Law 2022 s2.10(1)). Only the resident
@@ -83,11 +79,15 @@ export function renderNcnRaised(
     <p style="margin:0 0 16px 0;color:#293F52;font-size:14px;line-height:1.5"><strong>Emma Gillham</strong><br />Waste Management Officer<br />City of Kwinana</p>`
       : ''
 
+  // Photos render BELOW the details table: full-width portrait shots would
+  // otherwise push the statutory compliance copy, the 14-day dispute window,
+  // and the details multiple screens down on a 4-photo notice. Note the
+  // "View booking" CTA is appended by renderEmailLayout AFTER bodyHtml, so it
+  // still sits below the photos — accepted: evidence-then-action reading order.
   const bodyHtml = `
     <p style="margin:0 0 16px 0">${introCopy}</p>
     ${reasonBlock}
     ${notesBlock}
-    ${photosBlock}
     ${kwnComplianceBlock}
     <p style="margin:0 0 16px 0;color:#8FA5B8;font-size:13px">You have 14 days from the date of this notice to dispute it.</p>
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 16px 0;border-collapse:collapse">
@@ -96,6 +96,7 @@ export function renderNcnRaised(
       <tr><td style="padding:6px 12px 6px 0;color:#8FA5B8;font-size:13px;white-space:nowrap">Collection date</td><td style="padding:6px 0;color:#293F52;font-size:13px;text-align:right">${escapeHtml(dateStr)}</td></tr>
       <tr><td style="padding:6px 12px 6px 0;color:#8FA5B8;font-size:13px;white-space:nowrap;vertical-align:top">Address</td><td style="padding:6px 0;color:#293F52;font-size:13px;text-align:right">${escapeHtml(address)}</td></tr>
     </table>
+    ${photosBlock}
   `
 
   const ctaUrl = buildBookingPortalUrl(
