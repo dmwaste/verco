@@ -1,6 +1,6 @@
 import type { BookingForDispatch, RenderedEmail } from './types.ts'
 import { renderEmailLayout } from './_layout.ts'
-import { formatCollectionDate, escapeHtml, buildBookingPortalUrl } from './template-helpers.ts'
+import { formatCollectionDate, escapeHtml, buildBookingPortalUrl, renderPhotoBlock } from './template-helpers.ts'
 
 /**
  * `ncn_raised` template — sent when a field user raises a non-conformance
@@ -60,11 +60,7 @@ export function renderNcnRaised(
     ? `<p style="margin:0 0 16px 0;color:#293F52;font-size:14px"><strong>Notes:</strong> ${escapeHtml(options.notes)}</p>`
     : ''
 
-  const visiblePhotos = (options.photos ?? []).slice(0, 4)
-  const photosBlock =
-    visiblePhotos.length > 0
-      ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 16px 0">${visiblePhotos.map((url) => `<tr><td style="padding:0 0 8px 0"><a href="${escapeHtml(url)}" style="display:block;overflow:hidden;border-radius:4px;background:#F8F9FA url(${escapeHtml(url)}) center/cover no-repeat;height:160px;max-width:100%"> </a></td></tr>`).join('')}</table>`
-      : ''
+  const photosBlock = renderPhotoBlock(options.photos)
 
   // City of Kwinana attaches a statutory compliance directive to its
   // non-conformance notices (Waste Local Law 2022 s2.10(1)). Only the resident

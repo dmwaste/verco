@@ -1,6 +1,6 @@
 import type { BookingForDispatch, RenderedEmail } from './types'
 import { renderEmailLayout } from './_layout'
-import { formatCollectionDate, escapeHtml, buildBookingPortalUrl } from './template-helpers'
+import { formatCollectionDate, escapeHtml, buildBookingPortalUrl, renderPhotoBlock } from './template-helpers'
 
 /**
  * `np_raised` template — sent when a field user records a Nothing Presented notice.
@@ -58,11 +58,7 @@ export function renderNpRaised(
     ? `<p style="margin:0 0 16px 0;color:#293F52;font-size:14px"><strong>Notes:</strong> ${escapeHtml(options.notes)}</p>`
     : ''
 
-  const visiblePhotos = (options.photos ?? []).slice(0, 4)
-  const photosBlock =
-    visiblePhotos.length > 0
-      ? `<div style="margin:0 0 16px 0">${visiblePhotos.map((url) => `<img src="${escapeHtml(url)}" alt="Photo" style="max-width:100%;height:auto;border-radius:4px;margin:0 0 8px 0;display:block" />`).join('')}</div>`
-      : ''
+  const photosBlock = renderPhotoBlock(options.photos)
 
   const bodyHtml = `
     <p style="margin:0 0 16px 0">${introCopy}</p>

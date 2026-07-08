@@ -51,7 +51,7 @@ describe('renderNcnRaised', () => {
     expect(withoutNotes.html).not.toContain('Notes')
   })
 
-  it('renders photo thumbnails when present (max 4), omits when empty', () => {
+  it('renders photos as inline <img> (max 4, clickable), omits when empty', () => {
     const booking = makeMockBooking()
     const photos = [
       'https://cdn.example.com/1.jpg',
@@ -67,6 +67,12 @@ describe('renderNcnRaised', () => {
     expect(html).toContain('cdn.example.com/1.jpg')
     expect(html).toContain('cdn.example.com/4.jpg')
     expect(html).not.toContain('cdn.example.com/5.jpg')
+    // Real <img> tags, each wrapped in a link to full-res — NOT a CSS
+    // background-image (Gmail/Outlook strip that, leaving an empty box).
+    expect(html).toContain('<img src="https://cdn.example.com/1.jpg"')
+    expect(html).toContain('href="https://cdn.example.com/1.jpg"')
+    expect(html).not.toContain('center/cover')
+    expect(html).not.toContain('background:#F8F9FA url')
 
     const noPhotos = renderNcnRaised(booking, APP_URL, { reason: 'Building Waste' })
     expect(noPhotos.html).not.toContain('<img')

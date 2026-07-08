@@ -55,6 +55,25 @@ export function escapeHtml(s: string): string {
 }
 
 /**
+ * Up to 4 crew evidence photos for NCN/NP notice emails, each an inline `<img>`
+ * (NOT a CSS `background-image` — Gmail and Outlook strip that, leaving an empty
+ * box) wrapped in a link to the full-resolution file. Photo URLs are the public
+ * Supabase storage URLs captured at closeout; escaped as HTML attribute values.
+ * Returns '' when there are no photos so the caller can inline it unconditionally.
+ */
+export function renderPhotoBlock(photos: string[] | undefined): string {
+  const visible = (photos ?? []).slice(0, 4)
+  if (visible.length === 0) return ''
+  const items = visible
+    .map((url) => {
+      const safe = escapeHtml(url)
+      return `<a href="${safe}" target="_blank" style="display:block;margin:0 0 8px 0"><img src="${safe}" alt="Collection photo" width="100%" style="width:100%;max-width:100%;height:auto;border-radius:4px;display:block;border:1px solid #E6EAED" /></a>`
+    })
+    .join('')
+  return `<div style="margin:0 0 16px 0">${items}</div>`
+}
+
+/**
  * Build a resolvable booking-portal URL for an email CTA.
  *
  * Verco uses **hostname-based tenant routing** — every client has its own
