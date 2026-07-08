@@ -2,10 +2,33 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { invokeSendNotification } from '@/lib/notifications/invoke'
+import { distinctServiceNames } from '@/lib/stops/service-label'
 import type { Database } from '@/lib/supabase/types'
 import type { Result } from '@/lib/result'
 
 type NcnReason = Database['public']['Enums']['ncn_reason']
+type SupabaseServerClient = Awaited<ReturnType<typeof createClient>>
+
+/**
+ * Legacy per-booking path: no per-stream stop, so the whole visit closes as
+ * one unit. Name every distinct booked service (a stop-less booking can still
+ * span streams). `undefined` when there are none / a ranger's RLS hides
+ * `booking_item` → the notice email omits the service row entirely.
+ * Payload key stays `stream` (wire compat); it carries service names.
+ */
+async function bookingServiceLabel(
+  supabase: SupabaseServerClient,
+  bookingId: string,
+): Promise<string | undefined> {
+  const { data: rows } = await supabase
+    .from('booking_item')
+    .select('service!inner(name)')
+    .eq('booking_id', bookingId)
+  const items = (rows ?? []).map((row) => ({
+    service: row.service as unknown as { name: string },
+  }))
+  return distinctServiceNames(items)
+}
 
 async function validateFieldRole(): Promise<Result<string>> {
   const supabase = await createClient()
@@ -197,6 +220,7 @@ export async function raiseNcn(
     reason,
     notes: notes || undefined,
     photos: photoUrls.length > 0 ? photoUrls : undefined,
+    stream: await bookingServiceLabel(supabase, bookingId),
   })
 
   return { ok: true, data: undefined }
@@ -269,6 +293,7 @@ export async function raiseNothingPresented(
     notes: notes || undefined,
     photos: photoUrls.length > 0 ? photoUrls : undefined,
     contractor_fault: dmFault,
+    stream: await bookingServiceLabel(supabase, bookingId),
   })
 
   return { ok: true, data: undefined }

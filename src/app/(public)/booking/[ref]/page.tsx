@@ -1,7 +1,22 @@
 import { redirect } from 'next/navigation'
 import { headers } from 'next/headers'
 import { createClient } from '@/lib/supabase/server'
+import { serviceLabelFromSummary } from '@/lib/stops/service-label'
+import type { WasteStream } from '@/lib/stops/stops'
+import type { Json } from '@/lib/supabase/types'
 import { BookingDetailClient } from './booking-detail-client'
+
+/**
+ * Booked service label for a notice card — from the stop the notice was raised
+ * against. `null` when the notice has no stop (legacy per-booking / import rows)
+ * → the card omits the row (the email named the services in that case).
+ */
+function noticeServiceLabel(
+  stop: { stream: WasteStream; services_summary: Json } | null,
+): string | null {
+  if (!stop) return null
+  return serviceLabelFromSummary(stop.services_summary, stop.stream).label
+}
 
 interface BookingDetailPageProps {
   params: Promise<{ ref: string }>
@@ -72,25 +87,44 @@ export default async function BookingDetailPage({
   // even both an NCN and an NP — so fetch ALL of them (newest first), never
   // maybeSingle (which errors → data:null when >1 row exists, silently hiding
   // every exception card). Mirrors the admin side (exceptions-card.tsx, #325).
-  let ncnData: { id: string; reason: string; status: string; photos: string[]; reported_at: string; rescheduled_booking: { ref: string } | null }[] = []
+  let ncnData: { id: string; reason: string; status: string; photos: string[]; reported_at: string; serviceLabel: string | null; rescheduled_booking: { ref: string } | null }[] = []
   if (booking.status === 'Non-conformance' || booking.status === 'Rebooked') {
     const { data: ncns } = await supabase
       .from('non_conformance_notice')
-      .select('id, reason, status, photos, reported_at, rescheduled_booking:booking!non_conformance_notice_rescheduled_booking_id_fkey(ref)')
+      .select('id, reason, status, photos, reported_at, collection_stop:collection_stop_id(stream, services_summary), rescheduled_booking:booking!non_conformance_notice_rescheduled_booking_id_fkey(ref)')
       .eq('booking_id', booking.id)
       .order('reported_at', { ascending: false })
 
     if (ncns) {
-      ncnData = ncns as unknown as typeof ncnData
+      ncnData = ncns.map((row) => {
+        const r = row as unknown as {
+          id: string
+          reason: string
+          status: string
+          photos: string[]
+          reported_at: string
+          collection_stop: { stream: WasteStream; services_summary: Json } | null
+          rescheduled_booking: { ref: string } | null
+        }
+        return {
+          id: r.id,
+          reason: r.reason,
+          status: r.status,
+          photos: r.photos,
+          reported_at: r.reported_at,
+          serviceLabel: noticeServiceLabel(r.collection_stop),
+          rescheduled_booking: r.rescheduled_booking,
+        }
+      })
     }
   }
 
   // Fetch NP records if booking status is Nothing Presented (or Rebooked)
-  let npData: { id: string; status: string; photos: string[]; reported_at: string; contractor_fault: boolean; rescheduled_booking: { ref: string } | null }[] = []
+  let npData: { id: string; status: string; photos: string[]; reported_at: string; contractor_fault: boolean; serviceLabel: string | null; rescheduled_booking: { ref: string } | null }[] = []
   if (booking.status === 'Nothing Presented' || booking.status === 'Rebooked') {
     const { data: nps } = await supabase
       .from('nothing_presented')
-      .select('id, status, photos, reported_at, contractor_fault, rescheduled_booking:booking!nothing_presented_rescheduled_booking_id_fkey(ref)')
+      .select('id, status, photos, reported_at, contractor_fault, collection_stop:collection_stop_id(stream, services_summary), rescheduled_booking:booking!nothing_presented_rescheduled_booking_id_fkey(ref)')
       .eq('booking_id', booking.id)
       .order('reported_at', { ascending: false })
 
@@ -101,6 +135,9 @@ export default async function BookingDetailPage({
         photos: npRaw.photos,
         reported_at: npRaw.reported_at,
         contractor_fault: npRaw.contractor_fault,
+        serviceLabel: noticeServiceLabel(
+          npRaw.collection_stop as unknown as { stream: WasteStream; services_summary: Json } | null,
+        ),
         rescheduled_booking: npRaw.rescheduled_booking as { ref: string } | null,
       }))
     }

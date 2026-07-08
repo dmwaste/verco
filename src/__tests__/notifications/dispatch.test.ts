@@ -338,6 +338,44 @@ describe('dispatch', () => {
     expect(emailCall?.htmlBody).toContain('unable to attend')
   })
 
+  // A4 envelope-boundary regression: the `stream` wire key carries the booked
+  // service label and the dispatcher maps it onto the template's `serviceLabel`
+  // option. A missed mapping in either branch silently drops the row.
+  it('threads the stream payload into the ncn email as a Service type row', async () => {
+    const booking = makeMockBooking({ id: 'b-ncn-svc' })
+    const deps = createMockDispatchDeps({ bookings: { 'b-ncn-svc': booking } })
+
+    const result = await dispatch(deps, {
+      type: 'ncn_raised',
+      booking_id: 'b-ncn-svc',
+      ncn_id: 'ncn-svc',
+      reason: 'Building Waste',
+      stream: 'E-Waste, Mattress',
+    })
+
+    expect(result).toMatchObject({ ok: true, sent: true })
+    const emailCall = deps.sendEmailMock.mock.calls[0]?.[0] as { htmlBody: string } | undefined
+    expect(emailCall?.htmlBody).toContain('Service type')
+    expect(emailCall?.htmlBody).toContain('E-Waste, Mattress')
+  })
+
+  it('threads the stream payload into the np email as a Service type row', async () => {
+    const booking = makeMockBooking({ id: 'b-np-svc' })
+    const deps = createMockDispatchDeps({ bookings: { 'b-np-svc': booking } })
+
+    const result = await dispatch(deps, {
+      type: 'np_raised',
+      booking_id: 'b-np-svc',
+      np_id: 'np-svc',
+      stream: 'Bulk Waste',
+    })
+
+    expect(result).toMatchObject({ ok: true, sent: true })
+    const emailCall = deps.sendEmailMock.mock.calls[0]?.[0] as { htmlBody: string } | undefined
+    expect(emailCall?.htmlBody).toContain('Service type')
+    expect(emailCall?.htmlBody).toContain('Bulk Waste')
+  })
+
   it('routes payment_reminder to the reminder template', async () => {
     const booking = makeMockBooking({ id: 'b-remind', total_charge_cents: 5500 })
     const deps = createMockDispatchDeps({ bookings: { 'b-remind': booking } })

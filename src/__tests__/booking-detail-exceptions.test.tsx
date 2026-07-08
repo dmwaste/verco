@@ -59,6 +59,7 @@ describe('resident booking detail — multi-record exceptions', () => {
             status: 'Issued',
             photos: [],
             reported_at: '2026-07-05T02:00:00.000Z',
+            serviceLabel: 'Bulk Waste',
             rescheduled_booking: null,
           },
           {
@@ -67,6 +68,7 @@ describe('resident booking detail — multi-record exceptions', () => {
             status: 'Issued',
             photos: [],
             reported_at: '2026-07-04T02:00:00.000Z',
+            serviceLabel: 'Green Waste',
             rescheduled_booking: null,
           },
         ]}
@@ -79,6 +81,10 @@ describe('resident booking detail — multi-record exceptions', () => {
     expect(screen.getAllByText('Non-Conformance Notice')).toHaveLength(2)
     expect(screen.getByText('Bin overloaded')).toBeInTheDocument()
     expect(screen.getByText('Prohibited items in green waste')).toBeInTheDocument()
+    // Each card names the booked service it applies to.
+    expect(screen.getAllByText('Service type')).toHaveLength(2)
+    expect(screen.getByText('Bulk Waste')).toBeInTheDocument()
+    expect(screen.getByText('Green Waste')).toBeInTheDocument()
     // Each Issued record gets its own dispute button.
     expect(screen.getAllByRole('button', { name: /Dispute this Notice/ })).toHaveLength(2)
   })
@@ -96,6 +102,7 @@ describe('resident booking detail — multi-record exceptions', () => {
             status: 'Issued',
             photos: [],
             reported_at: '2026-07-05T02:00:00.000Z',
+            serviceLabel: 'Bulk Waste',
             rescheduled_booking: null,
           },
         ]}
@@ -106,6 +113,7 @@ describe('resident booking detail — multi-record exceptions', () => {
             photos: [],
             reported_at: '2026-07-05T02:00:00.000Z',
             contractor_fault: false,
+            serviceLabel: 'Green Waste',
             rescheduled_booking: null,
           },
         ]}
