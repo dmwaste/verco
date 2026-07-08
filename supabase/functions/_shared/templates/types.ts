@@ -74,8 +74,13 @@ export type NotificationPayload =
   | { type: 'booking_cancelled'; booking_id: string; reason?: string; refund_status?: 'processed' | 'pending_review' }
   | { type: 'payment_reminder'; booking_id: string }
   | { type: 'payment_expired'; booking_id: string }
-  | { type: 'ncn_raised'; booking_id: string; ncn_id: string; reason: string; notes?: string; photos?: string[]; contractor_fault?: boolean; stream?: string }
-  | { type: 'np_raised'; booking_id: string; np_id: string; notes?: string; photos?: string[]; contractor_fault?: boolean; stream?: string }
+  // `stream` carries the notice's booked service label(s); `pending_services`
+  // carries the service label(s) of SIBLING stops still Pending at notice time
+  // ("your Green Waste collection is still coming"). Both are display strings.
+  // pending_services is additive — the deployed EF safely ignores it until
+  // redeploy (body is cast, not strictly validated).
+  | { type: 'ncn_raised'; booking_id: string; ncn_id: string; reason: string; notes?: string; photos?: string[]; contractor_fault?: boolean; stream?: string; pending_services?: string }
+  | { type: 'np_raised'; booking_id: string; np_id: string; notes?: string; photos?: string[]; contractor_fault?: boolean; stream?: string; pending_services?: string }
   | { type: 'completion_survey'; booking_id: string; survey_token: string }
   | { type: 'collection_reminder'; booking_id: string }
 

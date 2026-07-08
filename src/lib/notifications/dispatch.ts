@@ -35,6 +35,7 @@ import {
 import { renderCompletionSurvey } from './templates/completion-survey'
 import { renderPaymentReminder } from './templates/payment-reminder'
 import { renderPaymentExpired } from './templates/payment-expired'
+import { sanitizePhotoUrls } from './templates/template-helpers'
 
 // Re-export the shared types so callers can continue importing them from
 // '@/lib/notifications/dispatch' (single import point for the dispatcher
@@ -329,22 +330,24 @@ function renderTemplate(
       const opts: RenderNcnRaisedOptions = {
         reason: payload.reason,
         notes: payload.notes,
-        photos: payload.photos,
+        photos: sanitizePhotoUrls(payload.photos),
         contractor_fault: payload.contractor_fault,
         // Wire key `stream` carries the booked service label(s) — mapped to the
         // template's `serviceLabel` option at this envelope boundary.
         serviceLabel: payload.stream,
+        pendingServices: payload.pending_services,
       }
       return renderNcnRaised(booking, appUrl, opts)
     }
     case 'np_raised': {
       const opts: RenderNpRaisedOptions = {
         notes: payload.notes,
-        photos: payload.photos,
+        photos: sanitizePhotoUrls(payload.photos),
         contractor_fault: payload.contractor_fault,
         // Wire key `stream` carries the booked service label(s) — mapped to the
         // template's `serviceLabel` option at this envelope boundary.
         serviceLabel: payload.stream,
+        pendingServices: payload.pending_services,
       }
       return renderNpRaised(booking, appUrl, opts)
     }

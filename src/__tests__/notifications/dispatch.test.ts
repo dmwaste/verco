@@ -359,6 +359,59 @@ describe('dispatch', () => {
     expect(emailCall?.htmlBody).toContain('E-Waste, Mattress')
   })
 
+  it('threads pending_services into both notice emails as the Still to come line', async () => {
+    const ncnBooking = makeMockBooking({ id: 'b-ncn-pend' })
+    const npBooking = makeMockBooking({ id: 'b-np-pend' })
+    const deps = createMockDispatchDeps({
+      bookings: { 'b-ncn-pend': ncnBooking, 'b-np-pend': npBooking },
+    })
+
+    await dispatch(deps, {
+      type: 'ncn_raised',
+      booking_id: 'b-ncn-pend',
+      ncn_id: 'ncn-pend',
+      reason: 'Building Waste',
+      pending_services: 'Green Waste',
+    })
+    await dispatch(deps, {
+      type: 'np_raised',
+      booking_id: 'b-np-pend',
+      np_id: 'np-pend',
+      pending_services: 'E-Waste, Mattress',
+    })
+
+    const ncnCall = deps.sendEmailMock.mock.calls[0]?.[0] as { htmlBody: string } | undefined
+    const npCall = deps.sendEmailMock.mock.calls[1]?.[0] as { htmlBody: string } | undefined
+    expect(ncnCall?.htmlBody).toContain('Still to come:')
+    expect(ncnCall?.htmlBody).toContain('Green Waste')
+    expect(npCall?.htmlBody).toContain('Still to come:')
+    expect(npCall?.htmlBody).toContain('E-Waste, Mattress')
+  })
+
+  it('drops non-storage photo URLs at the dispatch trust boundary, keeps genuine ones', async () => {
+    // The EF accepts payload.photos from any permitted-role JWT; the capture
+    // layers validate the storage prefix, but dispatch must not trust that.
+    const booking = makeMockBooking({ id: 'b-ncn-photos' })
+    const deps = createMockDispatchDeps({ bookings: { 'b-ncn-photos': booking } })
+
+    await dispatch(deps, {
+      type: 'ncn_raised',
+      booking_id: 'b-ncn-photos',
+      ncn_id: 'ncn-photos',
+      reason: 'Building Waste',
+      photos: [
+        'https://proj.supabase.co/storage/v1/object/public/closeout/genuine.jpg',
+        'https://evil.example.com/phish.jpg',
+        'javascript:alert(1)',
+      ],
+    })
+
+    const emailCall = deps.sendEmailMock.mock.calls[0]?.[0] as { htmlBody: string } | undefined
+    expect(emailCall?.htmlBody).toContain('closeout/genuine.jpg')
+    expect(emailCall?.htmlBody).not.toContain('evil.example.com')
+    expect(emailCall?.htmlBody).not.toContain('javascript:alert(1)')
+  })
+
   it('threads the stream payload into the np email as a Service type row', async () => {
     const booking = makeMockBooking({ id: 'b-np-svc' })
     const deps = createMockDispatchDeps({ bookings: { 'b-np-svc': booking } })
