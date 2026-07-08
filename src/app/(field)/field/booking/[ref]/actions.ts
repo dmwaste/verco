@@ -1,5 +1,6 @@
 'use server'
 
+import { z } from 'zod'
 import { createClient } from '@/lib/supabase/server'
 import { invokeSendNotification } from '@/lib/notifications/invoke'
 import { distinctServiceNames } from '@/lib/stops/service-label'
@@ -7,6 +8,22 @@ import type { Database } from '@/lib/supabase/types'
 import type { Result } from '@/lib/result'
 
 type NcnReason = Database['public']['Enums']['ncn_reason']
+
+// Photos must be evidence the crew actually uploaded — a field JWT must not
+// be able to inject arbitrary external URLs into a resident-facing email.
+// Mirrors closeoutDetailsSchema in ../../stops/[id]/actions.ts (the per-stop
+// path); this legacy per-booking path previously accepted photoUrls unchecked.
+const storagePublicPrefix = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/`
+const photoUrlsSchema = z
+  .array(
+    z
+      .string()
+      .url()
+      .refine((u) => u.startsWith(storagePublicPrefix), {
+        message: 'Photos must be uploaded evidence.',
+      }),
+  )
+  .max(8, 'Please attach at most 8 photos.')
 type SupabaseServerClient = Awaited<ReturnType<typeof createClient>>
 
 /**
@@ -160,6 +177,11 @@ export async function raiseNcn(
   const roleCheck = await validateFieldRole()
   if (!roleCheck.ok) return roleCheck
 
+  const photosCheck = photoUrlsSchema.safeParse(photoUrls)
+  if (!photosCheck.success) {
+    return { ok: false, error: photosCheck.error.issues[0]?.message ?? 'Invalid photos.' }
+  }
+
   const supabase = await createClient()
 
   // client_id from the booking row, not x-client-id — the field host never
@@ -234,6 +256,11 @@ export async function raiseNothingPresented(
 ): Promise<Result<void>> {
   const roleCheck = await validateFieldRole()
   if (!roleCheck.ok) return roleCheck
+
+  const photosCheck = photoUrlsSchema.safeParse(photoUrls)
+  if (!photosCheck.success) {
+    return { ok: false, error: photosCheck.error.issues[0]?.message ?? 'Invalid photos.' }
+  }
 
   const supabase = await createClient()
 

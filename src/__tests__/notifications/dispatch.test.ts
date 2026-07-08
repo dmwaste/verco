@@ -359,6 +359,30 @@ describe('dispatch', () => {
     expect(emailCall?.htmlBody).toContain('E-Waste, Mattress')
   })
 
+  it('drops non-storage photo URLs at the dispatch trust boundary, keeps genuine ones', async () => {
+    // The EF accepts payload.photos from any permitted-role JWT; the capture
+    // layers validate the storage prefix, but dispatch must not trust that.
+    const booking = makeMockBooking({ id: 'b-ncn-photos' })
+    const deps = createMockDispatchDeps({ bookings: { 'b-ncn-photos': booking } })
+
+    await dispatch(deps, {
+      type: 'ncn_raised',
+      booking_id: 'b-ncn-photos',
+      ncn_id: 'ncn-photos',
+      reason: 'Building Waste',
+      photos: [
+        'https://proj.supabase.co/storage/v1/object/public/closeout/genuine.jpg',
+        'https://evil.example.com/phish.jpg',
+        'javascript:alert(1)',
+      ],
+    })
+
+    const emailCall = deps.sendEmailMock.mock.calls[0]?.[0] as { htmlBody: string } | undefined
+    expect(emailCall?.htmlBody).toContain('closeout/genuine.jpg')
+    expect(emailCall?.htmlBody).not.toContain('evil.example.com')
+    expect(emailCall?.htmlBody).not.toContain('javascript:alert(1)')
+  })
+
   it('threads the stream payload into the np email as a Service type row', async () => {
     const booking = makeMockBooking({ id: 'b-np-svc' })
     const deps = createMockDispatchDeps({ bookings: { 'b-np-svc': booking } })
