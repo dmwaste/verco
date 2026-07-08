@@ -331,7 +331,9 @@ function renderTemplate(
         notes: payload.notes,
         photos: payload.photos,
         contractor_fault: payload.contractor_fault,
-        stream: payload.stream,
+        // Wire key `stream` carries the booked service label(s) — mapped to the
+        // template's `serviceLabel` option at this envelope boundary.
+        serviceLabel: payload.stream,
       }
       return renderNcnRaised(booking, appUrl, opts)
     }
@@ -340,7 +342,9 @@ function renderTemplate(
         notes: payload.notes,
         photos: payload.photos,
         contractor_fault: payload.contractor_fault,
-        stream: payload.stream,
+        // Wire key `stream` carries the booked service label(s) — mapped to the
+        // template's `serviceLabel` option at this envelope boundary.
+        serviceLabel: payload.stream,
       }
       return renderNpRaised(booking, appUrl, opts)
     }

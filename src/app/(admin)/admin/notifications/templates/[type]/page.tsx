@@ -53,12 +53,14 @@ function renderEmail(
         notes: 'Cement and bricks behind the fence.',
         photos: [],
         contractor_fault: false,
+        serviceLabel: 'E-Waste, Mattress',
       })
     case 'np_raised':
       return renderNpRaised(booking, APP_URL, {
         notes: 'Verge was empty at 09:30. Crew checked both sides of driveway.',
         photos: [],
         contractor_fault: false,
+        serviceLabel: 'Bulk Waste',
       })
     case 'completion_survey':
       return renderCompletionSurvey(booking, APP_URL, 'sample-survey-token')

@@ -127,4 +127,32 @@ describe('renderNcnRaised', () => {
       expect(html).not.toContain('Emma Gillham')
     })
   })
+
+  describe('service type row', () => {
+    it('renders a "Service type" row with the booked service label(s)', () => {
+      const booking = makeMockBooking()
+      const { html } = renderNcnRaised(booking, APP_URL, {
+        reason: 'Building Waste',
+        serviceLabel: 'E-Waste, Mattress',
+      })
+      expect(html).toContain('Service type')
+      expect(html).toContain('E-Waste, Mattress')
+    })
+
+    it('omits the row entirely when no service label is provided', () => {
+      const booking = makeMockBooking()
+      const { html } = renderNcnRaised(booking, APP_URL, { reason: 'Building Waste' })
+      expect(html).not.toContain('Service type')
+    })
+
+    it('escapes a hostile service name (no raw HTML injection)', () => {
+      const booking = makeMockBooking()
+      const { html } = renderNcnRaised(booking, APP_URL, {
+        reason: 'Building Waste',
+        serviceLabel: '<img src=x onerror=alert(1)>',
+      })
+      expect(html).not.toContain('<img src=x onerror=alert(1)>')
+      expect(html).toContain('&lt;img src=x onerror=alert(1)&gt;')
+    })
+  })
 })
