@@ -49,4 +49,28 @@ describe('renderNpRaised', () => {
     expect(html).toContain(`https://kwn.verco.au/booking/${encodeURIComponent('VV-NP009')}`)
     expect(html).not.toContain('verco.test/kwn/booking')
   })
+
+  describe('service type row', () => {
+    it('renders a "Service type" row with the booked service label', () => {
+      const booking = makeMockBooking()
+      const { html } = renderNpRaised(booking, APP_URL, { serviceLabel: 'Bulk Waste' })
+      expect(html).toContain('Service type')
+      expect(html).toContain('Bulk Waste')
+    })
+
+    it('omits the row entirely when no service label is provided', () => {
+      const booking = makeMockBooking()
+      const { html } = renderNpRaised(booking, APP_URL, {})
+      expect(html).not.toContain('Service type')
+    })
+
+    it('escapes a hostile service name (no raw HTML injection)', () => {
+      const booking = makeMockBooking()
+      const { html } = renderNpRaised(booking, APP_URL, {
+        serviceLabel: '<img src=x onerror=alert(1)>',
+      })
+      expect(html).not.toContain('<img src=x onerror=alert(1)>')
+      expect(html).toContain('&lt;img src=x onerror=alert(1)&gt;')
+    })
+  })
 })

@@ -1,12 +1,14 @@
 'use server'
 
 import { z } from 'zod'
+import * as Sentry from '@sentry/nextjs'
 import { createClient } from '@/lib/supabase/server'
 import { invokeSendNotification } from '@/lib/notifications/invoke'
 import { NCN_REASONS } from '@/lib/ncn/reasons'
 import { STREAM_LABEL } from '@/lib/stops/labels'
+import { serviceLabelFromSummary, STOP_CLOSEOUT_SELECT } from '@/lib/stops/service-label'
 import type { WasteStream } from '@/lib/stops/stops'
-import type { Database } from '@/lib/supabase/types'
+import type { Database, Json } from '@/lib/supabase/types'
 import type { Result } from '@/lib/result'
 
 type NcnReason = Database['public']['Enums']['ncn_reason']
@@ -57,6 +59,7 @@ interface GuardedStop {
   stream: WasteStream
   booking_id: string
   client_id: string
+  services_summary: Json
   booking: { id: string; ref: string; status: string; type: string }
 }
 
@@ -66,7 +69,7 @@ async function loadStopGuarded(
 ): Promise<Result<GuardedStop>> {
   const { data: stop } = await supabase
     .from('collection_stop')
-    .select('id, stream, status, booking_id, client_id, booking:booking_id(id, ref, status, type)')
+    .select(STOP_CLOSEOUT_SELECT)
     .eq('id', stopId)
     .single()
 
@@ -88,9 +91,28 @@ async function loadStopGuarded(
       stream: stop.stream,
       booking_id: stop.booking_id,
       client_id: stop.client_id,
+      services_summary: stop.services_summary,
       booking,
     },
   }
+}
+
+/**
+ * Resident-facing "Service type" label for a stop's notice. Reads the stop's
+ * `services_summary` (populated by the push EF, 100% in prod today but enforced
+ * nowhere) and emits a loud Sentry warning if it has to fall back — so a
+ * silently-empty summary surfaces instead of quietly reverting to a stream
+ * label. Booking id only; no PII.
+ */
+function stopServiceLabel(stop: GuardedStop): string {
+  const { label, fromFallback } = serviceLabelFromSummary(stop.services_summary, stop.stream)
+  if (fromFallback) {
+    Sentry.captureMessage('NCN/NP notice fell back to stream label (empty services_summary)', {
+      level: 'warning',
+      extra: { booking_id: stop.booking_id, stop_id: stop.id, stream: stop.stream },
+    })
+  }
+  return label
 }
 
 /**
@@ -322,7 +344,8 @@ export async function raiseNcnForStop(
     return updated
   }
 
-  // Immediate per-stop comms, stream named (locked decision 10/06/2026).
+  // Immediate per-stop comms, booked service(s) named (locked 10/06/2026;
+  // stream label → service names 08/07/2026). Payload key stays `stream`.
   await invokeSendNotification(supabase, {
     type: 'ncn_raised',
     booking_id: stop.booking_id,
@@ -330,7 +353,7 @@ export async function raiseNcnForStop(
     reason,
     notes: notes || undefined,
     photos: photoUrls.length > 0 ? photoUrls : undefined,
-    stream: STREAM_LABEL[stop.stream],
+    stream: stopServiceLabel(stop),
   })
 
   return { ok: true, data: undefined }
@@ -414,7 +437,7 @@ export async function raiseNpForStop(
     notes: notes || undefined,
     photos: photoUrls.length > 0 ? photoUrls : undefined,
     contractor_fault: dmFault,
-    stream: STREAM_LABEL[stop.stream],
+    stream: stopServiceLabel(stop),
   })
 
   return { ok: true, data: undefined }

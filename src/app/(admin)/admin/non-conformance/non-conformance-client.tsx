@@ -14,7 +14,9 @@ import { Th } from '@/components/admin/th'
 import { Pagination } from '@/components/admin/pagination'
 import { OpenInvestigationButton } from '@/components/admin/open-investigation-button'
 import { OPEN_EXCEPTION_FILTER_STATUSES, OPENABLE_STATUSES } from '@/lib/exceptions/status'
-import type { Database } from '@/lib/supabase/types'
+import { serviceLabelFromSummary } from '@/lib/stops/service-label'
+import type { WasteStream } from '@/lib/stops/stops'
+import type { Database, Json } from '@/lib/supabase/types'
 
 type NcnReason = Database['public']['Enums']['ncn_reason']
 
@@ -54,7 +56,7 @@ export function NonConformanceClient({ clientId }: NonConformanceClientProps) {
         .from('non_conformance_notice')
         .select(
           `id, reason, status, notes, photos, reported_at, resolved_at,
-           collection_stop:collection_stop_id(stream),
+           collection_stop:collection_stop_id(stream, services_summary),
            booking:booking_id(id, ref, status, location,
              eligible_properties:property_id(formatted_address, address),
              collection_area!inner(code)),
@@ -101,9 +103,13 @@ export function NonConformanceClient({ clientId }: NonConformanceClientProps) {
     return booking?.collection_area?.code ?? '—'
   }
 
-  function getStream(notice: (typeof notices)[number]): string {
-    const stop = notice.collection_stop as unknown as { stream: string } | null
-    return stop?.stream ?? '—'
+  function getServiceType(notice: (typeof notices)[number]): string {
+    const stop = notice.collection_stop as unknown as {
+      stream: WasteStream
+      services_summary: Json
+    } | null
+    if (!stop) return '—'
+    return serviceLabelFromSummary(stop.services_summary, stop.stream).label
   }
 
   function getBookingStatus(notice: (typeof notices)[number]): string {
@@ -158,7 +164,7 @@ export function NonConformanceClient({ clientId }: NonConformanceClientProps) {
                 <Th>Booking Status</Th>
                 <Th>Address</Th>
                 <Th>Area</Th>
-                <Th>Stream</Th>
+                <Th>Service type</Th>
                 <Th>Reason</Th>
                 <Th>Photos</Th>
                 <Th>Status</Th>
@@ -199,7 +205,7 @@ export function NonConformanceClient({ clientId }: NonConformanceClientProps) {
                       {getAreaCode(ncn)}
                     </td>
                     <td className="px-4 py-3 text-xs text-gray-500">
-                      {getStream(ncn)}
+                      {getServiceType(ncn)}
                     </td>
                     <td className="max-w-[160px] truncate px-4 py-3 text-xs">
                       {ncn.reason}

@@ -60,6 +60,7 @@ interface NcnInfo {
   status: string
   photos: string[]
   reported_at: string
+  serviceLabel: string | null
   rescheduled_booking: { ref: string } | null
 }
 
@@ -69,6 +70,7 @@ interface NpInfo {
   photos: string[]
   reported_at: string
   contractor_fault: boolean
+  serviceLabel: string | null
   rescheduled_booking: { ref: string } | null
 }
 
@@ -507,6 +509,12 @@ export function BookingDetailClient({ booking, tickets, receiptUrl, ncn, np, pay
               </span>
             </div>
             <div className="flex flex-col gap-2">
+              {notice.serviceLabel && (
+                <div className="flex items-center justify-between text-body-sm">
+                  <span className="text-gray-500">Service type</span>
+                  <span className="font-medium text-gray-900">{notice.serviceLabel}</span>
+                </div>
+              )}
               <div className="flex items-center justify-between text-body-sm">
                 <span className="text-gray-500">Reason</span>
                 <span className="font-medium text-gray-900">{notice.reason}</span>
@@ -585,6 +593,12 @@ export function BookingDetailClient({ booking, tickets, receiptUrl, ncn, np, pay
               </span>
             </div>
             <div className="flex flex-col gap-2">
+              {notice.serviceLabel && (
+                <div className="flex items-center justify-between text-body-sm">
+                  <span className="text-gray-500">Service type</span>
+                  <span className="font-medium text-gray-900">{notice.serviceLabel}</span>
+                </div>
+              )}
               <div className="flex items-center justify-between text-body-sm">
                 <span className="text-gray-500">Reported</span>
                 <span className="font-medium text-gray-900">

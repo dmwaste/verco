@@ -32,12 +32,13 @@ export interface RenderNpRaisedOptions {
   photos?: string[] | undefined
   contractor_fault?: boolean | undefined
   /**
-   * Waste-stream label (e.g. "Green") when the notice was raised against a
-   * single per-stream collection stop. Bookings with multiple streams are
-   * collected in separate passes — naming the stream tells the resident
-   * which part of their collection this notice covers.
+   * Booked service name(s) this notice covers, e.g. "E-Waste, Mattress" or
+   * "Bulk Waste" — residents book by service, not internal stream, and a
+   * booking's streams are collected in separate passes, so naming the
+   * service(s) tells the resident exactly which collection this is about.
+   * The dispatcher maps the `stream` payload key onto this at the boundary.
    */
-  stream?: string | undefined
+  serviceLabel?: string | undefined
 }
 
 export function renderNpRaised(
@@ -70,7 +71,7 @@ export function renderNpRaised(
     <p style="margin:0 0 16px 0;color:#8FA5B8;font-size:13px">You have 14 days from the date of this notice to dispute it.</p>
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 16px 0;border-collapse:collapse">
       <tr><td style="padding:6px 12px 6px 0;color:#8FA5B8;font-size:13px;white-space:nowrap">Reference</td><td style="padding:6px 0;color:#293F52;font-size:13px;text-align:right;font-family:'SF Mono',monospace">${escapeHtml(ref)}</td></tr>
-      ${options.stream ? `<tr><td style="padding:6px 12px 6px 0;color:#8FA5B8;font-size:13px;white-space:nowrap">Collection</td><td style="padding:6px 0;color:#293F52;font-size:13px;text-align:right">${escapeHtml(options.stream)}</td></tr>` : ''}
+      ${options.serviceLabel ? `<tr><td style="padding:6px 12px 6px 0;color:#8FA5B8;font-size:13px;white-space:nowrap">Service type</td><td style="padding:6px 0;color:#293F52;font-size:13px;text-align:right">${escapeHtml(options.serviceLabel)}</td></tr>` : ''}
       <tr><td style="padding:6px 12px 6px 0;color:#8FA5B8;font-size:13px;white-space:nowrap">Collection date</td><td style="padding:6px 0;color:#293F52;font-size:13px;text-align:right">${escapeHtml(dateStr)}</td></tr>
       <tr><td style="padding:6px 12px 6px 0;color:#8FA5B8;font-size:13px;white-space:nowrap;vertical-align:top">Address</td><td style="padding:6px 0;color:#293F52;font-size:13px;text-align:right">${escapeHtml(address)}</td></tr>
     </table>
