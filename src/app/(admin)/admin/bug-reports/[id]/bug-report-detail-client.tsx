@@ -19,6 +19,8 @@ interface BugDetail {
   browser_info: string | null
   linear_issue_id: string | null
   linear_issue_url: string | null
+  github_issue_number: number | null
+  github_issue_url: string | null
   created_at: string
   updated_at: string
   resolved_at: string | null
@@ -218,7 +220,16 @@ export function BugReportDetailClient({ bug, comments }: Props) {
                 </dd>
               </div>
             )}
-            {bug.linear_issue_url && (
+            {bug.github_issue_url ? (
+              <div>
+                <dt className="text-gray-500">GitHub</dt>
+                <dd>
+                  <a href={bug.github_issue_url} target="_blank" rel="noreferrer" className="text-[#293F52] underline">
+                    {bug.github_issue_number ? `#${bug.github_issue_number}` : 'View issue'}
+                  </a>
+                </dd>
+              </div>
+            ) : bug.linear_issue_url ? (
               <div>
                 <dt className="text-gray-500">Linear</dt>
                 <dd>
@@ -227,7 +238,7 @@ export function BugReportDetailClient({ bug, comments }: Props) {
                   </a>
                 </dd>
               </div>
-            )}
+            ) : null}
             <div>
               <dt className="text-gray-500">Created</dt>
               <dd className="text-gray-900">

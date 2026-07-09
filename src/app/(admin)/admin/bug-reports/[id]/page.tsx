@@ -17,6 +17,7 @@ export default async function BugReportDetailPage({ params }: PageProps) {
       .select(
         `id, display_id, title, description, source_app, category, priority, status,
          page_url, browser_info, linear_issue_id, linear_issue_url,
+         github_issue_number, github_issue_url,
          created_at, updated_at, resolved_at, resolution_notes,
          reporter_id, assigned_to,
          reporter:profiles!bug_report_reporter_id_fkey(display_name),

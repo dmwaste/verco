@@ -88,7 +88,7 @@ export function BugReportsClient() {
       let query = supabase
         .from('bug_report')
         .select(
-          `id, display_id, title, category, priority, status, source_app, page_url, linear_issue_url, created_at,
+          `id, display_id, title, category, priority, status, source_app, page_url, github_issue_number, github_issue_url, linear_issue_url, created_at,
            reporter:profiles!bug_report_reporter_id_fkey(display_name),
            assigned:profiles!bug_report_assigned_to_fkey(display_name)`,
           { count: 'exact' }
@@ -189,9 +189,11 @@ export function BugReportsClient() {
                         >
                           {bug.title.length > 60 ? bug.title.slice(0, 60) + '...' : bug.title}
                         </Link>
-                        {bug.linear_issue_url && (
+                        {bug.github_issue_url ? (
+                          <a href={bug.github_issue_url} target="_blank" rel="noopener noreferrer" className="ml-1.5 text-caption text-blue-500 hover:underline">{bug.github_issue_number ? `#${bug.github_issue_number}` : 'GitHub'}</a>
+                        ) : bug.linear_issue_url ? (
                           <a href={bug.linear_issue_url} target="_blank" rel="noopener noreferrer" className="ml-1.5 text-caption text-blue-500 hover:underline">Linear</a>
-                        )}
+                        ) : null}
                       </td>
                       <td className="px-4 py-2.5">
                         <span className="rounded-full bg-gray-100 px-2 py-0.5 text-caption font-medium text-gray-600">
