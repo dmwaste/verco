@@ -917,6 +917,68 @@ if (!haveDb) {
       expect(n).toBe(1)
     })
 
+    // --- Fix B: collection_stop_select RLS-timeout rewrite (2026-07-09) ---------
+    // The SELECT policy was rewritten from a booking-subquery gate (806ms/866ms
+    // under a field JWT) to a client_id gate. Equivalence rests on two invariants
+    // + the ranger role (∈ is_field_user, but sub-client-scopable, unlike field).
+
+    it('ranger SELECTs stops in their tenant (ranger is in is_field_user)', async (ctx) => {
+      if (!ready) return ctx.skip()
+      const n = await countAs(USERS.ranger, `SELECT id FROM collection_stop WHERE id = '${STOP_GENERAL}'`)
+      expect(n).toBe(1)
+    })
+
+    it('INV-1: every collection_stop.client_id equals its booking.client_id', async (ctx) => {
+      if (!ready) return ctx.skip()
+      const r = await pg.query<{ c: string }>(
+        `SELECT count(*)::text AS c FROM collection_stop cs
+           JOIN booking b ON b.id = cs.booking_id
+          WHERE cs.client_id IS DISTINCT FROM b.client_id`,
+      )
+      expect(Number.parseInt(r.rows[0]!.c, 10)).toBe(0)
+    })
+
+    it('INV-2: every booking.contractor_id equals its client.contractor_id', async (ctx) => {
+      if (!ready) return ctx.skip()
+      const r = await pg.query<{ c: string }>(
+        `SELECT count(*)::text AS c FROM booking b
+           JOIN client c ON c.id = b.client_id
+          WHERE b.contractor_id IS DISTINCT FROM c.contractor_id`,
+      )
+      expect(Number.parseInt(r.rows[0]!.c, 10)).toBe(0)
+    })
+
+    it('enforcement trigger rejects a stop whose client_id != its booking.client_id', async (ctx) => {
+      if (!ready) return ctx.skip()
+      const other = await pg.query<{ id: string }>(
+        `SELECT id FROM client WHERE id <> $1 LIMIT 1`,
+        [CLIENT_ID],
+      )
+      const date = await pg.query<{ id: string }>(
+        `SELECT cd.id FROM collection_date cd
+           JOIN collection_area ca ON ca.id = cd.collection_area_id
+          WHERE ca.client_id = $1 LIMIT 1`,
+        [CLIENT_ID],
+      )
+      if (other.rows.length === 0 || date.rows.length === 0) return ctx.skip()
+      await pg.query('BEGIN')
+      try {
+        // 'green' stream avoids the (booking_id, stream) unique already used by
+        // STOP_GENERAL. client_id is deliberately NOT the booking's client → the
+        // enforce_stop_client_id_matches_booking trigger must reject it.
+        await expect(
+          pg.query(
+            `INSERT INTO public.collection_stop
+               (id, booking_id, client_id, stream, collection_date_id, status, services_summary)
+             VALUES (gen_random_uuid(), $1, $2, 'green', $3, 'Pending', '[{"name":"Green","qty":1}]')`,
+            [STOP_BOOKING, other.rows[0]!.id, date.rows[0]!.id],
+          ),
+        ).rejects.toThrow(/must equal parent booking\.client_id/)
+      } finally {
+        await pg.query('ROLLBACK')
+      }
+    })
+
     it('resident gets ZERO stop rows even for their own booking (routing internals)', async (ctx) => {
       if (!ready) return ctx.skip()
       const n = await countAs(
