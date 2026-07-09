@@ -4,8 +4,7 @@ import { z } from 'zod'
 import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { canMarkRegistered } from '@/lib/mud/state-machine'
-import { normaliseAuMobile } from '@/lib/booking/schemas'
-import { normalisePhone } from '@/lib/mud/validation'
+import { canonicaliseAuMobile, isValidPhone, normalisePhone } from '@/lib/mud/validation'
 import type { Database } from '@/lib/supabase/types'
 import type { Result } from '@/lib/result'
 import { validateStaffRole } from '@/lib/auth/server'
@@ -31,14 +30,17 @@ const strataContactSchema = z.object({
   first_name: z.string().trim().min(1, 'First name is required').max(100),
   last_name: z.string().trim().min(1, 'Last name is required').max(100),
   // Accept any real phone (mobile / landline / 1300 / 1800 / intl), then canonicalise
-  // on store: mobiles → E.164 (+61…) so NCN SMS works (dispatch.ts sends mobile_e164
-  // verbatim to Twilio); landlines/1300 → formatting-stripped (they never SMS). VER-315.
+  // on store: mobiles → E.164 (+61…) so NCN SMS works (dispatchSms skips non-mobiles);
+  // landlines/1300 → formatting-stripped. canonicaliseAuMobile is the SAME mobile
+  // detection the UI hint uses — one brain, so hint and stored value can't disagree.
+  // VER-315.
   mobile_e164: z
     .string()
     .trim()
-    .min(6, 'Phone number is required')
-    .max(20)
-    .transform((v) => normaliseAuMobile(v) ?? normalisePhone(v)),
+    .min(6, 'Enter a valid phone number')
+    .max(25)
+    .refine(isValidPhone, 'Enter a valid phone number')
+    .transform((v) => canonicaliseAuMobile(v) ?? normalisePhone(v)),
   email: z.string().trim().email('Invalid email').max(255),
 })
 
@@ -243,11 +245,26 @@ export interface CreateMudPropertyInput {
  * stored — but the status stays 'Contact Made' until markMudRegistered() is
  * called explicitly.
  */
+/**
+ * unit_count sanity guard shared by create/update. The DB CHECK was dropped
+ * (20260522143000) and the forms enforce >= 1 at data entry, but the action is
+ * directly callable — reject non-integers, negatives, and absurd values here.
+ * 0 stays server-legal ("not yet recorded" draft semantics; canMarkRegistered
+ * gates Registered on >= 1).
+ */
+function validUnitCount(n: number): boolean {
+  return Number.isInteger(n) && n >= 0 && n <= 100_000
+}
+
 export async function createMudProperty(
   input: CreateMudPropertyInput
 ): Promise<Result<{ property_id: string }>> {
   const roleCheck = await validateStaffRole()
   if (!roleCheck.ok) return roleCheck
+
+  if (!validUnitCount(input.unit_count)) {
+    return { ok: false, error: 'Unit count must be a whole number between 0 and 100,000.' }
+  }
 
   const supabase = await createClient()
 
@@ -291,7 +308,12 @@ export async function updateMudProperty(
   const supabase = await createClient()
 
   const patch: Record<string, unknown> = {}
-  if (input.unit_count !== undefined) patch.unit_count = input.unit_count
+  if (input.unit_count !== undefined) {
+    if (!validUnitCount(input.unit_count)) {
+      return { ok: false, error: 'Unit count must be a whole number between 0 and 100,000.' }
+    }
+    patch.unit_count = input.unit_count
+  }
   if (input.mud_code !== undefined) patch.mud_code = input.mud_code
   if (input.collection_cadence !== undefined) patch.collection_cadence = input.collection_cadence
   if (input.waste_location_notes !== undefined) patch.waste_location_notes = input.waste_location_notes

@@ -10,6 +10,7 @@ import {
 } from '../actions'
 import {
   COLLECTION_CADENCES,
+  MUD_MIN_UNIT_COUNT,
   isValidPhone,
   isSmsCapable,
   type CollectionCadence,
@@ -106,8 +107,8 @@ export function MudEditForm({ property, strataContact, onCancel }: MudEditFormPr
   async function handleSave() {
     setError(null)
 
-    if (unitCount < 1) {
-      setError('Unit count must be at least 1.')
+    if (unitCount < MUD_MIN_UNIT_COUNT) {
+      setError(`Unit count must be at least ${MUD_MIN_UNIT_COUNT}.`)
       return
     }
     if (!mudCode.trim()) {
@@ -125,7 +126,7 @@ export function MudEditForm({ property, strataContact, onCancel }: MudEditFormPr
         return
       }
       if (!isValidPhone(contactMobile)) {
-        setError('Enter a valid phone number.')
+        setError('Strata contact phone must be a valid phone number.')
         return
       }
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contactEmail.trim())) {
@@ -186,7 +187,7 @@ export function MudEditForm({ property, strataContact, onCancel }: MudEditFormPr
           <Input
             id="mud-unit-count"
             type="number"
-            min={1}
+            min={MUD_MIN_UNIT_COUNT}
             value={unitCount}
             onChange={(e) => setUnitCount(Number.parseInt(e.target.value, 10) || 0)}
             className={`mt-1 ${mudField}`}
@@ -265,16 +266,20 @@ export function MudEditForm({ property, strataContact, onCancel }: MudEditFormPr
             <Input
               type="tel"
               aria-label="Strata contact phone"
+              aria-describedby="mud-phone-sms-hint"
               value={contactMobile}
               onChange={(e) => setContactMobile(e.target.value)}
               placeholder="Phone (mobile or landline)"
               className={mudField}
             />
-            {contactMobile.trim() && !isSmsCapable(contactMobile) && (
-              <p className="mt-1 text-caption text-gray-400">
-                Landline entered — this contact won&apos;t receive SMS notices, only email.
-              </p>
-            )}
+            <div id="mud-phone-sms-hint" aria-live="polite">
+              {isValidPhone(contactMobile) && !isSmsCapable(contactMobile) && (
+                <p className="mt-1 text-caption text-gray-400">
+                  This number can&apos;t receive SMS — notices to this contact will be sent by
+                  email only.
+                </p>
+              )}
+            </div>
           </div>
           <Input
             type="email"

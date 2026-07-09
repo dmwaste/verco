@@ -11,9 +11,17 @@
 
 import { z } from 'zod'
 import { MUD_ONBOARDING_STATUSES } from './state-machine'
+import { normaliseAuMobile } from '@/lib/booking/schemas'
 
 export const COLLECTION_CADENCES = ['Ad-hoc', 'Annual', 'Bi-annual', 'Quarterly'] as const
 export type CollectionCadence = (typeof COLLECTION_CADENCES)[number]
+
+/**
+ * Form floor for unit_count data entry. The server/draft semantics still allow 0
+ * ("not yet recorded" — see canMarkRegistered), but both admin forms require a
+ * real count when saving.
+ */
+export const MUD_MIN_UNIT_COUNT = 1
 
 /**
  * Phone validation for strata contacts (VER-315).
@@ -26,32 +34,34 @@ export type CollectionCadence = (typeof COLLECTION_CADENCES)[number]
  */
 export const normalisePhone = (s: string) => s.replace(/[\s()\-.]/g, '')
 
-/** Accepts mobile / landline / 1300 / 1800 / 13xx / international. Rejects letters + too-short. */
+/** Accepts mobile / landline / 1300 / 1800 / 13xx / international. Rejects letters, too-short, +0. */
 export function isValidPhone(s: string): boolean {
-  return /^\+?\d{6,15}$/.test(normalisePhone(s.trim()))
+  const v = normalisePhone(s.trim())
+  return /^\+?\d{6,15}$/.test(v) && !v.startsWith('+0')
+}
+
+/**
+ * Canonicalise an AU mobile written in any common form to E.164 (+614…), or null
+ * when the input is not an AU mobile. Extends normaliseAuMobile (booking/schemas)
+ * with the written variants it doesn't cover: dot separators, the 00 international
+ * prefix, and the redundant national zero after the country code ("+61 0412 …").
+ * MUST stay the single mobile-detection used by BOTH the UI hint (isSmsCapable)
+ * and the store transform (actions.ts) — two brains here is how VER-315 happened.
+ */
+export function canonicaliseAuMobile(s: string): string | null {
+  const v = normalisePhone(s.trim())
+    .replace(/^00/, '+') // 0061… → +61…
+    .replace(/^(\+?61)0(?=4)/, '$1') // +61 0412… → +61412…
+  return normaliseAuMobile(v)
 }
 
 /** SMS-capable = AU mobile only. Drives the "won't receive SMS" hint. */
-export const isSmsCapable = (s: string): boolean =>
-  /^(\+?61|0)4\d{8}$/.test(normalisePhone(s.trim()))
+export const isSmsCapable = (s: string): boolean => canonicaliseAuMobile(s) !== null
 
-/**
- * Strata contact — name + phone + email all required for MUDs.
- * The contacts table allows nulls on mobile, but the brief tightens this for
- * MUD strata managers (need both for NCN dual-recipient routing). A phone here
- * is any valid number (mobile OR landline); SMS is best-effort per channel.
- */
-export const strataContactSchema = z.object({
-  first_name: z.string().min(1, 'First name is required').max(60),
-  last_name: z.string().min(1, 'Last name is required').max(60),
-  mobile_e164: z
-    .string()
-    .min(1, 'Phone is required')
-    .refine(isValidPhone, 'Enter a valid phone number'),
-  email: z.string().email('Email must be valid'),
-})
-
-export type StrataContactInput = z.infer<typeof strataContactSchema>
+// NOTE: the strata contact schema lives in the upsertStrataContact server action
+// (app/(admin)/admin/properties/actions.ts) — the single validating write path.
+// A duplicate schema here had zero consumers and silently drifted from the real
+// one, so it was removed (VER-315 review).
 
 /**
  * Minimum draft to create a MUD record (Contact Made state).
