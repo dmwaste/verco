@@ -11,6 +11,9 @@ import {
 } from './actions'
 import {
   COLLECTION_CADENCES,
+  MUD_MIN_UNIT_COUNT,
+  isValidPhone,
+  isSmsCapable,
   type CollectionCadence,
 } from '@/lib/mud/validation'
 import { FieldLabel, Input, Select, Textarea } from '@/components/admin/form'
@@ -28,13 +31,11 @@ interface SetMudModalProps {
   onSuccess: () => void
 }
 
-const auMobileRegex = /^(\+614\d{8}|04\d{8})$/
-
 export function SetMudModal({ open, onOpenChange, property, onSuccess }: SetMudModalProps) {
   const supabase = createClient()
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  const [unitCount, setUnitCount] = useState(8)
+  const [unitCount, setUnitCount] = useState(1)
   const [mudCode, setMudCode] = useState('')
   const [cadence, setCadence] = useState<CollectionCadence>('Quarterly')
   const [wasteNotes, setWasteNotes] = useState('')
@@ -51,7 +52,7 @@ export function SetMudModal({ open, onOpenChange, property, onSuccess }: SetMudM
   // Reset state + auto-suggest mud_code when the modal opens for a new property
   useEffect(() => {
     if (!open || !property) return
-    setUnitCount(8)
+    setUnitCount(1)
     setCadence('Quarterly')
     setWasteNotes('')
     setContactFirstName('')
@@ -118,8 +119,8 @@ export function SetMudModal({ open, onOpenChange, property, onSuccess }: SetMudM
     setError(null)
 
     // Client-side validation
-    if (unitCount < 8) {
-      setError('Unit count must be at least 8.')
+    if (unitCount < MUD_MIN_UNIT_COUNT) {
+      setError(`Unit count must be at least ${MUD_MIN_UNIT_COUNT}.`)
       return
     }
     if (!mudCode.trim()) {
@@ -137,8 +138,8 @@ export function SetMudModal({ open, onOpenChange, property, onSuccess }: SetMudM
         setError('Strata contact first and last name are required if any contact field is filled.')
         return
       }
-      if (!auMobileRegex.test(contactMobile.trim())) {
-        setError('Mobile must be an Australian number (04XX or +614XX).')
+      if (!isValidPhone(contactMobile)) {
+        setError('Strata contact phone must be a valid phone number.')
         return
       }
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contactEmail.trim())) {
@@ -221,12 +222,12 @@ export function SetMudModal({ open, onOpenChange, property, onSuccess }: SetMudM
                   <Input
                     id="setmud-unit-count"
                     type="number"
-                    min={8}
+                    min={MUD_MIN_UNIT_COUNT}
                     value={unitCount}
                     onChange={(e) => setUnitCount(Number.parseInt(e.target.value, 10) || 0)}
                     className={`mt-1 ${mudField}`}
                   />
-                  <p className="mt-1 text-caption text-gray-400">Minimum 8</p>
+                  <p className="mt-1 text-caption text-gray-400">Total units in the development</p>
                 </div>
                 <div>
                   <FieldLabel htmlFor="setmud-code" className="mb-0">
@@ -306,14 +307,25 @@ export function SetMudModal({ open, onOpenChange, property, onSuccess }: SetMudM
                       className={mudField}
                     />
                   </div>
-                  <Input
-                    type="tel"
-                    aria-label="Strata contact mobile"
-                    value={contactMobile}
-                    onChange={(e) => setContactMobile(e.target.value)}
-                    placeholder="Mobile (04XX or +614XX)"
-                    className={mudField}
-                  />
+                  <div>
+                    <Input
+                      type="tel"
+                      aria-label="Strata contact phone"
+                      aria-describedby="setmud-phone-sms-hint"
+                      value={contactMobile}
+                      onChange={(e) => setContactMobile(e.target.value)}
+                      placeholder="Phone (mobile or landline)"
+                      className={mudField}
+                    />
+                    <div id="setmud-phone-sms-hint" aria-live="polite">
+                      {isValidPhone(contactMobile) && !isSmsCapable(contactMobile) && (
+                        <p className="mt-1 text-caption text-gray-400">
+                          This number can&apos;t receive SMS — notices to this contact will be sent
+                          by email only.
+                        </p>
+                      )}
+                    </div>
+                  </div>
                   <Input
                     type="email"
                     aria-label="Strata contact email"

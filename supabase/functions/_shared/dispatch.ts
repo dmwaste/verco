@@ -501,9 +501,12 @@ function renderSmsTemplate(
  * Best-effort SMS dispatch. Runs after the email branch. Eligibility:
  *
  *   1. Contact has a `mobile_e164` number
- *   2. Tenant has a `twilio_messaging_service_sid` (`MG…`) configured
- *   3. The notification type has an SMS variant (renderSmsTemplate returns non-null)
- *   4. Idempotency: no prior `sent` row exists for `(booking_id, type, 'sms')`
+ *   2. The number is an AU mobile in E.164 form (`+614…`) — since VER-315 the column
+ *      may hold landlines/1300s (kept for contact purposes); Twilio rejects those, so
+ *      they are skipped with a structured log instead of attempted-and-failed
+ *   3. Tenant has a `twilio_messaging_service_sid` (`MG…`) configured
+ *   4. The notification type has an SMS variant (renderSmsTemplate returns non-null)
+ *   5. Idempotency: no prior `sent` row exists for `(booking_id, type, 'sms')`
  *
  * Failures are recorded in notification_log (channel='sms') and emit a
  * structured log line, but do NOT change the email dispatch result. Never
@@ -537,6 +540,14 @@ async function dispatchSms(
         ...extras,
       }),
     )
+  }
+
+  // VER-315: mobile_e164 may hold a landline/1300 (valid contact data, not SMS-able).
+  // Stored mobiles are canonicalised E.164 (+614…) on every write path, so anything
+  // else here is a non-mobile — skip cleanly rather than fail at Twilio per send.
+  if (!/^\+614\d{8}$/.test(booking.contact.mobile_e164)) {
+    smsLog({ status: 'skipped', reason: 'not_sms_capable', twilio_status: null })
+    return
   }
 
   try {
