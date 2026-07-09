@@ -695,6 +695,8 @@ export type Database = {
           created_at: string
           description: string | null
           display_id: string
+          github_issue_number: number | null
+          github_issue_url: string | null
           id: string
           linear_issue_id: string | null
           linear_issue_url: string | null
@@ -717,6 +719,8 @@ export type Database = {
           created_at?: string
           description?: string | null
           display_id?: string
+          github_issue_number?: number | null
+          github_issue_url?: string | null
           id?: string
           linear_issue_id?: string | null
           linear_issue_url?: string | null
@@ -739,6 +743,8 @@ export type Database = {
           created_at?: string
           description?: string | null
           display_id?: string
+          github_issue_number?: number | null
+          github_issue_url?: string | null
           id?: string
           linear_issue_id?: string | null
           linear_issue_url?: string | null
