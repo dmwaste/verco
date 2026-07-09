@@ -4,6 +4,8 @@ import { z } from 'zod'
 import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { canMarkRegistered } from '@/lib/mud/state-machine'
+import { normaliseAuMobile } from '@/lib/booking/schemas'
+import { normalisePhone } from '@/lib/mud/validation'
 import type { Database } from '@/lib/supabase/types'
 import type { Result } from '@/lib/result'
 import { validateStaffRole } from '@/lib/auth/server'
@@ -28,7 +30,15 @@ const strataContactSchema = z.object({
   property_id: z.string().uuid(),
   first_name: z.string().trim().min(1, 'First name is required').max(100),
   last_name: z.string().trim().min(1, 'Last name is required').max(100),
-  mobile_e164: z.string().trim().min(6, 'Mobile number is required').max(20),
+  // Accept any real phone (mobile / landline / 1300 / 1800 / intl), then canonicalise
+  // on store: mobiles → E.164 (+61…) so NCN SMS works (dispatch.ts sends mobile_e164
+  // verbatim to Twilio); landlines/1300 → formatting-stripped (they never SMS). VER-315.
+  mobile_e164: z
+    .string()
+    .trim()
+    .min(6, 'Phone number is required')
+    .max(20)
+    .transform((v) => normaliseAuMobile(v) ?? normalisePhone(v)),
   email: z.string().trim().email('Invalid email').max(255),
 })
 
