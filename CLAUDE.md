@@ -397,3 +397,19 @@ Key routing rules:
 - Save progress → invoke /context-save
 - Resume context → invoke /context-restore
 - Author a backlog-ready spec/issue → invoke /spec
+
+## Agent skills
+
+Per-repo config the Matt Pocock engineering skills (`triage`, `to-tickets`, `to-spec`, `qa`, `improve-codebase-architecture`, `diagnosing-bugs`, `tdd`, …) read at runtime. Detail lives in `docs/agents/*.md`; these are one-line pointers.
+
+### Issue tracker
+
+Issues and PRDs live as **GitHub issues** in `dmwaste/verco`, driven via the `gh` CLI; Linear stays the human/product roadmap. External PRs are **not** a triage surface. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Five canonical triage roles map 1:1 to GitHub labels: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+**Single-context** — one `CONTEXT.md` + `docs/adr/` at the repo root, created lazily by `/domain-modeling` (neither exists yet — expected). See `docs/agents/domain.md`.
