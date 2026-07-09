@@ -356,6 +356,48 @@ if (!haveDb) {
       const n = await countAs(USERS['contractor-admin'], 'SELECT id FROM contacts')
       expect(n).toBeGreaterThanOrEqual(0)
     })
+
+    // --- Contacts RLS perf fix (2026-07-09): contacts_admin_strata_select rewritten
+    // --- to a selective `id IN (SELECT strata_contact_id …)`. Absolute-value guards on
+    // --- the tenant boundary the rewrite must preserve (the old `>= 0` tests above
+    // --- cannot catch a leak). VV (vergevalet) is a different client to KWN (CLIENT_ID),
+    // --- both under the D&M contractor.
+    const VV_CLIENT_ID = '5215645f-ca8f-4cff-8b7d-d5a8f7991ec7'
+
+    it('strata: KWN client-admin sees ZERO strata contacts that belong only to VV areas (cross-client negative)', async (ctx) => {
+      const row = await pg.query<{ contact_id: string }>(
+        `SELECT DISTINCT ep.strata_contact_id AS contact_id
+           FROM eligible_properties ep JOIN collection_area ca ON ca.id = ep.collection_area_id
+          WHERE ep.strata_contact_id IS NOT NULL AND ca.client_id = $1
+            AND ep.strata_contact_id NOT IN (
+              SELECT ep2.strata_contact_id FROM eligible_properties ep2
+                JOIN collection_area ca2 ON ca2.id = ep2.collection_area_id
+               WHERE ca2.client_id = $2 AND ep2.strata_contact_id IS NOT NULL)
+          LIMIT 1`,
+        [VV_CLIENT_ID, CLIENT_ID],
+      )
+      if (row.rows.length === 0) return ctx.skip() // no VV-only strata contact seeded
+      const seen = await countAs(
+        USERS['client-admin'],
+        `SELECT id FROM contacts WHERE id = '${row.rows[0]!.contact_id}'`,
+      )
+      expect(seen).toBe(0)
+    })
+
+    it('strata: contractor-admin (owns both clients) DOES see a VV strata contact (own-contractor positive)', async (ctx) => {
+      const row = await pg.query<{ contact_id: string }>(
+        `SELECT DISTINCT ep.strata_contact_id AS contact_id
+           FROM eligible_properties ep JOIN collection_area ca ON ca.id = ep.collection_area_id
+          WHERE ep.strata_contact_id IS NOT NULL AND ca.client_id = $1 LIMIT 1`,
+        [VV_CLIENT_ID],
+      )
+      if (row.rows.length === 0) return ctx.skip()
+      const seen = await countAs(
+        USERS['contractor-admin'],
+        `SELECT id FROM contacts WHERE id = '${row.rows[0]!.contact_id}'`,
+      )
+      expect(seen).toBe(1)
+    })
   })
 
   describe('TC-PII: service_ticket table (zero tolerance for field/ranger)', () => {
