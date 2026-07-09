@@ -25,13 +25,18 @@
 -- provably the same set (only correlation is strata_contact_id = contacts.id; NULLs
 -- excluded either way; duplicates/shared-tenant identical). Plan + review:
 -- docs/superpowers/plans/2026-07-09-contacts-rls-perf.md
-
--- Part B supporting index: leading collection_area_id serves the tenant-area probe;
--- trailing strata_contact_id makes it index-only over ~326 rows.
-create index if not exists idx_ep_strata_contact_area
-  on public.eligible_properties (collection_area_id, strata_contact_id)
-  where strata_contact_id is not null;
-analyze public.eligible_properties;  -- CREATE INDEX does not refresh stats; planner needs them to flip
+--
+-- Deploy lock safety: the 6 ALTER POLICY on contacts (each AccessExclusive) run
+-- BEFORE the CREATE INDEX / ANALYZE on eligible_properties (Share /
+-- ShareUpdateExclusive), so this migration acquires its locks in the SAME order as
+-- the live upsert_strata_contact_and_link RPC (contacts → eligible_properties). The
+-- opposite order risks a deadlock with a concurrent MUD strata save during db push,
+-- and losing that deadlock ghost-releases the deploy (migration job aborts → Coolify
+-- skipped). `set local lock_timeout` bounds any contention to a fast, re-runnable
+-- failure instead of an indefinite hang that stalls prod contacts reads behind the
+-- queued AccessExclusive. Statement order is otherwise correctness-neutral (all DDL
+-- commits atomically). Still: release in a quiet window.
+set local lock_timeout = '5s';
 
 alter policy contacts_resident_select on public.contacts
 using (
@@ -51,7 +56,7 @@ using (
 );
 
 -- Part B: strata rewrite. Both role-gated branches VERBATIM; accessible_client_ids()
--- stays IN (SELECT …).
+-- stays IN (SELECT …). Uses the partial index created at the end of this migration.
 alter policy contacts_admin_strata_select on public.contacts
 using (
   ((select current_user_role()) = any (array['contractor-admin','contractor-staff','client-admin','client-staff']::app_role[]))
@@ -91,3 +96,11 @@ using (
       )
   )
 );
+
+-- Part B supporting index (created after the contacts ALTERs to keep lock order
+-- contacts → eligible_properties): leading collection_area_id serves the tenant-area
+-- probe; trailing strata_contact_id makes it index-only over ~326 rows.
+create index if not exists idx_ep_strata_contact_area
+  on public.eligible_properties (collection_area_id, strata_contact_id)
+  where strata_contact_id is not null;
+analyze public.eligible_properties;  -- CREATE INDEX does not refresh stats; planner needs them to flip
