@@ -84,6 +84,7 @@ const DB_URL = env['SUPABASE_DB_URL']
 // Existing tenant rows in the project (queried at write-time; stable).
 const CONTRACTOR_ID = '88f7cced-bd68-4c97-969f-dc76d97548f0' // D&M Waste Management
 const CLIENT_ID = 'b009e60a-b7c6-4115-ad25-16ad60b3e194' // City of Kwinana
+const VV_CLIENT_ID = '5215645f-ca8f-4cff-8b7d-d5a8f7991ec7' // WMRC / Verge Valet — 2nd client under D&M
 
 // Fixed UUIDs for test users (idempotent fixtures).
 const USERS = {
@@ -115,6 +116,41 @@ const F5_RESIDENT_CONTACT = 'bbbbbbbb-0001-4000-8000-000000000001'
 const F5_RESIDENT_BOOKING = 'bbbbbbbb-0002-4000-8000-000000000002'
 const F5_OTHER_CONTACT = 'bbbbbbbb-0003-4000-8000-000000000003'
 const F5_OTHER_BOOKING = 'bbbbbbbb-0004-4000-8000-000000000004'
+
+// Strata contacts RLS hardening (2026-07-09): fixed-UUID contacts seeded INSIDE
+// the rolled-back impersonation tx (never committed), so the tenant-boundary
+// guards for the rewritten contacts_admin_strata_select policy are deterministic
+// and depend on no ambient prod data. Each fixture contact has no booking /
+// ticket / profile, so only the strata policy can expose it — which keeps the
+// cross-tenant negative sound against the six OR'd contacts SELECT policies.
+const STRATA_CONTACT_VV = 'cccccccc-0001-4000-8000-000000000001'
+const STRATA_CONTACT_KWN = 'cccccccc-0002-4000-8000-000000000002'
+const STRATA_CONTACT_SHARED = 'cccccccc-0003-4000-8000-000000000003'
+
+// Build the seed statements for a strata contact linked to N collection areas
+// (via eligible_properties.strata_contact_id). Run as the privileged pg role
+// before impersonation; all rolled back. `address` is the only NOT-NULL column
+// without a default. is_mud is left at its default false so the fixture is
+// minimal-yet-valid (is_mud=true would require collection_cadence +
+// mud_onboarding_status per the mud_* check constraints); contacts_admin_strata_select
+// correlates only on strata_contact_id = contacts.id, never on is_mud.
+function seedStrataStatements(contactId: string, areaIds: string[]): Array<[string, unknown[]]> {
+  const stmts: Array<[string, unknown[]]> = [
+    [
+      `INSERT INTO public.contacts (id, email, first_name, last_name)
+       VALUES ($1, $2, 'RLS', 'Strata')`,
+      [contactId, `rls-strata-${contactId}@example.test`],
+    ],
+  ]
+  areaIds.forEach((areaId, i) => {
+    stmts.push([
+      `INSERT INTO public.eligible_properties (collection_area_id, address, strata_contact_id)
+       VALUES ($1, $2, $3)`,
+      [areaId, `RLS TEST STRATA ${contactId} #${i}`, contactId],
+    ])
+  })
+  return stmts
+}
 
 // -----------------------------------------------------------------------------
 // Public-anon suite — always runs (only needs anon key)
@@ -195,6 +231,11 @@ if (!haveDb) {
 
 ;(haveDb ? describe : describe.skip)('RLS role matrix', () => {
   let pg: PgClient
+  // Real collection-area ids for the two tenants under D&M, resolved once in
+  // beforeAll and reused by the strata contact guards (as FK targets for the
+  // in-transaction eligible_properties fixtures).
+  let kwnAreaId: string | null = null
+  let vvAreaId: string | null = null
 
   beforeAll(async () => {
     pg = new PgClient({ connectionString: DB_URL })
@@ -248,6 +289,12 @@ if (!haveDb) {
       `SELECT id FROM collection_area WHERE client_id = $1 LIMIT 1`,
       [CLIENT_ID],
     )
+    const vvArea = await pg.query<{ id: string }>(
+      `SELECT id FROM collection_area WHERE client_id = $1 LIMIT 1`,
+      [VV_CLIENT_ID],
+    )
+    kwnAreaId = area.rows[0]?.id ?? null
+    vvAreaId = vvArea.rows[0]?.id ?? null
     const fy = await pg.query<{ id: string }>(
       `SELECT id FROM financial_year WHERE is_current LIMIT 1`,
     )
@@ -326,6 +373,33 @@ if (!haveDb) {
     }
   }
 
+  /**
+   * Like countAs, but runs `seed` INSERT statements (as the privileged pg role)
+   * inside the same transaction before switching to `authenticated` + applying
+   * RLS. The whole transaction rolls back, so the seed never persists to prod —
+   * this lets the strata guards assert against a deterministic fixture with no
+   * ambient-data dependence (and nothing written to the anon-readable
+   * eligible_properties address table).
+   */
+  async function countAsWithSeed(
+    userId: string,
+    seed: Array<[string, unknown[]]>,
+    sql: string,
+  ): Promise<number> {
+    await pg.query('BEGIN')
+    try {
+      for (const [text, values] of seed) await pg.query(text, values)
+      await pg.query(`SET LOCAL ROLE authenticated`)
+      await pg.query(`SELECT set_config('request.jwt.claims', $1, true)`, [
+        JSON.stringify({ sub: userId, role: 'authenticated' }),
+      ])
+      const r = await pg.query<{ c: string }>(`SELECT count(*)::text AS c FROM (${sql}) _t`)
+      return Number.parseInt(r.rows[0]!.c, 10)
+    } finally {
+      await pg.query('ROLLBACK')
+    }
+  }
+
   // ---------------------------------------------------------------------------
   // Red line: PII suppression — field & ranger MUST see zero rows of contacts
   // and zero rows of service_ticket (which embeds contact_id).
@@ -357,46 +431,86 @@ if (!haveDb) {
       expect(n).toBeGreaterThanOrEqual(0)
     })
 
-    // --- Contacts RLS perf fix (2026-07-09): contacts_admin_strata_select rewritten
-    // --- to a selective `id IN (SELECT strata_contact_id …)`. Absolute-value guards on
-    // --- the tenant boundary the rewrite must preserve (the old `>= 0` tests above
-    // --- cannot catch a leak). VV (vergevalet) is a different client to KWN (CLIENT_ID),
-    // --- both under the D&M contractor.
-    const VV_CLIENT_ID = '5215645f-ca8f-4cff-8b7d-d5a8f7991ec7'
+    // --- Contacts RLS perf fix (2026-07-09): contacts_admin_strata_select was
+    // --- rewritten to a selective `id IN (SELECT strata_contact_id …)`. The old
+    // --- `>= 0` tests above can't catch a leak; these seed a strata fixture in
+    // --- the rolled-back tx and assert the exact tenant boundary the rewrite
+    // --- must preserve. VV (vergevalet) is a different client to KWN, both
+    // --- under the D&M contractor. See seedStrataStatements/countAsWithSeed.
 
-    it('strata: KWN client-admin sees ZERO strata contacts that belong only to VV areas (cross-client negative)', async (ctx) => {
-      const row = await pg.query<{ contact_id: string }>(
-        `SELECT DISTINCT ep.strata_contact_id AS contact_id
-           FROM eligible_properties ep JOIN collection_area ca ON ca.id = ep.collection_area_id
-          WHERE ep.strata_contact_id IS NOT NULL AND ca.client_id = $1
-            AND ep.strata_contact_id NOT IN (
-              SELECT ep2.strata_contact_id FROM eligible_properties ep2
-                JOIN collection_area ca2 ON ca2.id = ep2.collection_area_id
-               WHERE ca2.client_id = $2 AND ep2.strata_contact_id IS NOT NULL)
-          LIMIT 1`,
-        [VV_CLIENT_ID, CLIENT_ID],
-      )
-      if (row.rows.length === 0) return ctx.skip() // no VV-only strata contact seeded
-      const seen = await countAs(
+    it('strata: KWN client-admin sees ZERO for a VV-only strata contact (cross-client negative)', async () => {
+      expect(vvAreaId, 'VV collection_area fixture must resolve').not.toBeNull()
+      const seen = await countAsWithSeed(
         USERS['client-admin'],
-        `SELECT id FROM contacts WHERE id = '${row.rows[0]!.contact_id}'`,
+        seedStrataStatements(STRATA_CONTACT_VV, [vvAreaId!]),
+        `SELECT id FROM contacts WHERE id = '${STRATA_CONTACT_VV}'`,
       )
       expect(seen).toBe(0)
     })
 
-    it('strata: contractor-admin (owns both clients) DOES see a VV strata contact (own-contractor positive)', async (ctx) => {
-      const row = await pg.query<{ contact_id: string }>(
-        `SELECT DISTINCT ep.strata_contact_id AS contact_id
-           FROM eligible_properties ep JOIN collection_area ca ON ca.id = ep.collection_area_id
-          WHERE ep.strata_contact_id IS NOT NULL AND ca.client_id = $1 LIMIT 1`,
-        [VV_CLIENT_ID],
-      )
-      if (row.rows.length === 0) return ctx.skip()
-      const seen = await countAs(
-        USERS['contractor-admin'],
-        `SELECT id FROM contacts WHERE id = '${row.rows[0]!.contact_id}'`,
+    it('strata: KWN client-admin DOES see an own-client (KWN) strata contact (client-tier positive)', async () => {
+      expect(kwnAreaId, 'KWN collection_area fixture must resolve').not.toBeNull()
+      const seen = await countAsWithSeed(
+        USERS['client-admin'],
+        seedStrataStatements(STRATA_CONTACT_KWN, [kwnAreaId!]),
+        `SELECT id FROM contacts WHERE id = '${STRATA_CONTACT_KWN}'`,
       )
       expect(seen).toBe(1)
+    })
+
+    it('strata: contractor-admin (owns both clients) DOES see a VV strata contact (contractor-tier positive)', async () => {
+      expect(vvAreaId, 'VV collection_area fixture must resolve').not.toBeNull()
+      const seen = await countAsWithSeed(
+        USERS['contractor-admin'],
+        seedStrataStatements(STRATA_CONTACT_VV, [vvAreaId!]),
+        `SELECT id FROM contacts WHERE id = '${STRATA_CONTACT_VV}'`,
+      )
+      expect(seen).toBe(1)
+    })
+
+    it('strata: a contact linked in BOTH tenants is visible to both viewers (guards under-exposure)', async () => {
+      expect(kwnAreaId, 'KWN collection_area fixture must resolve').not.toBeNull()
+      expect(vvAreaId, 'VV collection_area fixture must resolve').not.toBeNull()
+      const seed = seedStrataStatements(STRATA_CONTACT_SHARED, [kwnAreaId!, vvAreaId!])
+      const asKwn = await countAsWithSeed(
+        USERS['client-admin'],
+        seed,
+        `SELECT id FROM contacts WHERE id = '${STRATA_CONTACT_SHARED}'`,
+      )
+      const asContractor = await countAsWithSeed(
+        USERS['contractor-admin'],
+        seed,
+        `SELECT id FROM contacts WHERE id = '${STRATA_CONTACT_SHARED}'`,
+      )
+      expect(asKwn).toBe(1)
+      expect(asContractor).toBe(1)
+    })
+
+    it('strata: a contact linked to TWO own-tenant properties is visible exactly once (IN-rewrite dedup)', async () => {
+      expect(kwnAreaId, 'KWN collection_area fixture must resolve').not.toBeNull()
+      const seen = await countAsWithSeed(
+        USERS['client-admin'],
+        seedStrataStatements(STRATA_CONTACT_KWN, [kwnAreaId!, kwnAreaId!]),
+        `SELECT id FROM contacts WHERE id = '${STRATA_CONTACT_KWN}'`,
+      )
+      expect(seen).toBe(1)
+    })
+
+    it('strata: field AND ranger still see ZERO for a strata-linked contact (PII red line)', async () => {
+      expect(kwnAreaId, 'KWN collection_area fixture must resolve').not.toBeNull()
+      const seed = seedStrataStatements(STRATA_CONTACT_KWN, [kwnAreaId!])
+      const asField = await countAsWithSeed(
+        USERS.field,
+        seed,
+        `SELECT id FROM contacts WHERE id = '${STRATA_CONTACT_KWN}'`,
+      )
+      const asRanger = await countAsWithSeed(
+        USERS.ranger,
+        seed,
+        `SELECT id FROM contacts WHERE id = '${STRATA_CONTACT_KWN}'`,
+      )
+      expect(asField).toBe(0)
+      expect(asRanger).toBe(0)
     })
   })
 
