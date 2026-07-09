@@ -389,7 +389,7 @@ Key routing rules:
 - Architecture → invoke /plan-eng-review
 - Design system/plan review → invoke /design-consultation or /plan-design-review
 - Full review pipeline → invoke /autoplan
-- Bugs/errors → invoke /investigate
+- Bugs/errors → **bug lane** (see Dev flow below): /investigate → TDD fix → /verify
 - QA/testing site behavior → invoke /qa or /qa-only
 - Code review/diff check → invoke /review
 - Visual polish → invoke /design-review
@@ -397,3 +397,29 @@ Key routing rules:
 - Save progress → invoke /context-save
 - Resume context → invoke /context-restore
 - Author a backlog-ready spec/issue → invoke /spec
+
+### Dev flow — bug & feature lanes
+
+Default operating procedure for bug fixes and feature builds. Full editable chart: `~/obsidian/Claude/wiki/meta/verco-dev-workflow.md`. Enter at the step that fits — don't force every request through intake.
+
+- **Intake** (someone else's request / raw idea): `/triage` → label (`needs-info`→reporter, `wontfix`→close, `ready-*`→go) → `/to-tickets` (GitHub issue).
+- **Bug lane:** `/investigate` (reproduce + root-cause, loops until found) → TDD (failing test reproduces it, then fix to green) → `/verify` (drive the real flow) → review rail.
+- **Feature lane:** `/brainstorming` (or `/office-hours`) → `/to-spec` → `/autoplan` (CEO+design+eng+DX; `/grilling` to stress-test) → `/executing-plans` (worktree, test-first) → `/verify` → review rail.
+- **Review → ship rail** (both lanes): `/simplify` → `/code-review` (standards+spec, loops until clean; `/design-review` if UI, `/security-review` if RLS/auth/PII) → `/qa` → `/ship` (PR → `develop`) → `/land-and-deploy` + `/canary` on the batched `develop→main` cut → `/document-release` + `/learn`.
+- **Overlaps — pick one:** diagnose = `/investigate` only (not also `diagnosing-bugs` / `systematic-debugging` — same loop); spec = `/to-spec` (backlog issue) or `/spec`; review = `/code-review` in-loop, `/review` folds into `/ship`.
+
+## Agent skills
+
+Per-repo config the Matt Pocock engineering skills (`triage`, `to-tickets`, `to-spec`, `qa`, `improve-codebase-architecture`, `diagnosing-bugs`, `tdd`, …) read at runtime. Detail lives in `docs/agents/*.md`; these are one-line pointers.
+
+### Issue tracker
+
+Issues and PRDs live as **GitHub issues** in `dmwaste/verco`, driven via the `gh` CLI; Linear stays the human/product roadmap. External PRs are **not** a triage surface. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Five canonical triage roles map 1:1 to GitHub labels: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+**Single-context** — one `CONTEXT.md` + `docs/adr/` at the repo root, created lazily by `/domain-modeling` (neither exists yet — expected). See `docs/agents/domain.md`.
