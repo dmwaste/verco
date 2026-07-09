@@ -8,7 +8,13 @@ import {
   upsertStrataContact,
   createAuthFormUploadUrl,
 } from '../actions'
-import { COLLECTION_CADENCES, type CollectionCadence } from '@/lib/mud/validation'
+import {
+  COLLECTION_CADENCES,
+  MUD_MIN_UNIT_COUNT,
+  isValidPhone,
+  isSmsCapable,
+  type CollectionCadence,
+} from '@/lib/mud/validation'
 import { FieldLabel, Input, Select, Textarea } from '@/components/admin/form'
 
 type StrataContact = {
@@ -32,8 +38,6 @@ interface MudEditFormProps {
   strataContact: StrataContact
   onCancel: () => void
 }
-
-const auMobileRegex = /^(\+614\d{8}|04\d{8})$/
 
 export function MudEditForm({ property, strataContact, onCancel }: MudEditFormProps) {
   const router = useRouter()
@@ -103,8 +107,8 @@ export function MudEditForm({ property, strataContact, onCancel }: MudEditFormPr
   async function handleSave() {
     setError(null)
 
-    if (unitCount < 8) {
-      setError('Unit count must be at least 8.')
+    if (unitCount < MUD_MIN_UNIT_COUNT) {
+      setError(`Unit count must be at least ${MUD_MIN_UNIT_COUNT}.`)
       return
     }
     if (!mudCode.trim()) {
@@ -121,8 +125,8 @@ export function MudEditForm({ property, strataContact, onCancel }: MudEditFormPr
         setError('Strata contact first and last name are required if any contact field is filled.')
         return
       }
-      if (!auMobileRegex.test(contactMobile.trim())) {
-        setError('Mobile must be an Australian number (04XX or +614XX).')
+      if (!isValidPhone(contactMobile)) {
+        setError('Strata contact phone must be a valid phone number.')
         return
       }
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contactEmail.trim())) {
@@ -183,7 +187,7 @@ export function MudEditForm({ property, strataContact, onCancel }: MudEditFormPr
           <Input
             id="mud-unit-count"
             type="number"
-            min={8}
+            min={MUD_MIN_UNIT_COUNT}
             value={unitCount}
             onChange={(e) => setUnitCount(Number.parseInt(e.target.value, 10) || 0)}
             className={`mt-1 ${mudField}`}
@@ -258,14 +262,25 @@ export function MudEditForm({ property, strataContact, onCancel }: MudEditFormPr
               className={mudField}
             />
           </div>
-          <Input
-            type="tel"
-            aria-label="Strata contact mobile"
-            value={contactMobile}
-            onChange={(e) => setContactMobile(e.target.value)}
-            placeholder="Mobile (04XX or +614XX)"
-            className={mudField}
-          />
+          <div>
+            <Input
+              type="tel"
+              aria-label="Strata contact phone"
+              aria-describedby="mud-phone-sms-hint"
+              value={contactMobile}
+              onChange={(e) => setContactMobile(e.target.value)}
+              placeholder="Phone (mobile or landline)"
+              className={mudField}
+            />
+            <div id="mud-phone-sms-hint" aria-live="polite">
+              {isValidPhone(contactMobile) && !isSmsCapable(contactMobile) && (
+                <p className="mt-1 text-caption text-gray-400">
+                  This number can&apos;t receive SMS — notices to this contact will be sent by
+                  email only.
+                </p>
+              )}
+            </div>
+          </div>
           <Input
             type="email"
             aria-label="Strata contact email"
