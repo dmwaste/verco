@@ -8,12 +8,17 @@ Many issues here originate from **in-product bug reports authored by council sta
 
 ## Conventions
 
-- **Create an issue**: `gh issue create --title "..." --body "..."`. For multi-line bodies use a **quoted** heredoc (`<<'EOF' … EOF`) so `$(…)` / backticks in report-derived text are passed literally, not executed by the shell.
+- **Create an issue**: `--body` takes a *string* argument, so for a body containing report-derived (untrusted) text, pipe it in via `--body-file -` with a **quoted** heredoc — the quoted `'EOF'` stops `$(…)` / backticks in the report from being shell-executed. Never interpolate report text into a double-quoted `--body "..."`.
+  ```bash
+  gh issue create --title "..." --body-file - <<'EOF'
+  <report-derived body — safe, no shell expansion>
+  EOF
+  ```
 - **Read an issue**: `gh issue view <number> --comments`, filtering comments by `jq` and also fetching labels.
 - **List issues**: `gh issue list --state open --json number,title,body,labels,comments --jq '[.[] | {number, title, body, labels: [.labels[].name], comments: [.comments[].body]}]'` with appropriate `--label` and `--state` filters.
-- **Comment on an issue**: `gh issue comment <number> --body "..."`
+- **Comment on an issue**: `gh issue comment <number> --body "..."` — for report-derived text use the same quoted-heredoc form: `gh issue comment <number> --body-file - <<'EOF' … EOF`.
 - **Apply / remove labels**: `gh issue edit <number> --add-label "..."` / `--remove-label "..."`
-- **Close**: `gh issue close <number> --comment "..."`
+- **Close**: `gh issue close <number> --comment "..."`. `--comment` is a string only (no file input) — pass agent-authored text here; post any report-derived text as a separate `gh issue comment --body-file -` first.
 
 Infer the repo from `git remote -v` — `gh` does this automatically when run inside a clone.
 

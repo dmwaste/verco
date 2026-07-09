@@ -26,7 +26,11 @@ ALTER TABLE public.bug_report
 
 DO $$
 BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'bug_report_github_issue_url_format') THEN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'bug_report_github_issue_url_format'
+      AND conrelid = 'public.bug_report'::regclass
+  ) THEN
     ALTER TABLE public.bug_report
       ADD CONSTRAINT bug_report_github_issue_url_format
       CHECK (github_issue_url IS NULL
