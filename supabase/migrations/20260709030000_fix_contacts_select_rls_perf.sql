@@ -26,30 +26,42 @@
 -- excluded either way; duplicates/shared-tenant identical). Plan + review:
 -- docs/superpowers/plans/2026-07-09-contacts-rls-perf.md
 --
--- Deploy lock safety: the 6 ALTER POLICY on contacts (each AccessExclusive) run
+-- Drift-tolerance: each policy is DROP POLICY IF EXISTS + CREATE (not ALTER), so a
+-- prod policy that drifted (renamed/dropped via the dashboard — this project has had
+-- prior policy drift) self-heals instead of hard-failing the whole db-push batch (a
+-- failed migration ghost-releases the deploy: EF + Coolify steps skipped). All six
+-- are PERMISSIVE FOR SELECT TO public with no WITH CHECK — reproduced verbatim below.
+--
+-- Deploy lock safety: the 6 policy statements on contacts (each AccessExclusive) run
 -- BEFORE the CREATE INDEX / ANALYZE on eligible_properties (Share /
 -- ShareUpdateExclusive), so this migration acquires its locks in the SAME order as
 -- the live upsert_strata_contact_and_link RPC (contacts → eligible_properties). The
 -- opposite order risks a deadlock with a concurrent MUD strata save during db push,
--- and losing that deadlock ghost-releases the deploy (migration job aborts → Coolify
--- skipped). `set local lock_timeout` bounds any contention to a fast, re-runnable
--- failure instead of an indefinite hang that stalls prod contacts reads behind the
--- queued AccessExclusive. Statement order is otherwise correctness-neutral (all DDL
--- commits atomically). Still: release in a quiet window.
+-- and losing that deadlock ghost-releases the deploy. `set local lock_timeout` bounds
+-- any contention to a fast, re-runnable failure instead of an indefinite hang that
+-- stalls prod contacts reads behind the queued AccessExclusive. Statement order is
+-- otherwise correctness-neutral (all DDL commits atomically). Still: release in a
+-- quiet window.
 set local lock_timeout = '5s';
 
-alter policy contacts_resident_select on public.contacts
+drop policy if exists contacts_resident_select on public.contacts;
+create policy contacts_resident_select on public.contacts
+as permissive for select to public
 using (
   (id = (select current_user_contact_id())) and ((select current_user_role()) = 'resident'::app_role)
 );
 
-alter policy contacts_client_staff_select on public.contacts
+drop policy if exists contacts_client_staff_select on public.contacts;
+create policy contacts_client_staff_select on public.contacts
+as permissive for select to public
 using (
   (select is_client_staff())
   and exists (select 1 from booking b where b.contact_id = contacts.id and b.client_id = (select current_user_client_id()))
 );
 
-alter policy contacts_contractor_select on public.contacts
+drop policy if exists contacts_contractor_select on public.contacts;
+create policy contacts_contractor_select on public.contacts
+as permissive for select to public
 using (
   ((select current_user_role()) = any (array['contractor-admin','contractor-staff']::app_role[]))
   and exists (select 1 from booking b where b.contact_id = contacts.id and b.contractor_id = (select current_user_contractor_id()))
@@ -57,7 +69,9 @@ using (
 
 -- Part B: strata rewrite. Both role-gated branches VERBATIM; accessible_client_ids()
 -- stays IN (SELECT …). Uses the partial index created at the end of this migration.
-alter policy contacts_admin_strata_select on public.contacts
+drop policy if exists contacts_admin_strata_select on public.contacts;
+create policy contacts_admin_strata_select on public.contacts
+as permissive for select to public
 using (
   ((select current_user_role()) = any (array['contractor-admin','contractor-staff','client-admin','client-staff']::app_role[]))
   and id in (
@@ -72,7 +86,9 @@ using (
   )
 );
 
-alter policy contacts_staff_select_via_profiles on public.contacts
+drop policy if exists contacts_staff_select_via_profiles on public.contacts;
+create policy contacts_staff_select_via_profiles on public.contacts
+as permissive for select to public
 using (
   (((select current_user_role()) = any (array['contractor-admin','contractor-staff']::app_role[])
     and id in (select p.contact_id from profiles p join user_roles ur on ur.user_id = p.id
@@ -83,7 +99,9 @@ using (
                 where ur.is_active = true and ur.client_id = (select current_user_client_id()))))
 );
 
-alter policy contacts_ticket_staff_select on public.contacts
+drop policy if exists contacts_ticket_staff_select on public.contacts;
+create policy contacts_ticket_staff_select on public.contacts
+as permissive for select to public
 using (
   exists (
     select 1 from service_ticket st join client cl on cl.id = st.client_id
@@ -97,7 +115,7 @@ using (
   )
 );
 
--- Part B supporting index (created after the contacts ALTERs to keep lock order
+-- Part B supporting index (created after the contacts policies to keep lock order
 -- contacts → eligible_properties): leading collection_area_id serves the tenant-area
 -- probe; trailing strata_contact_id makes it index-only over ~326 rows.
 create index if not exists idx_ep_strata_contact_area
