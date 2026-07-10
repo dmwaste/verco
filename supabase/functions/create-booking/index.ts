@@ -240,18 +240,20 @@ serve(withSentry('create-booking', async (req) => {
         return jsonResponse({ error: 'You cannot book that category and swap it away in the same booking.' }, 400)
       }
 
-      // Eligibility B: 0 of the swapped-away category used this FY (excl. the edited booking).
-      let usageQ = supabaseAnon
-        .from('booking_item')
-        .select('no_services, service:service_id!inner ( category:category_id!inner ( code ) ), booking:booking_id!inner ( property_id, fy_id, status )')
-        .eq('booking.property_id', property_id)
-        .eq('booking.fy_id', fy.id)
-        .eq('service.category.code', fromCode)
-        .not('booking.status', 'in', '("Cancelled","Pending Payment")')
-      if (replaces) usageQ = usageQ.neq('booking_id', replaces)
-      const { data: fromUsage } = await usageQ
-      const fromUsed = (fromUsage ?? []).reduce(
-        (n: number, r: { no_services: number }) => n + r.no_services, 0
+      // Eligibility B: 0 of the swapped-away category used this FY (excl. the
+      // edited booking). Via the authoritative RPC — a direct read runs in the
+      // caller's RLS scope, so a pre-OTP resident could be wrongly granted the
+      // swap on the basis of prior ancillary usage their own scope hides.
+      const { data: swapUsage } = await supabaseAnon.rpc('get_property_fy_usage', {
+        p_property_id: property_id,
+        p_fy_id: fy.id,
+        p_exclude_booking_id: replaces ?? null,
+      })
+      const fromUsed = Number(
+        (swapUsage ?? []).find(
+          (r: { usage_kind: string; usage_key: string }) =>
+            r.usage_kind === 'category' && r.usage_key === fromCode,
+        )?.units ?? 0,
       )
       if (fromUsed > 0) {
         return jsonResponse({

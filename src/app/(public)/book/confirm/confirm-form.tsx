@@ -230,33 +230,30 @@ export function ConfirmForm() {
       // vanished from the breakdown while the total still charged for them.
       const serviceUsageMap = new Map<string, number>()
       const categoryUsageMap = new Map<string, number>()
-      if (fyResult.data) {
-        // Edit flow: exclude the booking being edited from its own FY usage, so
-        // the confirm breakdown re-prices as a replacement (matching the
-        // services step + the create-booking EF). Without this, confirm counts
-        // the booking against itself and can show extras differently.
-        let usageQuery = supabase
-          .from('booking_item')
-          .select(
-            'no_services, service_id, service!inner(category!inner(code)), booking!inner(property_id, fy_id, status)'
-          )
-          .eq('booking.property_id', propertyId)
-          .eq('booking.fy_id', fyResult.data.id)
-          .not('booking.status', 'in', '("Cancelled","Pending Payment")')
-        if (replacesParam) usageQuery = usageQuery.neq('booking_id', replacesParam)
-        const { data: usageItems } = await usageQuery
-
-        for (const item of usageItems ?? []) {
-          serviceUsageMap.set(
-            item.service_id,
-            (serviceUsageMap.get(item.service_id) ?? 0) + item.no_services
-          )
-          const svc = item.service as unknown as { category: { code: string } }
-          const code = svc.category.code
-          categoryUsageMap.set(
-            code,
-            (categoryUsageMap.get(code) ?? 0) + item.no_services
-          )
+      {
+        // FY usage via the authoritative RPC. booking / booking_item are
+        // RLS-scoped to the resident, and this confirm page can render pre-OTP
+        // (anonymous) — a direct read would return zero and the breakdown would
+        // price already-used units as free. get_property_fy_usage is SECURITY
+        // DEFINER and returns PII-free counts regardless of auth state. Edit
+        // flow excludes the replaced booking so the breakdown re-prices as a
+        // replacement (matching the services step + the create-booking EF).
+        // NOTE: `as never` casts are temporary — dropped in the types-regen follow-up.
+        const { data: usageRows } = await supabase.rpc(
+          'get_property_fy_usage' as never,
+          {
+            p_property_id: propertyId,
+            p_fy_id: fyResult.data?.id ?? null,
+            p_exclude_booking_id: replacesParam ?? null,
+          } as never,
+        )
+        for (const row of (usageRows ?? []) as Array<{
+          usage_kind: string
+          usage_key: string
+          units: number
+        }>) {
+          if (row.usage_kind === 'service') serviceUsageMap.set(row.usage_key, Number(row.units))
+          else if (row.usage_kind === 'category') categoryUsageMap.set(row.usage_key, Number(row.units))
         }
       }
 

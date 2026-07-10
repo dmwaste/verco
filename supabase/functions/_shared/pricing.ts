@@ -75,16 +75,16 @@ export async function calculatePrice(
 ): Promise<PriceCalculationResult> {
   const serviceIds = items.map((i) => i.service_id)
 
-  // FY-usage query — filter out the replaced booking when in edit mode
-  let usageQuery = supabase
-    .from('booking_item')
-    .select('service_id, no_services, booking!inner(property_id, fy_id, status)')
-    .eq('booking.property_id', propertyId)
-    .eq('booking.fy_id', fyId)
-    .not('booking.status', 'in', '("Cancelled","Pending Payment")')
-  if (excludeBookingId) {
-    usageQuery = usageQuery.neq('booking_id', excludeBookingId)
-  }
+  // FY usage via the authoritative RPC. booking / booking_item are RLS-scoped
+  // to the resident, but this EF can run for an anonymous pre-OTP resident who
+  // cannot see their own prior bookings — a direct read would under-count and
+  // mis-price. get_property_fy_usage is SECURITY DEFINER, so it returns
+  // identity-independent counts. excludeBookingId supports the edit-in-place flow.
+  const usagePromise = supabase.rpc('get_property_fy_usage', {
+    p_property_id: propertyId,
+    p_fy_id: fyId,
+    p_exclude_booking_id: excludeBookingId ?? null,
+  })
 
   // Parallel fetches for rules, allocation, services, FY usage, and overrides
   const [rulesResult, allocResult, servicesResult, usageResult, overrideResult] = await Promise.all([
@@ -107,7 +107,7 @@ export async function calculatePrice(
       .select('id, category!inner(code)')
       .in('id', serviceIds),
 
-    usageQuery,
+    usagePromise,
 
     // Allocation overrides for this property and FY
     supabase
@@ -160,23 +160,19 @@ export async function calculatePrice(
     }
   }
 
-  // Per-service usage
+  // Per-service and per-category usage, straight from the RPC. Category totals
+  // are computed server-side over ALL prior items (join service -> category), so
+  // they're correct even for a service not present in the current cart — unlike
+  // the old cart-scoped map, which silently dropped such usage.
   const serviceUsageMap = new Map<string, number>()
-  // Per-category usage (total)
   const categoryUsageMap = new Map<string, number>()
 
   if (usageResult.data) {
-    for (const item of usageResult.data) {
-      serviceUsageMap.set(
-        item.service_id,
-        (serviceUsageMap.get(item.service_id) ?? 0) + item.no_services
-      )
-      const catCode = serviceCategoryMap.get(item.service_id)
-      if (catCode) {
-        categoryUsageMap.set(
-          catCode,
-          (categoryUsageMap.get(catCode) ?? 0) + item.no_services
-        )
+    for (const row of usageResult.data as Array<{ usage_kind: string; usage_key: string; units: number }>) {
+      if (row.usage_kind === 'service') {
+        serviceUsageMap.set(row.usage_key, Number(row.units))
+      } else if (row.usage_kind === 'category') {
+        categoryUsageMap.set(row.usage_key, Number(row.units))
       }
     }
   }
