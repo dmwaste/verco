@@ -238,20 +238,12 @@ export function ConfirmForm() {
         // DEFINER and returns PII-free counts regardless of auth state. Edit
         // flow excludes the replaced booking so the breakdown re-prices as a
         // replacement (matching the services step + the create-booking EF).
-        // NOTE: `as never` casts are temporary — dropped in the types-regen follow-up.
-        const { data: usageRows } = await supabase.rpc(
-          'get_property_fy_usage' as never,
-          {
-            p_property_id: propertyId,
-            p_fy_id: fyResult.data?.id ?? null,
-            p_exclude_booking_id: replacesParam ?? null,
-          } as never,
-        )
-        for (const row of (usageRows ?? []) as Array<{
-          usage_kind: string
-          usage_key: string
-          units: number
-        }>) {
+        const { data: usageRows } = await supabase.rpc('get_property_fy_usage', {
+          p_property_id: propertyId,
+          p_fy_id: fyResult.data?.id ?? undefined,
+          p_exclude_booking_id: replacesParam ?? undefined,
+        })
+        for (const row of usageRows ?? []) {
           if (row.usage_kind === 'service') serviceUsageMap.set(row.usage_key, Number(row.units))
           else if (row.usage_kind === 'category') categoryUsageMap.set(row.usage_key, Number(row.units))
         }

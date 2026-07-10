@@ -106,28 +106,19 @@ export function ServicesForm({ clientSlug }: { clientSlug: string }) {
   // BEFORE OTP (the resident is anonymous), so a direct read returns zero and
   // the "X of Y remaining" badges + price preview would show full availability
   // even after prior bookings. get_property_fy_usage is SECURITY DEFINER and
-  // returns PII-free counts, so it works regardless of auth state.
-  // NOTE: `as never` casts are temporary — dropped in the types-regen follow-up
-  // once get_property_fy_usage lands in src/lib/supabase/types.ts.
+  // returns PII-free counts, so it works regardless of auth state. p_fy_id is
+  // omitted → the RPC resolves the current FY.
   const { data: fyUsage, isLoading: fyUsageLoading } = useQuery({
     queryKey: ['fy-usage', propertyId, replacesBookingId],
     enabled: !!propertyId,
     queryFn: async () => {
-      const { data } = await supabase.rpc(
-        'get_property_fy_usage' as never,
-        {
-          p_property_id: propertyId,
-          p_fy_id: null,
-          p_exclude_booking_id: replacesBookingId,
-        } as never,
-      )
+      const { data } = await supabase.rpc('get_property_fy_usage', {
+        p_property_id: propertyId,
+        p_exclude_booking_id: replacesBookingId ?? undefined,
+      })
       const byCategory = new Map<string, number>()
       const byService = new Map<string, number>()
-      for (const row of (data ?? []) as Array<{
-        usage_kind: string
-        usage_key: string
-        units: number
-      }>) {
+      for (const row of data ?? []) {
         if (row.usage_kind === 'category') byCategory.set(row.usage_key, Number(row.units))
         else if (row.usage_kind === 'service') byService.set(row.usage_key, Number(row.units))
       }
