@@ -41,7 +41,10 @@ JOIN public.category anc_cat           ON anc_cat.id = anc_rule.category_id AND 
 JOIN public.allocation_rules bulk_rule ON bulk_rule.collection_area_id = ca.id
 JOIN public.category bulk_cat          ON bulk_cat.id = bulk_rule.category_id AND bulk_cat.code = 'bulk'
 -- Rename-proof: match the Green service by waste_stream, not display name.
-JOIN public.service green              ON green.category_id = bulk_cat.id AND green.waste_stream = 'green'
+-- is_active guard: never pin an inactive service as the swap target.
+JOIN public.service green              ON green.category_id = bulk_cat.id
+                                      AND green.waste_stream = 'green'
+                                      AND green.is_active
 WHERE ca.client_id = (SELECT id FROM public.client WHERE slug = 'kwn')
   AND ca.code IN ('KWN-1', 'KWN-2', 'KWN-3', 'KWN-4')
   AND NOT EXISTS (
@@ -50,36 +53,39 @@ WHERE ca.client_id = (SELECT id FROM public.client WHERE slug = 'kwn')
       AND acr.to_allocation_rules_id = bulk_rule.id
   );
 
--- Invariant check: every KWN area that CAN carry a swap (has an anc rule, a bulk
--- rule, and a bulk Green service) must now have an active conversion rule. On
--- prod that is 4 = 4; on a fresh reset (no KWN areas) it is 0 = 0. Asserting the
--- invariant rather than a hardcoded count keeps the migration reset-safe.
+-- Invariant check: every KWN area PRESENT in this database must end up with
+-- exactly ONE conversion rule. Anchoring the expected side on the areas
+-- themselves (not the same joins as the INSERT) catches BOTH failure shapes:
+--   * an area missing an eligibility input (anc rule / bulk rule / active green
+--     service) inserts nothing -> pairs < areas -> loud failure, instead of the
+--     area silently dropping out of both sides of the comparison;
+--   * a join fan-out (e.g. two active bulk 'green' services) double-inserts ->
+--     pairs > areas -> loud failure (COUNT(*), deliberately not DISTINCT).
+-- No is_active filter on the rule count: the NOT EXISTS guard above also
+-- ignores is_active, so a re-run against a deliberately deactivated rule skips
+-- the insert AND still passes here (predicates aligned; deactivation is
+-- respected, never resurrected). Reset-safe: fresh `db reset` has no KWN areas
+-- (seed.sql runs after migrations) -> 0 = 0.
 DO $$
 DECLARE
-  v_eligible_areas integer;
-  v_rule_areas     integer;
+  v_area_count integer;
+  v_rule_pairs integer;
 BEGIN
-  SELECT COUNT(DISTINCT ca.id) INTO v_eligible_areas
+  SELECT COUNT(*) INTO v_area_count
   FROM public.collection_area ca
-  JOIN public.allocation_rules anc_rule  ON anc_rule.collection_area_id = ca.id
-  JOIN public.category anc_cat           ON anc_cat.id = anc_rule.category_id AND anc_cat.code = 'anc'
-  JOIN public.allocation_rules bulk_rule ON bulk_rule.collection_area_id = ca.id
-  JOIN public.category bulk_cat          ON bulk_cat.id = bulk_rule.category_id AND bulk_cat.code = 'bulk'
-  JOIN public.service green              ON green.category_id = bulk_cat.id AND green.waste_stream = 'green'
   WHERE ca.client_id = (SELECT id FROM public.client WHERE slug = 'kwn')
     AND ca.code IN ('KWN-1', 'KWN-2', 'KWN-3', 'KWN-4');
 
-  SELECT COUNT(DISTINCT fa.collection_area_id) INTO v_rule_areas
+  SELECT COUNT(*) INTO v_rule_pairs
   FROM public.allocation_conversion_rule acr
   JOIN public.allocation_rules fa ON fa.id = acr.from_allocation_rules_id
   JOIN public.collection_area ca  ON ca.id = fa.collection_area_id
-  WHERE acr.is_active
-    AND ca.client_id = (SELECT id FROM public.client WHERE slug = 'kwn')
+  WHERE ca.client_id = (SELECT id FROM public.client WHERE slug = 'kwn')
     AND ca.code IN ('KWN-1', 'KWN-2', 'KWN-3', 'KWN-4');
 
-  IF v_rule_areas <> v_eligible_areas THEN
+  IF v_rule_pairs <> v_area_count THEN
     RAISE EXCEPTION
-      'KWN conversion-rule re-seed mismatch: % swap-eligible areas but % have an active rule',
-      v_eligible_areas, v_rule_areas;
+      'KWN conversion-rule re-seed mismatch: % KWN areas present but % conversion rules (want exactly one per area)',
+      v_area_count, v_rule_pairs;
   END IF;
 END $$;

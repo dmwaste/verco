@@ -308,7 +308,15 @@ export async function upsertAllocationRules(
   areaId: string,
   rules: Array<z.infer<typeof allocationRuleSchema>>,
 ): Promise<Result<void>> {
-  const parsed = z.array(allocationRuleSchema).safeParse(rules)
+  // Unique category_ids: a duplicate would make the single upsert statement
+  // fail with Postgres 21000 ("cannot affect row a second time").
+  const parsed = z
+    .array(allocationRuleSchema)
+    .refine(
+      (rs) => new Set(rs.map((r) => r.category_id)).size === rs.length,
+      { message: 'Duplicate category in allocation rules payload' },
+    )
+    .safeParse(rules)
   if (!parsed.success) return { ok: false, error: parsed.error.issues[0].message }
 
   const supabase = await createClient()
@@ -351,13 +359,34 @@ export async function upsertAllocationRules(
     .filter((id) => !keptCategoryIds.has(id))
 
   if (removedCategoryIds.length > 0) {
-    const { error: deleteError } = await supabase
+    // .select('id') so an RLS-filtered delete surfaces as a count mismatch
+    // instead of silent success (CLAUDE.md §21 RLS write silent-fail).
+    const { data: deleted, error: deleteError } = await supabase
       .from('allocation_rules')
       .delete()
       .eq('collection_area_id', areaId)
       .in('category_id', removedCategoryIds)
+      .select('id')
 
-    if (deleteError) return { ok: false, error: deleteError.message }
+    if (deleteError) {
+      // The conversion-rule FKs are ON DELETE RESTRICT: removing an allocation
+      // that still backs a swap (e.g. Kwinana ancillary -> green) fails with
+      // 23503. Map it to something actionable instead of the raw FK message.
+      if (deleteError.code === '23503') {
+        return {
+          ok: false,
+          error:
+            'This allocation backs an active swap conversion rule — remove or deactivate the conversion rule first.',
+        }
+      }
+      return { ok: false, error: deleteError.message }
+    }
+    if ((deleted ?? []).length !== removedCategoryIds.length) {
+      return {
+        ok: false,
+        error: 'Delete was not fully applied (no matching rows or insufficient permissions)',
+      }
+    }
   }
 
   return { ok: true, data: undefined }
@@ -372,6 +401,11 @@ export async function upsertServiceRules(
 
   const supabase = await createClient()
 
+  // Delete-then-insert is DELIBERATE here, unlike upsertAllocationRules above:
+  // nothing FKs service_rules (verified against prod pg_constraint), so id
+  // churn is harmless. Do NOT "harmonise" the two functions in either
+  // direction — allocation_rules ids are FK-referenced by
+  // allocation_conversion_rule ON DELETE CASCADE and must stay stable.
   const { error: deleteError } = await supabase
     .from('service_rules')
     .delete()
