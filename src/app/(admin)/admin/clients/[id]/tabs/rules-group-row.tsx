@@ -89,6 +89,12 @@ export function RulesGroupRow({ group, categories, services }: RulesGroupRowProp
           .select('collection_area_id, service_id, max_collections, extra_unit_price')
           .in('collection_area_id', areaIds),
       ])
+      // Throw on fetch failure — swallowing it (`data ?? []`) would initialise
+      // the editable template to all zeros, and one Save would then submit an
+      // empty payload for every area in the group, deleting all its rules (and
+      // cascade-deleting dependent allocation_conversion_rule swap config).
+      if (allocResp.error) throw new Error(allocResp.error.message)
+      if (svcResp.error) throw new Error(svcResp.error.message)
       return {
         alloc: (allocResp.data ?? []) as AllocRuleRow[],
         svc: (svcResp.data ?? []) as SvcRuleRow[],
