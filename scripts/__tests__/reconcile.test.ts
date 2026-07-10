@@ -22,6 +22,7 @@ function verco(overrides: Partial<VercoBooking> = {}): VercoBooking {
     address: '1 Test St',
     propertyExternalId: 'recProp1',
     location: '1 Test St', // buggy default: location == address
+    notes: null, // VV legacy default: import dropped Waste_Notes
     collectionDate: '2026-07-08', // clearly future (cutoff 2026-07-07 07:30Z)
     status: 'Confirmed',
     importedAt: '2026-07-01T00:00:00Z',
@@ -44,6 +45,7 @@ function source(overrides: Partial<SourceBooking> = {}): SourceBooking {
     noGreen: 0,
     noMattress: 0,
     wasteLocation: 'Front Verge',
+    wasteNotes: null,
     modifiedAt: '2026-06-25T00:00:00Z', // before import → unchanged
     ...overrides,
   }
@@ -294,6 +296,26 @@ describe('buildActionPlan', () => {
     const p = plan([verco({ propertyExternalId: 'recOrphan' })], [])
     expect(p.skipped.phantomNeedsLocation).toBe(1)
     expect(p.actions).toHaveLength(0)
+  })
+
+  it('fills notes from the master Waste_Notes when the booking notes are blank', () => {
+    const p = plan([verco({ location: 'Front Verge' })], [source({ wasteNotes: '  Place on the laneway verge  ' })])
+    expect(p.actions.find((a) => a.kind === 'notes')).toMatchObject({ to: 'Place on the laneway verge' })
+  })
+
+  it('leaves existing notes alone (idempotent)', () => {
+    const p = plan([verco({ location: 'Front Verge', notes: 'already set' })], [source({ wasteNotes: 'new note' })])
+    expect(p.actions.some((a) => a.kind === 'notes')).toBe(false)
+  })
+
+  it('does not invent a note when the master has no Waste_Notes', () => {
+    const p = plan([verco({ location: 'Front Verge' })], [source({ wasteNotes: null })])
+    expect(p.actions.some((a) => a.kind === 'notes')).toBe(false)
+  })
+
+  it('does not fill notes on a booking being cancelled', () => {
+    const p = plan([verco({ location: 'Front Verge' })], [source({ status: 'Cancelled', wasteNotes: 'ignore me' })])
+    expect(p.actions.map((a) => a.kind)).toEqual(['cancel'])
   })
 })
 

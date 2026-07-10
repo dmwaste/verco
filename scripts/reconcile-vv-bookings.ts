@@ -121,12 +121,13 @@ async function loadVercoBookings(verco: SupabaseClient, areaIds: string[]): Prom
     status: string
     created_at: string
     location: string | null
+    notes: string | null
     property_id: string | null
     collection_area_id: string
   }>(
     verco,
     'booking',
-    'id, ref, status, created_at, location, property_id, collection_area_id',
+    'id, ref, status, created_at, location, notes, property_id, collection_area_id',
     'collection_area_id',
     areaIds,
   )
@@ -191,6 +192,7 @@ async function loadVercoBookings(verco: SupabaseClient, areaIds: string[]): Prom
       address: prop?.address ?? '',
       propertyExternalId: prop?.external_id ?? null,
       location: b.location ?? null,
+      notes: b.notes ?? null,
       collectionDate: a.minDate,
       status: b.status,
       importedAt: b.created_at,
@@ -212,6 +214,7 @@ function printPlan(plan: ActionPlan, apply: boolean) {
   console.log(`  mark Non-conformance   ${plan.actions.filter((a) => a.kind === 'status' && a.to === 'Non-conformance').length}`)
   console.log(`  reschedule (fut→fut)   ${c('reschedule')}`)
   console.log(`  fix waste location     ${c('location')}`)
+  console.log(`  fill waste notes       ${c('notes')}`)
   console.log(`  ─ skipped (need a human / a rule blocks them) ─`)
   console.log(`  Place Out→Scheduled    ${plan.skipped.placeOutToScheduled}   (Red Line #5 — the cron owns Confirmed→Scheduled)`)
   console.log(`  dispatched reschedule  ${plan.skipped.dispatchedReschedule}   (already pushed to OptimoRoute)`)
@@ -238,6 +241,9 @@ async function executePlan(verco: SupabaseClient, plan: ActionPlan) {
       error = r.error?.message ?? null
     } else if (a.kind === 'location') {
       const r = await verco.from('booking').update({ location: a.to }).eq('id', a.bookingId)
+      error = r.error?.message ?? null
+    } else if (a.kind === 'notes') {
+      const r = await verco.from('booking').update({ notes: a.to }).eq('id', a.bookingId)
       error = r.error?.message ?? null
     } else if (a.kind === 'reschedule') {
       let areaId = areaCache.get(a.bookingId)
