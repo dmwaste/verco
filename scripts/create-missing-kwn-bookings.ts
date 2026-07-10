@@ -73,20 +73,26 @@ const ACTIVE = new Set(['Booked', 'Place Out Issued', 'Scheduled'])
  * the address can't be parsed (no 4-digit postcode).
  */
 function addrKey(a: string): string | null {
-  const t = a
+  let t = a
     .toUpperCase()
     .replace(/[.,]/g, ' ')
     .replace(/\bWESTERN AUSTRALIA\b/g, 'WA')
     .replace(/\s+/g, ' ')
     .trim()
     .split(' ')
+  if (t[0] === 'UNIT') t = t.slice(1) // Verco "Unit 1/12 Edmund Way" ↔ master "1/12 Edmund Way"
   if (t.length < 4) return null
   const pc = t[t.length - 1]!
   if (!/^\d{4}$/.test(pc)) return null
   let si = t.length - 2
   if (t[si] === 'WA') si-- // token before the state is the suburb
   const suburb = t[si] ?? ''
-  return `${t[0]} ${t[1] ?? ''} ${suburb} ${pc}`
+  // Street number = first digit-leading token (also skips a leading building
+  // name, e.g. master "BLACKWOOD 8 Maydwell Way" ↔ Verco "8 Maydwell Way").
+  // Handles unit forms "1/12" and suffixed numbers "27A" (both start with a digit).
+  const ni = t.findIndex((tok) => /^\d/.test(tok))
+  if (ni < 0 || ni >= si) return null
+  return `${t[ni]} ${t[ni + 1] ?? ''} ${suburb} ${pc}`
 }
 
 type Master = {
@@ -102,10 +108,15 @@ type Master = {
 }
 
 async function main() {
-  const apply = !!parseFlags(process.argv).apply
+  const flags = parseFlags(process.argv)
+  const apply = !!flags.apply
+  // Optional subset: create only these Booking_Refs (bypasses the CREATED_SINCE
+  // window so a specific ref is always fetched — e.g. do the imminent ones now,
+  // the rest later). Still subject to the active/upcoming/not-in-Verco guards.
+  const onlyRefs = typeof flags.refs === 'string' ? new Set(flags.refs.split(',').map((s) => s.trim()).filter(Boolean)) : null
   const token = requireEnv('AIRTABLE_TOKEN')
   const verco = createClient(requireEnv('NEXT_PUBLIC_SUPABASE_URL'), requireEnv('SUPABASE_SERVICE_ROLE_KEY'))
-  console.log(`Create missing KWN bookings  (${apply ? 'APPLY' : 'DRY RUN'})  today=${TODAY}`)
+  console.log(`Create missing KWN bookings  (${apply ? 'APPLY' : 'DRY RUN'})  today=${TODAY}${onlyRefs ? `  refs=${[...onlyRefs].join(',')}` : ''}`)
 
   const { data: cli } = await verco.from('client').select('id, contractor_id').eq('slug', 'kwn').single()
   const clientId = cli!.id as string
@@ -134,8 +145,10 @@ async function main() {
   console.log(`Verco KWN properties: ${eps.length} (${ambiguous.size} ambiguous normalised addresses)`)
 
   // Master, then missing (active, upcoming, not in Verco).
-  const master = await fetchMaster(token)
-  const missing = master.filter((m) => ACTIVE.has(m.status) && m.date && m.date >= TODAY && !existingRefs.has(m.ref))
+  const master = await fetchMaster(token, onlyRefs)
+  const missing = master.filter(
+    (m) => ACTIVE.has(m.status) && m.date && m.date >= TODAY && !existingRefs.has(m.ref) && (!onlyRefs || onlyRefs.has(m.ref)),
+  )
   console.log(`Master rows: ${master.length}; missing (active, upcoming, not in Verco): ${missing.length}`)
 
   // Resolve missing EP-ids → raw Kwinana address.
@@ -277,10 +290,14 @@ async function fetchKwnEpAddresses(token: string, epIds: string[]): Promise<Map<
   return map
 }
 
-async function fetchMaster(token: string): Promise<Master[]> {
+async function fetchMaster(token: string, onlyRefs: Set<string> | null = null): Promise<Master[]> {
   const out: Master[] = []
   let offset: string | undefined
-  const formula = `IS_AFTER({Created}, "${CREATED_SINCE}")`
+  // When targeting specific refs, fetch exactly those (ignore the created-since
+  // window); otherwise pull everything created since CREATED_SINCE.
+  const formula = onlyRefs
+    ? `OR(${[...onlyRefs].map((r) => `{Booking_Ref}='${r}'`).join(',')})`
+    : `IS_AFTER({Created}, "${CREATED_SINCE}")`
   do {
     const params = new URLSearchParams({ pageSize: '100', returnFieldsByFieldId: 'true', filterByFormula: formula })
     for (const id of Object.values(F)) params.append('fields[]', id)
