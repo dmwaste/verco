@@ -14,6 +14,15 @@ Sentry.init({
   // resident-facing PII app would capture names/addresses on screen. Do not add
   // replayIntegration without a masking review.
   sendDefaultPii: false,
+  // Known-benign client noise — none of these indicate a Verco defect:
+  // supabase-js cross-tab auth-token lock contention (the winning tab refreshed
+  // fine), browser-extension messaging, and iOS in-app WebView chatter.
+  ignoreErrors: [
+    /Lock "lock:sb-.+-auth-token" was released because another request stole it/,
+    /Acquiring an exclusive Navigator LockManager lock "lock:sb-/,
+    "Invalid call to runtime.sendMessage(). Tab not found.",
+    "WKWebView API client did not respond to this postMessage",
+  ],
   beforeSend: scrubEvent,
   beforeBreadcrumb: scrubBreadcrumb,
 });
