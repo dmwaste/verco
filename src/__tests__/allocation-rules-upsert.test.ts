@@ -29,6 +29,8 @@ let existingRows: Array<{ category_id: string }> = []
 // requested ids deleted"; override to simulate an RLS-filtered delete.
 let deleteReturns: (ids: string[]) => Array<{ id: string }> = (ids) =>
   ids.map((id) => ({ id }))
+// Error the mocked DELETE reports; override to simulate FK RESTRICT (23503).
+let deleteError: { code: string; message: string } | null = null
 
 vi.mock('next/headers', () => ({
   headers: async () => new Headers(),
@@ -50,6 +52,9 @@ vi.mock('@/lib/supabase/server', () => ({
           in: (_col: string, ids: string[]) => ({
             select: () => {
               calls.deletes.push(ids)
+              if (deleteError) {
+                return Promise.resolve({ data: null, error: deleteError })
+              }
               return Promise.resolve({ data: deleteReturns(ids), error: null })
             },
           }),
@@ -66,6 +71,7 @@ beforeEach(() => {
   calls.deletes = []
   existingRows = []
   deleteReturns = (ids) => ids.map((id) => ({ id }))
+  deleteError = null
 })
 
 describe('upsertAllocationRules — conversion-rule cascade regression (2026-07-03 KWN wipe)', () => {
@@ -119,6 +125,22 @@ describe('upsertAllocationRules — conversion-rule cascade regression (2026-07-
     if (!res.ok) expect(res.error).toMatch(/duplicate category/i)
     expect(calls.upserts).toHaveLength(0)
     expect(calls.deletes).toHaveLength(0)
+  })
+
+  it('maps FK RESTRICT (23503) on delete to an actionable conversion-rule message', async () => {
+    existingRows = [{ category_id: CAT_BULK }, { category_id: CAT_ANC }]
+    deleteError = {
+      code: '23503',
+      message:
+        'update or delete on table "allocation_rules" violates foreign key constraint "allocation_conversion_rule_from_allocation_rules_id_fkey"',
+    }
+
+    const res = await upsertAllocationRules('area-1', [
+      { category_id: CAT_BULK, max_collections: 2 },
+    ])
+
+    expect(res.ok).toBe(false)
+    if (!res.ok) expect(res.error).toMatch(/conversion rule/i)
   })
 
   it('surfaces an RLS-filtered delete as an error, not silent success', async () => {

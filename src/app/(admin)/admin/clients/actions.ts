@@ -368,7 +368,19 @@ export async function upsertAllocationRules(
       .in('category_id', removedCategoryIds)
       .select('id')
 
-    if (deleteError) return { ok: false, error: deleteError.message }
+    if (deleteError) {
+      // The conversion-rule FKs are ON DELETE RESTRICT: removing an allocation
+      // that still backs a swap (e.g. Kwinana ancillary -> green) fails with
+      // 23503. Map it to something actionable instead of the raw FK message.
+      if (deleteError.code === '23503') {
+        return {
+          ok: false,
+          error:
+            'This allocation backs an active swap conversion rule — remove or deactivate the conversion rule first.',
+        }
+      }
+      return { ok: false, error: deleteError.message }
+    }
     if ((deleted ?? []).length !== removedCategoryIds.length) {
       return {
         ok: false,
