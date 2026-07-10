@@ -153,7 +153,35 @@ async function setupMocks(page: Page, options?: {
       })
     }
 
-    // booking_item (usage)
+    // get_property_fy_usage RPC — the wizard + confirm page now read FY usage
+    // through this SECURITY DEFINER function (identity-independent), not a direct
+    // booking_item read. Return priorUsage in the RPC shape: per-service rows +
+    // per-category totals (category derived via TEST_SERVICES).
+    if (url.includes('rpc/get_property_fy_usage')) {
+      const prior = options?.priorUsage ?? []
+      const serviceRows = prior.map((u) => ({
+        usage_kind: 'service',
+        usage_key: u.service_id,
+        units: u.no_services,
+      }))
+      const catTotals = new Map<string, number>()
+      for (const u of prior) {
+        const code = TEST_SERVICES.find((s) => s.id === u.service_id)?.category.code
+        if (code) catTotals.set(code, (catTotals.get(code) ?? 0) + u.no_services)
+      }
+      const categoryRows = Array.from(catTotals, ([usage_key, units]) => ({
+        usage_kind: 'category',
+        usage_key,
+        units,
+      }))
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify([...serviceRows, ...categoryRows]),
+      })
+    }
+
+    // booking_item (usage) — retained for any non-wizard direct reads
     if (url.includes('booking_item')) {
       const usageData = (options?.priorUsage ?? []).map((u) => ({
         ...u,
