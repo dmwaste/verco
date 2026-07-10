@@ -101,82 +101,42 @@ export function ServicesForm({ clientSlug }: { clientSlug: string }) {
   // selection is priced as a replacement, not an addition.
   const replacesBookingId = searchParams.get('replaces')
 
-  // Fetch existing FY usage grouped by category code
-  const { data: fyUsageByCategory, isLoading: fyUsageByCategoryLoading } = useQuery({
-    queryKey: ['fy-usage-by-category', propertyId, replacesBookingId],
+  // Existing FY usage (per-category + per-service) via the authoritative RPC.
+  // booking / booking_item are RLS-scoped to the resident, but this step runs
+  // BEFORE OTP (the resident is anonymous), so a direct read returns zero and
+  // the "X of Y remaining" badges + price preview would show full availability
+  // even after prior bookings. get_property_fy_usage is SECURITY DEFINER and
+  // returns PII-free counts, so it works regardless of auth state.
+  // NOTE: `as never` casts are temporary — dropped in the types-regen follow-up
+  // once get_property_fy_usage lands in src/lib/supabase/types.ts.
+  const { data: fyUsage, isLoading: fyUsageLoading } = useQuery({
+    queryKey: ['fy-usage', propertyId, replacesBookingId],
     enabled: !!propertyId,
     queryFn: async () => {
-      const { data: fy } = await supabase
-        .from('financial_year')
-        .select('id')
-        .eq('is_current', true)
-        .single()
-
-      if (!fy) return new Map<string, number>()
-
-      let query = supabase
-        .from('booking_item')
-        .select(
-          'no_services, service!inner(category!inner(code)), booking!inner(property_id, fy_id, status)'
-        )
-        .eq('booking.property_id', propertyId)
-        .eq('booking.fy_id', fy.id)
-        .not('booking.status', 'in', '("Cancelled","Pending Payment")')
-      if (replacesBookingId) {
-        query = query.neq('booking_id', replacesBookingId)
+      const { data } = await supabase.rpc(
+        'get_property_fy_usage' as never,
+        {
+          p_property_id: propertyId,
+          p_fy_id: null,
+          p_exclude_booking_id: replacesBookingId,
+        } as never,
+      )
+      const byCategory = new Map<string, number>()
+      const byService = new Map<string, number>()
+      for (const row of (data ?? []) as Array<{
+        usage_kind: string
+        usage_key: string
+        units: number
+      }>) {
+        if (row.usage_kind === 'category') byCategory.set(row.usage_key, Number(row.units))
+        else if (row.usage_kind === 'service') byService.set(row.usage_key, Number(row.units))
       }
-      const { data: items } = await query
-
-      const usage = new Map<string, number>()
-      if (items) {
-        for (const item of items) {
-          const svc = item.service as unknown as { category: { code: string } }
-          const code = svc.category.code
-          usage.set(code, (usage.get(code) ?? 0) + item.no_services)
-        }
-      }
-      return usage
+      return { byCategory, byService }
     },
   })
 
-  // Also fetch per-service FY usage (for individual service pricing calc)
-  const { data: fyUsageByService, isLoading: fyUsageByServiceLoading } = useQuery({
-    queryKey: ['fy-usage-by-service', propertyId, replacesBookingId],
-    enabled: !!propertyId,
-    queryFn: async () => {
-      const { data: fy } = await supabase
-        .from('financial_year')
-        .select('id')
-        .eq('is_current', true)
-        .single()
-
-      if (!fy) return new Map<string, number>()
-
-      let query = supabase
-        .from('booking_item')
-        .select(
-          'no_services, service_id, booking!inner(property_id, fy_id, status)'
-        )
-        .eq('booking.property_id', propertyId)
-        .eq('booking.fy_id', fy.id)
-        .not('booking.status', 'in', '("Cancelled","Pending Payment")')
-      if (replacesBookingId) {
-        query = query.neq('booking_id', replacesBookingId)
-      }
-      const { data: items } = await query
-
-      const usage = new Map<string, number>()
-      if (items) {
-        for (const item of items) {
-          usage.set(
-            item.service_id,
-            (usage.get(item.service_id) ?? 0) + item.no_services
-          )
-        }
-      }
-      return usage
-    },
-  })
+  const fyUsageByCategory = fyUsage?.byCategory
+  const fyUsageByService = fyUsage?.byService
 
   // Active allocation conversion rule for this area (e.g. 3 Ancillary -> 1 Green).
   // null when the area has no swap configured.
@@ -215,7 +175,7 @@ export function ServicesForm({ clientSlug }: { clientSlug: string }) {
   })
 
   // Show loading state if any critical query is loading
-  const isLoadingData = serviceRulesLoading || categoryAllocationsLoading || fyUsageByCategoryLoading || fyUsageByServiceLoading
+  const isLoadingData = serviceRulesLoading || categoryAllocationsLoading || fyUsageLoading
 
   // Group services by category code
   const grouped = useMemo(() => {
