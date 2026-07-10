@@ -38,6 +38,8 @@ export type SourceBooking = {
   noMattress: number
   /** Master Waste_Location singleSelect (Front Verge / Side Verge / …), or null. */
   wasteLocation: string | null
+  /** Master Waste_Notes free text (resident placement instructions), or null. */
+  wasteNotes: string | null
   /** ISO timestamp of the master row's last modification. */
   modifiedAt: string
 }
@@ -52,6 +54,8 @@ export type VercoBooking = {
   propertyExternalId: string | null
   /** Current booking.location — buggy imports set this to the street address. */
   location: string | null
+  /** Current booking.notes — null/empty for VV legacy rows (import dropped Waste_Notes). */
+  notes: string | null
   /** Earliest booking_item collection date, YYYY-MM-DD. */
   collectionDate: string | null
   /** Verco booking_status. */
@@ -337,6 +341,7 @@ export function countByClass(findings: Finding[]): Record<FindingClass, number> 
 //   • reschedule                 → update date ONLY when both old and new dates are future
 //                                  and the booking is not already dispatched
 //   • location == street address → set to the master Waste_Location
+//   • notes empty                → fill from the master Waste_Notes (import dropped it)
 //   • phantom (keep) / missing (ignore) → no writes
 
 export type Action =
@@ -344,6 +349,7 @@ export type Action =
   | { kind: 'status'; bookingId: string; ref: string; to: 'Completed' | 'Non-conformance' }
   | { kind: 'reschedule'; bookingId: string; ref: string; from: string; to: string }
   | { kind: 'location'; bookingId: string; ref: string; to: string }
+  | { kind: 'notes'; bookingId: string; ref: string; to: string }
 
 export type ActionPlan = {
   actions: Action[]
@@ -377,6 +383,11 @@ export function normaliseWasteLocation(raw: string): string {
     })
     .filter(Boolean)
   return [...new Set(parts)].join('; ')
+}
+
+/** True for null, undefined, or whitespace-only text. */
+export function isBlank(s: string | null | undefined): boolean {
+  return s == null || s.trim() === ''
 }
 
 export function buildActionPlan(findings: Finding[], today: string): ActionPlan {
@@ -416,6 +427,13 @@ export function buildActionPlan(findings: Finding[], today: string): ActionPlan 
     if (v && locationIsWrong(v) && v.status !== 'Cancelled' && f.class !== 'cancelled_in_source') {
       if (s?.wasteLocation) actions.push({ kind: 'location', bookingId: v.id, ref: v.ref, to: normaliseWasteLocation(s.wasteLocation) })
       else if (!s) skipped.phantomNeedsLocation++
+    }
+
+    // Notes fill — a matched, non-cancelled booking with empty notes inherits the
+    // master's Waste_Notes (the resident placement instructions the VV import dropped).
+    // Idempotent: only fills when Verco notes is blank, so a re-run is a no-op.
+    if (v && s && isBlank(v.notes) && !isBlank(s.wasteNotes) && v.status !== 'Cancelled' && f.class !== 'cancelled_in_source') {
+      actions.push({ kind: 'notes', bookingId: v.id, ref: v.ref, to: s.wasteNotes!.trim() })
     }
   }
 

@@ -89,9 +89,10 @@ async function loadVerco(verco: SupabaseClient): Promise<VercoBooking[]> {
     status: string
     created_at: string
     location: string | null
+    notes: string | null
     property_id: string | null
     collection_area_id: string
-  }>(verco, 'booking', 'id, ref, status, created_at, location, property_id, collection_area_id', 'collection_area_id', areaIds)
+  }>(verco, 'booking', 'id, ref, status, created_at, location, notes, property_id, collection_area_id', 'collection_area_id', areaIds)
 
   const ids = bookings.map((b) => b.id)
   const propIds = uniq(bookings.map((b) => b.property_id).filter((x): x is string => !!x))
@@ -126,6 +127,7 @@ async function loadVerco(verco: SupabaseClient): Promise<VercoBooking[]> {
     address: (b.property_id ? address.get(b.property_id) : '') ?? '',
     propertyExternalId: null,
     location: b.location ?? null,
+    notes: b.notes ?? null,
     collectionDate: minDate.get(b.id) ?? null,
     status: b.status,
     importedAt: b.created_at,
@@ -165,6 +167,7 @@ async function fetchSource(token: string): Promise<SourceBooking[]> {
         noGreen: 0,
         noMattress: 0,
         wasteLocation: (f[F.wasteLocation] as string | undefined) ?? null,
+        wasteNotes: null, // KWN "Bookings All" has no Waste_Notes field; note-fill is VV-scoped.
         modifiedAt: String(f[F.modifiedTime] ?? ''),
       })
     }
