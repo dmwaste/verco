@@ -205,13 +205,35 @@ edit except contractor-on-`Scheduled` (VER-285). `updateCollectionDetails` re-va
 | 2 | `src/app/(admin)/admin/bookings/[id]/actions.ts` | `updateCollectionDetails`: on a date change, fetch the target's `is_open`/`date` and re-check `canRescheduleToTargetDate` **server-side** before the write — the client filter is a convenience, not the security boundary. |
 | 3 | `src/app/(admin)/admin/bookings/[id]/booking-detail-client.tsx` | Relax the picker's `is_open`/`date` filter for contractor-tier staff only (both the per-area and pooled-date queries); annotate closed/past options (`· closed, past`) so the override is deliberate. |
 
+### Changes — held-date-drop (scope addition, Dan 2026-07-11)
+
+A related defect in the SAME closed/past-date family, rolled in per Dan's follow-up: a
+booking's **own held date** that has gone admin-closed (`is_open=false`) or past is silently
+dropped from the date options, so a contractor can't KEEP it. Two surfaces:
+
+| # | File | Change |
+|---|------|--------|
+| 4 | `src/lib/booking/edit-aware-dates.ts` | Add pure `mergeHeldDate(dates, heldRow)` — merges a separately-fetched held row into the wizard's date list (dedup + date-sort) so `buildCalendarDates` pins it as `current`. |
+| 5 | `src/app/(public)/book/date/date-form.tsx` | For a contractor-tier actor on the edit flow (`on_behalf` + `replaces`), probe `current_user_role()` and fetch the held row by id even when closed/past (RLS `collection_date_select` permits the authed read), then `mergeHeldDate` it in. Residents/client-tier never fetch it → held closed/past dates stay hidden from them. |
+| 6 | `supabase/functions/_shared/edit-guard.ts` (→ mirror `src/lib/booking/edit-guard.ts`) + `supabase/functions/create-booking/index.ts` | Add pure `mayKeepClosedHeldDate(...)`. The create-booking EF's `is_open` guard (`index.ts:194`) rejected a closed date for ALL callers; now it is **waived** for the exact case: contractor-tier + edit (`replaces`) + the target IS the replaced booking's current held date (every item on it). A retained date, not a new booking on a closed slot. This **supersedes §7's "no EF change"** for this scope — the earlier resident-only fix only covered `is_open=true` held dates. |
+
+**The admin inline `<Select>` (change 3) needs no extra work here:** the contractor filter
+relaxation already fetches ALL area dates, so the booking's own held date is included and
+pre-selected via `editDateId`. The `updateCollectionDetails` path never hits the EF `is_open`
+guard, so a contractor can keep/move a closed/past date there directly.
+
 ### Testing
 
-- `src/__tests__/collection-details-edit.test.ts` — 15 pure-guard tests (100% of the decision
-  logic): contractor can edit `Completed`; client-tier blocked on `Scheduled`/`Completed`;
+- `src/__tests__/collection-details-edit.test.ts` — 15 pure-guard tests (100% of the core
+  decision logic): contractor can edit `Completed`; client-tier blocked on `Scheduled`/`Completed`;
   `canRescheduleToTargetDate` for open/closed/past × contractor/client/null.
-- Full suite (1358), typecheck, lint, and a production build (`/admin/bookings/[id]` route)
-  all clean.
+- `src/__tests__/edit-aware-dates.test.ts` — `mergeHeldDate` (dedup, sort, closed/past held row
+  fed through `buildCalendarDates` → pins `current`).
+- `src/__tests__/edit-guard.test.ts` — `mayKeepClosedHeldDate` (contractor keeps held; client/
+  resident/null blocked; not-an-edit blocked; MOVING to a non-held closed date blocked; empty/
+  mixed held set blocked).
+- Full suite (1393), typecheck, lint, mirror-drift check, `deno check` (no new EF errors), and a
+  production build (`/admin/bookings/[id]` + `/book/date`) all clean.
 
 ### Security note (deferred, follow-up)
 

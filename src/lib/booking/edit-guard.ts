@@ -85,3 +85,40 @@ export function evaluateEditGuard(input: EditGuardInput): EditGuardResult {
 
   return { ok: true }
 }
+
+// Contractor (D&M) tier only — a subset of STAFF_ROLES. Inlined for the same
+// mirror-sync reason as STAFF_ROLES above.
+const CONTRACTOR_STAFF_ROLES = ['contractor-admin', 'contractor-staff']
+
+/**
+ * #378 — whether a contractor-tier actor may KEEP a booking's own held date that
+ * has since been admin-closed (`is_open=false`), waiving the create-booking EF's
+ * "collection date is open" guard for exactly that case.
+ *
+ * This is a RETAINED date on an in-place edit, not a NEW booking landing on a
+ * closed slot, so re-validating `is_open` is wrong — the booking already occupies
+ * that date. The waiver is deliberately narrow:
+ *   - only on an edit (`replaces` set),
+ *   - only contractor-tier (client-tier admins + residents excluded — they can't
+ *     even surface a closed held date in the wizard, and are blocked here too),
+ *   - only when the target IS the replaced booking's current held date, i.e.
+ *     every one of its items already sits on `targetDateId`. A contractor MOVING
+ *     to a different closed date is not keeping the held date and is not waived
+ *     here (that path is the admin inline editor's server-side gate).
+ *
+ * `heldDateIds` is the replaced booking's item collection_date_ids, read through
+ * the caller's RLS-scoped client — an empty set (unreadable / no items) blocks.
+ */
+export function mayKeepClosedHeldDate(input: {
+  role: string | null
+  replaces: string | null | undefined
+  targetDateId: string
+  heldDateIds: string[]
+}): boolean {
+  if (!input.replaces) return false
+  if (input.role == null || !CONTRACTOR_STAFF_ROLES.includes(input.role)) return false
+  return (
+    input.heldDateIds.length > 0 &&
+    input.heldDateIds.every((id) => id === input.targetDateId)
+  )
+}

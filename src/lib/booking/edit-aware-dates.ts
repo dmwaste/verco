@@ -28,8 +28,16 @@ export interface CalendarDateCell {
  * a date that has since gone capacity-full or T-3-locked. The `current` status
  * is hard-set and bypasses the `spotsRemaining` derivation, so pooled areas
  * (whose `collection_date.*` counters are 0 by design) don't collapse the held
- * date to `closed`. Admin-closed/holiday held dates (`is_open=false`) never
- * reach here — RLS `USING(is_open=true)` hides them from the anon read.
+ * date to `closed`.
+ *
+ * Admin-closed/holiday held dates (`is_open=false`) and PAST held dates are
+ * dropped by the resident date fetch (`is_open=true AND date>=today`), so the
+ * held row never reaches `dates` for residents. For a contractor-tier actor the
+ * caller fetches that row separately (RLS `collection_date_select` permits the
+ * authed read) and merges it in via `mergeHeldDate` before calling this — the
+ * `d.id === heldDateId` pin below then keeps it as `current`. Client-tier admins
+ * and residents never get that merge, so they still can't keep a closed/past
+ * held date here (#378).
  */
 export function buildCalendarDates(params: {
   dates: CollectionDateRow[]
@@ -63,4 +71,26 @@ export function buildCalendarDates(params: {
         spotsRemaining === 0 ? 'closed' : spotsRemaining <= 10 ? 'low' : 'available'
       return { id: d.id, date, status }
     })
+}
+
+/**
+ * Merge a separately-fetched held-date row into the wizard's fetched date list,
+ * keeping the list sorted by date (ISO `yyyy-mm-dd` string order is
+ * chronological). No-op when there is no held row or it is already present.
+ *
+ * Used only on the contractor-tier edit path: the resident date fetch filters
+ * `is_open=true AND date>=today`, so a booking's own held date that has since
+ * gone admin-closed or past is missing from `dates`. The caller fetches that one
+ * row by id (authorised by RLS `collection_date_select`) and merges it here so
+ * `buildCalendarDates` can pin it as `current` — letting D&M staff KEEP the held
+ * date instead of being forced onto a different one (#378). Client-tier admins
+ * and residents never fetch the row, so they never receive the merge.
+ */
+export function mergeHeldDate(
+  dates: CollectionDateRow[],
+  heldRow: CollectionDateRow | null | undefined,
+): CollectionDateRow[] {
+  if (!heldRow) return dates
+  if (dates.some((d) => d.id === heldRow.id)) return dates
+  return [...dates, heldRow].sort((a, b) => a.date.localeCompare(b.date))
 }
