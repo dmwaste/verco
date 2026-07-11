@@ -5,7 +5,7 @@ import { calculatePrice, type ActiveConversion } from '../_shared/pricing.ts'
 import { isAreaBookableServer } from '../_shared/area-gate-server.ts'
 import { type TermsAcceptanceChannel } from '../_shared/terms.ts'
 import { classifyCreator, CREATOR_STAFF_ROLES } from '../_shared/classify-creator.ts'
-import { evaluateEditGuard } from '../_shared/edit-guard.ts'
+import { evaluateEditGuard, mayKeepClosedHeldDate } from '../_shared/edit-guard.ts'
 import { withSentry } from '../_shared/sentry.ts'
 
 /**
@@ -192,7 +192,36 @@ serve(withSentry('create-booking', async (req) => {
     }
 
     if (!collDate.is_open) {
-      return jsonResponse({ error: 'Collection date is no longer open for bookings' }, 400)
+      // #378: a contractor-tier actor editing a booking may KEEP that booking's
+      // own held date after it has been admin-closed — a retained date, not a new
+      // booking on a closed slot. Waive the guard only for that exact case
+      // (contractor role + the target IS the replaced booking's held date). The
+      // reads run through the caller's RLS-scoped client, so ownership + role are
+      // enforced server-side; residents/client-tier never qualify.
+      let keepsClosedHeldDate = false
+      if (replaces) {
+        const [{ data: keepRole }, { data: replacedBooking }] = await Promise.all([
+          supabaseAnon.rpc('current_user_role'),
+          supabaseAnon
+            .from('booking')
+            .select('booking_item(collection_date_id)')
+            .eq('id', replaces)
+            .maybeSingle(),
+        ])
+        const heldDateIds =
+          ((replacedBooking?.booking_item ?? []) as Array<{ collection_date_id: string }>)
+            .map((bi) => bi.collection_date_id)
+        keepsClosedHeldDate = mayKeepClosedHeldDate({
+          role: (keepRole as string | null) ?? null,
+          replaces,
+          targetDateId: collection_date_id,
+          heldDateIds,
+        })
+      }
+
+      if (!keepsClosedHeldDate) {
+        return jsonResponse({ error: 'Collection date is no longer open for bookings' }, 400)
+      }
     }
 
     // ── 5b. Resolve + re-validate an allocation swap (if requested) ──────────

@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest'
-import { canEditCollectionDetails } from '@/lib/booking/collection-details-edit'
+import {
+  canEditCollectionDetails,
+  canRescheduleToTargetDate,
+} from '@/lib/booking/collection-details-edit'
 import type { Database } from '@/lib/supabase/types'
 
 type BookingStatus = Database['public']['Enums']['booking_status']
@@ -30,16 +33,31 @@ describe('canEditCollectionDetails', () => {
     }
   })
 
+  it('lets contractor roles edit a Completed booking to fix a crew error (#378)', () => {
+    // BR-0023: a "previous booking" collected on the wrong day is Completed;
+    // only D&M (contractor-tier) staff may correct its collection date.
+    for (const role of CONTRACTOR_ROLES) {
+      expect(canEditCollectionDetails('Completed', role)).toBe(true)
+    }
+  })
+
   it('blocks client-tier roles from editing a Scheduled booking', () => {
     for (const role of CLIENT_ROLES) {
       expect(canEditCollectionDetails('Scheduled', role)).toBe(false)
     }
   })
 
+  it('blocks client-tier roles from editing a Completed booking (#378)', () => {
+    for (const role of CLIENT_ROLES) {
+      expect(canEditCollectionDetails('Completed', role)).toBe(false)
+    }
+  })
+
   it('blocks editing for terminal / exception statuses regardless of role', () => {
+    // Completed is intentionally NOT here — it is contractor-editable (#378).
+    // The exception/rebook states keep their dedicated NCN/NP rebook flow.
     const nonEditable: BookingStatus[] = [
       'Cancelled',
-      'Completed',
       'Non-conformance',
       'Nothing Presented',
       'Rebooked',
@@ -53,7 +71,12 @@ describe('canEditCollectionDetails', () => {
   })
 
   it('denies a null role in every status', () => {
-    const statuses: BookingStatus[] = [...PRE_DISPATCH, 'Scheduled', 'Cancelled']
+    const statuses: BookingStatus[] = [
+      ...PRE_DISPATCH,
+      'Scheduled',
+      'Completed',
+      'Cancelled',
+    ]
     for (const status of statuses) {
       expect(canEditCollectionDetails(status, null)).toBe(false)
     }
@@ -64,11 +87,80 @@ describe('canEditCollectionDetails', () => {
     // not hand edit rights to resident/field/ranger/strata on its own — even
     // pre-dispatch.
     const otherRoles: AppRole[] = ['field', 'ranger', 'resident', 'strata']
-    const statuses: BookingStatus[] = [...PRE_DISPATCH, 'Scheduled']
+    const statuses: BookingStatus[] = [...PRE_DISPATCH, 'Scheduled', 'Completed']
     for (const role of otherRoles) {
       for (const status of statuses) {
         expect(canEditCollectionDetails(status, role)).toBe(false)
       }
     }
+  })
+})
+
+describe('canRescheduleToTargetDate (D1 — #378)', () => {
+  const TODAY = '2026-07-11'
+  const FUTURE = '2026-08-01'
+  const PAST = '2026-07-01'
+
+  it('lets any admin role move onto an open, today-or-future date', () => {
+    // The date dimension imposes no extra privilege; the status/role gate
+    // (canEditCollectionDetails) already authorised the edit.
+    for (const role of ADMIN_ROLES) {
+      expect(
+        canRescheduleToTargetDate(role, { is_open: true, date: FUTURE }, TODAY),
+      ).toBe(true)
+      expect(
+        canRescheduleToTargetDate(role, { is_open: true, date: TODAY }, TODAY),
+      ).toBe(true)
+    }
+  })
+
+  it('lets contractor roles move onto a CLOSED (is_open=false) future date', () => {
+    for (const role of CONTRACTOR_ROLES) {
+      expect(
+        canRescheduleToTargetDate(role, { is_open: false, date: FUTURE }, TODAY),
+      ).toBe(true)
+    }
+  })
+
+  it('lets contractor roles move onto a PAST (earlier) date', () => {
+    for (const role of CONTRACTOR_ROLES) {
+      expect(
+        canRescheduleToTargetDate(role, { is_open: true, date: PAST }, TODAY),
+      ).toBe(true)
+    }
+  })
+
+  it('blocks client-tier roles from moving onto a CLOSED date', () => {
+    for (const role of CLIENT_ROLES) {
+      expect(
+        canRescheduleToTargetDate(role, { is_open: false, date: FUTURE }, TODAY),
+      ).toBe(false)
+    }
+  })
+
+  it('blocks client-tier roles from moving onto a PAST date', () => {
+    for (const role of CLIENT_ROLES) {
+      expect(
+        canRescheduleToTargetDate(role, { is_open: true, date: PAST }, TODAY),
+      ).toBe(false)
+    }
+  })
+
+  it('blocks a null role from a closed or past date', () => {
+    expect(
+      canRescheduleToTargetDate(null, { is_open: false, date: FUTURE }, TODAY),
+    ).toBe(false)
+    expect(
+      canRescheduleToTargetDate(null, { is_open: true, date: PAST }, TODAY),
+    ).toBe(false)
+  })
+
+  it('treats a closed AND past date as contractor-only', () => {
+    expect(
+      canRescheduleToTargetDate('contractor-admin', { is_open: false, date: PAST }, TODAY),
+    ).toBe(true)
+    expect(
+      canRescheduleToTargetDate('client-admin', { is_open: false, date: PAST }, TODAY),
+    ).toBe(false)
   })
 })

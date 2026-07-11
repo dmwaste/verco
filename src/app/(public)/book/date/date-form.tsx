@@ -12,8 +12,9 @@ import { Spinner } from '@/components/ui/spinner'
 import { decodeItems } from '@/lib/booking/search-params'
 import { indexPoolDates } from '@/lib/capacity/effective-capacity'
 import { STATUS_CHIP, STATUS_LABEL } from '@/lib/booking/calendar'
-import { buildCalendarDates } from '@/lib/booking/edit-aware-dates'
+import { buildCalendarDates, mergeHeldDate } from '@/lib/booking/edit-aware-dates'
 import { AvailabilityCalendar, type CalendarDate } from '@/components/booking/availability-calendar'
+import { isContractorStaff } from '@/lib/auth/roles'
 import { cn } from '@/lib/utils'
 
 export function DateForm() {
@@ -25,6 +26,13 @@ export function DateForm() {
   const itemsParam = searchParams.get('items') ?? ''
   const totalCents = searchParams.get('total_cents') ?? '0'
   const onBehalf = searchParams.get('on_behalf') === 'true'
+
+  // Edit flow (`replaces` present): the resident's already-held date is pinned
+  // as `current` and never capacity-filtered. New bookings have a null
+  // heldDateId and get the normal available/low/closed filter.
+  const heldDateId = searchParams.get('replaces')
+    ? searchParams.get('collection_date_id')
+    : null
 
   const selectedItems = decodeItems(itemsParam)
 
@@ -121,19 +129,44 @@ export function DateForm() {
 
   const poolByDate = indexPoolDates(poolDates ?? [])
 
-  // Show loading state if any critical query is loading
-  const isLoadingData = neededBucketsLoading || datesLoading || areaLoading || poolDatesLoading
+  // Contractor-tier staff editing on behalf (`on_behalf=true`) may KEEP a held
+  // date that has since gone admin-closed (is_open=false) or past — the resident
+  // date fetch above drops it. Probe the caller's real role (the RPC is the
+  // trusted source; the URL param only gates whether we bother asking) and, when
+  // it is contractor-tier, fetch that one held row explicitly. RLS
+  // `collection_date_select` permits the authed contractor read; the anon
+  // resident read of a closed row stays blocked, so residents can never surface
+  // a closed/past held date this way (#378).
+  const { data: actorRole } = useQuery({
+    queryKey: ['actor-role', 'date-step'],
+    enabled: onBehalf && !!heldDateId,
+    queryFn: async () => (await supabase.rpc('current_user_role')).data ?? null,
+  })
+  const canKeepClosedHeld = isContractorStaff(actorRole ?? null)
 
-  // In the edit flow (`replaces` present) the resident's already-held date is
-  // pinned as `current` and never capacity-filtered, so a services edit can keep
-  // a date that has since gone capacity-full or T-3-locked. New bookings pass a
-  // null heldDateId and get the normal available/low/closed filter. See
-  // buildCalendarDates.
-  const heldDateId = searchParams.get('replaces')
-    ? searchParams.get('collection_date_id')
-    : null
+  const { data: heldDateRow, isLoading: heldDateLoading } = useQuery({
+    queryKey: ['held-date', heldDateId, canKeepClosedHeld],
+    enabled: canKeepClosedHeld && !!heldDateId,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from('collection_date')
+        .select('*')
+        .eq('id', heldDateId!)
+        .single()
+      return data
+    },
+  })
+
+  // Show loading state if any critical query is loading
+  const isLoadingData =
+    neededBucketsLoading || datesLoading || areaLoading || poolDatesLoading || heldDateLoading
+
+  // For a contractor keeping a closed/past held date, merge the separately
+  // fetched held row into the list so buildCalendarDates can pin it as
+  // `current`. No-op for residents/client-tier (heldDateRow is undefined).
+  const mergedDates = mergeHeldDate(dates ?? [], heldDateRow)
   const calendarDates: CalendarDate[] = buildCalendarDates({
-    dates: dates ?? [],
+    dates: mergedDates,
     poolId,
     poolByDate,
     neededBuckets: neededBuckets?.buckets,
