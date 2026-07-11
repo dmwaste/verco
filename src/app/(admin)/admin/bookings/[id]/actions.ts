@@ -370,6 +370,12 @@ export async function updateCollectionDetails(
         error: 'Collection date update was not applied (RLS or no booking items).',
       }
     }
+    // Deliberately does NOT touch collection_stop (#390.2, D2 doc-guard). On a
+    // #378 post-dispatch correction the stop stays as-dispatched — it's an
+    // immutable record of what the crew was routed to do, and the contractual
+    // on-time KPI keys off it (see on-time.ts). Repointing the stop here would
+    // let a back-date launder a wrong-day miss. booking_item carries the
+    // corrected intent; the stop carries the dispatched history.
   }
 
   // Notify the resident their booking changed (#388) — Confirmed only. A #378

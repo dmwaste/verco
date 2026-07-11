@@ -397,6 +397,10 @@ function OnTimeCard({ clientId, area, period }: CardScope) {
     queryKey: ['sla-ontime', clientId, area, ...periodKey(period)],
     enabled: !!clientId && !period.unresolved,
     queryFn: async () => {
+      // scheduledDate comes from the STOP's collection_date_id (the dispatched
+      // date), NOT the booking's — a #378 date-override corrects booking_item
+      // but leaves the stop as-dispatched by design, so a back-date can't
+      // launder a wrong-day miss into an on-time success (#390.2; see on-time.ts).
       let q = supabase
         .from('collection_stop')
         .select('completed_at, collection_date:collection_date_id!inner(date, collection_area_id)')
