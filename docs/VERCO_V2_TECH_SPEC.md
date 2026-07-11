@@ -1497,12 +1497,16 @@ All Edge Functions are in `supabase/functions/`. Auth pattern: Bearer JWT unless
 - **Side effects:** None — read only
 
 ### `create-booking`
-- **Auth:** Bearer JWT
-- **Input:** `{ property_id, items, contact, location, notes, price_result }`
-- **Validates:** Re-runs `calculatePrice` server-side — ignores any client-supplied `unit_price_cents`
-- **Calls:** `create_booking_with_capacity_check` RPC (serialised)
-- **Output:** `{ booking_id, ref, requires_payment: boolean, checkout_url? }`
-- **Side effects:** Inserts `booking`, `booking_item`, `contacts` (upsert), triggers notifications
+- **Auth:** Bearer JWT (anon key accepted — public `/book` flow; staff paths carry a user JWT)
+- **Input:** `{ property_id, collection_area_id, collection_date_id, location, notes?, contact?, items, replaces?, swap?, terms_accepted?, inline_edit? }`
+  - `contact` is required on the create path, omitted on the in-place edit branch (`replaces` set).
+  - `replaces` (admin/resident "edit" flow) re-prices excluding the replaced booking and diffs `booking_item` in place via `update_booking_items_in_place` (same `ref`, no duplicate). `swap` re-validates the area's allocation conversion. `inline_edit` (admin quantity editor, staff + `Confirmed` only) switches the edit branch to the delta/drift money model.
+  - `collection_date_id` is pinned to `collection_area_id` — a date from another area (or tenant) is rejected.
+- **Validates:** Re-runs `calculatePrice` server-side — ignores any client-supplied `unit_price_cents` (Red Line #1)
+- **Calls:** `create_booking_with_capacity_check` (create) or `update_booking_items_in_place` (edit) RPC — both serialised under an advisory lock
+- **Output (create):** `{ booking_id, ref, requires_payment: boolean, checkout_url? }`
+- **Output (edit):** `{ booking_id, ref, edited: true, requires_payment: false, refund_owed_cents }` — `refund_owed_cents` (0 on the wizard path) is the amount the caller must refund via the `refund_request` + `process-refund` machinery on an `inline_edit` reduction
+- **Side effects:** Inserts/updates `booking`, `booking_item`, `contacts` (upsert on create), triggers notifications
 
 ### `create-checkout`
 - **Auth:** Bearer JWT
@@ -1523,10 +1527,11 @@ All Edge Functions are in `supabase/functions/`. Auth pattern: Bearer JWT unless
 - **Side effects:** Updates `booking_payment`, `booking.status`, `refund_request.status`
 
 ### `process-refund`
-- **Auth:** Bearer JWT (DM-Ops service role only)
-- **Input:** `{ refund_request_id }`
-- **Output:** `{ stripe_refund_id }`
-- **Side effects:** Initiates Stripe refund, updates `refund_request`
+- **Auth:** Bearer JWT — a Verco user whose role is `contractor-admin` or `client-admin` (approval tier). The request's `client_id` is re-checked against the caller's RLS scope (a caller can only process a refund for a booking they can see); a mismatch returns 404.
+- **Input:** `{ refund_request_id }` (must be `Pending`)
+- **Output:** `{ stripe_refund_id, stripe_refund_ids }` — `stripe_refund_id` is the primary (newest-charge) id; `stripe_refund_ids` is the full set when a request spans more than one paid charge
+- **Concurrency & money-safety:** claims the request (`reviewed_at` guard) before touching Stripe so concurrent calls can't double-refund; spreads the amount newest-charge-first across all paid `booking_payment` rows (`allocateRefund`), each capped by that charge's Stripe-remaining, with a per-`(request, charge)` idempotency key; 409s on shortfall rather than under-refunding
+- **Side effects:** Initiates one Stripe refund per charge, sets `refund_request.status` → `Approved`
 
 ### `send-email`
 - **Auth:** Internal (service role)
