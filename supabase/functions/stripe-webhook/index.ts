@@ -101,7 +101,7 @@ async function handleChargeRefunded(
   // charge link on refund_request).
   const { data: pendingRequests } = await supabase
     .from('refund_request')
-    .select('id, status')
+    .select('id, status, amount_cents')
     .eq('booking_id', payment.booking_id)
     .eq('status', 'Pending')
     .order('created_at', { ascending: true })
@@ -115,6 +115,23 @@ async function handleChargeRefunded(
 
   if (refundRequest.status !== 'Pending') {
     console.log(`Refund request ${refundRequest.id} already processed — skipping`)
+    return
+  }
+
+  // Amount guard (#387.2): this backstop only fires for refunds initiated
+  // directly in Stripe (process-refund sets the request Approved synchronously).
+  // A booking can carry >1 Pending request of DIFFERENT amounts (e.g. a queued
+  // quantity-reduction refund + a full cancel). Approving the oldest one blindly
+  // would settle the wrong request against this refund. Only auto-approve when
+  // the refund amount matches the request; otherwise leave it Pending for a
+  // human to reconcile, and log loudly.
+  const latestRefundCents = latestRefund?.amount ?? null
+  if (latestRefundCents == null || latestRefundCents !== refundRequest.amount_cents) {
+    console.log(
+      `Charge refund ${stripeRefundId ?? '(none)'} for booking ${payment.booking_id}: ` +
+        `refund amount ${latestRefundCents}c does not match oldest Pending request ` +
+        `${refundRequest.id} (${refundRequest.amount_cents}c) — leaving Pending for manual review`,
+    )
     return
   }
 
