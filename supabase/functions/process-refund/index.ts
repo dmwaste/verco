@@ -123,6 +123,19 @@ serve(async (req) => {
       )
     }
 
+    // From the claim onward, EVERY early return / caught failure must release
+    // it, or the request wedges behind 409s forever (e.g. approving a refund
+    // for a booking whose payment was never captured would 404 with the claim
+    // stuck). Only an uncaught crash mid-Stripe leaves it claimed — deliberate
+    // fail-closed for money (staff reconcile via Stripe first).
+    const releaseClaim = async () => {
+      await supabaseService
+        .from('refund_request')
+        .update({ reviewed_by: null, reviewed_at: null })
+        .eq('id', refundRequest.id)
+        .eq('status', 'Pending')
+    }
+
     // ── 5. Fetch ALL paid booking_payment rows ───────────────────────────────
     // A booking can carry >1 paid charge once PR-B1's increase-delta charge
     // lands (original + delta). Refunds must spread across them — the old
@@ -137,10 +150,12 @@ serve(async (req) => {
       .order('created_at', { ascending: false })
 
     if (paymentError) {
+      await releaseClaim()
       return errorResponse(`Failed to load booking payments: ${paymentError.message}`, 500)
     }
     const paidWithCharge = (payments ?? []).filter((p) => p.stripe_charge_id)
     if (paidWithCharge.length === 0) {
+      await releaseClaim()
       return errorResponse('No paid booking_payment with a Stripe charge found for this booking', 404)
     }
 
@@ -151,20 +166,11 @@ serve(async (req) => {
     })
 
     // Each charge's remaining refundable comes from Stripe (amount − amount_refunded),
-    // so a retry after a partial refund never over-refunds a charge. From here to
-    // the end of the refunds loop, any failure releases the claim (4b) so the
-    // request stays retryable — and the per-(request, charge) idempotency keys
-    // below make a same-allocation retry return the ORIGINAL refund instead of
-    // issuing a second one; a changed allocation trips Stripe's idempotency_error
-    // (loud failure, never a silent double-pay).
-    const releaseClaim = async () => {
-      await supabaseService
-        .from('refund_request')
-        .update({ reviewed_by: null, reviewed_at: null })
-        .eq('id', refundRequest.id)
-        .eq('status', 'Pending')
-    }
-
+    // so a retry after a partial refund never over-refunds a charge. The
+    // per-(request, charge) idempotency keys below make a same-allocation retry
+    // return the ORIGINAL refund instead of issuing a second one; a changed
+    // allocation trips Stripe's idempotency_error (loud failure, never a
+    // silent double-pay).
     const charges: RefundableCharge[] = []
     try {
       for (const p of paidWithCharge) {
