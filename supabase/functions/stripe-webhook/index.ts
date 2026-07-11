@@ -91,13 +91,21 @@ async function handleChargeRefunded(
   const latestRefund = charge.refunds?.data?.[0]
   const stripeRefundId = latestRefund?.id ?? null
 
-  // Find pending refund_request for this booking
-  const { data: refundRequest } = await supabase
+  // Find a pending refund_request for this booking. A booking can carry >1
+  // pending request once PR-B1's delta charge exists (full cancel of a
+  // 2-charge booking), so `.maybeSingle()` would throw — take the oldest
+  // pending one. This handler is only a BACKSTOP: process-refund (the primary
+  // path) sets the request Approved synchronously before this fires, so it runs
+  // only for refunds initiated directly in Stripe. Precise charge→request
+  // mapping across concurrent pending requests is a PR-B1 concern (needs a
+  // charge link on refund_request).
+  const { data: pendingRequests } = await supabase
     .from('refund_request')
     .select('id, status')
     .eq('booking_id', payment.booking_id)
     .eq('status', 'Pending')
-    .maybeSingle()
+    .order('created_at', { ascending: true })
+  const refundRequest = (pendingRequests ?? [])[0]
 
   if (!refundRequest) {
     // Idempotency: might already be processed, or refund was initiated directly in Stripe
