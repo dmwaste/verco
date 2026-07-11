@@ -25,6 +25,9 @@ import { writeFileSync } from 'node:fs'
 import { parseFlags, requireEnv } from './lib/cli'
 import { loadAreaMap, loadAreaMapForClient } from './lib/area-map'
 import { findMissingByPropertyDate, findMissingByRef } from './lib/audit-match'
+import { num } from './lib/airtable-bookings'
+import { pagedIn, uniq } from './lib/db'
+import { csvCell, timestamp } from './lib/report'
 
 const DEFAULT_FROM = '2026-07-10' // "future" = collection date on/after this
 const RESCHEDULE_TOLERANCE_DAYS = 21
@@ -316,59 +319,9 @@ function writeCsv(missing: MissingRow[], stamp: string): string {
 }
 
 // ── Small helpers ─────────────────────────────────────────────────────────────
-async function pagedIn<T>(verco: SupabaseClient, table: string, select: string, column: string, values: string[]): Promise<T[]> {
-  const out: T[] = []
-  const CHUNK = 100
-  const PAGE = 1000
-  for (let i = 0; i < values.length; i += CHUNK) {
-    const chunk = values.slice(i, i + CHUNK)
-    if (chunk.length === 0) continue
-    // Page the rows too — a chunk can match more rows than PostgREST's max-rows cap.
-    let from = 0
-    while (true) {
-      const { data, error } = await verco
-        .from(table)
-        .select(select)
-        .in(column, chunk)
-        .order('id', { ascending: true }) // stable order — range() pagination skips/dupes rows without it
-        .range(from, from + PAGE - 1)
-      if (error) throw new Error(`load ${table}: ${error.message}`)
-      if (!data || data.length === 0) break
-      out.push(...(data as T[]))
-      if (data.length < PAGE) break
-      from += PAGE
-    }
-  }
-  return out
-}
-
 function areaFromLookup(v: string | undefined): string {
   const m = v?.match(/Area\s*(\d)/)
   return m ? `KWN-${m[1]}` : 'KWN'
-}
-
-function num(v: unknown): number {
-  if (typeof v === 'number') return v
-  if (typeof v === 'string') {
-    const n = parseInt(v, 10)
-    return Number.isFinite(n) ? n : 0
-  }
-  return 0
-}
-
-function uniq(xs: string[]): string[] {
-  return [...new Set(xs)]
-}
-
-function csvCell(v: string | number): string {
-  const s = String(v)
-  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
-}
-
-function timestamp(): string {
-  const d = new Date()
-  const z = (n: number) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}${z(d.getMonth() + 1)}${z(d.getDate())}-${z(d.getHours())}${z(d.getMinutes())}${z(d.getSeconds())}`
 }
 
 main().catch((err) => {
