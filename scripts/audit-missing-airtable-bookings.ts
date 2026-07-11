@@ -319,12 +319,25 @@ function writeCsv(missing: MissingRow[], stamp: string): string {
 async function pagedIn<T>(verco: SupabaseClient, table: string, select: string, column: string, values: string[]): Promise<T[]> {
   const out: T[] = []
   const CHUNK = 100
+  const PAGE = 1000
   for (let i = 0; i < values.length; i += CHUNK) {
     const chunk = values.slice(i, i + CHUNK)
     if (chunk.length === 0) continue
-    const { data, error } = await verco.from(table).select(select).in(column, chunk)
-    if (error) throw new Error(`load ${table}: ${error.message}`)
-    out.push(...((data ?? []) as T[]))
+    // Page the rows too — a chunk can match more rows than PostgREST's max-rows cap.
+    let from = 0
+    while (true) {
+      const { data, error } = await verco
+        .from(table)
+        .select(select)
+        .in(column, chunk)
+        .order('id', { ascending: true }) // stable order — range() pagination skips/dupes rows without it
+        .range(from, from + PAGE - 1)
+      if (error) throw new Error(`load ${table}: ${error.message}`)
+      if (!data || data.length === 0) break
+      out.push(...(data as T[]))
+      if (data.length < PAGE) break
+      from += PAGE
+    }
   }
   return out
 }
