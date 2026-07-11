@@ -248,9 +248,9 @@ Branch states: `Cancelled`, `Non-conformance`, `Nothing Presented`, `Rebooked`, 
 
 ### 5.4 Refund Flow
 
-1. Resident or admin raises refund request → `refund_request` record created, status `Pending`
-2. DM-Ops staff review and approve
-3. Approval triggers `process-refund` Edge Function → Stripe refund initiated
+1. A `refund_request` (status `Pending`) is raised — by a resident/staff cancellation, an admin quantity reduction (auto-raised for the amount owed back), or an NCN/NP resolution
+2. A Verco admin (`contractor-admin` / `client-admin`) reviews and approves it on the admin Refunds page
+3. Approval triggers the `process-refund` Edge Function → Stripe refund initiated (spread across the booking's paid charges)
 4. `refund_request.status` → `Approved`, `stripe_refund_id` stored
 
 ---
@@ -504,7 +504,7 @@ Residents never select their sub-client or collection area manually — the addr
 |---|---|
 | Contractor/client/booking management | DM-Ops holds a live Supabase client pointed at Verco DB |
 | CPPH analytics | Nightly aggregate sync: `dm_job_code + date + attended_count` → DM-Ops via `nightly-sync-to-dm-ops` Edge Function |
-| Refund approval | DM-Ops triggers `process-refund` Edge Function via Verco API |
+| Refund approval | Verco-internal — a Verco admin approves in the admin Refunds page (`process-refund` Edge Function). Not a DM-Ops action. |
 
 ### 13.6 Payment
 
