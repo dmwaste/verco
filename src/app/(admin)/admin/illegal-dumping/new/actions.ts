@@ -3,6 +3,7 @@
 import { z } from 'zod'
 import { createClient } from '@/lib/supabase/server'
 import { validateStaffRole } from '@/lib/auth/server'
+import { getCurrentAdminClient } from '@/lib/admin/current-client'
 import { idIntakeSchema, buildIdNotes, type IdIntakeSubmission } from '@/lib/booking/id-intake'
 import type { Result } from '@/lib/result'
 
@@ -27,6 +28,32 @@ export async function createAdminIdBooking(
   }
 
   const supabase = await createClient()
+
+  // Enforce switcher scope server-side (issue #377 / BR-0021). collection_area
+  // is public-SELECT (CLAUDE.md §21) and the RPC's own gate only checks the
+  // whole accessible-client set — for a contractor-tier admin that spans every
+  // client under the contractor, so a Verge-Valet-scoped admin could otherwise
+  // land an ID booking on a City-of-Kwinana area. The switcher selection lives
+  // in a cookie/header the DB never sees, so reject a cross-switcher area here,
+  // mirroring createMudBooking (VER-281 class). A mismatched area yields no row.
+  const currentClient = await getCurrentAdminClient()
+  if (!currentClient) {
+    return { ok: false, error: 'Select a client in the switcher to log an ID collection.' }
+  }
+
+  const { data: area, error: areaError } = await supabase
+    .from('collection_area')
+    .select('id')
+    .eq('id', parsed.data.collection_area_id)
+    .eq('client_id', currentClient.id)
+    .maybeSingle()
+
+  if (areaError) {
+    return { ok: false, error: areaError.message }
+  }
+  if (!area) {
+    return { ok: false, error: 'Collection area is outside the selected client.' }
+  }
 
   // Atomic, advisory-locked creation. The RPC validates the caller's role,
   // tenant/sub-client scope and date validity, derives tenant from the area,
