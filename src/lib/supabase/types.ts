@@ -2786,6 +2786,18 @@ export type Database = {
           on_time: number
         }[]
       }
+      get_property_fy_usage: {
+        Args: {
+          p_exclude_booking_id?: string
+          p_fy_id?: string
+          p_property_id: string
+        }
+        Returns: {
+          units: number
+          usage_key: string
+          usage_kind: string
+        }[]
+      }
       get_property_penetration: {
         Args: {
           p_area_id?: string

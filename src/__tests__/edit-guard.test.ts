@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { evaluateEditGuard } from '@/lib/booking/edit-guard'
+import { evaluateEditGuard, mayKeepClosedHeldDate } from '@/lib/booking/edit-guard'
 
 // Collection date 2026-07-10 → cutoff is 2026-07-09 07:30:00 UTC (3:30pm AWST).
 const DATE = '2026-07-10'
@@ -108,5 +108,79 @@ describe('evaluateEditGuard — edit-role allowlist (SELECT ≠ EDIT)', () => {
       })
       expect(r.ok, `${role} should be allowed`).toBe(true)
     }
+  })
+})
+
+describe('mayKeepClosedHeldDate — waive the create-booking is_open guard (#378)', () => {
+  const TARGET = 'date-held'
+
+  it('lets a contractor keep the replaced booking\'s own held date', () => {
+    for (const role of ['contractor-admin', 'contractor-staff']) {
+      expect(
+        mayKeepClosedHeldDate({
+          role,
+          replaces: 'booking-1',
+          targetDateId: TARGET,
+          heldDateIds: [TARGET, TARGET],
+        }),
+      ).toBe(true)
+    }
+  })
+
+  it('blocks client-tier and residents even keeping the held date', () => {
+    for (const role of ['client-admin', 'client-staff', 'resident', 'strata', 'field', 'ranger', null]) {
+      expect(
+        mayKeepClosedHeldDate({
+          role,
+          replaces: 'booking-1',
+          targetDateId: TARGET,
+          heldDateIds: [TARGET],
+        }),
+      ).toBe(false)
+    }
+  })
+
+  it('blocks when not an edit (no replaces) — a new booking cannot land on a closed date', () => {
+    expect(
+      mayKeepClosedHeldDate({
+        role: 'contractor-admin',
+        replaces: null,
+        targetDateId: TARGET,
+        heldDateIds: [TARGET],
+      }),
+    ).toBe(false)
+  })
+
+  it('blocks MOVING to a closed date that is not the booking\'s held date', () => {
+    expect(
+      mayKeepClosedHeldDate({
+        role: 'contractor-admin',
+        replaces: 'booking-1',
+        targetDateId: 'date-other-closed',
+        heldDateIds: [TARGET],
+      }),
+    ).toBe(false)
+  })
+
+  it('blocks when the booking has no items / could not be read (empty held set)', () => {
+    expect(
+      mayKeepClosedHeldDate({
+        role: 'contractor-admin',
+        replaces: 'booking-1',
+        targetDateId: TARGET,
+        heldDateIds: [],
+      }),
+    ).toBe(false)
+  })
+
+  it('requires ALL items to share the held date (mixed → block)', () => {
+    expect(
+      mayKeepClosedHeldDate({
+        role: 'contractor-admin',
+        replaces: 'booking-1',
+        targetDateId: TARGET,
+        heldDateIds: [TARGET, 'date-other'],
+      }),
+    ).toBe(false)
   })
 })

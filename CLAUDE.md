@@ -3,8 +3,6 @@
 This file is read automatically at the start of every Claude Code session.
 Do not delete or rename it. Keep it up to date as decisions change.
 
----
-
 ## Working Mode — Project Lead
 
 You are the project lead on this repo. Take ownership of next steps; don't hand back work you can do yourself.
@@ -19,8 +17,6 @@ You are the project lead on this repo. Take ownership of next steps; don't hand 
   - You're blocked on context only he has (credential, stakeholder commitment, external decision)
 - **Frame end-of-turn updates as "what shipped + what's next"** — not "which option would you like?".
 
----
-
 ## 1. What This Project Is
 
 **Verco** is a white-labelled, multi-tenant SaaS platform for managing residential bulk verge collection bookings on behalf of WA local governments.
@@ -28,8 +24,6 @@ You are the project lead on this repo. Take ownership of next steps; don't hand 
 - **Operator:** D&M Waste Management (Safety Bay WA)
 - **Companion app:** DM-Ops (separate repo, separate Supabase project)
 - **Full spec:** See `docs/VERCO_V2_PRD.md` and `docs/VERCO_V2_TECH_SPEC.md`
-
----
 
 ## 2. Stack
 
@@ -50,8 +44,6 @@ You are the project lead on this repo. Take ownership of next steps; don't hand 
 | Maps | Leaflet via `dynamic(() => ..., { ssr: false })` | OpenStreetMap tiles; coerce Postgres `numeric` → `Number()` |
 | Hosting | Coolify on BinaryLane | Node container — no edge runtime |
 
----
-
 ## 3. Entity Hierarchy
 
 Always think in this hierarchy. Every feature touches one or more of these levels:
@@ -71,8 +63,6 @@ Category (Bulk / Ancillary / Illegal Dumping)
 **Schema naming:** `category` = capacity grouping (Bulk/Ancillary/ID, `code` column). `service` = individual types (FK → category). `allocation_rules` = per area per category. `service_rules` = per area per service. `booking_item.service_id` → FK to `service` (not `service_type`).
 
 **Key rules:** Portal is branded at **client** level. Address lookup resolves to a **collection area** — never ask resident to select one. Sub-clients are optional. `dm_job_code` on `collection_area` is DM-Ops sync metadata only.
-
----
 
 ## 4. Role Model
 
@@ -95,8 +85,6 @@ Eight roles. Scope is enforced at the DB level via RLS — never rely on fronten
 
 **Privacy rule:** Admin pages exclude `resident` from user management queries/dropdowns. `strata` users ARE admin-managed (must be bound to MUD properties by an admin); full resident list never exposed.
 
----
-
 ## 5. Supabase Client Usage
 
 Two clients exist — `lib/supabase/server.ts` (server) and `lib/supabase/client.ts` (browser). Read the source files for implementation.
@@ -105,8 +93,6 @@ Two clients exist — `lib/supabase/server.ts` (server) and `lib/supabase/client
 - **Never use the service role key** in any client-side or server component code — it must stay in `supabase/functions/`
 - Use **server client** in: `app/**/page.tsx`, `app/**/layout.tsx`, `app/api/**/route.ts`, server actions (`'use server'`)
 - Use **browser client** in: files with `'use client'` directive, custom hooks in `hooks/`
-
----
 
 ## 6. Pricing Engine — Hard Rules
 
@@ -132,8 +118,6 @@ paid_units         = requested_qty - free_units
 **Only free_units consume category budget** — paid units do not reduce the remaining count.
 
 Authoritative implementation: `supabase/functions/_shared/pricing.ts`. Node extraction: `src/lib/pricing/calculate.ts` (tested with Vitest, keep in sync). Client preview in `services-form.tsx` mirrors for display only.
-
----
 
 ## 7. Booking State Machine — Hard Rules
 
@@ -180,8 +164,6 @@ Under Review → Rebooked   (staff — NP)
 - Staff can only investigate/resolve `Disputed` or `Under Review` notices — never `Issued`
 - Resident dispute is RLS-enforced: policies constrain to `Issued → Disputed` on own bookings only
 
----
-
 ## 8. TypeScript Conventions
 
 - **Strict mode always on** — `strict`, `noUncheckedIndexedAccess`, `noImplicitReturns` in tsconfig
@@ -189,8 +171,6 @@ Under Review → Rebooked   (staff — NP)
 - **Regenerate types after every migration** — see §18 Commands
 - **Zod schemas for all external inputs** — every API route, server action, and Edge Function
 - **Result pattern** — use `Result<T, E = string>` (`{ ok: true, data }` | `{ ok: false, error }`) — never throw across async boundaries
-
----
 
 ## 9. File & Folder Conventions
 
@@ -217,8 +197,6 @@ app/
 
 Each group has its own `layout.tsx` with appropriate auth + role guards.
 
----
-
 ## 10. Proxy (was Middleware)
 
 `src/proxy.ts` (renamed from `middleware.ts` for Next.js 16) runs on every request. Exported function is `proxy`, not `middleware`. It does three things in order:
@@ -235,8 +213,6 @@ The resolved `client_id`, `client_slug`, and `contractor_id` are set as **reques
 
 **Admin/field surfaces live on their own hosts** (`admin.verco.au` / `field.verco.au`), never per-tenant. The "Admin" links on resident pages point at the canonical admin host via `adminOrigin(host)` in `lib/proxy/hostnames.ts` (prod → fixed `https://admin.verco.au` regardless of tenant, even a custom domain; dev → `http://admin.localhost:PORT`) — NOT a per-tenant segment rewrite. When `ADMIN_SUBDOMAIN_ENFORCED=true` (server-runtime Coolify env), the proxy 308-redirects `{tenant}/admin/*` and `{tenant}/field/*` to those hosts. Auth cookies are host-only, so moving a tenant-subdomain session to the admin host forces a one-time OTP re-login.
 
----
-
 ## 11. Edge Functions
 
 All Edge Functions live in `supabase/functions/`. Each function is a single `index.ts` file. Shared code in `_shared/`. See `docs/VERCO_V2_TECH_SPEC.md` §10 for contracts. Follow the pattern of existing functions (auth → parse → validate → execute).
@@ -248,8 +224,6 @@ All Edge Functions live in `supabase/functions/`. Each function is a single `ind
 - **Calling from Next.js** — use direct `fetch()` with explicit URL/headers, not `supabase.functions.invoke()` (unreliable in SSR)
 - **Cron EFs** — return HTTP 500 when any per-row work fails (pg_cron only sees HTTP status; a 200 hides partial failures). Wrap `cron.schedule` migrations in `DO $$ IF EXISTS cron.unschedule $$ END` so they can be re-applied
 
----
-
 ## 12. RLS — What Claude Code Must Know
 
 RLS is the primary security layer. Application code is defence-in-depth, not the first line of defence. See `docs/VERCO_V2_TECH_SPEC.md` §6 for full policy details and helper function reference.
@@ -260,13 +234,9 @@ RLS is the primary security layer. Application code is defence-in-depth, not the
 - **Public SELECT tables** (no auth required): `client`, `collection_area`, `eligible_properties`, `collection_date`, `category`, `service`, `service_rules`, `allocation_rules`, `financial_year`
 - **Cross-table RLS policies** that cause recursion: wrap lookups in `SECURITY DEFINER` functions (see `current_user_contact_id_by_email()` for pattern)
 
----
-
 ## 13. Capacity — Concurrency Rules
 
 **Never check capacity in application code and then insert separately.** Always use the `create_booking_with_capacity_check` RPC — it wraps capacity check + insert in a serialisable transaction with a Postgres advisory lock. See `docs/VERCO_V2_TECH_SPEC.md` §9 for details.
-
----
 
 ## 14. Testing Requirements
 
@@ -280,8 +250,6 @@ RLS is the primary security layer. Application code is defence-in-depth, not the
 1. Unit tests for business logic (`src/__tests__/`)
 2. E2E test for user-facing flows (`tests/e2e/`)
 3. RLS test if a new table or policy is added
-
----
 
 ## 15. What Not To Build
 
@@ -298,8 +266,6 @@ These are explicitly out of scope for v2. If a task seems to require one of thes
 | `dm-admin` / `dm-staff` / `dm-field` roles | These are DM-Ops roles — Verco v2 does not have them |
 | Strata self-service booking portal | Data layer (role, junction, RLS, admin provisioning) is wired — UI deliberately deferred. Admin-on-behalf is the only MUD booking path today |
 
----
-
 ## 16. Environment Variables
 
 See `docs/VERCO_V2_TECH_SPEC.md` §16 for full list. Key rules:
@@ -307,16 +273,12 @@ See `docs/VERCO_V2_TECH_SPEC.md` §16 for full list. Key rules:
 - **`SUPABASE_SERVICE_ROLE_KEY`** — Edge Functions only. **If you need it in `app/` — stop. You are doing something wrong.**
 - **Edge Function secrets** — set in Supabase dashboard, never in `.env`
 
----
-
 ## 17. Git Conventions
 
 - **Branches:** `feature/`, `fix/`, `chore/` prefixes. **Commits:** Conventional (`feat:`, `fix:`, `chore:`, `test:`).
 - **Base branch is `develop`, not `main`.** Every PR targets `develop` — `gh pr create --base develop ...`. `main` is the production branch and updates only via batched `develop → main` PRs that Dan cuts when ready to deploy. The Coolify deploy fires on push-to-main, so this gives us one deploy per batch instead of one per PR.
 - **Hotfix exception:** if production is broken and waiting on a develop-batch isn't acceptable, branch off `main`, fix, PR straight to `main` with explicit "hotfix" in the title. Then immediately back-merge `main → develop` so develop doesn't drift.
 - **Never commit:** `.env*`, `supabase/.temp/`
-
----
 
 ## 18. Commands Reference
 
@@ -331,8 +293,6 @@ pnpm supabase gen types typescript --project-id tfddjmplcizfirxqhotv > src/lib/s
 # After type gen, strip any CLI warnings the command appends to the file.
 ```
 
----
-
 ## 19. Key Documents
 
 | Document | Location | Read when |
@@ -340,8 +300,6 @@ pnpm supabase gen types typescript --project-id tfddjmplcizfirxqhotv > src/lib/s
 | PRD | `docs/VERCO_V2_PRD.md` | Unclear on scope, user flows, or business rules |
 | TECH_SPEC | `docs/VERCO_V2_TECH_SPEC.md` | Unclear on schema, RLS, Edge Function contracts |
 | Supabase types | `lib/supabase/types.ts` | Always — generated, never hand-edit |
-
----
 
 ## 20. Red Lines
 
@@ -355,8 +313,6 @@ These are absolute. If a task requires crossing one, stop and flag it.
 6. **Never write to DM-Ops tables from Verco application code** — only `nightly-sync-to-dm-ops` Edge Function touches DM-Ops
 7. **Never bypass RLS with application-level filtering as a substitute** — RLS is the contract, not a fallback
 
----
-
 ## 21. Patterns & Gotchas — terse rules only; detail lives in the named `memory/` files, fold new items into an existing themed entry to keep this file under 400 lines.
 
 ### Admin + white-label UI — admin list surfaces compose `PageHeader`/`FilterBar`/`SearchInput`/`FilterSelect`/`Th`/`Pagination` (`components/admin/`) + `<StatusBadge entity status>` (`components/status-badge.tsx`) — never re-type header/filter/pill/pagination markup inline. Status colours come ONLY from the semantic pairs in `lib/ui/status-styles.ts` (backed by `--color-status-{success,warn,error,info}` + `-bg` in globals.css); the type scale is token-only — no arbitrary `text-[Npx]` (12px=`text-xs`, 14px=`text-sm`, uppercase section labels=`text-caption`, page titles=`text-xl` via PageHeader); keyboard focus rings come from the `.admin-surface :focus-visible` base rule (any `outline-none` must pair an explicit affordance); admin `<table>`s carry `tabular-nums`. White-label (public/field surfaces; admin exempt) uses CSS vars not hex — `--brand`/`--brand-accent`/`--brand-foreground` + `-light`/`-hover`/`-dark`; `text-white` silently fails under Tailwind v4 + Turbopack, use `--brand-foreground` (defaults `#FFFFFF`) with an inline `style={{ color }}` fallback (memory `tailwind-v4-turbopack-gotcha.md`). FAQ markdown: `components/faq-answer.tsx` is directive-free (RSC/client dual-render); NO `rehype-raw` EVER — admin-authored multi-tenant content on public pages, raw HTML stays inert; `tel:` links via `urlTransform`. Full developer reference: `docs/admin-design-system.md`.
@@ -369,11 +325,9 @@ These are absolute. If a task requires crossing one, stop and flag it.
 
 ### Migrations + deploy — never Supabase MCP `apply_migration` on prod (stamps `version=now()`, blocks the next `db push`); always `migration new` → file → CI `db push`. NEVER reuse a 14-digit version prefix already applied to prod (dup → `42701` aborts the whole batch incl. EF + Coolify steps); scan for duplicate prefixes in pre-release review. Types Freshness CI gens from prod, so new-RPC + new-consumer in one PR fails CI — split PR-A (migration) → release → PR-B (consumer + regen'd types); regen `types.ts` with the LOCKFILE-pinned `supabase` (node_modules / `npx supabase@<pinned>`), NOT the global CLI — version skew adds/drops schema blocks (e.g. `graphql_public`) failing the byte-exact Types-Freshness diff, so diff the regen vs the branch base to confirm the delta is ONLY your object. Data-seed migrations keyed on later-seeded rows (e.g. KWN in `seed.sql`) must no-op on a fresh `db reset` — assert an invariant, never a hardcoded count. `NEXT_PUBLIC_*` is baked at build time via Docker build-args (`deploy.yml`) — Coolify runtime env is a no-op; new vars go in `.env.example` + GitHub secrets + `deploy.yml` build-arg + Dockerfile `ENV`. Auth email + the `[auth]` block live in `supabase/templates/*.html` + `config.toml`, applied via `supabase config push` — it syncs the ENTIRE `[auth]` block (never `--yes` unreviewed, no undo); GoTrue uses Go `html/template` (no sprig), parse errors silently fall back to defaults — test with a fresh OTP. Verify prod migrations via `supabase db query --linked` + RAISE-rollback. Memory: `mcp-apply-migration-version-sync.md`, `ghost-release-pattern.md`, `seed-migration-reset-safety.md`, `feedback-supabase-config-push-stdin.md`, `deploy-verification-url-gotcha.md`, `types-regen-cli-version-skew.md`.
 
-### DB objects (tables, columns, RLS, functions, views) — new tables: attach `audit_trigger_fn()` AFTER INSERT/UPDATE/DELETE + add cols to `lib/audit/field-labels.ts` + render `<AuditTimeline>` (client pages need a server-action wrapper, `collection-dates/actions.ts`); new columns need matching UPDATE RLS or writes silently fail; a new FK to a tightly-RLS'd table needs a matching SELECT policy IN THE SAME migration or admin embeds return null (memory `rls-coverage-lags-data-plumbing.md`). SRF in an RLS `USING` clause is rejected (`0A000`): use `col IN (SELECT srf())`, NOT `col = ANY(srf())`. plpgsql role gates must be NULL-safe — `current_user_role()` is NULL for a role-less caller and `NULL <> 'x'` / `NULL NOT IN (...)` are falsy → gate with `(current_user_role() IN (...)) IS NOT TRUE`. Views default to DEFINER semantics — create `WITH (security_invoker = on)` or they bypass the caller's RLS (`v_mud_next_expected` leaked cross-tenant until migration `20260702060000`). SECURITY DEFINER helpers + anything the advisor flags `function_search_path_mutable` get `SET search_path = public, pg_temp` (pg_temp listed LAST). Postgres grants EXECUTE to PUBLIC on creation, so every public-schema fn is anon-callable via `/rpc/` — staff-only DEFINER RPCs must `REVOKE EXECUTE … FROM PUBLIC, anon` AND carry the NULL-safe role gate; do NOT revoke anon from the identity helpers (`current_user_*`, `is_*`, `has_role`, `accessible_client_ids`, `user_sub_client_*`) — the public /book RLS references them (inert for anon anyway). `CREATE OR REPLACE` resets a fn's search_path pin — re-declare it. Token-gated PUBLIC access (survey `/survey/[token]`) = anon-callable DEFINER RPC taking the token as arg (RLS can't scope to the *queried* token) — KEEP anon EXECUTE, never a broad anon SELECT. RLS `USING`/`WITH CHECK` that calls `is_*()`/`current_user_*()` helpers BARE, or gates via an uncorrelated `booking_id IN (SELECT id FROM booking)` subquery (re-runs another table's RLS per row), evaluates per-row → `statement_timeout` under real data even on TINY tables (`auth_rls_initplan`; invisible in dev seed) — wrap stable helpers in `(select …)` to hoist to InitPlan + gate on an indexed denormalised col (`client_id IN (select accessible_client_ids())`) not a cross-table subquery; measure via impersonated `EXPLAIN` under the role JWT rolled-back on prod. Memory `security-invoker-hardening.md`, `rls-security-patterns.md`, `survey-public-access-pipeline.md`, `verco-rls-initplan-timeout.md`.
+### DB objects (tables, columns, RLS, functions, views) — new tables: attach `audit_trigger_fn()` AFTER INSERT/UPDATE/DELETE + add cols to `lib/audit/field-labels.ts` + render `<AuditTimeline>` (client pages need a server-action wrapper, `collection-dates/actions.ts`); new columns need matching UPDATE RLS or writes silently fail; audit `pg_policies` per-COMMAND for every table an app path writes — SELECT+UPDATE existing ≠ INSERT covered (`refund_request` had no INSERT policy for 5 weeks → five insert sites silently dead, zero rows ever, fixed `20260711080000`); a new FK to a tightly-RLS'd table needs a matching SELECT policy IN THE SAME migration or admin embeds return null (memory `rls-coverage-lags-data-plumbing.md`). SRF in an RLS `USING` clause is rejected (`0A000`): use `col IN (SELECT srf())`, NOT `col = ANY(srf())`. plpgsql role gates must be NULL-safe — `current_user_role()` is NULL for a role-less caller and `NULL <> 'x'` / `NULL NOT IN (...)` are falsy → gate with `(current_user_role() IN (...)) IS NOT TRUE`. Views default to DEFINER semantics — create `WITH (security_invoker = on)` or they bypass the caller's RLS (`v_mud_next_expected` leaked cross-tenant until migration `20260702060000`). SECURITY DEFINER helpers + anything the advisor flags `function_search_path_mutable` get `SET search_path = public, pg_temp` (pg_temp listed LAST). Postgres grants EXECUTE to PUBLIC on creation, so every public-schema fn is anon-callable via `/rpc/` — staff-only DEFINER RPCs must `REVOKE EXECUTE … FROM PUBLIC, anon` AND carry the NULL-safe role gate; do NOT revoke anon from the identity helpers (`current_user_*`, `is_*`, `has_role`, `accessible_client_ids`, `user_sub_client_*`) — the public /book RLS references them (inert for anon anyway). `CREATE OR REPLACE` resets a fn's search_path pin — re-declare it. Token-gated PUBLIC access (survey `/survey/[token]`) = anon-callable DEFINER RPC taking the token as arg (RLS can't scope to the *queried* token) — KEEP anon EXECUTE, never a broad anon SELECT. RLS `USING`/`WITH CHECK` that calls `is_*()`/`current_user_*()` helpers BARE, or gates via an uncorrelated `booking_id IN (SELECT id FROM booking)` subquery (re-runs another table's RLS per row), evaluates per-row → `statement_timeout` under real data even on TINY tables (`auth_rls_initplan`; invisible in dev seed) — wrap stable helpers in `(select …)` to hoist to InitPlan + gate on an indexed denormalised col (`client_id IN (select accessible_client_ids())`) not a cross-table subquery; measure via impersonated `EXPLAIN` under the role JWT rolled-back on prod. Memory `security-invoker-hardening.md`, `rls-security-patterns.md`, `survey-public-access-pipeline.md`, `verco-rls-initplan-timeout.md`.
 
-### Capacity + booking gates — capacity-checking RPCs MUST branch on `collection_area.capacity_pool_id`: pooled areas (VV) keep counters on `collection_date_pool` (checking/locking `collection_date` neither enforces nor serialises) — mirror `create_booking_with_capacity_check`'s pooled branch, and merge pool counts in any UI showing per-date counters (else phantom capacity). Staged go-live (`collection_area.is_active`, WS-A): only active areas are bookable, enforced at 4 layers — client fail-OPEN (`!== false`), create-booking EF + `createMudBooking` + the RPC fail-CLOSED, and `booking_resident_insert` RLS `WITH CHECK collection_area_is_active(...)` (the helper COALESCEs false). It's data-driven: `is_active` defaults true, so holding a council back is an admin toggle, never a migration (create-then-toggle-off for a not-yet-live council). Cancellation cutoff: NEVER `Date#setHours()` (runtime-TZ-dependent, wrong on the UTC prod box) — use `cancellationCutoff`/`isPastCancellationCutoff` (`src/lib/booking/cancellation-cutoff.ts`; 07:30 UTC via `Date.UTC`, matches the DB trigger `enforce_cancellation_cutoff`). Field crew model: a `collection_stop` = booking × `service.waste_stream`, generated only by the push-to-OptimoRoute EF at T-3; booking status derives from stops via `rollup_booking_status_from_stops` (never set directly when stops exist). Memory: `field-stops-optimoroute-architecture.md`, `booking-write-paths-and-gating.md`, `category-code-equals-capacity-bucket.md`.
-
----
+### Capacity + booking gates — capacity-checking RPCs MUST branch on `collection_area.capacity_pool_id`: pooled areas (VV) keep counters on `collection_date_pool` (checking/locking `collection_date` neither enforces nor serialises) — mirror `create_booking_with_capacity_check`'s pooled branch, and merge pool counts in any UI showing per-date counters (else phantom capacity). Staged go-live (`collection_area.is_active`, WS-A): only active areas are bookable, enforced at 4 layers — client fail-OPEN (`!== false`), create-booking EF + `createMudBooking` + the RPC fail-CLOSED, and `booking_resident_insert` RLS `WITH CHECK collection_area_is_active(...)` (the helper COALESCEs false). It's data-driven: `is_active` defaults true, so holding a council back is an admin toggle, never a migration (create-then-toggle-off for a not-yet-live council). Cancellation cutoff: NEVER `Date#setHours()` (runtime-TZ-dependent, wrong on the UTC prod box) — use `cancellationCutoff`/`isPastCancellationCutoff` (`src/lib/booking/cancellation-cutoff.ts`; 07:30 UTC via `Date.UTC`, matches the DB trigger `enforce_cancellation_cutoff`). Field crew model: a `collection_stop` = booking × `service.waste_stream`, generated only by the push-to-OptimoRoute EF at T-3; booking status derives from stops via `rollup_booking_status_from_stops` (never set directly when stops exist). **FY allocation-usage reads in the /book flow MUST go through the `get_property_fy_usage` SECURITY DEFINER RPC (PII-free per-service+per-category counts), NEVER a direct `booking`/`booking_item` read — the services step runs pre-OTP, so an anonymous resident's RLS-scoped read returns zero (shows full allocation "X of X" after booking + prices used units free). Feeds services-form, confirm-form, and `calculatePrice`/swap-eligibility in the EF.** Memory: `field-stops-optimoroute-architecture.md`, `booking-write-paths-and-gating.md`, `category-code-equals-capacity-bucket.md`, `pre-otp-allocation-usage-rpc.md`.
 
 ## gstack
 

@@ -11,9 +11,10 @@ import { invokeEfWithUserToken } from '@/lib/supabase/invoke-ef-client'
 import { BookingStatusBadge } from '@/components/booking/booking-status-badge'
 import { DetailHeader } from '@/components/admin/detail-header'
 import { FieldLabel, Input, Select, Textarea } from '@/components/admin/form'
-import { LOCATION_OPTIONS, type LocationOption } from '@/lib/booking/schemas'
+import { LOCATION_OPTIONS, MAX_SERVICE_QTY, type LocationOption } from '@/lib/booking/schemas'
 import { canEditCollectionDetails } from '@/lib/booking/collection-details-edit'
-import { confirmBooking, cancelBooking, updateContact, updateCollectionDetails, updateNotes } from './actions'
+import { isContractorStaff } from '@/lib/auth/roles'
+import { confirmBooking, cancelBooking, updateContact, updateCollectionDetails, updateNotes, updateBookingQuantities } from './actions'
 import { effectiveCapacity, indexPoolDates } from '@/lib/capacity/effective-capacity'
 import { cn } from '@/lib/utils'
 import type { Database } from '@/lib/supabase/types'
@@ -121,6 +122,23 @@ export function BookingDetailClient({
   // Notes edit form
   const [editNotesText, setEditNotesText] = useState(booking.notes ?? '')
 
+  // Inline quantity editor (issue #380). Aggregate current per-service quantity
+  // (a service can span a free + a paid booking_item row).
+  const originalQty = new Map<string, number>()
+  const serviceNameById = new Map<string, string>()
+  for (const it of booking.booking_item) {
+    originalQty.set(it.service_id, (originalQty.get(it.service_id) ?? 0) + it.no_services)
+    serviceNameById.set(it.service_id, (it.service as { name: string }).name)
+  }
+  const serviceLines = Array.from(originalQty.entries()).map(([service_id, qty]) => ({
+    service_id,
+    name: serviceNameById.get(service_id) ?? 'Service',
+    qty,
+  }))
+  const [editingQuantities, setEditingQuantities] = useState(false)
+  const [editQty, setEditQty] = useState<Map<string, number>>(() => new Map(originalQty))
+  const [quantityResult, setQuantityResult] = useState<string | null>(null)
+
   const area = booking.collection_area as { name: string; code: string }
   const property = booking.eligible_properties as { formatted_address: string | null; address: string } | null
   const contact = booking.contact as { first_name: string; last_name: string; full_name: string; mobile_e164: string | null; email: string } | null
@@ -150,10 +168,28 @@ export function BookingDetailClient({
   const canEdit = ['Pending Payment', 'Submitted', 'Confirmed'].includes(booking.status)
 
   // Collection-details edit affordance. Pre-dispatch this matches `canEdit`;
-  // once Scheduled it additionally opens to contractor roles so D&M staff can
-  // correct a dispatched booking's collection date (VER-285). The
-  // updateCollectionDetails server action + RLS re-enforce this.
+  // post-dispatch (Scheduled/Completed) it opens to contractor roles so D&M
+  // staff can correct a dispatched or wrongly-collected booking's date
+  // (VER-285 / #378). The updateCollectionDetails server action + RLS
+  // re-enforce this.
   const canEditDetails = canEditCollectionDetails(booking.status, userRole)
+
+  // Contractor (D&M) staff may reschedule into a closed or past/earlier date to
+  // correct a crew collection error (D1, #378). Client-tier admins keep the
+  // resident date filter (open, today-or-future only). The updateCollectionDetails
+  // server action re-validates this — the relaxed filter is a convenience, not
+  // the security boundary.
+  const isContractor = isContractorStaff(userRole)
+
+  // Inline quantity editing (issue #380) is offered only for Confirmed,
+  // non-MUD, non-ID bookings. Pending Payment (unpaid / open Stripe session) and
+  // Scheduled (field stops exist) route to cancel & rebook; MUD has a per-FY cap
+  // double-spend risk. The updateBookingQuantities server action + EF re-enforce.
+  const canEditQuantities =
+    canEditDetails && booking.status === 'Confirmed' && !isMud && !isId
+  const quantitiesChanged = serviceLines.some(
+    (l) => (editQty.get(l.service_id) ?? l.qty) !== l.qty,
+  )
 
   // Services edit URL — wizard handles pricing/capacity.
   //
@@ -206,33 +242,38 @@ export function BookingDetailClient({
   })
   const poolId = areaPoolMembership?.capacity_pool_id ?? null
 
-  // Fetch available collection dates for inline date picker
+  // Fetch available collection dates for inline date picker. Contractor staff
+  // see closed + past dates too (crew-error correction, #378); client-tier
+  // admins keep the open/today-or-future resident filter.
   const { data: availableDates } = useQuery({
-    queryKey: ['collection-dates-admin', booking.collection_area_id],
+    queryKey: ['collection-dates-admin', booking.collection_area_id, isContractor],
     enabled: editingDetails && !!booking.collection_area_id,
     queryFn: async () => {
-      const { data } = await supabase
+      let query = supabase
         .from('collection_date')
         .select(
-          `id, date,
+          `id, date, is_open,
            bulk_capacity_limit, bulk_units_booked, bulk_is_closed,
            anc_capacity_limit, anc_units_booked, anc_is_closed,
            id_capacity_limit, id_units_booked, id_is_closed`,
         )
         .eq('collection_area_id', booking.collection_area_id!)
-        .eq('is_open', true)
-        .gte('date', new Date().toISOString().split('T')[0])
-        .order('date', { ascending: true })
+      if (!isContractor) {
+        query = query
+          .eq('is_open', true)
+          .gte('date', new Date().toISOString().split('T')[0])
+      }
+      const { data } = await query.order('date', { ascending: true })
       return data ?? []
     },
   })
 
   const { data: poolDates } = useQuery({
-    queryKey: ['pool-dates-admin', poolId],
+    queryKey: ['pool-dates-admin', poolId, isContractor],
     enabled: editingDetails && !!poolId,
     queryFn: async () => {
       if (!poolId) return []
-      const { data } = await supabase
+      let query = supabase
         .from('collection_date_pool')
         .select(
           `date,
@@ -241,12 +282,19 @@ export function BookingDetailClient({
            id_capacity_limit, id_units_booked, id_is_closed`,
         )
         .eq('capacity_pool_id', poolId)
-        .gte('date', new Date().toISOString().split('T')[0])
+      // Contractor staff need past pool dates too (crew-error correction, #378).
+      if (!isContractor) {
+        query = query.gte('date', new Date().toISOString().split('T')[0])
+      }
+      const { data } = await query
       return data ?? []
     },
   })
 
   const poolByDate = indexPoolDates(poolDates ?? [])
+
+  // Today (ISO yyyy-mm-dd) for flagging closed/past dates in the picker (#378).
+  const today = new Date().toISOString().split('T')[0]!
 
   async function handleConfirm() {
     setIsPending(true)
@@ -354,6 +402,46 @@ export function BookingDetailClient({
     }
     setEditingDetails(false)
     setIsPending(false)
+    router.refresh()
+  }
+
+  function setQty(serviceId: string, next: number) {
+    setEditQty((prev) => new Map(prev).set(serviceId, Math.min(MAX_SERVICE_QTY, Math.max(1, next))))
+  }
+
+  async function handleSaveQuantities() {
+    setIsPending(true)
+    setError(null)
+    setQuantityResult(null)
+    const items = serviceLines.map((l) => ({
+      service_id: l.service_id,
+      no_services: editQty.get(l.service_id) ?? l.qty,
+    }))
+    const result = await updateBookingQuantities(booking.id, items)
+    if (!result.ok) {
+      setError(result.error)
+      setIsPending(false)
+      return
+    }
+    setEditingQuantities(false)
+    setIsPending(false)
+    const { refundOwedCents, refundState } = result.data
+    const dollars = (refundOwedCents / 100).toFixed(2)
+    if (refundState === 'failed' && refundOwedCents > 0) {
+      // Quantities DID update, but no refund_request exists — never claim a
+      // refund is on its way when nothing was recorded.
+      setError(
+        `Quantities were updated, but the $${dollars} refund could not be recorded — no refund request exists. Process it manually.`,
+      )
+    } else {
+      setQuantityResult(
+        refundState === 'initiated'
+          ? `Quantities updated. A refund of $${dollars} has been initiated.`
+          : refundState === 'queued'
+            ? `Quantities updated. A refund of $${dollars} is awaiting admin approval on the Refunds page.`
+            : 'Quantities updated.',
+      )
+    }
     router.refresh()
   }
 
@@ -622,9 +710,16 @@ export function BookingDetailClient({
                 {(availableDates ?? []).map((d) => {
                   const cap = effectiveCapacity(d, poolId, poolByDate)
                   const spots = Math.max(0, cap.bulk_capacity_limit - cap.bulk_units_booked)
+                  // Flag the dates only contractor staff see, so a crew-error
+                  // correction into a closed/past date is deliberate (#378).
+                  const flags = [
+                    d.is_open === false ? 'closed' : null,
+                    d.date < today ? 'past' : null,
+                  ].filter(Boolean)
+                  const suffix = flags.length ? ` · ${flags.join(', ')}` : ''
                   return (
                     <option key={d.id} value={d.id}>
-                      {format(new Date(d.date + 'T00:00:00'), 'EEE d MMM yyyy')} ({spots} spots)
+                      {format(new Date(d.date + 'T00:00:00'), 'EEE d MMM yyyy')} ({spots} spots){suffix}
                     </option>
                   )
                 })}
@@ -775,16 +870,25 @@ export function BookingDetailClient({
         </div>
       )}
 
-      {/* Services — edit via wizard (pricing/capacity) */}
+      {/* Services — inline quantity editor (issue #380), same collection date */}
       <div className="rounded-xl bg-white p-5 shadow-sm">
         <div className="mb-3 flex items-center justify-between">
           <span className="text-caption font-semibold uppercase tracking-wide text-gray-500">
             Services
           </span>
-          {editServicesUrl && (
-            <Link href={editServicesUrl} className="text-gray-400 hover:text-[#293F52]" aria-label="Edit services">
+          {canEditQuantities && !editingQuantities && (
+            <button
+              type="button"
+              onClick={() => {
+                setQuantityResult(null)
+                setEditQty(new Map(originalQty))
+                setEditingQuantities(true)
+              }}
+              className="text-gray-400 hover:text-[#293F52]"
+              aria-label="Edit quantities"
+            >
               <PencilIcon />
-            </Link>
+            </button>
           )}
           {isMud && canEdit && (
             <span
@@ -794,8 +898,87 @@ export function BookingDetailClient({
               Cancel &amp; rebook to edit
             </span>
           )}
+          {!isMud && !isId && canEdit && canEditDetails && !canEditQuantities && (
+            <span
+              className="text-2xs text-gray-500"
+              title="Service quantities can only be edited on Confirmed bookings. Cancel and rebook to change services."
+            >
+              Cancel &amp; rebook to edit
+            </span>
+          )}
         </div>
+
+        {editingQuantities ? (
+          <div className="flex flex-col gap-2.5">
+            {serviceLines.map((line) => {
+              const qty = editQty.get(line.service_id) ?? line.qty
+              return (
+                <div
+                  key={line.service_id}
+                  className="flex items-center justify-between rounded-lg bg-gray-50 px-2.5 py-2 text-body-sm"
+                >
+                  <span className="text-gray-900">{line.name}</span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      aria-label={`Decrease ${line.name}`}
+                      onClick={() => setQty(line.service_id, qty - 1)}
+                      disabled={qty <= 1}
+                      className="flex size-7 items-center justify-center rounded-md border-[1.5px] border-gray-200 bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                    >
+                      &minus;
+                    </button>
+                    <span className="w-6 text-center font-semibold tabular-nums text-gray-900">{qty}</span>
+                    <button
+                      type="button"
+                      aria-label={`Increase ${line.name}`}
+                      onClick={() => setQty(line.service_id, qty + 1)}
+                      disabled={qty >= MAX_SERVICE_QTY}
+                      className="flex size-7 items-center justify-center rounded-md border-[1.5px] border-gray-200 bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                    >
+                      +
+                    </button>
+                  </div>
+                </div>
+              )
+            })}
+            <p className="text-xs leading-relaxed text-gray-500">
+              Reductions refund any paid extras automatically, keeping the same collection date.
+              Adding a paid extra isn&rsquo;t supported here &mdash; cancel &amp; rebook.
+            </p>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={handleSaveQuantities}
+                disabled={isPending || !quantitiesChanged}
+                className="flex-1 rounded-lg bg-[#293F52] px-3 py-2 text-body-sm font-semibold text-white disabled:opacity-50"
+              >
+                {isPending ? 'Saving...' : 'Save'}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setEditingQuantities(false)
+                  setEditQty(new Map(originalQty))
+                }}
+                className="flex-1 rounded-lg border-[1.5px] border-gray-200 bg-white px-3 py-2 text-body-sm font-semibold text-gray-700 hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+            </div>
+            {editServicesUrl && (
+              <Link href={editServicesUrl} className="text-xs font-medium text-[#293F52] underline">
+                Add or change service types (full editor) &rarr;
+              </Link>
+            )}
+          </div>
+        ) : (
         <div className="flex flex-col gap-1.5">
+          {quantityResult && (
+            <div role="status" className="mb-1 rounded-lg border border-status-success bg-status-success-bg px-3 py-2 text-body-sm text-status-success">
+              {quantityResult}
+            </div>
+          )}
           {includedItems.map((item) => (
             <div
               key={item.id}
@@ -835,6 +1018,7 @@ export function BookingDetailClient({
             </div>
           )}
         </div>
+        )}
       </div>
 
       </div>
