@@ -28,6 +28,8 @@ import { parseFlags, requireEnv } from './lib/cli'
 import { loadAreaMap } from './lib/area-map'
 import { fetchConsolidatedBookings } from './lib/airtable-bookings'
 import { planNoteBackfill, type NoteBackfillBooking, type NoteBackfillPlan } from './lib/note-backfill'
+import { pagedIn, uniq } from './lib/db'
+import { csvCell, trunc, timestamp } from './lib/report'
 
 const DEFAULT_COUNCILS = ['MOS', 'COT', 'PEP']
 const SOURCE_BASE_ID = 'appWSysd50QoVaaRD' // "Verge Valet Bookings"
@@ -210,65 +212,6 @@ function writeReport(plan: NoteBackfillPlan, stamp: string, meta: { councils: st
   writeFileSync(mdPath, md.join('\n'))
   writeFileSync(csvPath, csv)
   return { md: mdPath, csv: csvPath }
-}
-
-// ─── Small helpers ─────────────────────────────────────────────────────────────
-
-type Filterable = { eq: (c: string, v: string) => Filterable; or: (f: string) => Filterable }
-type Pageable = {
-  order: (c: string, opts: { ascending: boolean }) => Pageable
-  range: (from: number, to: number) => PromiseLike<{ data: unknown[] | null; error: { message: string } | null }>
-}
-
-async function pagedIn<T>(
-  verco: SupabaseClient,
-  table: string,
-  select: string,
-  column: string,
-  values: string[],
-  refine?: (q: Filterable) => Filterable,
-): Promise<T[]> {
-  const out: T[] = []
-  const CHUNK = 100
-  const PAGE = 1000
-  for (let i = 0; i < values.length; i += CHUNK) {
-    const chunk = values.slice(i, i + CHUNK)
-    if (chunk.length === 0) continue
-    // Page the rows too — a chunk can match more rows than PostgREST's max-rows cap.
-    let from = 0
-    while (true) {
-      let q = verco.from(table).select(select).in(column, chunk) as unknown as Filterable
-      if (refine) q = refine(q)
-      const { data, error } = await (q as unknown as Pageable)
-        .order('id', { ascending: true }) // stable order — range() pagination skips/dupes rows without it
-        .range(from, from + PAGE - 1)
-      if (error) throw new Error(`load ${table}: ${error.message}`)
-      if (!data || data.length === 0) break
-      out.push(...(data as T[]))
-      if (data.length < PAGE) break
-      from += PAGE
-    }
-  }
-  return out
-}
-
-function uniq(xs: string[]): string[] {
-  return [...new Set(xs)]
-}
-
-function csvCell(v: string): string {
-  return /[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v
-}
-
-function trunc(s: string, n: number): string {
-  const flat = s.replace(/\s+/g, ' ').trim()
-  return flat.length > n ? flat.slice(0, n - 1) + '…' : flat
-}
-
-function timestamp(): string {
-  const d = new Date()
-  const z = (n: number) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}${z(d.getMonth() + 1)}${z(d.getDate())}-${z(d.getHours())}${z(d.getMinutes())}${z(d.getSeconds())}`
 }
 
 main().catch((err) => {

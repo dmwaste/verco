@@ -28,6 +28,8 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import { writeFileSync } from 'node:fs'
 import { parseFlags, requireEnv } from './lib/cli'
 import { normaliseWasteLocation } from './lib/reconcile'
+import { pagedIn, uniq } from './lib/db'
+import { timestamp } from './lib/report'
 
 const KWN_BASE = 'apppzIjIc05ghcixH'
 const BOOKINGS_ALL = 'tblthTRXTHTvUkxBk'
@@ -328,28 +330,10 @@ async function fetchMaster(token: string, onlyRefs: Set<string> | null = null): 
   return out
 }
 
-async function pagedIn<T>(verco: SupabaseClient, table: string, select: string, column: string, values: string[]): Promise<T[]> {
-  const out: T[] = []
-  for (let i = 0; i < values.length; i += 100) {
-    const chunk = values.slice(i, i + 100)
-    if (!chunk.length) continue
-    const { data, error } = await verco.from(table).select(select).in(column, chunk)
-    if (error) throw new Error(`load ${table}: ${error.message}`)
-    out.push(...((data ?? []) as T[]))
-  }
-  return out
-}
-
-const uniq = (xs: string[]) => [...new Set(xs)]
 function mode(xs: string[]): string {
   const c = new Map<string, number>()
   for (const x of xs) c.set(x, (c.get(x) ?? 0) + 1)
   return [...c.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? ''
-}
-function timestamp(): string {
-  const d = new Date()
-  const z = (n: number) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}${z(d.getMonth() + 1)}${z(d.getDate())}-${z(d.getHours())}${z(d.getMinutes())}${z(d.getSeconds())}`
 }
 
 main().catch((err) => { console.error('Fatal:', err); process.exit(1) })

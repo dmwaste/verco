@@ -102,7 +102,8 @@ function parseRow(id: string, f: RawFields): SourceBooking | null {
   }
 }
 
-function num(v: unknown): number {
+/** Coerce an Airtable field (number, numeric string, or absent) to an integer. */
+export function num(v: unknown): number {
   if (typeof v === 'number') return v
   if (typeof v === 'string') {
     const n = parseInt(v, 10)

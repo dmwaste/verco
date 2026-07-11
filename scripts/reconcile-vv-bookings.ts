@@ -38,6 +38,8 @@ import {
   type ActionPlan,
   type Action,
 } from './lib/reconcile'
+import { pagedIn, uniq } from './lib/db'
+import { csvCell, trunc, timestamp } from './lib/report'
 
 const DEFAULT_COUNCILS = ['MOS', 'COT', 'PEP']
 const SOURCE_BASE_ID = 'appWSysd50QoVaaRD' // "Verge Valet Bookings"
@@ -357,29 +359,6 @@ function printSummary(counts: Record<string, number>, findings: Finding[]) {
 
 // ─── Small helpers ─────────────────────────────────────────────────────────────
 
-async function pagedIn<T>(
-  verco: SupabaseClient,
-  table: string,
-  select: string,
-  column: string,
-  values: string[],
-): Promise<T[]> {
-  const out: T[] = []
-  const CHUNK = 100
-  for (let i = 0; i < values.length; i += CHUNK) {
-    const chunk = values.slice(i, i + CHUNK)
-    if (chunk.length === 0) continue
-    const { data, error } = await verco.from(table).select(select).in(column, chunk)
-    if (error) throw new Error(`load ${table}: ${error.message}`)
-    out.push(...((data ?? []) as T[]))
-  }
-  return out
-}
-
-function uniq(xs: string[]): string[] {
-  return [...new Set(xs)]
-}
-
 function inWindow(date: string, start: string, end: string): boolean {
   return date >= start && date <= end
 }
@@ -388,20 +367,6 @@ function addDays(dateStr: string, days: number): string {
   const [y, m, d] = dateStr.split('-').map(Number)
   const dt = new Date(Date.UTC(y!, m! - 1, d! + days))
   return dt.toISOString().slice(0, 10)
-}
-
-function csvCell(v: string): string {
-  return /[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v
-}
-
-function trunc(s: string, n: number): string {
-  return s.length > n ? s.slice(0, n - 1) + '…' : s
-}
-
-function timestamp(): string {
-  const d = new Date()
-  const z = (n: number) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}${z(d.getMonth() + 1)}${z(d.getDate())}-${z(d.getHours())}${z(d.getMinutes())}${z(d.getSeconds())}`
 }
 
 main().catch((err) => {
