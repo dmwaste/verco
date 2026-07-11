@@ -4,6 +4,7 @@ import type { Database } from '@/lib/supabase/types'
 import type { Result } from '@/lib/result'
 import { verifyStaffRole } from '@/lib/auth/server'
 import { OPEN_EXCEPTION_FILTER_STATUSES } from '@/lib/exceptions/status'
+import { orchestrateRefund } from '@/lib/payments/orchestrate-refund'
 
 export async function updateNcnStatus(
   ncnId: string,
@@ -267,57 +268,14 @@ export async function resolveWithRefund(
   const paidItems = booking.booking_item.filter((i) => i.is_extra && i.unit_price_cents > 0)
   const refundAmountCents = paidItems.reduce((sum, i) => sum + i.unit_price_cents * i.no_services, 0)
 
-  if (refundAmountCents > 0) {
-    // Create refund_request record
-    const { data: refundReq, error: refundInsertError } = await supabase
-      .from('refund_request')
-      .insert({
-        booking_id: booking.id,
-        contact_id: booking.contact_id,
-        client_id: booking.client_id,
-        amount_cents: refundAmountCents,
-        reason: 'Contractor fault — NCN resolution',
-        status: 'Pending',
-      })
-      .select('id')
-      .single()
-
-    if (refundInsertError || !refundReq) {
-      console.error('Failed to create refund_request:', refundInsertError?.message)
-      return { ok: true, data: undefined } // NCN resolved, refund creation failed — staff can retry from refunds page
-    }
-
-    // Trigger refund via process-refund Edge Function.
-    //
-    // NOTE: duplicated by design across the 3 server-action refund sites:
-    //   - admin/bookings/[id]/actions.ts
-    //   - admin/nothing-presented/[id]/actions.ts
-    //   - admin/non-conformance/[id]/actions.ts (this file)
-    // No shared `invokeEfWithSessionToken` server helper exists yet — the
-    // 'use server' boundary makes the client-side helper ineligible. Three
-    // sites with identical shape isn't worth an abstraction; if a 4th site
-    // appears, extract then (rule-of-three trigger consciously deferred).
-    const { data: { session } } = await supabase.auth.getSession()
-    if (session?.access_token) {
-      const res = await fetch(
-        `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/process-refund`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${session.access_token}`,
-          },
-          body: JSON.stringify({ refund_request_id: refundReq.id }),
-        }
-      )
-
-      if (!res.ok) {
-        const errText = await res.text().catch(() => 'Unknown error')
-        // NCN is already resolved, refund_request created — staff can approve from refunds page
-        console.error(`Refund trigger failed for booking ${booking.id}: ${errText}`)
-      }
-    }
-  }
+  // NCN resolved — raise + fire the refund via the shared orchestrator.
+  await orchestrateRefund(supabase, {
+    bookingId: booking.id,
+    contactId: booking.contact_id,
+    clientId: booking.client_id,
+    amountCents: refundAmountCents,
+    reason: 'Contractor fault — NCN resolution',
+  })
 
   return { ok: true, data: undefined }
 }
