@@ -13,6 +13,7 @@ import { DetailHeader } from '@/components/admin/detail-header'
 import { FieldLabel, Input, Select, Textarea } from '@/components/admin/form'
 import { LOCATION_OPTIONS, type LocationOption } from '@/lib/booking/schemas'
 import { canEditCollectionDetails } from '@/lib/booking/collection-details-edit'
+import { isContractorStaff } from '@/lib/auth/roles'
 import { confirmBooking, cancelBooking, updateContact, updateCollectionDetails, updateNotes } from './actions'
 import { effectiveCapacity, indexPoolDates } from '@/lib/capacity/effective-capacity'
 import { cn } from '@/lib/utils'
@@ -150,10 +151,18 @@ export function BookingDetailClient({
   const canEdit = ['Pending Payment', 'Submitted', 'Confirmed'].includes(booking.status)
 
   // Collection-details edit affordance. Pre-dispatch this matches `canEdit`;
-  // once Scheduled it additionally opens to contractor roles so D&M staff can
-  // correct a dispatched booking's collection date (VER-285). The
-  // updateCollectionDetails server action + RLS re-enforce this.
+  // post-dispatch (Scheduled/Completed) it opens to contractor roles so D&M
+  // staff can correct a dispatched or wrongly-collected booking's date
+  // (VER-285 / #378). The updateCollectionDetails server action + RLS
+  // re-enforce this.
   const canEditDetails = canEditCollectionDetails(booking.status, userRole)
+
+  // Contractor (D&M) staff may reschedule into a closed or past/earlier date to
+  // correct a crew collection error (D1, #378). Client-tier admins keep the
+  // resident date filter (open, today-or-future only). The updateCollectionDetails
+  // server action re-validates this — the relaxed filter is a convenience, not
+  // the security boundary.
+  const isContractor = isContractorStaff(userRole)
 
   // Services edit URL — wizard handles pricing/capacity.
   //
@@ -206,33 +215,38 @@ export function BookingDetailClient({
   })
   const poolId = areaPoolMembership?.capacity_pool_id ?? null
 
-  // Fetch available collection dates for inline date picker
+  // Fetch available collection dates for inline date picker. Contractor staff
+  // see closed + past dates too (crew-error correction, #378); client-tier
+  // admins keep the open/today-or-future resident filter.
   const { data: availableDates } = useQuery({
-    queryKey: ['collection-dates-admin', booking.collection_area_id],
+    queryKey: ['collection-dates-admin', booking.collection_area_id, isContractor],
     enabled: editingDetails && !!booking.collection_area_id,
     queryFn: async () => {
-      const { data } = await supabase
+      let query = supabase
         .from('collection_date')
         .select(
-          `id, date,
+          `id, date, is_open,
            bulk_capacity_limit, bulk_units_booked, bulk_is_closed,
            anc_capacity_limit, anc_units_booked, anc_is_closed,
            id_capacity_limit, id_units_booked, id_is_closed`,
         )
         .eq('collection_area_id', booking.collection_area_id!)
-        .eq('is_open', true)
-        .gte('date', new Date().toISOString().split('T')[0])
-        .order('date', { ascending: true })
+      if (!isContractor) {
+        query = query
+          .eq('is_open', true)
+          .gte('date', new Date().toISOString().split('T')[0])
+      }
+      const { data } = await query.order('date', { ascending: true })
       return data ?? []
     },
   })
 
   const { data: poolDates } = useQuery({
-    queryKey: ['pool-dates-admin', poolId],
+    queryKey: ['pool-dates-admin', poolId, isContractor],
     enabled: editingDetails && !!poolId,
     queryFn: async () => {
       if (!poolId) return []
-      const { data } = await supabase
+      let query = supabase
         .from('collection_date_pool')
         .select(
           `date,
@@ -241,7 +255,11 @@ export function BookingDetailClient({
            id_capacity_limit, id_units_booked, id_is_closed`,
         )
         .eq('capacity_pool_id', poolId)
-        .gte('date', new Date().toISOString().split('T')[0])
+      // Contractor staff need past pool dates too (crew-error correction, #378).
+      if (!isContractor) {
+        query = query.gte('date', new Date().toISOString().split('T')[0])
+      }
+      const { data } = await query
       return data ?? []
     },
   })
@@ -622,9 +640,17 @@ export function BookingDetailClient({
                 {(availableDates ?? []).map((d) => {
                   const cap = effectiveCapacity(d, poolId, poolByDate)
                   const spots = Math.max(0, cap.bulk_capacity_limit - cap.bulk_units_booked)
+                  // Flag the dates only contractor staff see, so a crew-error
+                  // correction into a closed/past date is deliberate (#378).
+                  const today = new Date().toISOString().split('T')[0]!
+                  const flags = [
+                    d.is_open === false ? 'closed' : null,
+                    d.date < today ? 'past' : null,
+                  ].filter(Boolean)
+                  const suffix = flags.length ? ` · ${flags.join(', ')}` : ''
                   return (
                     <option key={d.id} value={d.id}>
-                      {format(new Date(d.date + 'T00:00:00'), 'EEE d MMM yyyy')} ({spots} spots)
+                      {format(new Date(d.date + 'T00:00:00'), 'EEE d MMM yyyy')} ({spots} spots){suffix}
                     </option>
                   )
                 })}

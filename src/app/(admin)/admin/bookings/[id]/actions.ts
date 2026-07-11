@@ -3,7 +3,10 @@
 import { createClient } from '@/lib/supabase/server'
 import { invokeSendNotification } from '@/lib/notifications/invoke'
 import { isPastCancellationCutoff } from '@/lib/booking/cancellation-cutoff'
-import { canEditCollectionDetails } from '@/lib/booking/collection-details-edit'
+import {
+  canEditCollectionDetails,
+  canRescheduleToTargetDate,
+} from '@/lib/booking/collection-details-edit'
 import type { Result } from '@/lib/result'
 
 /**
@@ -355,6 +358,34 @@ export async function updateCollectionDetails(
   }
 
   if (dateChanged) {
+    // Server-side re-validation of the target date (D1, #378). The admin
+    // date-picker relaxes its is_open/date filter for contractor-tier staff, but
+    // booking_item_staff_update RLS permits ALL admin roles to write — so the
+    // "only D&M staff may back-date or move into a closed date" rule must be
+    // re-enforced here, independent of the dropdown. This fetch only reads
+    // is_open/date for the gate below; it is NOT the tenant boundary
+    // (collection_date is public-readable for open dates) — the write's tenant
+    // scope comes from the booking / booking_item RLS policies.
+    const { data: targetDate, error: targetError } = await supabase
+      .from('collection_date')
+      .select('id, date, is_open')
+      .eq('id', data.collection_date_id!)
+      .single()
+
+    if (targetError || !targetDate) {
+      return { ok: false, error: 'Target collection date not found.' }
+    }
+
+    // Same UTC "today" the admin date-picker filters on, so the server never
+    // rejects a date the client-tier dropdown legitimately offered.
+    const today = new Date().toISOString().split('T')[0]!
+    if (!canRescheduleToTargetDate(role, { is_open: targetDate.is_open, date: targetDate.date }, today)) {
+      return {
+        ok: false,
+        error: 'Only D&M staff can reschedule a booking into a closed or past collection date.',
+      }
+    }
+
     // Chain .select() so silent RLS rejection fails loud. Migration
     // 20260515055645_booking_item_rls_write_policies.sql added the UPDATE
     // policy that makes this actually take effect — before that, this call

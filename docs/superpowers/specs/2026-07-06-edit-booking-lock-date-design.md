@@ -153,3 +153,71 @@ redesign. The Date step stays, so the stepper and action row are untouched.
   back-nav/FY-usage queryKey). Both "adjacent" changes confirmed load-bearing.
 - Decisions: keep reschedule as-is (not remove, not rebuild); narrow reach to
   `is_open=true` held dates; drop the EF change; security gaps → separate ticket.
+
+---
+
+## Addendum — admin date-override for D&M staff (#378, BR-0023 / BR-0025)
+
+**Date:** 2026-07-11
+**Status:** Decided by Dan Taylor (MD, 2026-07-11 triage on #378); implemented via the bug lane.
+**Type:** Bug fix — the admin counterpart to the resident-side change above.
+**Scope:** Application-layer only (admin inline date editor + its server action + one
+pure guard). No migration, no EF, no RLS/RPC change, no types regen.
+
+### Problem (two reports)
+
+- **BR-0023:** a council (client-tier) admin can't change the collection date on a
+  "previous" booking — one already `Scheduled`/`Completed` — when a crew collected on
+  the wrong day and the record needs correcting.
+- **BR-0025:** an admin can't move a booking to an **earlier** date, or onto a date that
+  has been **closed off** (`collection_date.is_open = false`).
+
+Root cause (confirmed via `/investigate`): the admin inline date-picker
+(`booking-detail-client.tsx`) hard-filtered `is_open = true AND date >= today` — identical
+to the resident flow — and the `canEditCollectionDetails` gate allowed no post-`Confirmed`
+edit except contractor-on-`Scheduled` (VER-285). `updateCollectionDetails` re-validated
+**nothing** about the target date, so the restriction lived entirely in the dropdown filter.
+
+### Decision (Dan, MD — do not re-litigate)
+
+- **D1 — override scope:** only **contractor-tier (D&M) staff** (`contractor-admin`,
+  `contractor-staff`) may reschedule a booking into a **closed** (`is_open = false`) or
+  **past/earlier** date. Client-tier (council) admins cannot back-date.
+- **D2 — post-dispatch editability:** only contractor-tier staff may edit a booking's
+  collection date once it is `Scheduled` / dispatched / `Completed`, to correct a crew
+  collection error. `Completed` is added to the contractor-only editable set (Scheduled was
+  already there, VER-285). The exception/rebook states (Non-conformance, Nothing Presented,
+  Rebooked, Missed Collection) keep their dedicated NCN/NP rebook flow and are **not**
+  editable here. All other roles remain pre-dispatch only.
+- **Capacity default (confirmed):** a staff date-override **moves** the existing booking —
+  it keeps its already-consumed allocation and is **not** re-gated by the target date's
+  `is_open`/capacity check. It's a correction, not a new booking competing for a slot.
+  Verified against `recalculate_collection_date_units()` (migration `20260518005934`): the
+  trigger re-sums **both** the old and new dates on the `booking_item` date-change UPDATE
+  (absolute re-sum, not a delta), so no slot is double-counted and the old slot is correctly
+  freed. Pricing/allocation (`unit_price_cents`/`is_extra`) is untouched by a date move.
+
+### Changes (all application-layer)
+
+| # | File | Change |
+|---|------|--------|
+| 1 | `src/lib/booking/collection-details-edit.ts` | Add `Completed` to a `CONTRACTOR_POST_DISPATCH_EDITABLE` set (`canEditCollectionDetails` → contractor-only). Add pure `canRescheduleToTargetDate(role, {is_open, date}, today)` — closed/past target ⇒ contractor-only; open+future ⇒ no extra privilege. Both route through the shared `isContractorStaff` helper. |
+| 2 | `src/app/(admin)/admin/bookings/[id]/actions.ts` | `updateCollectionDetails`: on a date change, fetch the target's `is_open`/`date` and re-check `canRescheduleToTargetDate` **server-side** before the write — the client filter is a convenience, not the security boundary. |
+| 3 | `src/app/(admin)/admin/bookings/[id]/booking-detail-client.tsx` | Relax the picker's `is_open`/`date` filter for contractor-tier staff only (both the per-area and pooled-date queries); annotate closed/past options (`· closed, past`) so the override is deliberate. |
+
+### Testing
+
+- `src/__tests__/collection-details-edit.test.ts` — 15 pure-guard tests (100% of the decision
+  logic): contractor can edit `Completed`; client-tier blocked on `Scheduled`/`Completed`;
+  `canRescheduleToTargetDate` for open/closed/past × contractor/client/null.
+- Full suite (1358), typecheck, lint, and a production build (`/admin/bookings/[id]` route)
+  all clean.
+
+### Security note (deferred, follow-up)
+
+The closed/past rule is enforced in the server action; `booking_item_staff_update` RLS
+(unchanged) still permits any admin-tier role to UPDATE `booking_item` directly. This
+direct-PostgREST bypass is **pre-existing** (already applied to the VER-285 status gate) and
+tenant-local. DB-layer enforcement (RLS `WITH CHECK` / trigger mirroring
+`create_id_booking_with_capacity_check`) is captured as a separate hardening ticket — same
+triage as the §4 IDOR/cutoff/capacity-delta gaps.
