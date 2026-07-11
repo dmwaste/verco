@@ -372,6 +372,19 @@ export async function updateCollectionDetails(
     }
   }
 
+  // Notify the resident their booking changed (#388) — Confirmed only. A #378
+  // post-dispatch date correction (Scheduled/Completed) is DELIBERATELY excluded:
+  // the collection has been dispatched or already happened, so a "your booking
+  // date is now <past date>" email would only confuse. Reached only when
+  // something actually changed (the no-op case returns earlier). Fire-and-forget.
+  if (current.status === 'Confirmed') {
+    await invokeSendNotification(supabase, {
+      type: 'booking_updated',
+      booking_id: bookingId,
+      edit_ref: new Date().toISOString(),
+    })
+  }
+
   return { ok: true, data: undefined }
 }
 
@@ -581,6 +594,22 @@ export async function updateBookingQuantities(
     clientId: booking.client_id,
     amountCents: refundOwedCents,
     reason: 'Booking quantity reduced by staff',
+  })
+
+  // Notify the resident their (Confirmed) booking changed — a current-state
+  // snapshot + a refund line so money moving back is explained (#388). Only
+  // surface a refund when one actually went through: 'initiated' → processed,
+  // 'queued' → pending review; 'failed'/'none' show no refund line. edit_ref
+  // makes the idempotency key unique per edit. Fire-and-forget.
+  const refundStatus =
+    refundState === 'initiated' ? ('processed' as const)
+    : refundState === 'queued' ? ('pending_review' as const)
+    : undefined
+  await invokeSendNotification(supabase, {
+    type: 'booking_updated',
+    booking_id: bookingId,
+    edit_ref: new Date().toISOString(),
+    ...(refundStatus ? { refund_status: refundStatus, refund_cents: refundOwedCents } : {}),
   })
 
   return { ok: true, data: { refundOwedCents, refundState } }
