@@ -75,3 +75,38 @@ describe('evaluateQuantityEdit — block: price drift (baseline != collected)', 
     expect(r.kind).toBe('block_drift')
   })
 })
+
+describe('evaluateQuantityEdit — reduce → refund → second-edit sequence (BR review #4)', () => {
+  // process-refund only flips refund_request to 'Approved'; it never lowers
+  // booking_payment. The EF therefore computes collected as
+  //   collected = SUM(paid booking_payment) − SUM(approved refund_request)
+  // so a SECOND inline reduction is not wrongly blocked as drift. These tests
+  // pin that sequence at the decision seam (the EF wires the netting).
+
+  it('nets the prior refund so a second reduction still applies (no false drift)', () => {
+    // Booking paid $100 (2 units @ $50). Edit 1: reduce to 1 unit ($50).
+    const first = evaluateQuantityEdit({ baselineTotalCents: 10000, newTotalCents: 5000, collectedCents: 10000 })
+    expect(first).toEqual({ kind: 'apply', refundOwedCents: 5000 })
+
+    // process-refund marks $50 Approved → EF nets it: collected = 10000 − 5000.
+    const collectedAfterRefund = 10000 - 5000
+    // Edit 2: reduce to 0 paid (free). Re-priced baseline for 1 unit = $50 = collected.
+    const second = evaluateQuantityEdit({ baselineTotalCents: 5000, newTotalCents: 0, collectedCents: collectedAfterRefund })
+    expect(second).toEqual({ kind: 'apply', refundOwedCents: 5000 })
+  })
+
+  it('WITHOUT netting the refund the second edit would wrongly drift-block (regression guard)', () => {
+    // If the EF left collected at the original 10000 (refund not netted), the
+    // re-priced baseline 5000 != 10000 → drift. This is exactly the bug the EF
+    // fix avoids by subtracting approved refunds from collected.
+    const second = evaluateQuantityEdit({ baselineTotalCents: 5000, newTotalCents: 0, collectedCents: 10000 })
+    expect(second.kind).toBe('block_drift')
+  })
+
+  it('a still-Pending (failed) refund is NOT netted → booking correctly reads as drifted', () => {
+    // process-refund failed → refund_request stays Pending → uncounted → collected
+    // stays at 10000 → the reduced booking reads as drifted until staff resolve it.
+    const second = evaluateQuantityEdit({ baselineTotalCents: 5000, newTotalCents: 5000, collectedCents: 10000 })
+    expect(second.kind).toBe('block_drift')
+  })
+})

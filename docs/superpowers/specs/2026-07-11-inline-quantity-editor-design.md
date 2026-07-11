@@ -99,8 +99,15 @@ baseline_total  = calculatePrice(CURRENT persisted items, exclude THIS booking,
 new_total       = calculatePrice(NEW items,               exclude THIS booking, … same swap)
 delta_cents     = new_total − baseline_total          // re-price DIFFERENCE, not vs. history
 
-collected_cents = SUM(booking_payment.amount_cents) WHERE booking_id = X AND status = 'paid'
+collected_cents = SUM(paid booking_payment.amount_cents) − SUM(approved refund_request.amount_cents)
+                  WHERE booking_id = X
 ```
+
+> **`collected` nets approved refunds** (post-review fix, BR flag #4). `process-refund`
+> only flips `refund_request` to `'Approved'` — it never lowers `booking_payment`.
+> Without netting, a second inline reduction after a refund would false-drift
+> (baseline dropped, collected stale). A still-`Pending`/failed refund is
+> uncounted, so the booking correctly reads as drifted until staff resolve it.
 
 **Drift guard (mandatory).** For a *settled* booking (has ≥1 `paid` payment),
 if `baseline_total ≠ collected_cents` the booking's price has drifted from what was
@@ -282,6 +289,18 @@ refund/payment/capacity behaviour for human review.
   v2 (re-price delta + drift hard-block). Two of Dan's earlier decisions are
   affected (#3 manual-refund leak; drift now routes some edits to cancel & rebook) →
   re-surfaced for sign-off before code.
+- **2026-07-11 — PR-A code review (Dan/PA on PR #384).** Money model passed. Fixes
+  applied before merge: (1) rebased onto develop, composing with #382's
+  `mayKeepClosedHeldDate` waiver in the same `replaces` branch — a contractor
+  reducing quantity on a booking whose held date is now admin-closed works
+  end-to-end (the editor keeps the held date, so the waiver fires); composition
+  pinned in `inline-quantity-edit-composition.test.ts`. (2) **`collected` now nets
+  approved refunds** (§3) so a reduce → refund → second-edit sequence isn't
+  false-drifted — pure sequence test + `update-booking-quantities.test.ts`
+  integration test (reduce → refund orchestration). (3) confirmed the create path
+  still 400s a contact-less request (`contact` optional in schema, guard in §7,
+  reachable only when `!replaces`). EF-internal validation has no Deno unit
+  harness (E2E mocks the EF), so it's verified by inspection + placement.
 
 ---
 

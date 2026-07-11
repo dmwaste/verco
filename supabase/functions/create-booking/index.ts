@@ -401,18 +401,38 @@ serve(withSentry('create-booking', async (req) => {
           unitMultiplier,
           conversion,
         )
-        // Collected: what was actually settled. Ownership was proven above via
-        // the anon read, so a service-role SUM here is safe (no PII, avoids an
-        // RLS surprise on booking_payment).
-        const { data: paidPayments } = await supabaseService
-          .from('booking_payment')
-          .select('amount_cents')
-          .eq('booking_id', replaces)
-          .eq('status', 'paid')
-        const collectedCents = (paidPayments ?? []).reduce(
+        // Collected = amount actually still held = SUM(paid booking_payment)
+        // MINUS SUM(approved refund_request). process-refund only flips the
+        // refund_request to 'Approved'; it never lowers booking_payment. Netting
+        // approved refunds here is what lets a SECOND inline reduction succeed —
+        // otherwise `collected` stays at the original charge, the re-priced
+        // baseline (now lower) no longer matches it, and the drift guard would
+        // wrongly block every edit after the first refund (BR review flag #4).
+        // A failed refund stays 'Pending' (uncounted) → collected stays high →
+        // the booking correctly reads as drifted until staff resolve it.
+        // Ownership was proven above via the anon read, so a service-role SUM
+        // here is safe (no PII, avoids an RLS surprise on these tables).
+        const [{ data: paidPayments }, { data: approvedRefunds }] = await Promise.all([
+          supabaseService
+            .from('booking_payment')
+            .select('amount_cents')
+            .eq('booking_id', replaces)
+            .eq('status', 'paid'),
+          supabaseService
+            .from('refund_request')
+            .select('amount_cents')
+            .eq('booking_id', replaces)
+            .eq('status', 'Approved'),
+        ])
+        const paidCents = (paidPayments ?? []).reduce(
           (sum: number, p: { amount_cents: number }) => sum + p.amount_cents,
           0,
         )
+        const refundedCents = (approvedRefunds ?? []).reduce(
+          (sum: number, r: { amount_cents: number }) => sum + r.amount_cents,
+          0,
+        )
+        const collectedCents = paidCents - refundedCents
         const decision = evaluateQuantityEdit({
           baselineTotalCents: baselineResult.total_cents,
           newTotalCents: priceResult.total_cents,
