@@ -6,6 +6,7 @@ import { isAreaBookableServer } from '../_shared/area-gate-server.ts'
 import { type TermsAcceptanceChannel } from '../_shared/terms.ts'
 import { classifyCreator, CREATOR_STAFF_ROLES } from '../_shared/classify-creator.ts'
 import { evaluateEditGuard, mayKeepClosedHeldDate } from '../_shared/edit-guard.ts'
+import { evaluateQuantityEdit } from '../_shared/quantity-edit-decision.ts'
 import { withSentry } from '../_shared/sentry.ts'
 
 /**
@@ -74,7 +75,10 @@ const CreateBookingRequest = z.object({
   collection_date_id: z.string().uuid(),
   location: z.string().min(1).max(100),
   notes: z.string().max(500).optional(),
-  contact: ContactInput,
+  // Optional so the inline quantity editor (replaces + inline_edit) can omit it
+  // — the edit branch never touches the contact. The create path guards its
+  // presence explicitly (§7). The wizard/resident create path always sends it.
+  contact: ContactInput.optional(),
   items: z.array(BookingItemInput).min(1).max(20),
   // Admin "Edit services" flow — exclude the replaced booking from FY-usage
   // count in the server-side re-price. Without this, the new selection
@@ -89,6 +93,13 @@ const CreateBookingRequest = z.object({
   // before submit. The RPC re-reads the client's terms and RAISEs if required-but-not-
   // accepted; the accepted text/version are snapshotted server-side (never client-supplied).
   terms_accepted: z.boolean().optional(),
+  // Inline admin quantity editor (issue #380). Only the inline editor's server
+  // action sets this. It switches the `replaces` edit branch to the delta+drift
+  // money model (allow delta<=0 with a refund the CALLER processes; block drift
+  // and paid increases). Absent/false ⇒ the shared wizard edit path keeps its
+  // strict `total_cents>0` reject unchanged — so this can't introduce a refund
+  // leak on the wizard flow, which does not orchestrate refunds. See spec §3/§4.
+  inline_edit: z.boolean().optional(),
 })
 
 serve(withSentry('create-booking', async (req) => {
@@ -126,7 +137,7 @@ serve(withSentry('create-booking', async (req) => {
       return jsonResponse({ error: parsed.error.message }, 400)
     }
 
-    const { property_id, collection_area_id, collection_date_id, location, notes, contact, items, replaces, swap, terms_accepted } = parsed.data
+    const { property_id, collection_area_id, collection_date_id, location, notes, contact, items, replaces, swap, terms_accepted, inline_edit } = parsed.data
 
     // ── 2. Resolve collection area → client_id, contractor_id, area code ─────
 
@@ -345,7 +356,7 @@ serve(withSentry('create-booking', async (req) => {
       const [{ data: ownedBooking }, { data: callerRole }] = await Promise.all([
         supabaseAnon
           .from('booking')
-          .select('id, booking_item(collection_date!inner(date))')
+          .select('id, booking_item(service_id, no_services, collection_date!inner(date))')
           .eq('id', replaces)
           .maybeSingle(),
         supabaseAnon.rpc('current_user_role'),
@@ -367,7 +378,80 @@ serve(withSentry('create-booking', async (req) => {
         return jsonResponse({ error: guard.error }, guard.status)
       }
 
-      if (priceResult.total_cents > 0) {
+      // Delta + drift money model — gated on inline_edit so the shared wizard
+      // edit path keeps its strict guard (spec §3 v2 / §4). `refundOwedCents`
+      // is returned to the caller (the inline server action), which processes
+      // the refund via the existing refund_request + process-refund machinery.
+      let refundOwedCents = 0
+      if (inline_edit) {
+        // Baseline: re-price the booking's CURRENT items with the SAME engine
+        // call/state as new_total (exclude self, same swap/unitMultiplier), so
+        // other bookings' usage cancels in the delta (drift-immune marginal cost).
+        const currentItemsMap = new Map<string, number>()
+        for (const bi of (ownedBooking?.booking_item ?? []) as Array<{ service_id: string; no_services: number }>) {
+          currentItemsMap.set(bi.service_id, (currentItemsMap.get(bi.service_id) ?? 0) + bi.no_services)
+        }
+        const baselineResult = await calculatePrice(
+          supabaseAnon,
+          property_id,
+          collection_area_id,
+          fy.id,
+          Array.from(currentItemsMap.entries()).map(([service_id, quantity]) => ({ service_id, quantity })),
+          replaces,
+          unitMultiplier,
+          conversion,
+        )
+        // Collected = amount actually still held = SUM(paid booking_payment)
+        // MINUS SUM(approved refund_request). process-refund only flips the
+        // refund_request to 'Approved'; it never lowers booking_payment. Netting
+        // approved refunds here is what lets a SECOND inline reduction succeed —
+        // otherwise `collected` stays at the original charge, the re-priced
+        // baseline (now lower) no longer matches it, and the drift guard would
+        // wrongly block every edit after the first refund (BR review flag #4).
+        // A failed refund stays 'Pending' (uncounted) → collected stays high →
+        // the booking correctly reads as drifted until staff resolve it.
+        // Ownership was proven above via the anon read, so a service-role SUM
+        // here is safe (no PII, avoids an RLS surprise on these tables).
+        const [{ data: paidPayments }, { data: approvedRefunds }] = await Promise.all([
+          supabaseService
+            .from('booking_payment')
+            .select('amount_cents')
+            .eq('booking_id', replaces)
+            .eq('status', 'paid'),
+          supabaseService
+            .from('refund_request')
+            .select('amount_cents')
+            .eq('booking_id', replaces)
+            .eq('status', 'Approved'),
+        ])
+        const paidCents = (paidPayments ?? []).reduce(
+          (sum: number, p: { amount_cents: number }) => sum + p.amount_cents,
+          0,
+        )
+        const refundedCents = (approvedRefunds ?? []).reduce(
+          (sum: number, r: { amount_cents: number }) => sum + r.amount_cents,
+          0,
+        )
+        const collectedCents = paidCents - refundedCents
+        const decision = evaluateQuantityEdit({
+          baselineTotalCents: baselineResult.total_cents,
+          newTotalCents: priceResult.total_cents,
+          collectedCents,
+        })
+        if (decision.kind === 'block_drift') {
+          return jsonResponse({
+            error: "This booking's pricing has changed since it was booked. Cancel and rebook to adjust it.",
+            code: 'price_drift',
+          }, 409)
+        }
+        if (decision.kind === 'block_requires_payment') {
+          return jsonResponse({
+            error: 'Increasing the quantity adds a paid extra. Cancel and rebook to add paid services.',
+            code: 'requires_payment',
+          }, 409)
+        }
+        refundOwedCents = decision.refundOwedCents
+      } else if (priceResult.total_cents > 0) {
         return jsonResponse({
           error: 'In-place edit cannot introduce new paid services. Cancel and rebook to change paid items.',
         }, 400)
@@ -390,9 +474,9 @@ serve(withSentry('create-booking', async (req) => {
             category_code: li.category_code,
           })
         }
-        // paid_units must be 0 here due to the guard above, but keep the
-        // shape consistent so future loosening doesn't introduce silent
-        // skips of paid rows.
+        // paid_units is 0 on the wizard path (strict guard) but CAN be > 0 on
+        // the inline_edit path (a paid→smaller-paid reduction still leaves paid
+        // units). Emit paid rows either way so the RPC's smart-diff updates them.
         if (li.paid_units > 0) {
           editItems.push({
             service_id: li.service_id,
@@ -454,10 +538,20 @@ serve(withSentry('create-booking', async (req) => {
         ref: edited.ref,
         requires_payment: false,
         edited: true,
+        // Inline quantity editor: how much the caller must refund via the
+        // existing refund machinery (0 on the wizard path). Emitted on every
+        // path so the parser never has to default it (EF contract, CLAUDE.md §11).
+        refund_owed_cents: refundOwedCents,
       })
     }
 
     // ── 7. Upsert contact (by email) ────────────────────────────────────────
+
+    // Contact is optional in the schema (the inline edit branch above never uses
+    // it and returns before here). The create path requires it.
+    if (!contact) {
+      return jsonResponse({ error: 'Contact is required to create a booking' }, 400)
+    }
 
     const { data: existingContact } = await supabaseService
       .from('contacts')

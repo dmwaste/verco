@@ -14,7 +14,7 @@ import { FieldLabel, Input, Select, Textarea } from '@/components/admin/form'
 import { LOCATION_OPTIONS, type LocationOption } from '@/lib/booking/schemas'
 import { canEditCollectionDetails } from '@/lib/booking/collection-details-edit'
 import { isContractorStaff } from '@/lib/auth/roles'
-import { confirmBooking, cancelBooking, updateContact, updateCollectionDetails, updateNotes } from './actions'
+import { confirmBooking, cancelBooking, updateContact, updateCollectionDetails, updateNotes, updateBookingQuantities } from './actions'
 import { effectiveCapacity, indexPoolDates } from '@/lib/capacity/effective-capacity'
 import { cn } from '@/lib/utils'
 import type { Database } from '@/lib/supabase/types'
@@ -122,6 +122,23 @@ export function BookingDetailClient({
   // Notes edit form
   const [editNotesText, setEditNotesText] = useState(booking.notes ?? '')
 
+  // Inline quantity editor (issue #380). Aggregate current per-service quantity
+  // (a service can span a free + a paid booking_item row).
+  const originalQty = new Map<string, number>()
+  const serviceNameById = new Map<string, string>()
+  for (const it of booking.booking_item) {
+    originalQty.set(it.service_id, (originalQty.get(it.service_id) ?? 0) + it.no_services)
+    serviceNameById.set(it.service_id, (it.service as { name: string }).name)
+  }
+  const serviceLines = Array.from(originalQty.entries()).map(([service_id, qty]) => ({
+    service_id,
+    name: serviceNameById.get(service_id) ?? 'Service',
+    qty,
+  }))
+  const [editingQuantities, setEditingQuantities] = useState(false)
+  const [editQty, setEditQty] = useState<Map<string, number>>(() => new Map(originalQty))
+  const [quantityResult, setQuantityResult] = useState<string | null>(null)
+
   const area = booking.collection_area as { name: string; code: string }
   const property = booking.eligible_properties as { formatted_address: string | null; address: string } | null
   const contact = booking.contact as { first_name: string; last_name: string; full_name: string; mobile_e164: string | null; email: string } | null
@@ -163,6 +180,16 @@ export function BookingDetailClient({
   // server action re-validates this — the relaxed filter is a convenience, not
   // the security boundary.
   const isContractor = isContractorStaff(userRole)
+
+  // Inline quantity editing (issue #380) is offered only for Confirmed,
+  // non-MUD, non-ID bookings. Pending Payment (unpaid / open Stripe session) and
+  // Scheduled (field stops exist) route to cancel & rebook; MUD has a per-FY cap
+  // double-spend risk. The updateBookingQuantities server action + EF re-enforce.
+  const canEditQuantities =
+    canEditDetails && booking.status === 'Confirmed' && !isMud && !isId
+  const quantitiesChanged = serviceLines.some(
+    (l) => (editQty.get(l.service_id) ?? l.qty) !== l.qty,
+  )
 
   // Services edit URL — wizard handles pricing/capacity.
   //
@@ -372,6 +399,34 @@ export function BookingDetailClient({
     }
     setEditingDetails(false)
     setIsPending(false)
+    router.refresh()
+  }
+
+  function setQty(serviceId: string, next: number) {
+    setEditQty((prev) => new Map(prev).set(serviceId, Math.min(10, Math.max(1, next))))
+  }
+
+  async function handleSaveQuantities() {
+    setIsPending(true)
+    setError(null)
+    setQuantityResult(null)
+    const items = serviceLines.map((l) => ({
+      service_id: l.service_id,
+      no_services: editQty.get(l.service_id) ?? l.qty,
+    }))
+    const result = await updateBookingQuantities(booking.id, items)
+    if (!result.ok) {
+      setError(result.error)
+      setIsPending(false)
+      return
+    }
+    setEditingQuantities(false)
+    setIsPending(false)
+    setQuantityResult(
+      result.data.refundOwedCents > 0
+        ? `Quantities updated. A refund of $${(result.data.refundOwedCents / 100).toFixed(2)} has been initiated.`
+        : 'Quantities updated.',
+    )
     router.refresh()
   }
 
@@ -801,16 +856,25 @@ export function BookingDetailClient({
         </div>
       )}
 
-      {/* Services — edit via wizard (pricing/capacity) */}
+      {/* Services — inline quantity editor (issue #380), same collection date */}
       <div className="rounded-xl bg-white p-5 shadow-sm">
         <div className="mb-3 flex items-center justify-between">
           <span className="text-caption font-semibold uppercase tracking-wide text-gray-500">
             Services
           </span>
-          {editServicesUrl && (
-            <Link href={editServicesUrl} className="text-gray-400 hover:text-[#293F52]" aria-label="Edit services">
+          {canEditQuantities && !editingQuantities && (
+            <button
+              type="button"
+              onClick={() => {
+                setQuantityResult(null)
+                setEditQty(new Map(originalQty))
+                setEditingQuantities(true)
+              }}
+              className="text-gray-400 hover:text-[#293F52]"
+              aria-label="Edit quantities"
+            >
               <PencilIcon />
-            </Link>
+            </button>
           )}
           {isMud && canEdit && (
             <span
@@ -821,7 +885,78 @@ export function BookingDetailClient({
             </span>
           )}
         </div>
+
+        {editingQuantities ? (
+          <div className="flex flex-col gap-2.5">
+            {serviceLines.map((line) => {
+              const qty = editQty.get(line.service_id) ?? line.qty
+              return (
+                <div
+                  key={line.service_id}
+                  className="flex items-center justify-between rounded-lg bg-gray-50 px-2.5 py-2 text-body-sm"
+                >
+                  <span className="text-gray-900">{line.name}</span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      aria-label={`Decrease ${line.name}`}
+                      onClick={() => setQty(line.service_id, qty - 1)}
+                      disabled={qty <= 1}
+                      className="flex size-7 items-center justify-center rounded-md border-[1.5px] border-gray-200 bg-white text-gray-700 disabled:opacity-40"
+                    >
+                      &minus;
+                    </button>
+                    <span className="w-6 text-center font-semibold tabular-nums text-gray-900">{qty}</span>
+                    <button
+                      type="button"
+                      aria-label={`Increase ${line.name}`}
+                      onClick={() => setQty(line.service_id, qty + 1)}
+                      disabled={qty >= 10}
+                      className="flex size-7 items-center justify-center rounded-md border-[1.5px] border-gray-200 bg-white text-gray-700 disabled:opacity-40"
+                    >
+                      +
+                    </button>
+                  </div>
+                </div>
+              )
+            })}
+            <p className="text-2xs leading-relaxed text-gray-500">
+              Reductions refund any paid extras automatically, keeping the same collection date.
+              Adding a paid extra isn&rsquo;t supported here &mdash; cancel &amp; rebook.
+            </p>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={handleSaveQuantities}
+                disabled={isPending || !quantitiesChanged}
+                className="flex-1 rounded-lg bg-[#293F52] px-3 py-2 text-body-sm font-semibold text-white disabled:opacity-50"
+              >
+                {isPending ? 'Saving...' : 'Save'}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setEditingQuantities(false)
+                  setEditQty(new Map(originalQty))
+                }}
+                className="flex-1 rounded-lg border-[1.5px] border-gray-100 bg-white px-3 py-2 text-body-sm font-semibold text-gray-700"
+              >
+                Cancel
+              </button>
+            </div>
+            {editServicesUrl && (
+              <Link href={editServicesUrl} className="text-2xs font-medium text-[#293F52] underline">
+                Add or change service types (full editor) &rarr;
+              </Link>
+            )}
+          </div>
+        ) : (
         <div className="flex flex-col gap-1.5">
+          {quantityResult && (
+            <div className="mb-1 rounded-lg border border-[#00B864] bg-[#E8FDF0] px-3 py-2 text-body-sm text-[#006A38]">
+              {quantityResult}
+            </div>
+          )}
           {includedItems.map((item) => (
             <div
               key={item.id}
@@ -861,6 +996,7 @@ export function BookingDetailClient({
             </div>
           )}
         </div>
+        )}
       </div>
 
       </div>
