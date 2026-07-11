@@ -14,6 +14,9 @@ export const BookingItemSchema = z.object({
 
 export type BookingItem = z.infer<typeof BookingItemSchema>
 
+// Maximum quantity per service on a booking — mirrors the create-booking EF zod `.max(10)`.
+export const MAX_SERVICE_QTY = 10
+
 /**
  * Normalise an Australian mobile number to E.164 format (+614XXXXXXXX).
  * Accepts: 04XXXXXXXX, +614XXXXXXXX, 614XXXXXXXX

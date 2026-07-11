@@ -6,7 +6,8 @@
  *
  *   baselineTotalCents = calculatePrice(CURRENT persisted items, exclude self)
  *   newTotalCents      = calculatePrice(NEW items,               exclude self)
- *   collectedCents     = SUM(booking_payment.amount_cents WHERE status='paid')
+ *   collectedCents     = SUM(paid booking_payment) − SUM(Approved refund_request)
+ *                        — the amount actually still held for this booking
  *
  * Both totals are computed with the SAME engine call under the SAME current FY
  * state, so `delta = newTotalCents - baselineTotalCents` is the drift-immune
@@ -31,7 +32,12 @@ export interface QuantityEditInput {
   baselineTotalCents: number
   /** calculatePrice(NEW items, exclude self) — same engine call, same FY state. */
   newTotalCents: number
-  /** SUM(booking_payment.amount_cents) WHERE status='paid' — what was actually collected. */
+  /**
+   * SUM(paid booking_payment) − SUM(Approved refund_request) — the amount
+   * actually still held. Netting approved refunds is load-bearing: passing
+   * gross paid makes the drift guard wrongly block every edit after the first
+   * refund (see the create-booking EF's collectedCents computation).
+   */
   collectedCents: number
 }
 

@@ -11,7 +11,7 @@ import { invokeEfWithUserToken } from '@/lib/supabase/invoke-ef-client'
 import { BookingStatusBadge } from '@/components/booking/booking-status-badge'
 import { DetailHeader } from '@/components/admin/detail-header'
 import { FieldLabel, Input, Select, Textarea } from '@/components/admin/form'
-import { LOCATION_OPTIONS, type LocationOption } from '@/lib/booking/schemas'
+import { LOCATION_OPTIONS, MAX_SERVICE_QTY, type LocationOption } from '@/lib/booking/schemas'
 import { canEditCollectionDetails } from '@/lib/booking/collection-details-edit'
 import { isContractorStaff } from '@/lib/auth/roles'
 import { confirmBooking, cancelBooking, updateContact, updateCollectionDetails, updateNotes, updateBookingQuantities } from './actions'
@@ -293,6 +293,9 @@ export function BookingDetailClient({
 
   const poolByDate = indexPoolDates(poolDates ?? [])
 
+  // Today (ISO yyyy-mm-dd) for flagging closed/past dates in the picker (#378).
+  const today = new Date().toISOString().split('T')[0]!
+
   async function handleConfirm() {
     setIsPending(true)
     setError(null)
@@ -403,7 +406,7 @@ export function BookingDetailClient({
   }
 
   function setQty(serviceId: string, next: number) {
-    setEditQty((prev) => new Map(prev).set(serviceId, Math.min(10, Math.max(1, next))))
+    setEditQty((prev) => new Map(prev).set(serviceId, Math.min(MAX_SERVICE_QTY, Math.max(1, next))))
   }
 
   async function handleSaveQuantities() {
@@ -422,11 +425,23 @@ export function BookingDetailClient({
     }
     setEditingQuantities(false)
     setIsPending(false)
-    setQuantityResult(
-      result.data.refundOwedCents > 0
-        ? `Quantities updated. A refund of $${(result.data.refundOwedCents / 100).toFixed(2)} has been initiated.`
-        : 'Quantities updated.',
-    )
+    const { refundOwedCents, refundState } = result.data
+    const dollars = (refundOwedCents / 100).toFixed(2)
+    if (refundState === 'failed' && refundOwedCents > 0) {
+      // Quantities DID update, but no refund_request exists — never claim a
+      // refund is on its way when nothing was recorded.
+      setError(
+        `Quantities were updated, but the $${dollars} refund could not be recorded — no refund request exists. Process it manually.`,
+      )
+    } else {
+      setQuantityResult(
+        refundState === 'initiated'
+          ? `Quantities updated. A refund of $${dollars} has been initiated.`
+          : refundState === 'queued'
+            ? `Quantities updated. A refund of $${dollars} is awaiting admin approval on the Refunds page.`
+            : 'Quantities updated.',
+      )
+    }
     router.refresh()
   }
 
@@ -697,7 +712,6 @@ export function BookingDetailClient({
                   const spots = Math.max(0, cap.bulk_capacity_limit - cap.bulk_units_booked)
                   // Flag the dates only contractor staff see, so a crew-error
                   // correction into a closed/past date is deliberate (#378).
-                  const today = new Date().toISOString().split('T')[0]!
                   const flags = [
                     d.is_open === false ? 'closed' : null,
                     d.date < today ? 'past' : null,
@@ -884,6 +898,14 @@ export function BookingDetailClient({
               Cancel &amp; rebook to edit
             </span>
           )}
+          {!isMud && !isId && canEdit && canEditDetails && !canEditQuantities && (
+            <span
+              className="text-2xs text-gray-500"
+              title="Service quantities can only be edited on Confirmed bookings. Cancel and rebook to change services."
+            >
+              Cancel &amp; rebook to edit
+            </span>
+          )}
         </div>
 
         {editingQuantities ? (
@@ -902,7 +924,7 @@ export function BookingDetailClient({
                       aria-label={`Decrease ${line.name}`}
                       onClick={() => setQty(line.service_id, qty - 1)}
                       disabled={qty <= 1}
-                      className="flex size-7 items-center justify-center rounded-md border-[1.5px] border-gray-200 bg-white text-gray-700 disabled:opacity-40"
+                      className="flex size-7 items-center justify-center rounded-md border-[1.5px] border-gray-200 bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-50"
                     >
                       &minus;
                     </button>
@@ -911,8 +933,8 @@ export function BookingDetailClient({
                       type="button"
                       aria-label={`Increase ${line.name}`}
                       onClick={() => setQty(line.service_id, qty + 1)}
-                      disabled={qty >= 10}
-                      className="flex size-7 items-center justify-center rounded-md border-[1.5px] border-gray-200 bg-white text-gray-700 disabled:opacity-40"
+                      disabled={qty >= MAX_SERVICE_QTY}
+                      className="flex size-7 items-center justify-center rounded-md border-[1.5px] border-gray-200 bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-50"
                     >
                       +
                     </button>
@@ -920,7 +942,7 @@ export function BookingDetailClient({
                 </div>
               )
             })}
-            <p className="text-2xs leading-relaxed text-gray-500">
+            <p className="text-xs leading-relaxed text-gray-500">
               Reductions refund any paid extras automatically, keeping the same collection date.
               Adding a paid extra isn&rsquo;t supported here &mdash; cancel &amp; rebook.
             </p>
@@ -939,13 +961,13 @@ export function BookingDetailClient({
                   setEditingQuantities(false)
                   setEditQty(new Map(originalQty))
                 }}
-                className="flex-1 rounded-lg border-[1.5px] border-gray-100 bg-white px-3 py-2 text-body-sm font-semibold text-gray-700"
+                className="flex-1 rounded-lg border-[1.5px] border-gray-200 bg-white px-3 py-2 text-body-sm font-semibold text-gray-700 hover:bg-gray-50"
               >
                 Cancel
               </button>
             </div>
             {editServicesUrl && (
-              <Link href={editServicesUrl} className="text-2xs font-medium text-[#293F52] underline">
+              <Link href={editServicesUrl} className="text-xs font-medium text-[#293F52] underline">
                 Add or change service types (full editor) &rarr;
               </Link>
             )}
@@ -953,7 +975,7 @@ export function BookingDetailClient({
         ) : (
         <div className="flex flex-col gap-1.5">
           {quantityResult && (
-            <div className="mb-1 rounded-lg border border-[#00B864] bg-[#E8FDF0] px-3 py-2 text-body-sm text-[#006A38]">
+            <div role="status" className="mb-1 rounded-lg border border-status-success bg-status-success-bg px-3 py-2 text-body-sm text-status-success">
               {quantityResult}
             </div>
           )}
