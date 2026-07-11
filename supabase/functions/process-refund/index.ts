@@ -73,10 +73,53 @@ serve(async (req) => {
       return errorResponse('Refund request not found', 404)
     }
 
+    // ── 4a. Tenancy check ─────────────────────────────────────────────────────
+    // The fetch above is service-role (bypasses RLS) and the role gate at §2 is
+    // GLOBAL — without this, a client-admin of tenant A holding tenant B's
+    // request UUID could trigger a real Stripe refund on tenant B's charge
+    // (single shared D&M Stripe account). Re-read through the caller's
+    // RLS-scoped client: the refund_request_staff_select policy enforces
+    // accessible_client_ids() + sub-client narrowing. No row → same 404 as a
+    // missing id, so a cross-tenant probe can't confirm the request exists.
+    const { data: visibleRequest } = await supabase
+      .from('refund_request')
+      .select('id')
+      .eq('id', refund_request_id)
+      .maybeSingle()
+
+    if (!visibleRequest) {
+      return errorResponse('Refund request not found', 404)
+    }
+
     if (refundRequest.status !== 'Pending') {
       return errorResponse(
         `Refund request status is "${refundRequest.status}" — can only process "Pending" requests`,
         400
+      )
+    }
+
+    // ── 4b. Claim the request (concurrency guard) ─────────────────────────────
+    // Two concurrent POSTs (double-click, two admins) would both read
+    // status='Pending' above and both reach Stripe. Claim the row with a
+    // conditional write so exactly one proceeds: reviewed_at doubles as the
+    // claim marker (NULL until claimed). A caught Stripe failure releases the
+    // claim below so the request stays retryable; an uncaught crash leaves it
+    // claimed — deliberate fail-closed for money (staff reconcile via Stripe).
+    const { data: claimed, error: claimError } = await supabaseService
+      .from('refund_request')
+      .update({ reviewed_by: user.id, reviewed_at: new Date().toISOString() })
+      .eq('id', refundRequest.id)
+      .eq('status', 'Pending')
+      .is('reviewed_at', null)
+      .select('id')
+
+    if (claimError) {
+      return errorResponse(`Failed to claim refund request: ${claimError.message}`, 500)
+    }
+    if (!claimed || claimed.length === 0) {
+      return errorResponse(
+        'Refund request is already being processed (if a prior attempt crashed, verify in Stripe before retrying)',
+        409,
       )
     }
 
@@ -108,15 +151,40 @@ serve(async (req) => {
     })
 
     // Each charge's remaining refundable comes from Stripe (amount − amount_refunded),
-    // so a retry after a partial refund never over-refunds a charge.
+    // so a retry after a partial refund never over-refunds a charge. From here to
+    // the end of the refunds loop, any failure releases the claim (4b) so the
+    // request stays retryable — and the per-(request, charge) idempotency keys
+    // below make a same-allocation retry return the ORIGINAL refund instead of
+    // issuing a second one; a changed allocation trips Stripe's idempotency_error
+    // (loud failure, never a silent double-pay).
+    const releaseClaim = async () => {
+      await supabaseService
+        .from('refund_request')
+        .update({ reviewed_by: null, reviewed_at: null })
+        .eq('id', refundRequest.id)
+        .eq('status', 'Pending')
+    }
+
     const charges: RefundableCharge[] = []
-    for (const p of paidWithCharge) {
-      const ch = await stripe.charges.retrieve(p.stripe_charge_id!)
-      charges.push({
-        bookingPaymentId: p.id,
-        stripeChargeId: p.stripe_charge_id!,
-        remainingCents: Math.max(0, ch.amount - ch.amount_refunded),
-      })
+    try {
+      for (const p of paidWithCharge) {
+        const ch = await stripe.charges.retrieve(p.stripe_charge_id!)
+        charges.push({
+          bookingPaymentId: p.id,
+          stripeChargeId: p.stripe_charge_id!,
+          remainingCents: Math.max(0, ch.amount - ch.amount_refunded),
+        })
+      }
+    } catch (err) {
+      await releaseClaim()
+      throw err
+    }
+
+    // A zero/negative-amount request would allocate no lines and previously
+    // fell through to be marked Approved with no Stripe refund — fail loud.
+    if (refundRequest.amount_cents <= 0) {
+      await releaseClaim()
+      return errorResponse('Refund request amount must be positive', 400)
     }
 
     const lines = allocateRefund(refundRequest.amount_cents, charges)
@@ -124,6 +192,7 @@ serve(async (req) => {
     if (shortfall > 0) {
       // The booking's charges can't cover the request — never silently
       // under-refund. `collected` accounting should prevent this; surface it.
+      await releaseClaim()
       return errorResponse(
         `Requested refund ${refundRequest.amount_cents}c exceeds refundable across charges by ${shortfall}c`,
         409,
@@ -131,17 +200,31 @@ serve(async (req) => {
     }
 
     const refundIds: string[] = []
-    for (const line of lines) {
-      const refund = await stripe.refunds.create({
-        charge: line.stripeChargeId,
-        amount: line.amountCents,
-        metadata: {
-          refund_request_id: refundRequest.id,
-          booking_id: refundRequest.booking_id,
-          booking_payment_id: line.bookingPaymentId,
-        },
-      })
-      refundIds.push(refund.id)
+    try {
+      for (const line of lines) {
+        const refund = await stripe.refunds.create(
+          {
+            charge: line.stripeChargeId,
+            amount: line.amountCents,
+            metadata: {
+              refund_request_id: refundRequest.id,
+              booking_id: refundRequest.booking_id,
+              booking_payment_id: line.bookingPaymentId,
+            },
+          },
+          // Per-(request, charge) idempotency: a retry of the same allocation
+          // returns the original refund; a DIFFERENT amount under the same key
+          // errors loudly instead of double-paying. Keys expire after ~24h at
+          // Stripe — the claim above is the backstop beyond that window.
+          { idempotencyKey: `${refundRequest.id}:${line.bookingPaymentId}` },
+        )
+        refundIds.push(refund.id)
+      }
+    } catch (err) {
+      // Partial failure: refunds already issued stay issued (idempotency keys
+      // make the retry safe); release the claim so staff can retry.
+      await releaseClaim()
+      throw err
     }
     const primaryRefundId = refundIds[0]
 

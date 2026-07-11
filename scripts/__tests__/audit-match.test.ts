@@ -35,6 +35,12 @@ describe('findMissingByPropertyDate', () => {
     expect(m[0]!.ref).toBe('B')
   })
 
+  it('an exact match is never stolen by an earlier near match — the near source is missing', () => {
+    const verco = new Map([['recP1', ['2026-07-14']]])
+    const m = findMissingByPropertyDate(verco, [row('NEAR', 'recP1', '2026-07-10'), row('EXACT', 'recP1', '2026-07-14')], 21)
+    expect(m.map((r) => r.ref)).toEqual(['NEAR'])
+  })
+
   it('does not mutate the caller map', () => {
     const verco = new Map([['recP1', ['2026-07-13']]])
     findMissingByPropertyDate(verco, [row('A', 'recP1', '2026-07-13')], 21)

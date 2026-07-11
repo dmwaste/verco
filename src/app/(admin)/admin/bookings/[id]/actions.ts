@@ -1,5 +1,6 @@
 'use server'
 
+import { z } from 'zod'
 import { createClient } from '@/lib/supabase/server'
 import { invokeSendNotification } from '@/lib/notifications/invoke'
 import { isPastCancellationCutoff } from '@/lib/booking/cancellation-cutoff'
@@ -7,6 +8,7 @@ import {
   canEditCollectionDetails,
   canRescheduleToTargetDate,
 } from '@/lib/booking/collection-details-edit'
+import { STAFF_ROLES } from '@/lib/auth/roles'
 import type { Result } from '@/lib/result'
 
 /**
@@ -314,7 +316,7 @@ export async function updateCollectionDetails(
   // without changing anything.
   const { data: current } = await supabase
     .from('booking')
-    .select('status, location, booking_item(id, collection_date_id)')
+    .select('status, location, collection_area_id, booking_item(id, collection_date_id)')
     .eq('id', bookingId)
     .single()
 
@@ -368,12 +370,21 @@ export async function updateCollectionDetails(
     // scope comes from the booking / booking_item RLS policies.
     const { data: targetDate, error: targetError } = await supabase
       .from('collection_date')
-      .select('id, date, is_open')
+      .select('id, date, is_open, collection_area_id')
       .eq('id', data.collection_date_id!)
       .single()
 
     if (targetError || !targetDate) {
       return { ok: false, error: 'Target collection date not found.' }
+    }
+
+    // collection_date is public-SELECT, so the id alone proves nothing about
+    // tenancy — pin the target to the booking's own area or a crafted request
+    // could move items onto (and mutate the capacity counters of) another
+    // area's or another tenant's date. booking_item RLS scopes the parent
+    // booking, not the new collection_date_id it points at.
+    if (targetDate.collection_area_id !== current.collection_area_id) {
+      return { ok: false, error: "Target collection date is outside this booking's collection area." }
     }
 
     // Same UTC "today" the admin date-picker filters on, so the server never
@@ -467,13 +478,38 @@ export async function updateNotes(
  * open-session desync). Role/status gate = canEditCollectionDetails (shared with
  * the rest of the inline editor + the EF's own guard).
  */
+const updateQuantitiesInput = z.object({
+  bookingId: z.string().uuid(),
+  // no_services 0 = remove that service line (the EF's smart-diff drops it);
+  // the ≥1-remaining guard below still forces at least one kept service.
+  items: z
+    .array(z.object({ service_id: z.string().uuid(), no_services: z.number().int().min(0).max(10) }))
+    .min(1)
+    .max(20),
+})
+
+/**
+ * How the refund half of a quantity reduction ended up:
+ * - 'none'      — nothing owed (free-quota change).
+ * - 'initiated' — refund_request created AND process-refund accepted it.
+ * - 'queued'    — refund_request created but process-refund declined/failed
+ *                 (e.g. -staff roles: the EF is admin-approval-tier only).
+ *                 Recoverable from the Refunds page.
+ * - 'failed'    — the refund_request itself could not be recorded. NO Pending
+ *                 row exists; the refund needs manual processing.
+ */
+export type QuantityEditRefundState = 'none' | 'initiated' | 'queued' | 'failed'
+
 export async function updateBookingQuantities(
   bookingId: string,
   items: Array<{ service_id: string; no_services: number }>,
-): Promise<Result<{ refundOwedCents: number }>> {
-  if (!bookingId) return { ok: false, error: 'Booking ID is required.' }
+): Promise<Result<{ refundOwedCents: number; refundState: QuantityEditRefundState }>> {
+  const parsed = updateQuantitiesInput.safeParse({ bookingId, items })
+  if (!parsed.success) {
+    return { ok: false, error: 'Invalid quantity edit input.' }
+  }
 
-  const cleanItems = items.filter((i) => i.no_services > 0)
+  const cleanItems = parsed.data.items.filter((i) => i.no_services > 0)
   if (cleanItems.length === 0) {
     return { ok: false, error: 'A booking must keep at least one service. Use Cancel to remove all services.' }
   }
@@ -481,8 +517,7 @@ export async function updateBookingQuantities(
   const supabase = await createClient()
 
   const { data: role } = await supabase.rpc('current_user_role')
-  const adminRoles = ['client-admin', 'client-staff', 'contractor-admin', 'contractor-staff']
-  if (!role || !adminRoles.includes(role)) {
+  if (!role || !(STAFF_ROLES as readonly string[]).includes(role)) {
     return { ok: false, error: 'Insufficient permissions.' }
   }
 
@@ -514,6 +549,17 @@ export async function updateBookingQuantities(
   if (booking.status === 'Pending Payment') {
     return { ok: false, error: 'Resolve the pending payment first. Cancel and rebook to change this booking.' }
   }
+  // Quantity edits are Confirmed-only — canEditCollectionDetails is wider
+  // (Scheduled/Completed for contractor tier, the #378 date-correction path).
+  // A Scheduled/Completed reduction would refund a dispatched or already-
+  // collected service and desync its collection_stop rows. Matches the UI's
+  // canEditQuantities gate; this action is the boundary, not the UI.
+  if (booking.status !== 'Confirmed') {
+    return {
+      ok: false,
+      error: `Cannot edit quantities for a booking with status "${booking.status}". Cancel and rebook.`,
+    }
+  }
 
   const items0 = (booking.booking_item ?? []) as Array<{ collection_date_id: string }>
   const collectionDateId = items0[0]?.collection_date_id
@@ -521,14 +567,24 @@ export async function updateBookingQuantities(
   if (!booking.property_id || !booking.collection_area_id) {
     return { ok: false, error: 'Booking is missing its property or collection area.' }
   }
+  // A quantity edit must not alter location — never fabricate one for the EF's
+  // required field. A blank location is a data-repair case, not an edit case.
+  if (!booking.location) {
+    return { ok: false, error: 'Booking has no location set — fix the booking location first.' }
+  }
 
   // Re-send the booking's current allocation swap so the EF doesn't strip it and
-  // misprice (spec §11 #7). The editor never changes the swap.
-  const { data: swapRow } = await supabase
+  // misprice (spec §11 #7). The editor never changes the swap. Fail loud on a
+  // read error — silently omitting `swap` would make the EF DELETE the swap row
+  // and re-price without the conversion.
+  const { data: swapRow, error: swapError } = await supabase
     .from('allocation_swap')
     .select('id')
     .eq('booking_id', bookingId)
     .maybeSingle()
+  if (swapError) {
+    return { ok: false, error: `Could not read the booking's allocation swap: ${swapError.message}` }
+  }
 
   const { data: { session } } = await supabase.auth.getSession()
   if (!session?.access_token) return { ok: false, error: 'Not authenticated.' }
@@ -546,8 +602,9 @@ export async function updateBookingQuantities(
       collection_area_id: booking.collection_area_id,
       collection_date_id: collectionDateId,
       // Pass the current location so the RPC's IS-DISTINCT guard leaves it
-      // unchanged (a quantity edit must not alter location/notes).
-      location: booking.location || 'Front Verge',
+      // unchanged (a quantity edit must not alter location/notes; blank
+      // location is rejected above).
+      location: booking.location,
       items: cleanItems,
       replaces: bookingId,
       inline_edit: true,
@@ -569,8 +626,11 @@ export async function updateBookingQuantities(
   const refundOwedCents = result.refund_owed_cents ?? 0
 
   // Orchestrate the refund via the existing machinery (mirrors cancelBooking's
-  // refund site). PR-A bookings have at most one paid booking_payment, so
-  // process-refund's single-charge assumption holds (multi-charge is PR-B, §11 #4).
+  // refund site). process-refund is multi-charge-safe as of PR-B0 (#386), so
+  // this holds for both single-charge (PR-A) and future delta-charge bookings.
+  // The booking is already reduced by this point, so refund failures must be
+  // SURFACED, never swallowed — 'failed' means no Pending row exists at all.
+  let refundState: QuantityEditRefundState = refundOwedCents > 0 ? 'failed' : 'none'
   if (refundOwedCents > 0 && booking.contact_id && booking.client_id) {
     const { data: refundReq, error: refundInsertError } = await supabase
       .from('refund_request')
@@ -586,6 +646,8 @@ export async function updateBookingQuantities(
       .single()
 
     if (!refundInsertError && refundReq) {
+      // Pending row exists — worst case from here is 'queued' (Refunds page).
+      refundState = 'queued'
       const refundRes = await fetch(
         `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/process-refund`,
         {
@@ -597,16 +659,19 @@ export async function updateBookingQuantities(
           body: JSON.stringify({ refund_request_id: refundReq.id }),
         },
       )
-      if (!refundRes.ok) {
+      if (refundRes.ok) {
+        refundState = 'initiated'
+      } else {
         const errText = await refundRes.text().catch(() => 'Unknown error')
         console.error(`Refund trigger failed for reduced booking ${bookingId}: ${errText}`)
-        // Booking already updated; refund_request stays Pending — staff can
-        // retry from the Refunds page (same recovery path as cancelBooking).
+        // Booking already updated; refund_request stays Pending — an admin can
+        // release it from the Refunds page (process-refund is approval-tier
+        // only, so this is the NORMAL path for -staff roles, not an error).
       }
     } else {
       console.error('Failed to create refund_request for reduced booking:', refundInsertError?.message)
     }
   }
 
-  return { ok: true, data: { refundOwedCents } }
+  return { ok: true, data: { refundOwedCents, refundState } }
 }

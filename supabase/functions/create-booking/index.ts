@@ -194,12 +194,20 @@ serve(withSentry('create-booking', async (req) => {
 
     const { data: collDate, error: collDateError } = await supabaseAnon
       .from('collection_date')
-      .select('id, is_open')
+      .select('id, is_open, collection_area_id')
       .eq('id', collection_date_id)
       .single()
 
     if (collDateError || !collDate) {
       return jsonResponse({ error: 'Collection date not found' }, 404)
+    }
+
+    // collection_date is public-SELECT, so the id alone proves nothing about
+    // tenancy — pin the date to the requested area or a crafted request could
+    // land items on (and mutate the capacity counters of) another area's or
+    // another tenant's date.
+    if (collDate.collection_area_id !== collection_area_id) {
+      return jsonResponse({ error: 'Collection date does not belong to this collection area' }, 400)
     }
 
     if (!collDate.is_open) {
@@ -356,7 +364,7 @@ serve(withSentry('create-booking', async (req) => {
       const [{ data: ownedBooking }, { data: callerRole }] = await Promise.all([
         supabaseAnon
           .from('booking')
-          .select('id, booking_item(service_id, no_services, collection_date!inner(date))')
+          .select('id, status, booking_item(service_id, no_services, collection_date!inner(date))')
           .eq('id', replaces)
           .maybeSingle(),
         supabaseAnon.rpc('current_user_role'),
@@ -382,6 +390,24 @@ serve(withSentry('create-booking', async (req) => {
       // edit path keeps its strict guard (spec §3 v2 / §4). `refundOwedCents`
       // is returned to the caller (the inline server action), which processes
       // the refund via the existing refund_request + process-refund machinery.
+      //
+      // inline_edit is STAFF + Confirmed-only, enforced HERE because this EF is
+      // the trust boundary, not the admin action: evaluateEditGuard admits
+      // residents (their wizard edit path), so without these gates a resident
+      // could hand-craft inline_edit=true and reduce their own PAID booking with
+      // the owed refund returned to a caller that never orchestrates it — and
+      // any staff tier could reduce a Scheduled/Completed booking, refunding a
+      // dispatched or already-collected service and desyncing its stops.
+      if (inline_edit) {
+        if (!callerRole || !(CREATOR_STAFF_ROLES as readonly string[]).includes(callerRole as string)) {
+          return jsonResponse({ error: 'Inline quantity edits are staff-only.' }, 403)
+        }
+        if (ownedBooking?.status !== 'Confirmed') {
+          return jsonResponse({
+            error: `Cannot edit quantities for a booking with status "${ownedBooking?.status}". Cancel and rebook.`,
+          }, 409)
+        }
+      }
       let refundOwedCents = 0
       if (inline_edit) {
         // Baseline: re-price the booking's CURRENT items with the SAME engine

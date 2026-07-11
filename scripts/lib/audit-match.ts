@@ -28,6 +28,11 @@ function daysApart(a: string, b: string): number {
  * consumed on match, so a property with two source bookings but one Verco
  * booking yields exactly one "missing".
  *
+ * Matching runs in two passes so a nearby booking can't steal an exact
+ * partner: pass 1 consumes an exact-date match for every source that has one;
+ * pass 2 assigns the closest remaining date within tolerance to the sources
+ * still unmatched.
+ *
  * `vercoDatesByProperty` maps a Verco property external id → the collection
  * dates of every Verco booking at that property (any status — a cancelled
  * Verco row still means the booking was imported).
@@ -41,9 +46,18 @@ export function findMissingByPropertyDate<T extends PropDatedRow>(
   const remaining = new Map<string, string[]>()
   for (const [k, v] of vercoDatesByProperty) remaining.set(k, [...v])
 
+  // Pass 1: exact-date matches.
+  const unmatched: T[] = []
+  for (const s of sources) {
+    const dates = remaining.get(s.propertyKey)
+    const exactIdx = dates ? dates.indexOf(s.date) : -1
+    if (dates && exactIdx >= 0) dates.splice(exactIdx, 1) // consume
+    else unmatched.push(s)
+  }
+
+  // Pass 2: closest remaining date within tolerance, earliest source first.
   const missing: T[] = []
-  // Exact-date matches first, so a nearby booking can't steal an exact partner.
-  const ordered = [...sources].sort((a, b) => a.date.localeCompare(b.date))
+  const ordered = [...unmatched].sort((a, b) => a.date.localeCompare(b.date))
 
   for (const s of ordered) {
     const dates = remaining.get(s.propertyKey)
@@ -51,7 +65,6 @@ export function findMissingByPropertyDate<T extends PropDatedRow>(
       missing.push(s)
       continue
     }
-    // Prefer an exact date; otherwise the closest within tolerance.
     let bestIdx = -1
     let bestDist = Infinity
     for (let i = 0; i < dates.length; i++) {
@@ -60,7 +73,6 @@ export function findMissingByPropertyDate<T extends PropDatedRow>(
         bestDist = dist
         bestIdx = i
       }
-      if (dist === 0) break
     }
     if (bestIdx >= 0 && bestDist <= toleranceDays) {
       dates.splice(bestIdx, 1) // consume

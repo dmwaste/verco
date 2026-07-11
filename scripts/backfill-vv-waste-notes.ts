@@ -215,6 +215,10 @@ function writeReport(plan: NoteBackfillPlan, stamp: string, meta: { councils: st
 // ─── Small helpers ─────────────────────────────────────────────────────────────
 
 type Filterable = { eq: (c: string, v: string) => Filterable; or: (f: string) => Filterable }
+type Pageable = {
+  order: (c: string, opts: { ascending: boolean }) => Pageable
+  range: (from: number, to: number) => PromiseLike<{ data: unknown[] | null; error: { message: string } | null }>
+}
 
 async function pagedIn<T>(
   verco: SupabaseClient,
@@ -226,14 +230,24 @@ async function pagedIn<T>(
 ): Promise<T[]> {
   const out: T[] = []
   const CHUNK = 100
+  const PAGE = 1000
   for (let i = 0; i < values.length; i += CHUNK) {
     const chunk = values.slice(i, i + CHUNK)
     if (chunk.length === 0) continue
-    let q = verco.from(table).select(select).in(column, chunk) as unknown as Filterable
-    if (refine) q = refine(q)
-    const { data, error } = (await (q as unknown as PromiseLike<{ data: T[] | null; error: { message: string } | null }>))
-    if (error) throw new Error(`load ${table}: ${error.message}`)
-    out.push(...((data ?? []) as T[]))
+    // Page the rows too — a chunk can match more rows than PostgREST's max-rows cap.
+    let from = 0
+    while (true) {
+      let q = verco.from(table).select(select).in(column, chunk) as unknown as Filterable
+      if (refine) q = refine(q)
+      const { data, error } = await (q as unknown as Pageable)
+        .order('id', { ascending: true }) // stable order — range() pagination skips/dupes rows without it
+        .range(from, from + PAGE - 1)
+      if (error) throw new Error(`load ${table}: ${error.message}`)
+      if (!data || data.length === 0) break
+      out.push(...(data as T[]))
+      if (data.length < PAGE) break
+      from += PAGE
+    }
   }
   return out
 }

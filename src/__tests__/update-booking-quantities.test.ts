@@ -17,7 +17,14 @@ vi.mock('next/headers', () => ({
 let role = 'contractor-admin'
 let booking: Record<string, unknown> | null
 let swapRow: { id: string } | null = null
+let swapError: { message: string } | null = null
+let refundInsertError: { message: string } | null = null
+let processRefundOk = true
 const refundInserts: Array<Record<string, unknown>> = []
+
+// Valid UUIDs — the action zod-validates bookingId + service_id shapes.
+const B1 = '9a1f6f2e-1c6b-4a1e-9f7d-2b8c3d4e5f60'
+const SVC_GENERAL = '5e0c9b8a-7d6f-4c3b-a291-8f7e6d5c4b3a'
 
 vi.mock('@/lib/supabase/server', () => ({
   createClient: async () => ({
@@ -36,14 +43,23 @@ vi.mock('@/lib/supabase/server', () => ({
       }
       if (table === 'allocation_swap') {
         return {
-          select: () => ({ eq: () => ({ maybeSingle: () => Promise.resolve({ data: swapRow }) }) }),
+          select: () => ({ eq: () => ({ maybeSingle: () => Promise.resolve({ data: swapRow, error: swapError }) }) }),
         }
       }
       if (table === 'refund_request') {
         return {
           insert: (row: Record<string, unknown>) => {
-            refundInserts.push(row)
-            return { select: () => ({ single: () => Promise.resolve({ data: { id: 'refund-1' }, error: null }) }) }
+            if (!refundInsertError) refundInserts.push(row)
+            return {
+              select: () => ({
+                single: () =>
+                  Promise.resolve(
+                    refundInsertError
+                      ? { data: null, error: refundInsertError }
+                      : { data: { id: 'refund-1' }, error: null },
+                  ),
+              }),
+            }
           },
         }
       }
@@ -61,11 +77,14 @@ let efResponse: { ok: boolean; status?: number; payload: Record<string, unknown>
 beforeEach(() => {
   role = 'contractor-admin'
   swapRow = null
+  swapError = null
+  refundInsertError = null
+  processRefundOk = true
   refundInserts.length = 0
   fetchCalls = []
-  efResponse = { ok: true, payload: { booking_id: 'b1', ref: 'KWN-1', requires_payment: false, edited: true, refund_owed_cents: 5000 } }
+  efResponse = { ok: true, payload: { booking_id: B1, ref: 'KWN-1', requires_payment: false, edited: true, refund_owed_cents: 5000 } }
   booking = {
-    id: 'b1', status: 'Confirmed', type: 'Residential', location: 'Front Verge',
+    id: B1, status: 'Confirmed', type: 'Residential', location: 'Front Verge',
     property_id: 'prop-1', collection_area_id: 'area-1', contact_id: 'c1', client_id: 'client-1',
     booking_item: [{ collection_date_id: 'cd-1' }],
   }
@@ -75,49 +94,69 @@ beforeEach(() => {
       return { ok: efResponse.ok, status: efResponse.status ?? 200, text: async () => JSON.stringify(efResponse.payload), json: async () => efResponse.payload }
     }
     // process-refund
-    return { ok: true, status: 200, text: async () => '{}', json: async () => ({}) }
+    return {
+      ok: processRefundOk,
+      status: processRefundOk ? 200 : 403,
+      text: async () => (processRefundOk ? '{}' : '{"error":"Insufficient permissions"}'),
+      json: async () => ({}),
+    }
   })
 })
 
-const REDUCE = [{ service_id: 'svc-general', no_services: 1 }]
+const REDUCE = [{ service_id: SVC_GENERAL, no_services: 1 }]
 
 describe('updateBookingQuantities — reduction → refund orchestration', () => {
   it('calls the EF with inline_edit + replaces + items and NO contact, then refunds via the existing machinery', async () => {
-    const res = await updateBookingQuantities('b1', REDUCE)
-    expect(res).toEqual({ ok: true, data: { refundOwedCents: 5000 } })
+    const res = await updateBookingQuantities(B1, REDUCE)
+    expect(res).toEqual({ ok: true, data: { refundOwedCents: 5000, refundState: 'initiated' } })
 
     const efCall = fetchCalls.find((c) => c.url.includes('/create-booking'))!
     expect(efCall.body.inline_edit).toBe(true)
-    expect(efCall.body.replaces).toBe('b1')
+    expect(efCall.body.replaces).toBe(B1)
     expect(efCall.body.collection_date_id).toBe('cd-1')
     expect(efCall.body.items).toEqual(REDUCE)
     expect('contact' in efCall.body).toBe(false) // inline editor omits contact
 
     // Refund hand-off: one Pending refund_request for the owed amount + process-refund fired.
     expect(refundInserts).toHaveLength(1)
-    expect(refundInserts[0]).toMatchObject({ booking_id: 'b1', amount_cents: 5000, status: 'Pending' })
+    expect(refundInserts[0]).toMatchObject({ booking_id: B1, amount_cents: 5000, status: 'Pending' })
     const refundCall = fetchCalls.find((c) => c.url.includes('/process-refund'))!
     expect(refundCall.body.refund_request_id).toBe('refund-1')
   })
 
   it('re-sends the booking allocation swap when present (so the EF does not strip it)', async () => {
     swapRow = { id: 'swap-1' }
-    await updateBookingQuantities('b1', REDUCE)
+    await updateBookingQuantities(B1, REDUCE)
     const efCall = fetchCalls.find((c) => c.url.includes('/create-booking'))!
     expect(efCall.body.swap).toBe(true)
   })
 
   it('does NOT refund when the EF reports refund_owed_cents = 0 (free-quota change)', async () => {
     efResponse.payload.refund_owed_cents = 0
-    const res = await updateBookingQuantities('b1', [{ service_id: 'svc-general', no_services: 2 }])
-    expect(res).toEqual({ ok: true, data: { refundOwedCents: 0 } })
+    const res = await updateBookingQuantities(B1, [{ service_id: SVC_GENERAL, no_services: 2 }])
+    expect(res).toEqual({ ok: true, data: { refundOwedCents: 0, refundState: 'none' } })
     expect(refundInserts).toHaveLength(0)
     expect(fetchCalls.some((c) => c.url.includes('/process-refund'))).toBe(false)
   })
 
+  it("returns refundState 'failed' when the refund_request insert is rejected (no Pending row to retry)", async () => {
+    refundInsertError = { message: 'RLS denied' }
+    const res = await updateBookingQuantities(B1, REDUCE)
+    expect(res).toEqual({ ok: true, data: { refundOwedCents: 5000, refundState: 'failed' } })
+    expect(fetchCalls.some((c) => c.url.includes('/process-refund'))).toBe(false)
+  })
+
+  it("returns refundState 'queued' when process-refund declines (e.g. -staff role, approval-tier EF)", async () => {
+    processRefundOk = false
+    const res = await updateBookingQuantities(B1, REDUCE)
+    expect(res).toEqual({ ok: true, data: { refundOwedCents: 5000, refundState: 'queued' } })
+    // The Pending refund_request row exists — recoverable from the Refunds page.
+    expect(refundInserts).toHaveLength(1)
+  })
+
   it('surfaces an EF block (drift / requires payment) as an error and does not refund', async () => {
     efResponse = { ok: false, status: 409, payload: { error: 'Increasing the quantity adds a paid extra. Cancel and rebook to add paid services.', code: 'requires_payment' } }
-    const res = await updateBookingQuantities('b1', [{ service_id: 'svc-general', no_services: 5 }])
+    const res = await updateBookingQuantities(B1, [{ service_id: SVC_GENERAL, no_services: 5 }])
     expect(res.ok).toBe(false)
     if (!res.ok) expect(res.error).toMatch(/Cancel and rebook to add paid services/)
     expect(refundInserts).toHaveLength(0)
@@ -127,28 +166,66 @@ describe('updateBookingQuantities — reduction → refund orchestration', () =>
 describe('updateBookingQuantities — gating (server re-enforces the UI gate)', () => {
   it('rejects a MUD booking before calling the EF', async () => {
     booking!.type = 'MUD'
-    const res = await updateBookingQuantities('b1', REDUCE)
+    const res = await updateBookingQuantities(B1, REDUCE)
     expect(res.ok).toBe(false)
     expect(fetchCalls).toHaveLength(0)
   })
 
   it('rejects a non-Confirmed booking (Pending Payment) before calling the EF', async () => {
     booking!.status = 'Pending Payment'
-    const res = await updateBookingQuantities('b1', REDUCE)
+    const res = await updateBookingQuantities(B1, REDUCE)
     expect(res.ok).toBe(false)
     expect(fetchCalls).toHaveLength(0)
   })
 
   it('rejects a non-admin role', async () => {
     role = 'ranger'
-    const res = await updateBookingQuantities('b1', REDUCE)
+    const res = await updateBookingQuantities(B1, REDUCE)
     expect(res.ok).toBe(false)
     if (!res.ok) expect(res.error).toMatch(/permission/i)
   })
 
   it('rejects an empty item set (removal = cancel & rebook)', async () => {
-    const res = await updateBookingQuantities('b1', [{ service_id: 'svc-general', no_services: 0 }])
+    const res = await updateBookingQuantities(B1, [{ service_id: SVC_GENERAL, no_services: 0 }])
     expect(res.ok).toBe(false)
+    expect(fetchCalls).toHaveLength(0)
+  })
+
+  // Confirmed-only: canEditCollectionDetails is wider (Scheduled/Completed for
+  // contractor tier, the #378 date-correction path) and must NOT open the
+  // quantity path — a post-dispatch reduction would refund a dispatched or
+  // already-collected service and desync collection_stop rows.
+  it.each(['Scheduled', 'Completed'] as const)(
+    'rejects a %s booking even for contractor-admin (post-dispatch = cancel & rebook)',
+    async (status) => {
+      booking!.status = status
+      const res = await updateBookingQuantities(B1, REDUCE)
+      expect(res.ok).toBe(false)
+      if (!res.ok) expect(res.error).toMatch(new RegExp(status))
+      expect(fetchCalls).toHaveLength(0)
+      expect(refundInserts).toHaveLength(0)
+    },
+  )
+
+  it('rejects a non-UUID booking id before any read', async () => {
+    const res = await updateBookingQuantities('b1', REDUCE)
+    expect(res.ok).toBe(false)
+    expect(fetchCalls).toHaveLength(0)
+  })
+
+  it('rejects a booking with no location instead of fabricating one', async () => {
+    booking!.location = null
+    const res = await updateBookingQuantities(B1, REDUCE)
+    expect(res.ok).toBe(false)
+    if (!res.ok) expect(res.error).toMatch(/location/i)
+    expect(fetchCalls).toHaveLength(0)
+  })
+
+  it('fails loud when the allocation_swap read errors (silently omitting swap would delete it)', async () => {
+    swapError = { message: 'transient' }
+    const res = await updateBookingQuantities(B1, REDUCE)
+    expect(res.ok).toBe(false)
+    if (!res.ok) expect(res.error).toMatch(/allocation swap/i)
     expect(fetchCalls).toHaveLength(0)
   })
 })
