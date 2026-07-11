@@ -25,6 +25,10 @@ import {
   type RenderBookingCancelledOptions,
 } from './templates/booking-cancelled'
 import {
+  renderBookingUpdated,
+  type RenderBookingUpdatedOptions,
+} from './templates/booking-updated'
+import {
   renderNcnRaised,
   type RenderNcnRaisedOptions,
 } from './templates/ncn-raised'
@@ -315,6 +319,13 @@ function renderTemplate(
   switch (payload.type) {
     case 'booking_created':
       return renderBookingCreated(booking, appUrl)
+    case 'booking_updated': {
+      const opts: RenderBookingUpdatedOptions = {
+        refundCents: payload.refund_cents,
+        refundStatus: payload.refund_status,
+      }
+      return renderBookingUpdated(booking, appUrl, opts)
+    }
     case 'booking_cancelled': {
       const opts: RenderBookingCancelledOptions = {
         reason: payload.reason,
@@ -367,6 +378,9 @@ function renderTemplate(
 function idempotencyRef(payload: NotificationPayload): string | null {
   if (payload.type === 'ncn_raised') return payload.ncn_id || null
   if (payload.type === 'np_raised') return payload.np_id || null
+  // booking_updated recurs on one booking (once per edit) — key it by edit_ref
+  // so a later edit's send isn't suppressed by an earlier one's idempotency row.
+  if (payload.type === 'booking_updated') return payload.edit_ref || null
   return null
 }
 
@@ -487,6 +501,7 @@ function renderSmsTemplate(
       return renderBookingCreatedSMS(booking)
     case 'collection_reminder':
       return renderCollectionReminderSMS(booking)
+    case 'booking_updated':
     case 'booking_cancelled':
     case 'payment_reminder':
     case 'payment_expired':

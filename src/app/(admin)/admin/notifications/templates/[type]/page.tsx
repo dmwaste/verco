@@ -9,6 +9,7 @@ import type {
   RenderedSMS,
 } from '@/lib/notifications/templates/types'
 import { renderBookingCreated, renderBookingCreatedSMS } from '@/lib/notifications/templates/booking-created'
+import { renderBookingUpdated } from '@/lib/notifications/templates/booking-updated'
 import { renderBookingCancelled } from '@/lib/notifications/templates/booking-cancelled'
 import { renderCollectionReminder, renderCollectionReminderSMS } from '@/lib/notifications/templates/collection-reminder'
 import { renderCompletionSurvey } from '@/lib/notifications/templates/completion-survey'
@@ -42,6 +43,11 @@ function renderEmail(
   switch (type) {
     case 'booking_created':
       return renderBookingCreated(booking, APP_URL)
+    case 'booking_updated':
+      return renderBookingUpdated(booking, APP_URL, {
+        refundCents: 5000,
+        refundStatus: 'processed',
+      })
     case 'booking_cancelled':
       return renderBookingCancelled(booking, APP_URL, {
         reason: 'Contractor unavailable',
@@ -84,6 +90,7 @@ function renderSms(
       return renderBookingCreatedSMS(booking)
     case 'collection_reminder':
       return renderCollectionReminderSMS(booking)
+    case 'booking_updated':
     case 'booking_cancelled':
     case 'payment_reminder':
     case 'payment_expired':
