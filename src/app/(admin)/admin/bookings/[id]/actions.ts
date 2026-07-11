@@ -43,8 +43,7 @@ export async function replaceBookingAfterEdit(
   const supabase = await createClient()
 
   const { data: role } = await supabase.rpc('current_user_role')
-  const adminRoles = ['client-admin', 'client-staff', 'contractor-admin', 'contractor-staff']
-  if (!role || !adminRoles.includes(role)) {
+  if (!role || !(STAFF_ROLES as readonly string[]).includes(role)) {
     return { ok: false, error: 'Insufficient permissions.' }
   }
 
@@ -81,8 +80,7 @@ export async function confirmBooking(bookingId: string): Promise<Result<void>> {
 
   // Verify current user has admin/staff role
   const { data: role } = await supabase.rpc('current_user_role')
-  const adminRoles = ['client-admin', 'client-staff', 'contractor-admin', 'contractor-staff']
-  if (!role || !adminRoles.includes(role)) {
+  if (!role || !(STAFF_ROLES as readonly string[]).includes(role)) {
     return { ok: false, error: 'Insufficient permissions.' }
   }
 
@@ -125,8 +123,7 @@ export async function cancelBooking(bookingId: string): Promise<Result<void>> {
 
   // Verify current user has admin/staff role
   const { data: role } = await supabase.rpc('current_user_role')
-  const adminRoles = ['client-admin', 'client-staff', 'contractor-admin', 'contractor-staff']
-  if (!role || !adminRoles.includes(role)) {
+  if (!role || !(STAFF_ROLES as readonly string[]).includes(role)) {
     return { ok: false, error: 'Insufficient permissions.' }
   }
 
@@ -245,8 +242,7 @@ export async function updateContact(
   const supabase = await createClient()
 
   const { data: role } = await supabase.rpc('current_user_role')
-  const adminRoles = ['client-admin', 'client-staff', 'contractor-admin', 'contractor-staff']
-  if (!role || !adminRoles.includes(role)) {
+  if (!role || !(STAFF_ROLES as readonly string[]).includes(role)) {
     return { ok: false, error: 'Insufficient permissions.' }
   }
 
@@ -306,8 +302,7 @@ export async function updateCollectionDetails(
   const supabase = await createClient()
 
   const { data: role } = await supabase.rpc('current_user_role')
-  const adminRoles = ['client-admin', 'client-staff', 'contractor-admin', 'contractor-staff']
-  if (!role || !adminRoles.includes(role)) {
+  if (!role || !(STAFF_ROLES as readonly string[]).includes(role)) {
     return { ok: false, error: 'Insufficient permissions.' }
   }
 
@@ -426,8 +421,7 @@ export async function updateNotes(
   const supabase = await createClient()
 
   const { data: role } = await supabase.rpc('current_user_role')
-  const adminRoles = ['client-admin', 'client-staff', 'contractor-admin', 'contractor-staff']
-  if (!role || !adminRoles.includes(role)) {
+  if (!role || !(STAFF_ROLES as readonly string[]).includes(role)) {
     return { ok: false, error: 'Insufficient permissions.' }
   }
 

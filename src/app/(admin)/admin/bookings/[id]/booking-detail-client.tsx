@@ -245,6 +245,13 @@ export function BookingDetailClient({
   // Fetch available collection dates for inline date picker. Contractor staff
   // see closed + past dates too (crew-error correction, #378); client-tier
   // admins keep the open/today-or-future resident filter.
+  //
+  // Contractor date-picker window: the contractor branch bounds the past-date
+  // fetch to the last 90 days so an area's unbounded collection_date history
+  // can't exceed the PostgREST max-rows cap (default 1000) and silently drop the
+  // newest (future) dates from the ascending-ordered picker (#390.3). Crew-error
+  // corrections (#378) are always recent, so 90 days is ample. Computed inside
+  // the queryFn (not render) to stay pure — matches the non-contractor branch.
   const { data: availableDates } = useQuery({
     queryKey: ['collection-dates-admin', booking.collection_area_id, isContractor],
     enabled: editingDetails && !!booking.collection_area_id,
@@ -262,6 +269,9 @@ export function BookingDetailClient({
         query = query
           .eq('is_open', true)
           .gte('date', new Date().toISOString().split('T')[0])
+      } else {
+        const floor = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]!
+        query = query.gte('date', floor)
       }
       const { data } = await query.order('date', { ascending: true })
       return data ?? []
@@ -282,9 +292,14 @@ export function BookingDetailClient({
            id_capacity_limit, id_units_booked, id_is_closed`,
         )
         .eq('capacity_pool_id', poolId)
-      // Contractor staff need past pool dates too (crew-error correction, #378).
+      // Contractor staff need past pool dates too (crew-error correction, #378),
+      // but bounded to the last 90 days so pooled areas (whose date rows accrue
+      // daily) can't exceed the PostgREST max-rows cap (#390.3).
       if (!isContractor) {
         query = query.gte('date', new Date().toISOString().split('T')[0])
+      } else {
+        const floor = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]!
+        query = query.gte('date', floor)
       }
       const { data } = await query
       return data ?? []
