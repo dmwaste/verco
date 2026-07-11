@@ -447,3 +447,166 @@ export async function updateNotes(
   }
   return { ok: true, data: undefined }
 }
+
+/**
+ * Inline quantity editor (issue #380 / BR-0028): change a booking's per-service
+ * quantities while KEEPING the same collection date.
+ *
+ * Reuses the existing in-place engine — the `create-booking` EF with `replaces`
+ * + `inline_edit` → `update_booking_items_in_place` RPC — which re-prices, applies
+ * the delta+drift money model, re-checks capacity under an advisory lock, and
+ * writes the audit diff. This action:
+ *   1. builds the EF envelope from the booking (current date/location/swap),
+ *   2. calls the EF (which returns `refund_owed_cents` for a reduction), then
+ *   3. orchestrates the refund via the existing refund_request + process-refund
+ *      machinery — identical to cancelBooking (the EF runs as service-role and
+ *      cannot call process-refund, which authorises on the caller's role).
+ *
+ * The EF blocks price-increases (→ PR-B) and price-drift with a 409; this action
+ * surfaces that error. MUD + Pending Payment are excluded here (double-spend /
+ * open-session desync). Role/status gate = canEditCollectionDetails (shared with
+ * the rest of the inline editor + the EF's own guard).
+ */
+export async function updateBookingQuantities(
+  bookingId: string,
+  items: Array<{ service_id: string; no_services: number }>,
+): Promise<Result<{ refundOwedCents: number }>> {
+  if (!bookingId) return { ok: false, error: 'Booking ID is required.' }
+
+  const cleanItems = items.filter((i) => i.no_services > 0)
+  if (cleanItems.length === 0) {
+    return { ok: false, error: 'A booking must keep at least one service. Use Cancel to remove all services.' }
+  }
+
+  const supabase = await createClient()
+
+  const { data: role } = await supabase.rpc('current_user_role')
+  const adminRoles = ['client-admin', 'client-staff', 'contractor-admin', 'contractor-staff']
+  if (!role || !adminRoles.includes(role)) {
+    return { ok: false, error: 'Insufficient permissions.' }
+  }
+
+  const { data: booking, error: fetchError } = await supabase
+    .from('booking')
+    .select(
+      'id, status, type, location, property_id, collection_area_id, contact_id, client_id, booking_item(collection_date_id)',
+    )
+    .eq('id', bookingId)
+    .single()
+
+  if (fetchError || !booking) {
+    return { ok: false, error: 'Booking not found.' }
+  }
+
+  // Same status/role gate as the rest of the inline editor + the EF guard.
+  if (!canEditCollectionDetails(booking.status, role)) {
+    return {
+      ok: false,
+      error: `Cannot edit quantities for a booking with status "${booking.status}".`,
+    }
+  }
+
+  // MUD excluded (double-spend against the per-FY MUD cap). Pending Payment
+  // excluded (open Stripe-session desync — out of scope for PR-A; see spec §11 #2).
+  if (booking.type === 'MUD') {
+    return { ok: false, error: 'Editing services is not supported for MUD bookings. Cancel and rebook.' }
+  }
+  if (booking.status === 'Pending Payment') {
+    return { ok: false, error: 'Resolve the pending payment first. Cancel and rebook to change this booking.' }
+  }
+
+  const items0 = (booking.booking_item ?? []) as Array<{ collection_date_id: string }>
+  const collectionDateId = items0[0]?.collection_date_id
+  if (!collectionDateId) return { ok: false, error: 'Booking has no collection date.' }
+  if (!booking.property_id || !booking.collection_area_id) {
+    return { ok: false, error: 'Booking is missing its property or collection area.' }
+  }
+
+  // Re-send the booking's current allocation swap so the EF doesn't strip it and
+  // misprice (spec §11 #7). The editor never changes the swap.
+  const { data: swapRow } = await supabase
+    .from('allocation_swap')
+    .select('id')
+    .eq('booking_id', bookingId)
+    .maybeSingle()
+
+  const { data: { session } } = await supabase.auth.getSession()
+  if (!session?.access_token) return { ok: false, error: 'Not authenticated.' }
+
+  // Direct fetch with the user's session JWT (CLAUDE.md §11 — invoke is
+  // unreliable in SSR). Contact is omitted: the edit branch never uses it.
+  const res = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/create-booking`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${session.access_token}`,
+    },
+    body: JSON.stringify({
+      property_id: booking.property_id,
+      collection_area_id: booking.collection_area_id,
+      collection_date_id: collectionDateId,
+      // Pass the current location so the RPC's IS-DISTINCT guard leaves it
+      // unchanged (a quantity edit must not alter location/notes).
+      location: booking.location || 'Front Verge',
+      items: cleanItems,
+      replaces: bookingId,
+      inline_edit: true,
+      ...(swapRow ? { swap: true } : {}),
+    }),
+  })
+
+  if (!res.ok) {
+    const errorBody = await res.text()
+    try {
+      const parsed = JSON.parse(errorBody)
+      return { ok: false, error: parsed.error ?? `Update failed (${res.status})` }
+    } catch {
+      return { ok: false, error: `Update failed (${res.status})` }
+    }
+  }
+
+  const result = (await res.json()) as { refund_owed_cents?: number }
+  const refundOwedCents = result.refund_owed_cents ?? 0
+
+  // Orchestrate the refund via the existing machinery (mirrors cancelBooking's
+  // refund site). PR-A bookings have at most one paid booking_payment, so
+  // process-refund's single-charge assumption holds (multi-charge is PR-B, §11 #4).
+  if (refundOwedCents > 0 && booking.contact_id && booking.client_id) {
+    const { data: refundReq, error: refundInsertError } = await supabase
+      .from('refund_request')
+      .insert({
+        booking_id: bookingId,
+        contact_id: booking.contact_id,
+        client_id: booking.client_id,
+        amount_cents: refundOwedCents,
+        reason: 'Booking quantity reduced by staff',
+        status: 'Pending',
+      })
+      .select('id')
+      .single()
+
+    if (!refundInsertError && refundReq) {
+      const refundRes = await fetch(
+        `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/process-refund`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({ refund_request_id: refundReq.id }),
+        },
+      )
+      if (!refundRes.ok) {
+        const errText = await refundRes.text().catch(() => 'Unknown error')
+        console.error(`Refund trigger failed for reduced booking ${bookingId}: ${errText}`)
+        // Booking already updated; refund_request stays Pending — staff can
+        // retry from the Refunds page (same recovery path as cancelBooking).
+      }
+    } else {
+      console.error('Failed to create refund_request for reduced booking:', refundInsertError?.message)
+    }
+  }
+
+  return { ok: true, data: { refundOwedCents } }
+}
