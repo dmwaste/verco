@@ -173,6 +173,12 @@ export interface MockDispatchState {
     status: 'queued' | 'sent' | 'failed'
     to_address: string
   }>
+  /**
+   * Authoritative refund_request amounts keyed by refund_request_id — the
+   * booking_updated refund derivation reads this via loadRefundAmountCents.
+   * A missing key returns null (row not found / not this booking).
+   */
+  refundAmounts?: Record<string, number>
 }
 
 export interface MockDispatchDeps extends DispatchDeps {
@@ -186,6 +192,8 @@ export interface MockDispatchDeps extends DispatchDeps {
   writtenLogs: NotificationLogRow[]
   /** Spy on all updateLogStatus calls. */
   updateLogStatusMock: ReturnType<typeof vi.fn>
+  /** Spy on all loadRefundAmountCents calls. */
+  loadRefundAmountCentsMock: ReturnType<typeof vi.fn>
 }
 
 export function createMockDispatchDeps(
@@ -207,6 +215,12 @@ export function createMockDispatchDeps(
   })
 
   const updateLogStatusMock = vi.fn(async () => {})
+
+  const loadRefundAmountCentsMock = vi.fn(
+    async (refundRequestId: string, _bookingId: string) => {
+      return state.refundAmounts?.[refundRequestId] ?? null
+    },
+  )
 
   return {
     loadBooking: async (booking_id: string) => {
@@ -238,6 +252,7 @@ export function createMockDispatchDeps(
       return state.queuedLogs?.[id] ?? null
     },
     updateLogStatus: updateLogStatusMock,
+    loadRefundAmountCents: loadRefundAmountCentsMock,
     appUrl: 'https://verco.test',
     defaultFromEmail: 'noreply@verco.test',
     writtenLogs,
@@ -245,5 +260,6 @@ export function createMockDispatchDeps(
     sendEmailMock,
     sendSMSMock,
     updateLogStatusMock,
+    loadRefundAmountCentsMock,
   }
 }

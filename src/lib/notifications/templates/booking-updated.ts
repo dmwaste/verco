@@ -18,7 +18,9 @@ import {
  * reduction sent money back, a refund block (mirrored from `booking_cancelled`)
  * explains the money — otherwise the resident sees a refund on their card with
  * no context. The refund amount is the reduction DELTA (`refundCents`), not the
- * booking total, so it is passed in rather than read from the booking.
+ * booking total. The dispatcher derives it from the authoritative refund_request
+ * row (via loadRefundAmountCents) and passes it in — it is NEVER taken from the
+ * caller's payload, so the displayed figure cannot be forged.
  *
  * Email-only (SMS Phase 1 covers booking_created + collection_reminder only).
  * Pure function; mirrored to src/lib/notifications/templates by sync-mirrors.sh.
