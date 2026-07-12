@@ -27,6 +27,15 @@ import type { MudContext } from './mud-context'
 type BookingStatus = Database['public']['Enums']['booking_status']
 type AppRole = Database['public']['Enums']['app_role']
 
+// Contractor date-picker past window (#390.3): bounds the relaxed #378
+// closed/past-date fetch so an area's unbounded collection_date history can't
+// exceed the PostgREST max-rows cap (default 1000) and silently drop the newest
+// (future) dates. Crew-error corrections (#378) are always recent, so 90 days
+// is ample. Called inside each queryFn (not render) to stay pure.
+const CONTRACTOR_PAST_WINDOW_DAYS = 90
+const contractorDateFloor = () =>
+  new Date(Date.now() - CONTRACTOR_PAST_WINDOW_DAYS * 24 * 60 * 60 * 1000).toISOString().split('T')[0]!
+
 interface BookingItem {
   id: string
   service_id: string
@@ -243,8 +252,9 @@ export function BookingDetailClient({
   const poolId = areaPoolMembership?.capacity_pool_id ?? null
 
   // Fetch available collection dates for inline date picker. Contractor staff
-  // see closed + past dates too (crew-error correction, #378); client-tier
-  // admins keep the open/today-or-future resident filter.
+  // see closed + past dates too (crew-error correction, #378), bounded to the
+  // CONTRACTOR_PAST_WINDOW_DAYS floor; client-tier admins keep the
+  // open/today-or-future resident filter.
   const { data: availableDates } = useQuery({
     queryKey: ['collection-dates-admin', booking.collection_area_id, isContractor],
     enabled: editingDetails && !!booking.collection_area_id,
@@ -262,6 +272,8 @@ export function BookingDetailClient({
         query = query
           .eq('is_open', true)
           .gte('date', new Date().toISOString().split('T')[0])
+      } else {
+        query = query.gte('date', contractorDateFloor())
       }
       const { data } = await query.order('date', { ascending: true })
       return data ?? []
@@ -282,9 +294,13 @@ export function BookingDetailClient({
            id_capacity_limit, id_units_booked, id_is_closed`,
         )
         .eq('capacity_pool_id', poolId)
-      // Contractor staff need past pool dates too (crew-error correction, #378).
+      // Contractor staff need past pool dates too (crew-error correction, #378),
+      // bounded to the CONTRACTOR_PAST_WINDOW_DAYS floor (#390.3) — pooled
+      // areas' date rows accrue daily.
       if (!isContractor) {
         query = query.gte('date', new Date().toISOString().split('T')[0])
+      } else {
+        query = query.gte('date', contractorDateFloor())
       }
       const { data } = await query
       return data ?? []

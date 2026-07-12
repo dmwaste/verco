@@ -30,6 +30,8 @@ import {
   type ActionPlan,
   type Action,
 } from './lib/reconcile'
+import { pagedIn, uniq } from './lib/db'
+import { timestamp } from './lib/report'
 
 const KWN_BASE = 'apppzIjIc05ghcixH' // "Kwinana Pre-booked Verge Collection"
 const BOOKINGS_ALL = 'tblthTRXTHTvUkxBk' // consolidated master
@@ -255,29 +257,9 @@ function writeCsv(findings: Finding[], stamp: string) {
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
-async function pagedIn<T>(verco: SupabaseClient, table: string, select: string, column: string, values: string[]): Promise<T[]> {
-  const out: T[] = []
-  for (let i = 0; i < values.length; i += 100) {
-    const chunk = values.slice(i, i + 100)
-    if (!chunk.length) continue
-    const { data, error } = await verco.from(table).select(select).in(column, chunk)
-    if (error) throw new Error(`load ${table}: ${error.message}`)
-    out.push(...((data ?? []) as T[]))
-  }
-  return out
-}
-
-const uniq = (xs: string[]) => [...new Set(xs)]
-
 function addDays(dateStr: string, days: number): string {
   const [y, m, d] = dateStr.split('-').map(Number)
   return new Date(Date.UTC(y!, m! - 1, d! + days)).toISOString().slice(0, 10)
-}
-
-function timestamp(): string {
-  const d = new Date()
-  const z = (n: number) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}${z(d.getMonth() + 1)}${z(d.getDate())}-${z(d.getHours())}${z(d.getMinutes())}${z(d.getSeconds())}`
 }
 
 main().catch((err) => {

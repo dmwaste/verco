@@ -25,6 +25,10 @@ import {
   type RenderBookingCancelledOptions,
 } from './templates/booking-cancelled.ts'
 import {
+  renderBookingUpdated,
+  type RenderBookingUpdatedOptions,
+} from './templates/booking-updated.ts'
+import {
   renderNcnRaised,
   type RenderNcnRaisedOptions,
 } from './templates/ncn-raised.ts'
@@ -124,6 +128,15 @@ export interface DispatchDeps {
   } | null>
   /** Update an existing notification_log row's status (for the resume path). */
   updateLogStatus: (id: string, status: 'sent' | 'failed', errorMessage?: string, toAddress?: string) => Promise<void>
+  /**
+   * Load the authoritative refund amount for a `booking_updated` refund line.
+   * Returns `refund_request.amount_cents` for `refundRequestId` iff that row
+   * belongs to `bookingId`, else null. The `booking_updated` payload carries
+   * only the refund_request_id (opaque identity) — the AMOUNT is derived here
+   * from authoritative DB state, never trusted from the caller (deferred
+   * defense-in-depth item from the 11/07/2026 refund security review).
+   */
+  loadRefundAmountCents: (refundRequestId: string, bookingId: string) => Promise<number | null>
   /** Base app URL for building CTA links — e.g. `https://verco.au` */
   appUrl: string
   /** Fallback from-address when the client has no reply_to_email configured */
@@ -310,11 +323,22 @@ export async function dispatch(
 function renderTemplate(
   payload: NotificationPayload,
   booking: BookingForDispatch,
-  appUrl: string
+  appUrl: string,
+  // Values resolved in the async layer (DB-derived) that the pure template
+  // render needs. `refundCents` is the authoritative booking_updated refund
+  // amount looked up from refund_request — never taken from the payload.
+  context: { refundCents?: number } = {},
 ): { subject: string; html: string } {
   switch (payload.type) {
     case 'booking_created':
       return renderBookingCreated(booking, appUrl)
+    case 'booking_updated': {
+      const opts: RenderBookingUpdatedOptions = {
+        refundCents: context.refundCents,
+        refundStatus: payload.refund_status,
+      }
+      return renderBookingUpdated(booking, appUrl, opts)
+    }
     case 'booking_cancelled': {
       const opts: RenderBookingCancelledOptions = {
         reason: payload.reason,
@@ -367,6 +391,9 @@ function renderTemplate(
 function idempotencyRef(payload: NotificationPayload): string | null {
   if (payload.type === 'ncn_raised') return payload.ncn_id || null
   if (payload.type === 'np_raised') return payload.np_id || null
+  // booking_updated recurs on one booking (once per edit) — key it by edit_ref
+  // so a later edit's send isn't suppressed by an earlier one's idempotency row.
+  if (payload.type === 'booking_updated') return payload.edit_ref || null
   return null
 }
 
@@ -414,10 +441,21 @@ async function dispatchEmail(
     return { ok: false, error, log_id: logId ?? undefined }
   }
 
-  // 3. Render template
+  // 3. Render template. For a booking_updated refund line, derive the amount
+  //    from the authoritative refund_request row (keyed by refund_request_id +
+  //    booking_id) — the payload never carries a trusted refund amount.
+  let renderContext: { refundCents?: number } = {}
+  if (payload.type === 'booking_updated' && payload.refund_request_id) {
+    const cents = await deps.loadRefundAmountCents(
+      payload.refund_request_id,
+      payload.booking_id,
+    )
+    renderContext = { refundCents: cents ?? undefined }
+  }
+
   let rendered: { subject: string; html: string }
   try {
-    rendered = renderTemplate(payload, booking, deps.appUrl)
+    rendered = renderTemplate(payload, booking, deps.appUrl, renderContext)
   } catch (renderErr) {
     const error = renderErr instanceof Error ? renderErr.message : String(renderErr)
     const logId = await deps.writeLog({
@@ -487,6 +525,7 @@ function renderSmsTemplate(
       return renderBookingCreatedSMS(booking)
     case 'collection_reminder':
       return renderCollectionReminderSMS(booking)
+    case 'booking_updated':
     case 'booking_cancelled':
     case 'payment_reminder':
     case 'payment_expired':

@@ -12,6 +12,75 @@ describe('dispatch', () => {
     vi.spyOn(console, 'log').mockImplementation(() => {})
   })
 
+  // Defense-in-depth (deferred item from the 11/07/2026 refund security
+  // review): the booking_updated refund AMOUNT must be derived from the
+  // authoritative refund_request row, never trusted from the caller. The
+  // payload carries the refund_request_id (opaque identity); the dispatcher
+  // looks up the row's amount_cents via loadRefundAmountCents, keyed by
+  // (refund_request_id, booking_id) so it can't reference another booking's
+  // refund.
+  describe('booking_updated refund amount is DB-derived, not caller-supplied', () => {
+    it('renders the amount from loadRefundAmountCents keyed by (refund_request_id, booking_id)', async () => {
+      const booking = makeMockBooking({ id: 'b1' })
+      const deps = createMockDispatchDeps({
+        bookings: { b1: booking },
+        refundAmounts: { 'rr-1': 3000 }, // $30.00 — the authoritative row amount
+      })
+
+      const result = await dispatch(deps, {
+        type: 'booking_updated',
+        booking_id: 'b1',
+        edit_ref: 'e1',
+        refund_status: 'processed',
+        refund_request_id: 'rr-1',
+      })
+
+      expect(result.ok && 'sent' in result).toBe(true)
+      expect(deps.loadRefundAmountCentsMock).toHaveBeenCalledWith('rr-1', 'b1')
+      const html = deps.sendEmailMock.mock.calls[0]?.[0].htmlBody as string
+      expect(html).toContain('$30.00')
+      expect(html).toContain('has been processed')
+    })
+
+    it('renders NO refund block when the refund_request row is missing (fail-safe)', async () => {
+      const booking = makeMockBooking({ id: 'b1' })
+      const deps = createMockDispatchDeps({
+        bookings: { b1: booking },
+        refundAmounts: {}, // lookup returns null
+      })
+
+      await dispatch(deps, {
+        type: 'booking_updated',
+        booking_id: 'b1',
+        edit_ref: 'e1',
+        refund_status: 'processed',
+        refund_request_id: 'rr-missing',
+      })
+
+      const html = deps.sendEmailMock.mock.calls[0]?.[0].htmlBody as string
+      expect(html).not.toContain('A refund of')
+    })
+
+    it('does not look up or render a refund when no refund_request_id is supplied', async () => {
+      const booking = makeMockBooking({ id: 'b1' })
+      const deps = createMockDispatchDeps({
+        bookings: { b1: booking },
+        refundAmounts: { 'rr-1': 3000 },
+      })
+
+      // A #378 date-only correction: booking_updated with no refund fields.
+      await dispatch(deps, {
+        type: 'booking_updated',
+        booking_id: 'b1',
+        edit_ref: 'e1',
+      })
+
+      expect(deps.loadRefundAmountCentsMock).not.toHaveBeenCalled()
+      const html = deps.sendEmailMock.mock.calls[0]?.[0].htmlBody as string
+      expect(html).not.toContain('A refund of')
+    })
+  })
+
   describe('idempotency', () => {
     it('short-circuits with {ok:true,skipped:true} when a sent row already exists', async () => {
       const booking = makeMockBooking({ id: 'b1' })

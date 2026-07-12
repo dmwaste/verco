@@ -15,6 +15,7 @@ import type {
 } from '../_shared/dispatch.ts'
 import { sendEmail as sendgridSendEmail } from '../_shared/sendgrid.ts'
 import { sendSMS as twilioSendSMS } from '../_shared/twilio.ts'
+import { authorizeNotificationDispatch } from '../_shared/notification-authz.ts'
 
 /**
  * send-notification Edge Function
@@ -47,8 +48,13 @@ import { sendSMS as twilioSendSMS } from '../_shared/twilio.ts'
  *      before proceeding.
  *
  * Regardless of auth mode, the **actual dispatcher work happens with
- * service role** — contact/client loads need to bypass RLS. The user's
- * role gates the TRIGGER, not the underlying data access.
+ * service role** — contact/client loads need to bypass RLS. Because the
+ * service-role load would otherwise return ANY tenant's booking, a user-JWT
+ * caller must additionally pass the **tenant-scope gate**
+ * (`authorizeNotificationDispatch`): their OWN RLS must be able to read the
+ * target booking, or the request is rejected 403 before any dispatch. This
+ * blocks a council-A staffer from triggering a council-B-branded (and
+ * potentially forged-refund) notification at a council-B resident.
  *
  * Permitted user roles: contractor-admin, contractor-staff, client-admin,
  * client-staff, field, ranger, resident. Resident callers are server
@@ -103,15 +109,21 @@ serve(async (req) => {
     'resident',
   ])
 
+  // User-scoped client (RLS enforced). Built once for non-service-role callers
+  // and reused for BOTH the role check and the tenant-scope gate below. Null on
+  // the service-role path, where neither check runs.
+  const supabaseAnon = isServiceRole
+    ? null
+    : createClient(
+        Deno.env.get('SUPABASE_URL') ?? '',
+        Deno.env.get('SUPABASE_ANON_KEY') ?? '',
+        { global: { headers: { Authorization: authHeader } } }
+      )
+
   if (!isServiceRole) {
-    // Validate the user JWT by calling current_user_role() via an
-    // authed anon client — if the JWT is invalid the call fails.
-    const supabaseAnon = createClient(
-      Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_ANON_KEY') ?? '',
-      { global: { headers: { Authorization: authHeader } } }
-    )
-    const { data: role, error: roleError } = await supabaseAnon.rpc(
+    // Validate the user JWT by calling current_user_role() via the authed anon
+    // client — if the JWT is invalid the call fails.
+    const { data: role, error: roleError } = await supabaseAnon!.rpc(
       'current_user_role'
     )
     if (roleError || !role || !PERMITTED_USER_ROLES.has(role as string)) {
@@ -150,12 +162,73 @@ serve(async (req) => {
       400
     )
   }
+  // Reject the HYBRID shape: a payload is EITHER a fresh {type, booking_id} OR a
+  // resume {notification_log_id}, never both (NotificationDispatchInput is a
+  // discriminated union — no legitimate caller sends both). Without this, a raw
+  // HTTP caller could send {booking_id: <own readable>, notification_log_id:
+  // <victim log>}: the tenant gate resolves booking_id-first and authorizes the
+  // caller's OWN booking, but dispatch() resumes notification_log_id-first and
+  // acts on the VICTIM's log row — a cross-tenant gate bypass in the exact path
+  // the gate defends. Rejecting the ambiguous shape closes it at the boundary.
+  if (
+    'notification_log_id' in input &&
+    ('type' in input || 'booking_id' in input)
+  ) {
+    return jsonResponse(
+      { ok: false, error: 'Payload must be either {type, booking_id} or {notification_log_id}, not both' },
+      400
+    )
+  }
 
   // ── Build service-role Supabase client ─────────────────────────────────
   const supabaseService = createClient(
     Deno.env.get('SUPABASE_URL') ?? '',
     Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
   )
+
+  // ── Tenant-scope gate (user-JWT callers only) ──────────────────────────
+  // The dispatcher below loads the booking with the service-role client
+  // (RLS-bypassing) to read contact + branding, so the role gate above is NOT
+  // a tenant gate. Require that a user-JWT caller's OWN RLS can read the target
+  // booking before dispatching — this reuses each role's booking_*_select
+  // policy (incl. sub-client narrowing) and blocks a council-A staffer from
+  // firing a council-B-branded (and potentially forged-refund) notification at
+  // a council-B resident. Service-role callers short-circuit inside the helper.
+  const authz = await authorizeNotificationDispatch(input, {
+    isServiceRole,
+    resolveBookingId: async (payload) => {
+      // Resolve notification_log_id FIRST — mirroring dispatch()'s resume-first
+      // precedence (dispatch.ts) so the gate authorizes the SAME booking dispatch
+      // will act on. (The parse guard above already rejects both-key payloads;
+      // this precedence match is defence-in-depth if that guard is ever changed.)
+      if ('notification_log_id' in payload && payload.notification_log_id) {
+        // Map log → booking only to choose WHICH booking to gate; the gate is
+        // the user-scoped read below, so this service-role read grants nothing.
+        const { data } = await supabaseService
+          .from('notification_log')
+          .select('booking_id')
+          .eq('id', payload.notification_log_id)
+          .maybeSingle()
+        return (data?.booking_id as string | undefined) ?? null
+      }
+      if ('booking_id' in payload && payload.booking_id) {
+        return payload.booking_id
+      }
+      return null
+    },
+    callerCanReadBooking: async (bookingId) => {
+      if (!supabaseAnon) return false
+      const { data, error } = await supabaseAnon
+        .from('booking')
+        .select('id')
+        .eq('id', bookingId)
+        .maybeSingle()
+      return !error && data != null
+    },
+  })
+  if (!authz.ok) {
+    return jsonResponse({ ok: false, error: authz.error }, authz.status)
+  }
 
   // ── Wire up DispatchDeps with real implementations ─────────────────────
   const deps: DispatchDeps = {
@@ -382,6 +455,21 @@ serve(async (req) => {
         return { ok: true, messageSid: result.messageSid }
       }
       return { ok: false, error: result.error ?? 'Unknown Twilio error' }
+    },
+
+    loadRefundAmountCents: async (
+      refundRequestId: string,
+      bookingId: string,
+    ): Promise<number | null> => {
+      const { data, error } = await supabaseService
+        .from('refund_request')
+        .select('amount_cents, booking_id')
+        .eq('id', refundRequestId)
+        .maybeSingle()
+      // Fail safe: no row, load error, or a row that belongs to a DIFFERENT
+      // booking → no refund line (never surface another booking's amount).
+      if (error || !data || data.booking_id !== bookingId) return null
+      return data.amount_cents as number
     },
 
     appUrl: Deno.env.get('APP_URL') ?? 'https://verco.au',

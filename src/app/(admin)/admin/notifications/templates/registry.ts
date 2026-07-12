@@ -29,6 +29,14 @@ export const TEMPLATE_CATALOG: TemplateCatalogEntry[] = [
     sourceFile: 'src/lib/notifications/templates/booking-created.ts',
   },
   {
+    type: 'booking_updated',
+    label: 'Booking updated',
+    description:
+      'Sent when a Confirmed booking is edited by staff (a quantity change or a date/location change). A current-state snapshot of the booking, plus a refund line when a reduction sent money back. Not sent for post-dispatch date corrections or bookings still awaiting payment (Pending Payment).',
+    channels: ['email'],
+    sourceFile: 'src/lib/notifications/templates/booking-updated.ts',
+  },
+  {
     type: 'collection_reminder',
     label: 'Collection reminder',
     description:

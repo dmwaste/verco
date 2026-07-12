@@ -16,6 +16,15 @@ import { awstDateFromUtc } from '@/lib/booking/schedule-transition'
  * comparison MUST go through `awstDateFromUtc` (UTC+8, no DST) — NEVER compare
  * the raw UTC date, or a 7:30am-AWST closeout (which is the previous UTC day)
  * mis-buckets as the wrong collection day.
+ *
+ * KPI INVARIANT (#390.2): `scheduledDate` MUST be the STOP's dispatched date
+ * (`collection_stop.collection_date_id`), NEVER the booking's possibly-corrected
+ * date. A #378 contractor date-override edits `booking_item.collection_date_id`
+ * but deliberately leaves the stop as-dispatched — the stop is an immutable
+ * record of what the crew was routed to do. Keying this contractual metric off
+ * the corrected booking date would let a back-date launder a genuine wrong-day
+ * miss into an on-time success (gaming the WMRC 98% target). Do not "fix" the
+ * stop↔booking date divergence by repointing this to the booking date.
  */
 
 /** WMRC contractual on-time target. */

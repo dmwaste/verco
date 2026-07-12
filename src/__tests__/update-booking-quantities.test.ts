@@ -122,6 +122,16 @@ describe('updateBookingQuantities — reduction → refund orchestration', () =>
     expect(refundInserts[0]).toMatchObject({ booking_id: B1, amount_cents: 5000, status: 'Pending' })
     const refundCall = fetchCalls.find((c) => c.url.includes('/process-refund'))!
     expect(refundCall.body.refund_request_id).toBe('refund-1')
+
+    // booking_updated notification carries the refund_request_id (opaque
+    // identity) + status — NEVER a caller-supplied amount. send-notification
+    // derives the displayed cents from the refund_request row so it can't be
+    // forged (money-integrity hardening, deferred item from the refund review).
+    const notifyCall = fetchCalls.find((c) => c.url.includes('/send-notification'))!
+    expect(notifyCall.body.type).toBe('booking_updated')
+    expect(notifyCall.body.refund_request_id).toBe('refund-1')
+    expect(notifyCall.body.refund_status).toBe('processed')
+    expect('refund_cents' in notifyCall.body).toBe(false)
   })
 
   it('re-sends the booking allocation swap when present (so the EF does not strip it)', async () => {

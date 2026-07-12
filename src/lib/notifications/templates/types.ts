@@ -48,6 +48,7 @@
 
 export type NotificationType =
   | 'booking_created'
+  | 'booking_updated'
   | 'booking_cancelled'
   | 'payment_reminder'
   | 'payment_expired'
@@ -71,6 +72,15 @@ export type NotificationLogStatus = 'queued' | 'sent' | 'failed'
  */
 export type NotificationPayload =
   | { type: 'booking_created'; booking_id: string }
+  // Fired on a resident-meaningful edit to a Confirmed booking (quantity change,
+  // date/location change). `edit_ref` is the per-edit idempotency discriminator
+  // — booking_updated recurs on one booking (unlike created/cancelled), so a
+  // fixed (booking_id, type, channel) key would swallow every edit after the
+  // first. `refund_request_id`/`refund_status` render the refund block when a
+  // reduction sent money back (mirrors booking_cancelled's block). The refund
+  // AMOUNT is NOT carried here — the dispatcher derives it from the
+  // refund_request row (via loadRefundAmountCents) so a caller cannot forge it.
+  | { type: 'booking_updated'; booking_id: string; edit_ref: string; refund_status?: 'processed' | 'pending_review'; refund_request_id?: string }
   | { type: 'booking_cancelled'; booking_id: string; reason?: string; refund_status?: 'processed' | 'pending_review' }
   | { type: 'payment_reminder'; booking_id: string }
   | { type: 'payment_expired'; booking_id: string }

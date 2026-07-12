@@ -409,6 +409,11 @@ serve(withSentry('create-booking', async (req) => {
         }
       }
       let refundOwedCents = 0
+      // The item set the inline refund is priced against — passed to the RPC as
+      // p_expected_items so it can abort under its lock if a concurrent edit
+      // changed the items since this baseline was read (#387.1). Null on the
+      // wizard path (no refund, no precondition).
+      let expectedItems: Array<{ service_id: string; no_services: number }> | null = null
       if (inline_edit) {
         // Baseline: re-price the booking's CURRENT items with the SAME engine
         // call/state as new_total (exclude self, same swap/unitMultiplier), so
@@ -417,6 +422,10 @@ serve(withSentry('create-booking', async (req) => {
         for (const bi of (ownedBooking?.booking_item ?? []) as Array<{ service_id: string; no_services: number }>) {
           currentItemsMap.set(bi.service_id, (currentItemsMap.get(bi.service_id) ?? 0) + bi.no_services)
         }
+        expectedItems = Array.from(currentItemsMap.entries()).map(([service_id, no_services]) => ({
+          service_id,
+          no_services,
+        }))
         const baselineResult = await calculatePrice(
           supabaseAnon,
           property_id,
@@ -520,8 +529,16 @@ serve(withSentry('create-booking', async (req) => {
           p_collection_date_id: collection_date_id,
           p_items: editItems,
           p_actor_id: actingUserEarly?.id ?? null,
-          p_location: location,
-          p_notes: notes ?? null,
+          // Inline quantity edits never change location/notes — pass null so
+          // the RPC keeps the current values (re-sending the caller's copy
+          // would silently revert a concurrent location edit). Wizard path
+          // still updates both.
+          p_location: inline_edit ? null : location,
+          p_notes: inline_edit ? null : (notes ?? null),
+          // Concurrency guard (#387.1): only the inline refund path sends the
+          // baseline it priced against; the RPC aborts if the items changed
+          // under its lock. Wizard path sends null → guard skipped.
+          ...(expectedItems ? { p_expected_items: expectedItems } : {}),
         })
 
       if (editError) {
@@ -531,6 +548,11 @@ serve(withSentry('create-booking', async (req) => {
         }
         if (editError.message?.includes('not found')) {
           return jsonResponse({ error: editError.message }, 404)
+        }
+        // #387.1: a concurrent edit changed the items since this one was priced.
+        // Surface as a retryable conflict so the admin reloads and re-edits.
+        if (editError.message?.includes('changed since this edit was priced')) {
+          return jsonResponse({ error: editError.message, code: 'concurrent_edit' }, 409)
         }
         return jsonResponse({ error: `Failed to update booking: ${editError.message}` }, 500)
       }

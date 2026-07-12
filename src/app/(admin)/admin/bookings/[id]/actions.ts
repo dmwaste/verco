@@ -9,6 +9,8 @@ import {
   canRescheduleToTargetDate,
 } from '@/lib/booking/collection-details-edit'
 import { STAFF_ROLES } from '@/lib/auth/roles'
+import { orchestrateRefund, type RefundOrchestrationState } from '@/lib/payments/orchestrate-refund'
+import { REFUND_REASONS } from '@/lib/refunds/auto-raised'
 import type { Result } from '@/lib/result'
 
 /**
@@ -43,8 +45,7 @@ export async function replaceBookingAfterEdit(
   const supabase = await createClient()
 
   const { data: role } = await supabase.rpc('current_user_role')
-  const adminRoles = ['client-admin', 'client-staff', 'contractor-admin', 'contractor-staff']
-  if (!role || !adminRoles.includes(role)) {
+  if (!role || !(STAFF_ROLES as readonly string[]).includes(role)) {
     return { ok: false, error: 'Insufficient permissions.' }
   }
 
@@ -81,8 +82,7 @@ export async function confirmBooking(bookingId: string): Promise<Result<void>> {
 
   // Verify current user has admin/staff role
   const { data: role } = await supabase.rpc('current_user_role')
-  const adminRoles = ['client-admin', 'client-staff', 'contractor-admin', 'contractor-staff']
-  if (!role || !adminRoles.includes(role)) {
+  if (!role || !(STAFF_ROLES as readonly string[]).includes(role)) {
     return { ok: false, error: 'Insufficient permissions.' }
   }
 
@@ -125,8 +125,7 @@ export async function cancelBooking(bookingId: string): Promise<Result<void>> {
 
   // Verify current user has admin/staff role
   const { data: role } = await supabase.rpc('current_user_role')
-  const adminRoles = ['client-admin', 'client-staff', 'contractor-admin', 'contractor-staff']
-  if (!role || !adminRoles.includes(role)) {
+  if (!role || !(STAFF_ROLES as readonly string[]).includes(role)) {
     return { ok: false, error: 'Insufficient permissions.' }
   }
 
@@ -176,63 +175,31 @@ export async function cancelBooking(bookingId: string): Promise<Result<void>> {
   const paidItems = items.filter((i) => i.is_extra && i.unit_price_cents > 0)
   const refundAmountCents = paidItems.reduce((sum, i) => sum + i.unit_price_cents * i.no_services, 0)
 
-  if (refundAmountCents > 0 && booking.contact_id && booking.client_id) {
-    const { data: refundReq, error: refundInsertError } = await supabase
-      .from('refund_request')
-      .insert({
-        booking_id: booking.id,
-        contact_id: booking.contact_id,
-        client_id: booking.client_id,
-        amount_cents: refundAmountCents,
-        reason: 'Booking cancelled by staff',
-        status: 'Pending',
-      })
-      .select('id')
-      .single()
-
-    if (!refundInsertError && refundReq) {
-      // Trigger refund via process-refund Edge Function.
-      //
-      // NOTE: duplicated by design across the 3 server-action refund sites:
-      //   - admin/bookings/[id]/actions.ts          (this file)
-      //   - admin/nothing-presented/[id]/actions.ts
-      //   - admin/non-conformance/[id]/actions.ts
-      // No shared `invokeEfWithSessionToken` server helper exists yet — the
-      // 'use server' boundary makes the client-side helper ineligible. Three
-      // sites with identical shape isn't worth an abstraction; if a 4th site
-      // appears, extract then (rule-of-three trigger consciously deferred).
-      const { data: { session } } = await supabase.auth.getSession()
-      if (session?.access_token) {
-        const res = await fetch(
-          `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/process-refund`,
-          {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              Authorization: `Bearer ${session.access_token}`,
-            },
-            body: JSON.stringify({ refund_request_id: refundReq.id }),
-          }
-        )
-
-        if (!res.ok) {
-          const errText = await res.text().catch(() => 'Unknown error')
-          console.error(`Refund trigger failed for cancelled booking ${booking.id}: ${errText}`)
-          // Booking is already cancelled, refund_request in Pending — staff can retry from refunds page
-        }
-      }
-    } else {
-      console.error('Failed to create refund_request for cancelled booking:', refundInsertError?.message)
-    }
-  }
+  // Raise + fire the refund via the shared orchestrator (booking already
+  // cancelled — failures are logged and reflected in the returned state).
+  const { state: refundState } = await orchestrateRefund(supabase, {
+    bookingId: booking.id,
+    contactId: booking.contact_id,
+    clientId: booking.client_id,
+    amountCents: refundAmountCents,
+    reason: REFUND_REASONS.staffCancellation,
+  })
 
   // Fire booking_cancelled notification. Fire-and-forget — failure never
   // reverts the cancel. Uses direct fetch() per CLAUDE.md §11 (supabase
-  // .functions.invoke is unreliable in SSR).
+  // .functions.invoke is unreliable in SSR). refund_status mirrors
+  // updateBookingQuantities' mapping: only claim "processed" when
+  // process-refund actually accepted it — a -staff cancel legitimately lands
+  // 'queued' (awaiting admin approval on the Refunds page), and
+  // 'failed'/'none' must not show a refund line at all.
+  const refundStatus =
+    refundState === 'initiated' ? ('processed' as const)
+    : refundState === 'queued' ? ('pending_review' as const)
+    : undefined
   await invokeSendNotification(supabase, {
     type: 'booking_cancelled',
     booking_id: bookingId,
-    refund_status: refundAmountCents > 0 ? 'processed' : undefined,
+    ...(refundStatus ? { refund_status: refundStatus } : {}),
   })
 
   return { ok: true, data: undefined }
@@ -245,8 +212,7 @@ export async function updateContact(
   const supabase = await createClient()
 
   const { data: role } = await supabase.rpc('current_user_role')
-  const adminRoles = ['client-admin', 'client-staff', 'contractor-admin', 'contractor-staff']
-  if (!role || !adminRoles.includes(role)) {
+  if (!role || !(STAFF_ROLES as readonly string[]).includes(role)) {
     return { ok: false, error: 'Insufficient permissions.' }
   }
 
@@ -306,8 +272,7 @@ export async function updateCollectionDetails(
   const supabase = await createClient()
 
   const { data: role } = await supabase.rpc('current_user_role')
-  const adminRoles = ['client-admin', 'client-staff', 'contractor-admin', 'contractor-staff']
-  if (!role || !adminRoles.includes(role)) {
+  if (!role || !(STAFF_ROLES as readonly string[]).includes(role)) {
     return { ok: false, error: 'Insufficient permissions.' }
   }
 
@@ -414,6 +379,25 @@ export async function updateCollectionDetails(
         error: 'Collection date update was not applied (RLS or no booking items).',
       }
     }
+    // Deliberately does NOT touch collection_stop (#390.2, D2 doc-guard). On a
+    // #378 post-dispatch correction the stop stays as-dispatched — it's an
+    // immutable record of what the crew was routed to do, and the contractual
+    // on-time KPI keys off it (see on-time.ts). Repointing the stop here would
+    // let a back-date launder a wrong-day miss. booking_item carries the
+    // corrected intent; the stop carries the dispatched history.
+  }
+
+  // Notify the resident their booking changed (#388) — Confirmed only. A #378
+  // post-dispatch date correction (Scheduled/Completed) is DELIBERATELY excluded:
+  // the collection has been dispatched or already happened, so a "your booking
+  // date is now <past date>" email would only confuse. Reached only when
+  // something actually changed (the no-op case returns earlier). Fire-and-forget.
+  if (current.status === 'Confirmed') {
+    await invokeSendNotification(supabase, {
+      type: 'booking_updated',
+      booking_id: bookingId,
+      edit_ref: new Date().toISOString(),
+    })
   }
 
   return { ok: true, data: undefined }
@@ -426,8 +410,7 @@ export async function updateNotes(
   const supabase = await createClient()
 
   const { data: role } = await supabase.rpc('current_user_role')
-  const adminRoles = ['client-admin', 'client-staff', 'contractor-admin', 'contractor-staff']
-  if (!role || !adminRoles.includes(role)) {
+  if (!role || !(STAFF_ROLES as readonly string[]).includes(role)) {
     return { ok: false, error: 'Insufficient permissions.' }
   }
 
@@ -488,17 +471,8 @@ const updateQuantitiesInput = z.object({
     .max(20),
 })
 
-/**
- * How the refund half of a quantity reduction ended up:
- * - 'none'      — nothing owed (free-quota change).
- * - 'initiated' — refund_request created AND process-refund accepted it.
- * - 'queued'    — refund_request created but process-refund declined/failed
- *                 (e.g. -staff roles: the EF is admin-approval-tier only).
- *                 Recoverable from the Refunds page.
- * - 'failed'    — the refund_request itself could not be recorded. NO Pending
- *                 row exists; the refund needs manual processing.
- */
-export type QuantityEditRefundState = 'none' | 'initiated' | 'queued' | 'failed'
+/** How the refund half of a quantity reduction ended up (see orchestrateRefund). */
+export type QuantityEditRefundState = RefundOrchestrationState
 
 export async function updateBookingQuantities(
   bookingId: string,
@@ -625,53 +599,37 @@ export async function updateBookingQuantities(
   const result = (await res.json()) as { refund_owed_cents?: number }
   const refundOwedCents = result.refund_owed_cents ?? 0
 
-  // Orchestrate the refund via the existing machinery (mirrors cancelBooking's
-  // refund site). process-refund is multi-charge-safe as of PR-B0 (#386), so
-  // this holds for both single-charge (PR-A) and future delta-charge bookings.
-  // The booking is already reduced by this point, so refund failures must be
-  // SURFACED, never swallowed — 'failed' means no Pending row exists at all.
-  let refundState: QuantityEditRefundState = refundOwedCents > 0 ? 'failed' : 'none'
-  if (refundOwedCents > 0 && booking.contact_id && booking.client_id) {
-    const { data: refundReq, error: refundInsertError } = await supabase
-      .from('refund_request')
-      .insert({
-        booking_id: bookingId,
-        contact_id: booking.contact_id,
-        client_id: booking.client_id,
-        amount_cents: refundOwedCents,
-        reason: 'Booking quantity reduced by staff',
-        status: 'Pending',
-      })
-      .select('id')
-      .single()
+  // Orchestrate the refund via the shared helper (mirrors cancelBooking). The
+  // booking is already reduced by this point, so refund failures are SURFACED
+  // in refundState, never swallowed — 'failed' means no Pending row exists, and
+  // '-staff' reductions land 'queued' (process-refund is approval-tier only).
+  const { state: refundState, refundRequestId } = await orchestrateRefund(supabase, {
+    bookingId,
+    contactId: booking.contact_id,
+    clientId: booking.client_id,
+    amountCents: refundOwedCents,
+    reason: REFUND_REASONS.quantityReduction,
+  })
 
-    if (!refundInsertError && refundReq) {
-      // Pending row exists — worst case from here is 'queued' (Refunds page).
-      refundState = 'queued'
-      const refundRes = await fetch(
-        `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/process-refund`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${session.access_token}`,
-          },
-          body: JSON.stringify({ refund_request_id: refundReq.id }),
-        },
-      )
-      if (refundRes.ok) {
-        refundState = 'initiated'
-      } else {
-        const errText = await refundRes.text().catch(() => 'Unknown error')
-        console.error(`Refund trigger failed for reduced booking ${bookingId}: ${errText}`)
-        // Booking already updated; refund_request stays Pending — an admin can
-        // release it from the Refunds page (process-refund is approval-tier
-        // only, so this is the NORMAL path for -staff roles, not an error).
-      }
-    } else {
-      console.error('Failed to create refund_request for reduced booking:', refundInsertError?.message)
-    }
-  }
+  // Notify the resident their (Confirmed) booking changed — a current-state
+  // snapshot + a refund line so money moving back is explained (#388). Only
+  // surface a refund when one actually went through: 'initiated' → processed,
+  // 'queued' → pending review; 'failed'/'none' show no refund line. edit_ref
+  // makes the idempotency key unique per edit. We pass the refund_request_id
+  // (not the amount) — send-notification derives the DISPLAYED cents from that
+  // row so the figure can't be forged. Fire-and-forget.
+  const refundStatus =
+    refundState === 'initiated' ? ('processed' as const)
+    : refundState === 'queued' ? ('pending_review' as const)
+    : undefined
+  await invokeSendNotification(supabase, {
+    type: 'booking_updated',
+    booking_id: bookingId,
+    edit_ref: new Date().toISOString(),
+    ...(refundStatus && refundRequestId
+      ? { refund_status: refundStatus, refund_request_id: refundRequestId }
+      : {}),
+  })
 
   return { ok: true, data: { refundOwedCents, refundState } }
 }
