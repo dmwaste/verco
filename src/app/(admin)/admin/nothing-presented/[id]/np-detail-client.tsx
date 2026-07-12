@@ -58,6 +58,7 @@ export function NpDetailClient({ np, availableDates, auditLogs }: NpDetailClient
   const router = useRouter()
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [resolveResult, setResolveResult] = useState<string | null>(null)
   const [resolutionNotes, setResolutionNotes] = useState(np.resolution_notes ?? '')
   const [contractorFault, setDmFault] = useState(np.contractor_fault)
   const [showRebookDialog, setShowRebookDialog] = useState(false)
@@ -96,12 +97,29 @@ export function NpDetailClient({ np, availableDates, auditLogs }: NpDetailClient
     setShowRefundDialog(false)
     setIsSubmitting(true)
     setError(null)
+    setResolveResult(null)
     const result = await resolveNpWithRefund(np.id, resolutionNotes)
     if (!result.ok) {
       setError(result.error)
       setIsSubmitting(false)
       return
     }
+    const { refundState, refundAmountCents } = result.data
+    const dollars = (refundAmountCents / 100).toFixed(2)
+    if (refundState === 'failed' && refundAmountCents > 0) {
+      // The record WAS resolved, but no refund_request exists — never let the
+      // clean "Resolved" badge imply the money went out.
+      setError(
+        `This record was resolved, but the $${dollars} refund could not be recorded — no refund request exists. Process it manually.`,
+      )
+    } else if (refundState !== 'none') {
+      setResolveResult(
+        refundState === 'initiated'
+          ? `Resolved. A refund of $${dollars} has been initiated.`
+          : `Resolved. A refund of $${dollars} is awaiting admin approval on the Refunds page.`,
+      )
+    }
+    setIsSubmitting(false)
     router.refresh()
   }
 
@@ -139,6 +157,12 @@ export function NpDetailClient({ np, availableDates, auditLogs }: NpDetailClient
         {error && (
           <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-body-sm text-red-700">
             {error}
+          </div>
+        )}
+
+        {resolveResult && (
+          <div role="status" className="mb-4 rounded-lg border border-status-success bg-status-success-bg px-4 py-3 text-body-sm text-status-success">
+            {resolveResult}
           </div>
         )}
 

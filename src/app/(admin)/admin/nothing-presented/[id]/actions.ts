@@ -4,8 +4,10 @@ import type { Database } from '@/lib/supabase/types'
 import type { Result } from '@/lib/result'
 import { verifyStaffRole } from '@/lib/auth/server'
 import { OPEN_EXCEPTION_FILTER_STATUSES } from '@/lib/exceptions/status'
-import { orchestrateRefund } from '@/lib/payments/orchestrate-refund'
+import { orchestrateRefund, type RefundOrchestrationState } from '@/lib/payments/orchestrate-refund'
 import { REFUND_REASONS } from '@/lib/refunds/auto-raised'
+import { refundStateToNotificationStatus } from '@/lib/refunds/notification-status'
+import { invokeSendNotification } from '@/lib/notifications/invoke'
 
 export async function updateNpStatus(
   npId: string,
@@ -225,7 +227,7 @@ export async function rebookNp(
 export async function resolveNpWithRefund(
   npId: string,
   resolutionNotes: string,
-): Promise<Result<void>> {
+): Promise<Result<{ refundState: RefundOrchestrationState; refundAmountCents: number }>> {
   const auth = await verifyStaffRole()
   if (!auth) return { ok: false, error: 'Insufficient permissions.' }
 
@@ -267,7 +269,7 @@ export async function resolveNpWithRefund(
   const refundAmountCents = paidItems.reduce((sum, i) => sum + i.unit_price_cents * i.no_services, 0)
 
   // NP resolved — raise + fire the refund via the shared orchestrator.
-  await orchestrateRefund(supabase, {
+  const { state: refundState, refundRequestId } = await orchestrateRefund(supabase, {
     bookingId: booking.id,
     contactId: booking.contact_id,
     clientId: booking.client_id,
@@ -275,5 +277,26 @@ export async function resolveNpWithRefund(
     reason: REFUND_REASONS.npContractorFault,
   })
 
-  return { ok: true, data: undefined }
+  // Tell the resident WHY money landed on their card — the exact gap
+  // booking_updated's docstring names ("otherwise the resident sees a refund on
+  // their card with no context"). Fire ONLY when a refund was actually recorded:
+  // 'failed'/'none' get no refund line and no notification (a resolution that
+  // moved no money isn't resident-facing). refund_status maps via the shared
+  // helper so every refund site reads identically; send-notification derives the
+  // DISPLAYED amount from the refund_request row (refund_request_id), never a
+  // caller-supplied figure. edit_ref = the notice id keys idempotency per
+  // resolution. Fire-and-forget — a notification failure never reverts the
+  // resolution (already committed above).
+  const refundStatus = refundStateToNotificationStatus(refundState)
+  if (refundStatus && refundRequestId) {
+    await invokeSendNotification(supabase, {
+      type: 'booking_updated',
+      booking_id: booking.id,
+      edit_ref: npId,
+      refund_status: refundStatus,
+      refund_request_id: refundRequestId,
+    })
+  }
+
+  return { ok: true, data: { refundState, refundAmountCents } }
 }

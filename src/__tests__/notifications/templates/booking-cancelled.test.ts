@@ -53,13 +53,17 @@ describe('renderBookingCancelled', () => {
     expect(html).toContain('&lt;script&gt;')
   })
 
-  it('renders "pending review" copy when refund_status is pending_review on a paid booking', () => {
+  it('renders "pending review" copy without an unfulfillable follow-up promise', () => {
     const booking = makeMockPaidBooking()
     const { html } = renderBookingCancelled(booking, APP_URL, {
       refund_status: 'pending_review',
     })
-    expect(html).toContain('reviewed by our team')
     expect(html).toContain('$55.00')
+    expect(html).toContain('has been requested')
+    // No code path fires when a queued refund is later approved, so the copy
+    // must not promise a follow-up ("We'll be in touch once it's processed").
+    expect(html).not.toContain("We'll be in touch")
+    expect(html).not.toContain('reviewed by our team')
     expect(html).not.toContain('has been processed')
   })
 
