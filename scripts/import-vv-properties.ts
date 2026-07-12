@@ -27,6 +27,7 @@ import {
   upsertEligibleProperties,
 } from './lib/verco-upsert'
 import { parseFlags, requireEnv } from './lib/cli'
+import { timestamp } from './lib/report'
 import { VV_BASES, type EligiblePropertyInsert } from './lib/types'
 
 const GEOCODE_QPS = 50      // Google default
@@ -215,12 +216,6 @@ async function main() {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms))
-}
-
-function timestamp(): string {
-  const d = new Date()
-  const z = (n: number) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}${z(d.getMonth() + 1)}${z(d.getDate())}-${z(d.getHours())}${z(d.getMinutes())}${z(d.getSeconds())}`
 }
 
 main().catch((err) => {
