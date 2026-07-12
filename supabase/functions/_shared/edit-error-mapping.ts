@@ -8,6 +8,10 @@
  * THREE sites (status changed / items changed / date changed, #387.1) so a
  * concurrent edit surfaces as one retryable conflict. If that literal ever
  * changes on either side, both must move together — hence one constant here.
+ * Note the RPC side is an ALREADY-APPLIED migration: change its RAISE wording via
+ * a NEW migration (CREATE OR REPLACE), never by editing the applied file — a
+ * `db push` matches by version and silently skips an edited applied migration,
+ * so prod would keep the old wording and the marker would drift.
  *
  * `mapEditErrorToStatus` turns the RPC's Postgres error message into the HTTP
  * status (+ optional response code) the EF returns. Kept pure + deterministic so
