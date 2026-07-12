@@ -1,5 +1,6 @@
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.100.0'
+import type { Database } from '../_shared/database.types.ts'
 import { z } from 'https://esm.sh/zod@3.23.8'
 import { jsonResponse, optionsResponse } from '../_shared/cors.ts'
 import { sendEmail } from '../_shared/sendgrid.ts'
@@ -66,7 +67,7 @@ serve(withSentry('notify-ticket-response', async (req) => {
   const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
   const isServiceRole = token === serviceRoleKey
   if (!isServiceRole) {
-    const supabaseAnon = createClient(
+    const supabaseAnon = createClient<Database>(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_ANON_KEY') ?? '',
       { global: { headers: { Authorization: authHeader } } },
@@ -96,7 +97,7 @@ serve(withSentry('notify-ticket-response', async (req) => {
       ...extras,
     }))
 
-  const supabase = createClient(
+  const supabase = createClient<Database>(
     Deno.env.get('SUPABASE_URL') ?? '',
     Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
   )
@@ -139,7 +140,7 @@ serve(withSentry('notify-ticket-response', async (req) => {
     // The `ticket_response_id` is caller-supplied, so this must run for every
     // user-JWT caller before we render or send anything.
     if (!isServiceRole) {
-      const supabaseCaller = createClient(
+      const supabaseCaller = createClient<Database>(
         Deno.env.get('SUPABASE_URL') ?? '',
         Deno.env.get('SUPABASE_ANON_KEY') ?? '',
         { global: { headers: { Authorization: authHeader } } },

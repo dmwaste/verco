@@ -1,5 +1,6 @@
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.100.0'
+import type { Database } from '../_shared/database.types.ts'
 import { dispatch } from '../_shared/dispatch.ts'
 import type {
   BookingForDispatch,
@@ -114,7 +115,7 @@ serve(async (req) => {
   // the service-role path, where neither check runs.
   const supabaseAnon = isServiceRole
     ? null
-    : createClient(
+    : createClient<Database>(
         Deno.env.get('SUPABASE_URL') ?? '',
         Deno.env.get('SUPABASE_ANON_KEY') ?? '',
         { global: { headers: { Authorization: authHeader } } }
@@ -181,7 +182,7 @@ serve(async (req) => {
   }
 
   // ── Build service-role Supabase client ─────────────────────────────────
-  const supabaseService = createClient(
+  const supabaseService = createClient<Database>(
     Deno.env.get('SUPABASE_URL') ?? '',
     Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
   )

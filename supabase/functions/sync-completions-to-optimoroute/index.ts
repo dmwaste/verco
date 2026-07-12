@@ -1,5 +1,6 @@
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.100.0'
+import type { Database } from '../_shared/database.types.ts'
 import { awstDateFromUtc } from '../_shared/schedule-transition.ts'
 import {
   getRoutingApiKey,
@@ -24,7 +25,7 @@ import {
  */
 
 // Terminal stop statuses reported complete to OR.
-const TERMINAL_STATUSES = ['Completed', 'Non-conformance', 'Nothing Presented']
+const TERMINAL_STATUSES = ['Completed', 'Non-conformance', 'Nothing Presented'] as const
 // Only look back a couple of days — completions happen on the collection day;
 // this catches late/next-morning closeouts without scanning historical orders.
 const LOOKBACK_DAYS = 2
@@ -44,7 +45,7 @@ function minusDays(dateStr: string, n: number): string {
 }
 
 serve(async (_req) => {
-  const supabase = createClient(
+  const supabase = createClient<Database>(
     Deno.env.get('SUPABASE_URL')!,
     Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
   )

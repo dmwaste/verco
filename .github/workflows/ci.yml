@@ -83,6 +83,24 @@ jobs:
 
       - run: pnpm typecheck
 
+  edge-functions-check:
+    name: Edge Function Type Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      # supabase/functions is excluded from tsc, so `pnpm typecheck` never sees
+      # the Edge Functions. This gate deno-checks them so the createClient<Database>
+      # generic keeps real DB types on the money path (create-booking, stripe-webhook,
+      # process-refund, …) and can't silently regress to `never`. Remote deps are
+      # fetched from esm.sh at check time, same as the deploy step.
+      - name: deno check all edge functions
+        run: deno check supabase/functions/*/index.ts
+
   types-check:
     name: Supabase Types Freshness
     runs-on: ubuntu-latest

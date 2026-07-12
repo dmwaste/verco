@@ -9,8 +9,13 @@
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.100.0'
 import Stripe from 'https://esm.sh/stripe@17.7.0?target=deno'
+import type { Database } from './database.types.ts'
 
-type SupabaseServiceClient = ReturnType<typeof createClient>
+// Typed against Verco's Database so the reconciliation writes (booking_payment,
+// booking) are checked against the real schema — this is the money path. Derived
+// from createClient<Database> (not SupabaseClient<Database> directly) so it is
+// definitionally identical to what every caller passes in.
+type SupabaseServiceClient = ReturnType<typeof createClient<Database>>
 
 /**
  * Fire-and-forget POST to the send-notification Edge Function. Failures are

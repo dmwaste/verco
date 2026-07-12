@@ -1,5 +1,6 @@
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.100.0'
+import type { Database, TablesInsert, TablesUpdate } from '../_shared/database.types.ts'
 import { z } from 'https://esm.sh/zod@3.23.8'
 import { corsHeaders, jsonResponse, optionsResponse, errorResponse } from '../_shared/cors.ts'
 import { sendEmail } from '../_shared/sendgrid.ts'
@@ -88,14 +89,14 @@ serve(async (req) => {
   }
 
   // Caller client — uses the caller's JWT, respects RLS
-  const supabaseCaller = createClient(
+  const supabaseCaller = createClient<Database>(
     Deno.env.get('SUPABASE_URL')!,
     Deno.env.get('SUPABASE_ANON_KEY')!,
     { global: { headers: { Authorization: authHeader } } }
   )
 
   // Service-role client — for auth.admin + writes
-  const supabaseService = createClient(
+  const supabaseService = createClient<Database>(
     Deno.env.get('SUPABASE_URL')!,
     Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
   )
@@ -247,7 +248,7 @@ serve(async (req) => {
 
     if (existingContact) {
       // full_name is a generated column — must write first/last_name.
-      const updateData: Record<string, string> = { first_name, last_name }
+      const updateData: TablesUpdate<'contacts'> = { first_name, last_name }
       if (mobile_e164) updateData.mobile_e164 = mobile_e164
 
       const { error: updateError } = await supabaseService
@@ -262,7 +263,7 @@ serve(async (req) => {
 
       contactId = existingContact.id
     } else {
-      const insertData: Record<string, string> = { first_name, last_name, email }
+      const insertData: TablesInsert<'contacts'> = { first_name, last_name, email }
       if (mobile_e164) insertData.mobile_e164 = mobile_e164
 
       const { data: newContact, error: insertError } = await supabaseService
@@ -300,7 +301,9 @@ serve(async (req) => {
 
     // ── 8. Upsert user_role (update if exists, insert if not) ──────────
 
-    const roleData: Record<string, unknown> = {
+    // user_id is added at insert time (spread below); update reuses the same
+    // fields, so type as the Insert shape minus user_id.
+    const roleData: Omit<TablesInsert<'user_roles'>, 'user_id'> = {
       role,
       is_active: true,
       contractor_id: contractor_id ?? null,

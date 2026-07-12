@@ -5,6 +5,12 @@
 # These mirror files are byte-for-byte identical except for that difference.
 # The _shared/ directory is the source of truth — always edit there.
 #
+# ONE pair runs the OTHER direction: supabase/functions/_shared/database.types.ts is a
+# generated copy of src/lib/supabase/types.ts (the source of truth is the GENERATED node
+# file). It exists so Deno Edge Functions can import the `Database` generic — Deno can't
+# resolve the Node "@/lib/supabase/types" alias, and a cross-boundary import into src/ does
+# not survive `supabase functions deploy`'s per-function bundle. See sync_db_types below.
+#
 # Usage:
 #   ./scripts/sync-mirrors.sh           # write mode (default) — regenerates mirrors
 #   ./scripts/sync-mirrors.sh --check   # read-only — exits 1 if any mirror has drifted
@@ -54,7 +60,47 @@ sync_one() {
   fi
 }
 
+# Deno-importable copy of the generated Supabase Database types. Unlike the mirrors
+# above, the SOURCE here is the generated node file (src/lib/supabase/types.ts) and the
+# DESTINATION is under _shared/. A fixed banner is prepended so the file self-documents;
+# the check mode regenerates banner+source and diffs, so it can never silently drift.
+DB_TYPES_SRC="src/lib/supabase/types.ts"
+DB_TYPES_DST="$SHARED/database.types.ts"
+
+gen_db_types() {
+  cat <<'BANNER'
+// ⚠️  GENERATED FILE — DO NOT EDIT BY HAND.
+// Byte-for-byte copy of src/lib/supabase/types.ts (below this banner), produced by
+// scripts/sync-mirrors.sh so Deno Edge Functions can import the `Database` generic.
+// Deno can't resolve the Node "@/lib/supabase/types" alias, and a relative import into
+// src/ does not survive `supabase functions deploy`'s per-function bundle — so the types
+// are copied inside supabase/functions/_shared/ where the bundler can always reach them.
+// Regenerate: pnpm supabase gen types … > src/lib/supabase/types.ts && bash scripts/sync-mirrors.sh
+BANNER
+  cat "$DB_TYPES_SRC"
+}
+
+# Sync (write) or check the generated Database-types copy. Returns 0 if in sync, 1 if drifted.
+sync_db_types() {
+  if [ "$mode" = "check" ]; then
+    if [ ! -f "$DB_TYPES_DST" ]; then
+      echo "DRIFT: $DB_TYPES_DST is missing"
+      return 1
+    fi
+    if ! gen_db_types | diff -q - "$DB_TYPES_DST" > /dev/null 2>&1; then
+      echo "DRIFT: $DB_TYPES_DST is out of sync with $DB_TYPES_SRC"
+      return 1
+    fi
+    return 0
+  else
+    gen_db_types > "$DB_TYPES_DST"
+    echo "synced: $DB_TYPES_SRC -> $DB_TYPES_DST"
+    return 0
+  fi
+}
+
 drift=0
+sync_db_types || drift=1
 for f in "$SHARED/templates"/*.ts; do
   name="$(basename "$f")"
   sync_one "$f" "$MIRROR/templates/$name" || drift=1

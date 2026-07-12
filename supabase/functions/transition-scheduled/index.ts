@@ -1,5 +1,6 @@
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.100.0'
+import type { Database } from '../_shared/database.types.ts'
 import {
   awstDateFromUtc,
   filterBookingsReadyToSchedule,
@@ -26,7 +27,7 @@ serve(async (_req) => {
   const supabaseUrl = Deno.env.get('SUPABASE_URL')!
   const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
 
-  const supabase = createClient(supabaseUrl, serviceRoleKey)
+  const supabase = createClient<Database>(supabaseUrl, serviceRoleKey)
 
   const tomorrow = awstDateFromUtc(new Date(Date.now() + 24 * 60 * 60 * 1000))
 
