@@ -21,15 +21,6 @@
 -- skipped). Body is otherwise functionally identical to the live prod
 -- definition (explanatory comments elided — don't treat a prod-vs-repo byte
 -- diff of this function as drift).
---
--- CONCURRENCY-MARKER CONTRACT: the three RAISE messages in the p_expected_items
--- block below (status changed / items changed / date changed) each contain the
--- substring 'changed since this edit was priced'. That substring is the shared
--- constant CONCURRENT_EDIT_MARKER in supabase/functions/_shared/edit-error-mapping.ts;
--- the create-booking EF runs mapEditErrorToStatus() over the RPC error message
--- and maps that marker to a retryable 409 { code: 'concurrent_edit' }. If the
--- wording of any RAISE below is ever changed, update the constant in lockstep
--- (and vice-versa) or the concurrency conflict silently degrades to a bare 500.
 
 DROP FUNCTION IF EXISTS public.update_booking_items_in_place(uuid, uuid, jsonb, uuid, text, text);
 
