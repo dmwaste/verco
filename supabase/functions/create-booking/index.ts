@@ -102,6 +102,12 @@ const CreateBookingRequest = z.object({
   // strict `total_cents>0` reject unchanged — so this can't introduce a refund
   // leak on the wizard flow, which does not orchestrate refunds. See spec §3/§4.
   inline_edit: z.boolean().optional(),
+  // #387.1 concurrency baseline: the per-service quantities the admin's page
+  // RENDERED when the inline editor opened. When present, it (not this EF's own
+  // fresh read) becomes the RPC's p_expected_items precondition, so the guard
+  // covers the full view-to-write window. Optional for back-compat: the wizard
+  // edit path and any pre-deploy caller omit it and fall back to the fresh read.
+  expected_items: z.array(BookingItemInput).min(1).max(20).optional(),
 })
 
 serve(withSentry('create-booking', async (req) => {
@@ -139,7 +145,7 @@ serve(withSentry('create-booking', async (req) => {
       return jsonResponse({ error: parsed.error.message }, 400)
     }
 
-    const { property_id, collection_area_id, collection_date_id, location, notes, contact, items, replaces, swap, terms_accepted, inline_edit } = parsed.data
+    const { property_id, collection_area_id, collection_date_id, location, notes, contact, items, replaces, swap, terms_accepted, inline_edit, expected_items } = parsed.data
 
     // ── 2. Resolve collection area → client_id, contractor_id, area code ─────
 
@@ -415,20 +421,37 @@ serve(withSentry('create-booking', async (req) => {
         }
       }
       let refundOwedCents = 0
-      // The item set the inline refund is priced against — passed to the RPC as
-      // p_expected_items so it can abort under its lock if a concurrent edit
-      // changed the items since this baseline was read (#387.1). Null on the
-      // wizard path (no refund, no precondition).
+      // The item set the RPC's concurrency guard checks under its lock (#387.1),
+      // passed as p_expected_items so it can abort if the persisted items changed
+      // since this baseline. Null on the wizard path (no refund, no precondition).
       let expectedItems: Array<{ service_id: string; no_services: number }> | null = null
       if (inline_edit) {
-        // Baseline: re-price the booking's CURRENT items with the SAME engine
-        // call/state as new_total (exclude self, same swap/unitMultiplier), so
-        // other bookings' usage cancels in the delta (drift-immune marginal cost).
+        // Pricing baseline: re-price the booking's CURRENT items with the SAME
+        // engine call/state as new_total (exclude self, same swap/unitMultiplier),
+        // so other bookings' usage cancels in the delta (drift-immune marginal cost).
         const currentItemsMap = new Map<string, number>()
         for (const bi of (ownedBooking?.booking_item ?? []) as Array<{ service_id: string; no_services: number }>) {
           currentItemsMap.set(bi.service_id, (currentItemsMap.get(bi.service_id) ?? 0) + bi.no_services)
         }
-        expectedItems = Array.from(currentItemsMap.entries()).map(([service_id, no_services]) => ({
+        // Guard precondition source — DECOUPLED from the pricing baseline above.
+        // Prefer the client's RENDERED baseline (the set the admin's page showed
+        // when the editor opened) so the guard covers the full view-to-write window
+        // (two admins on stale pages, minutes apart), not just this EF-read→lock
+        // gap. Fall back to the fresh read when the caller omits it (wizard path;
+        // pre-deploy 6-arg callers). Aggregate per service_id → summed no_services
+        // to match the RPC's comparison shape regardless of source. The PRICING
+        // baseline stays the fresh read (currentItemsMap) — marginal cost is
+        // drift-immune, so the refund is correct either way; only the precondition
+        // moves to the wider window.
+        const guardSource: Array<{ service_id: string; no_services: number }> =
+          expected_items && expected_items.length > 0
+            ? expected_items
+            : Array.from(currentItemsMap.entries()).map(([service_id, no_services]) => ({ service_id, no_services }))
+        const guardMap = new Map<string, number>()
+        for (const it of guardSource) {
+          guardMap.set(it.service_id, (guardMap.get(it.service_id) ?? 0) + it.no_services)
+        }
+        expectedItems = Array.from(guardMap.entries()).map(([service_id, no_services]) => ({
           service_id,
           no_services,
         }))

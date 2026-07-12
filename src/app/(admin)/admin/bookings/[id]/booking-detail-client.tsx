@@ -12,6 +12,7 @@ import { BookingStatusBadge } from '@/components/booking/booking-status-badge'
 import { DetailHeader } from '@/components/admin/detail-header'
 import { FieldLabel, Input, Select, Textarea } from '@/components/admin/form'
 import { LOCATION_OPTIONS, MAX_SERVICE_QTY, type LocationOption } from '@/lib/booking/schemas'
+import { buildQuantityEditItems } from '@/lib/booking/quantity-edit-payload'
 import { canEditCollectionDetails } from '@/lib/booking/collection-details-edit'
 import { isContractorStaff } from '@/lib/auth/roles'
 import { confirmBooking, cancelBooking, updateContact, updateCollectionDetails, updateNotes, updateBookingQuantities } from './actions'
@@ -429,11 +430,12 @@ export function BookingDetailClient({
     setIsPending(true)
     setError(null)
     setQuantityResult(null)
-    const items = serviceLines.map((l) => ({
-      service_id: l.service_id,
-      no_services: editQty.get(l.service_id) ?? l.qty,
-    }))
-    const result = await updateBookingQuantities(booking.id, items)
+    // items = the admin's TARGET quantities; expectedItems = the ORIGINAL
+    // quantities this page rendered (the #387.1 concurrency baseline). serviceLines
+    // is derived from the server snapshot at page load, so it still reflects what
+    // the admin saw even if this editor was left open for minutes.
+    const { items, expectedItems } = buildQuantityEditItems(serviceLines, editQty)
+    const result = await updateBookingQuantities(booking.id, items, expectedItems)
     if (!result.ok) {
       setError(result.error)
       setIsPending(false)

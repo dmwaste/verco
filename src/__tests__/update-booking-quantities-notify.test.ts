@@ -88,7 +88,7 @@ describe('updateBookingQuantities — refund notify body', () => {
   it("a 'queued' reduction notifies with refund_status 'pending_review' + refund_request_id", async () => {
     orchestrateRefund.mockResolvedValue({ state: 'queued', refundRequestId: 'rr-q1' })
 
-    const res = await updateBookingQuantities(BOOKING_ID, [{ service_id: SERVICE_ID, no_services: 2 }])
+    const res = await updateBookingQuantities(BOOKING_ID, [{ service_id: SERVICE_ID, no_services: 2 }], [{ service_id: SERVICE_ID, no_services: 3 }])
 
     expect(res.ok).toBe(true)
     if (res.ok) expect(res.data.refundState).toBe('queued')
@@ -108,7 +108,7 @@ describe('updateBookingQuantities — refund notify body', () => {
   it("a 'failed' reduction never claims a refund — no refund_status / refund_request_id in the body", async () => {
     orchestrateRefund.mockResolvedValue({ state: 'failed' })
 
-    const res = await updateBookingQuantities(BOOKING_ID, [{ service_id: SERVICE_ID, no_services: 2 }])
+    const res = await updateBookingQuantities(BOOKING_ID, [{ service_id: SERVICE_ID, no_services: 2 }], [{ service_id: SERVICE_ID, no_services: 3 }])
 
     expect(res.ok).toBe(true)
     expect(invokeSendNotification).toHaveBeenCalledTimes(1)
