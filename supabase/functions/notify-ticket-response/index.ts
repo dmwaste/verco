@@ -65,7 +65,9 @@ serve(withSentry('notify-ticket-response', async (req) => {
   }
   const token = authHeader.slice('Bearer '.length)
   const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
-  const isServiceRole = token === serviceRoleKey
+  // Guard the key length: if SUPABASE_SERVICE_ROLE_KEY were ever unset, an empty
+  // bearer would otherwise satisfy `'' === ''` and authenticate as service-role.
+  const isServiceRole = serviceRoleKey.length > 0 && token === serviceRoleKey
   if (!isServiceRole) {
     const supabaseAnon = createClient<Database>(
       Deno.env.get('SUPABASE_URL') ?? '',

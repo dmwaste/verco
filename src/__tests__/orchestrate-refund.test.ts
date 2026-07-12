@@ -88,7 +88,9 @@ describe('orchestrateRefund', () => {
     processRefundOk = false
     const res = await orchestrateRefund(makeClient(), input)
     expect(res.state).toBe('queued')
-    // Pending row exists — recoverable from the Refunds page.
+    // Pending row exists — recoverable from the Refunds page. The id is still
+    // returned so the notify path can carry refund_request_id (never the cents).
+    expect(res.refundRequestId).toBe('refund-1')
     expect(inserted).toHaveLength(1)
   })
 
@@ -96,6 +98,7 @@ describe('orchestrateRefund', () => {
     hasSession = false
     const res = await orchestrateRefund(makeClient(), input)
     expect(res.state).toBe('queued')
+    expect(res.refundRequestId).toBe('refund-1')
     expect(inserted).toHaveLength(1)
     expect(fetchCalls.some((u) => u.includes('/process-refund'))).toBe(false)
   })
@@ -107,6 +110,7 @@ describe('orchestrateRefund', () => {
     const res = await orchestrateRefund(makeClient(), input)
     expect(res.state).toBe('queued')
     // Pending row exists — recoverable from the Refunds page.
+    expect(res.refundRequestId).toBe('refund-1')
     expect(inserted).toHaveLength(1)
   })
 
