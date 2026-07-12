@@ -27,3 +27,34 @@ export function shouldAutoApproveRefund(
 ): boolean {
   return latestRefundCents != null && latestRefundCents === requestAmountCents
 }
+
+/**
+ * Resolve the latest Stripe refund for a `charge.refunded` event, tolerating the
+ * modern webhook payload shape.
+ *
+ * A `charge.refunded` webhook PAYLOAD follows the WEBHOOK ENDPOINT's pinned
+ * Stripe API version — NOT the SDK's `apiVersion`. On API versions >= 2022-11-15
+ * the embedded `charge.refunds` list is OMITTED from the payload, so
+ * `charge.refunds.data[0]` is undefined and the backstop reads a null amount →
+ * `shouldAutoApproveRefund` is never satisfied → every direct-in-Stripe refund
+ * silently parks Pending. Prefer the embed when present; otherwise fall back to
+ * the injected fetcher (the EF passes `stripe.refunds.list({ charge })`).
+ *
+ * Pure control flow with the I/O injected, so the embed-vs-fetch decision is
+ * unit-testable without the Stripe SDK. Generic over the refund shape to avoid a
+ * Stripe type import (keeps this file a byte-identical mirror of
+ * src/lib/payments/refund-auto-approve.ts). Returns null when neither source
+ * yields a refund — the caller parks Pending and emits a Sentry warning.
+ *
+ * @param embedded The refund embedded in the webhook payload, or undefined when
+ *   the endpoint's API version omits the `charge.refunds` list.
+ * @param fetchLatest Fetches the most-recent refund for the charge from Stripe;
+ *   returns null when the charge has no refunds.
+ */
+export async function resolveLatestRefund<T>(
+  embedded: T | undefined,
+  fetchLatest: () => Promise<T | null>,
+): Promise<T | null> {
+  if (embedded) return embedded
+  return await fetchLatest()
+}
