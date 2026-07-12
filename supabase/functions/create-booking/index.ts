@@ -529,8 +529,12 @@ serve(withSentry('create-booking', async (req) => {
           p_collection_date_id: collection_date_id,
           p_items: editItems,
           p_actor_id: actingUserEarly?.id ?? null,
-          p_location: location,
-          p_notes: notes ?? null,
+          // Inline quantity edits never change location/notes — pass null so
+          // the RPC keeps the current values (re-sending the caller's copy
+          // would silently revert a concurrent location edit). Wizard path
+          // still updates both.
+          p_location: inline_edit ? null : location,
+          p_notes: inline_edit ? null : (notes ?? null),
           // Concurrency guard (#387.1): only the inline refund path sends the
           // baseline it priced against; the RPC aborts if the items changed
           // under its lock. Wizard path sends null → guard skipped.
