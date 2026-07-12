@@ -74,14 +74,26 @@ export async function orchestrateRefund(
     return { state: 'queued' }
   }
 
-  const res = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/process-refund`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${session.access_token}`,
-    },
-    body: JSON.stringify({ refund_request_id: refundReq.id }),
-  })
+  let res: Response
+  try {
+    res = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/process-refund`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify({ refund_request_id: refundReq.id }),
+    })
+  } catch (err) {
+    // Network-level rejection (DNS, connection refused) — must not throw past
+    // this helper: the caller's state change has already committed. Pending row
+    // exists, so recovery matches the non-OK path (Refunds page).
+    console.error(
+      `orchestrateRefund: process-refund fetch failed for booking ${bookingId}:`,
+      err instanceof Error ? err.message : String(err),
+    )
+    return { state: 'queued' }
+  }
 
   if (!res.ok) {
     const errText = await res.text().catch(() => 'Unknown error')
