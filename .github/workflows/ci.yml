@@ -89,6 +89,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      # @types/node (a declared devDependency) must be present in node_modules:
+      # deno follows the transitive `@types/node` type reference in the Stripe/
+      # Sentry deps and errors without it. The deploy job installs for the same
+      # reason, so the check runs in the same environment the deploy bundles in.
+      - run: pnpm install --frozen-lockfile
+
       - uses: denoland/setup-deno@v2
         with:
           deno-version: v2.x
