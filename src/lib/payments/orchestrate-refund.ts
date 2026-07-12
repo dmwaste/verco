@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { Database } from '@/lib/supabase/types'
+import type { RefundReason } from '@/lib/refunds/auto-raised'
 
 /**
  * Outcome of orchestrating a booking refund:
@@ -19,7 +20,12 @@ export interface RefundOrchestrationInput {
   contactId: string | null
   clientId: string | null
   amountCents: number
-  reason: string
+  /**
+   * Constrained to the REFUND_REASONS taxonomy so a new writer can't pass an
+   * unregistered literal that the Refunds page would then mis-classify as
+   * discretionary (not owed). Compile-time drift guard — stronger than a test.
+   */
+  reason: RefundReason
 }
 
 /**

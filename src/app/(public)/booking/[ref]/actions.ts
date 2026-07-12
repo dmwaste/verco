@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/server'
 import { invokeSendNotification } from '@/lib/notifications/invoke'
 import { assertRowsAffected } from '@/lib/db/assert-rows-affected'
 import { isPastCancellationCutoff } from '@/lib/booking/cancellation-cutoff'
+import { REFUND_REASONS } from '@/lib/refunds/auto-raised'
 import type { Result } from '@/lib/result'
 
 /**
@@ -92,7 +93,7 @@ export async function cancelBooking(bookingId: string): Promise<Result<void>> {
         contact_id: booking.contact_id,
         client_id: booking.client_id,
         amount_cents: refundAmountCents,
-        reason: 'Booking cancelled by resident',
+        reason: REFUND_REASONS.residentCancellation,
         status: 'Pending',
       })
 
