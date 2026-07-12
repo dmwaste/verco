@@ -95,6 +95,16 @@ describe('orchestrateRefund', () => {
     expect(fetchCalls.some((u) => u.includes('/process-refund'))).toBe(false)
   })
 
+  it("returns 'queued' (never throws) when the process-refund fetch rejects at the network level", async () => {
+    vi.stubGlobal('fetch', async () => {
+      throw new TypeError('fetch failed')
+    })
+    const res = await orchestrateRefund(makeClient(), input)
+    expect(res.state).toBe('queued')
+    // Pending row exists — recoverable from the Refunds page.
+    expect(inserted).toHaveLength(1)
+  })
+
   it("returns 'failed' when the refund_request insert is rejected (no Pending row)", async () => {
     insertError = { message: 'RLS denied' }
     const res = await orchestrateRefund(makeClient(), input)

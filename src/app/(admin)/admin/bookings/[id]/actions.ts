@@ -175,8 +175,8 @@ export async function cancelBooking(bookingId: string): Promise<Result<void>> {
   const refundAmountCents = paidItems.reduce((sum, i) => sum + i.unit_price_cents * i.no_services, 0)
 
   // Raise + fire the refund via the shared orchestrator (booking already
-  // cancelled — failures surface in the returned state, never throw).
-  await orchestrateRefund(supabase, {
+  // cancelled — failures are logged and reflected in the returned state).
+  const { state: refundState } = await orchestrateRefund(supabase, {
     bookingId: booking.id,
     contactId: booking.contact_id,
     clientId: booking.client_id,
@@ -186,11 +186,19 @@ export async function cancelBooking(bookingId: string): Promise<Result<void>> {
 
   // Fire booking_cancelled notification. Fire-and-forget — failure never
   // reverts the cancel. Uses direct fetch() per CLAUDE.md §11 (supabase
-  // .functions.invoke is unreliable in SSR).
+  // .functions.invoke is unreliable in SSR). refund_status mirrors
+  // updateBookingQuantities' mapping: only claim "processed" when
+  // process-refund actually accepted it — a -staff cancel legitimately lands
+  // 'queued' (awaiting admin approval on the Refunds page), and
+  // 'failed'/'none' must not show a refund line at all.
+  const refundStatus =
+    refundState === 'initiated' ? ('processed' as const)
+    : refundState === 'queued' ? ('pending_review' as const)
+    : undefined
   await invokeSendNotification(supabase, {
     type: 'booking_cancelled',
     booking_id: bookingId,
-    refund_status: refundAmountCents > 0 ? 'processed' : undefined,
+    ...(refundStatus ? { refund_status: refundStatus } : {}),
   })
 
   return { ok: true, data: undefined }

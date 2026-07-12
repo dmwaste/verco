@@ -91,6 +91,36 @@ async function handleChargeRefunded(
   const latestRefund = charge.refunds?.data?.[0]
   const stripeRefundId = latestRefund?.id ?? null
 
+  // #387.1 hardening: refunds created by process-refund carry the request id in
+  // metadata — settle exactly that request instead of falling through to
+  // oldest-Pending matching (which could settle a DIFFERENT request against
+  // this refund when two Pending requests coexist). The status='Pending'
+  // condition makes it a no-op when process-refund already approved it
+  // synchronously; the only time this branch does work is the crash window
+  // between process-refund's Stripe call and its status commit.
+  const stampedRequestId = latestRefund?.metadata?.refund_request_id
+  if (stampedRequestId) {
+    const { data: settled, error: stampedError } = await supabase
+      .from('refund_request')
+      .update({
+        status: 'Approved',
+        stripe_refund_id: stripeRefundId,
+        reviewed_at: new Date().toISOString(),
+      })
+      .eq('id', stampedRequestId)
+      .eq('status', 'Pending')
+      .select('id')
+    if (stampedError) {
+      throw new Error(`Failed to update stamped refund_request ${stampedRequestId}: ${stampedError.message}`)
+    }
+    console.log(
+      settled && settled.length > 0
+        ? `Charge refunded: settled stamped refund_request ${stampedRequestId} (recovery path)`
+        : `Charge refunded: stamped refund_request ${stampedRequestId} already settled — skipping`,
+    )
+    return
+  }
+
   // Find a pending refund_request for this booking. A booking can carry >1
   // pending request once PR-B1's delta charge exists (full cancel of a
   // 2-charge booking), so `.maybeSingle()` would throw — take the oldest
@@ -135,7 +165,10 @@ async function handleChargeRefunded(
     return
   }
 
-  const { error: refundUpdateError } = await supabase
+  // Conditional on the row still being Pending — a concurrent process-refund
+  // approval between our read and this write must not be overwritten (TOCTOU:
+  // clobbering reviewed_at/stripe_refund_id on a just-approved row).
+  const { data: approved, error: refundUpdateError } = await supabase
     .from('refund_request')
     .update({
       status: 'Approved',
@@ -143,10 +176,16 @@ async function handleChargeRefunded(
       reviewed_at: new Date().toISOString(),
     })
     .eq('id', refundRequest.id)
+    .eq('status', 'Pending')
+    .select('id')
 
   if (refundUpdateError) {
     throw new Error(`Failed to update refund_request: ${refundUpdateError.message}`)
   }
 
-  console.log(`Charge refunded: refund_request ${refundRequest.id} → Approved`)
+  console.log(
+    approved && approved.length > 0
+      ? `Charge refunded: refund_request ${refundRequest.id} → Approved`
+      : `Charge refunded: refund_request ${refundRequest.id} settled concurrently — skipping`,
+  )
 }

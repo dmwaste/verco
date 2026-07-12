@@ -1506,6 +1506,7 @@ All Edge Functions are in `supabase/functions/`. Auth pattern: Bearer JWT unless
 - **Calls:** `create_booking_with_capacity_check` (create) or `update_booking_items_in_place` (edit) RPC — both serialised under an advisory lock
 - **Output (create):** `{ booking_id, ref, requires_payment: boolean, checkout_url? }`
 - **Output (edit):** `{ booking_id, ref, edited: true, requires_payment: false, refund_owed_cents }` — `refund_owed_cents` (0 on the wizard path) is the amount the caller must refund via the `refund_request` + `process-refund` machinery on an `inline_edit` reduction
+- **Errors (edit):** `409 { error, code: 'concurrent_edit' }` when the `p_expected_items` guard detects the booking's items changed since this edit was priced (concurrent edit) — caller should reload and re-edit
 - **Side effects:** Inserts/updates `booking`, `booking_item`, `contacts` (upsert on create), triggers notifications
 
 ### `create-checkout`

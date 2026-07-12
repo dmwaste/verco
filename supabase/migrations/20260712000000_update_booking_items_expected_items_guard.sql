@@ -18,7 +18,9 @@
 -- Signature change (6 → 7 args) can't go through CREATE OR REPLACE, so DROP +
 -- CREATE. The new 7th arg defaults NULL, so the currently-deployed EF's 6-arg
 -- call still resolves during the migration→EF-deploy window (precondition
--- skipped). Body is otherwise byte-identical to the live prod definition.
+-- skipped). Body is otherwise functionally identical to the live prod
+-- definition (explanatory comments elided — don't treat a prod-vs-repo byte
+-- diff of this function as drift).
 
 DROP FUNCTION IF EXISTS public.update_booking_items_in_place(uuid, uuid, jsonb, uuid, text, text);
 
@@ -86,6 +88,16 @@ BEGIN
   -- so its refund would be wrong — abort and let it re-price. Compared as
   -- service_id → summed no_services (order-independent); NULL skips the check.
   IF p_expected_items IS NOT NULL THEN
+    -- Status re-check under the lock: the EF gates on Confirmed BEFORE this
+    -- transaction, and a concurrent cancel changes status but not items, so the
+    -- items comparison below would pass. Without this, an inline edit racing a
+    -- cancel rewrites items on a Cancelled booking and raises a delta refund on
+    -- top of the cancel's full-amount one. Message carries the EF's
+    -- concurrent-edit marker so it maps to the retryable 409.
+    IF v_booking.status <> 'Confirmed' THEN
+      RAISE EXCEPTION 'Booking status changed since this edit was priced (concurrent edit) — reload and try again';
+    END IF;
+
     IF EXISTS (
       WITH cur AS (
         SELECT service_id, SUM(no_services)::int AS qty
@@ -102,6 +114,19 @@ BEGIN
       WHERE COALESCE(cur.qty, 0) IS DISTINCT FROM COALESCE(exp.qty, 0)
     ) THEN
       RAISE EXCEPTION 'Booking items changed since this edit was priced (concurrent edit) — reload and try again';
+    END IF;
+
+    -- Date pin: a concurrent date change (updateCollectionDetails) moves
+    -- booking_item.collection_date_id without changing quantities, so it passes
+    -- the items comparison — but applying this edit would silently snap every
+    -- item back to the stale date it was priced against (and shuffle capacity
+    -- counters with it). Abort so the caller re-reads. Same marker message.
+    IF EXISTS (
+      SELECT 1 FROM booking_item
+      WHERE booking_id = p_booking_id
+        AND collection_date_id IS DISTINCT FROM p_collection_date_id
+    ) THEN
+      RAISE EXCEPTION 'Booking date changed since this edit was priced (concurrent edit) — reload and try again';
     END IF;
   END IF;
 
