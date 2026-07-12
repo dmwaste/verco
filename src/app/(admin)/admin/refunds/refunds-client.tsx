@@ -83,7 +83,13 @@ export function RefundsClient() {
           return
         }
 
-        const { error } = await supabase
+        // Guard on status='Pending' + require a row back: refund_request.status
+        // has no state-machine trigger, so without this a stale list could reject
+        // a row another admin already Approved — clobbering it to Rejected while
+        // its stripe_refund_id stays set, hiding a completed refund. Zero rows
+        // back = already actioned elsewhere (mirrors process-refund's approve
+        // guard). No double-pay risk either way; this protects the audit record.
+        const { data: rejected, error } = await supabase
           .from('refund_request')
           .update({
             status: 'Rejected',
@@ -91,9 +97,15 @@ export function RefundsClient() {
             reviewed_at: new Date().toISOString(),
           })
           .eq('id', refundId)
+          .eq('status', 'Pending')
+          .select('id')
 
         if (error) {
           setActionError(`Failed to reject: ${error.message}`)
+          return
+        }
+        if (!rejected || rejected.length === 0) {
+          setActionError('This refund was already actioned — refresh to see its current status.')
           return
         }
       }

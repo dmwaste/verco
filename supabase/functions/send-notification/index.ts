@@ -162,6 +162,23 @@ serve(async (req) => {
       400
     )
   }
+  // Reject the HYBRID shape: a payload is EITHER a fresh {type, booking_id} OR a
+  // resume {notification_log_id}, never both (NotificationDispatchInput is a
+  // discriminated union — no legitimate caller sends both). Without this, a raw
+  // HTTP caller could send {booking_id: <own readable>, notification_log_id:
+  // <victim log>}: the tenant gate resolves booking_id-first and authorizes the
+  // caller's OWN booking, but dispatch() resumes notification_log_id-first and
+  // acts on the VICTIM's log row — a cross-tenant gate bypass in the exact path
+  // the gate defends. Rejecting the ambiguous shape closes it at the boundary.
+  if (
+    'notification_log_id' in input &&
+    ('type' in input || 'booking_id' in input)
+  ) {
+    return jsonResponse(
+      { ok: false, error: 'Payload must be either {type, booking_id} or {notification_log_id}, not both' },
+      400
+    )
+  }
 
   // ── Build service-role Supabase client ─────────────────────────────────
   const supabaseService = createClient(
@@ -180,9 +197,10 @@ serve(async (req) => {
   const authz = await authorizeNotificationDispatch(input, {
     isServiceRole,
     resolveBookingId: async (payload) => {
-      if ('booking_id' in payload && payload.booking_id) {
-        return payload.booking_id
-      }
+      // Resolve notification_log_id FIRST — mirroring dispatch()'s resume-first
+      // precedence (dispatch.ts) so the gate authorizes the SAME booking dispatch
+      // will act on. (The parse guard above already rejects both-key payloads;
+      // this precedence match is defence-in-depth if that guard is ever changed.)
       if ('notification_log_id' in payload && payload.notification_log_id) {
         // Map log → booking only to choose WHICH booking to gate; the gate is
         // the user-scoped read below, so this service-role read grants nothing.
@@ -192,6 +210,9 @@ serve(async (req) => {
           .eq('id', payload.notification_log_id)
           .maybeSingle()
         return (data?.booking_id as string | undefined) ?? null
+      }
+      if ('booking_id' in payload && payload.booking_id) {
+        return payload.booking_id
       }
       return null
     },

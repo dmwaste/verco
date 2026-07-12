@@ -20,7 +20,7 @@ import { formatCurrency, formatCollectionDate, escapeHtml, buildBookingPortalUrl
  *     - Confirmation line
  *     - Optional reason (from `reason` field in payload — interpolated if present)
  *     - Details: ref, original collection date, address
- *     - (if refund_cents > 0) Refund notice
+ *     - (if refund_status set) Refund notice
  *   CTA: "Book again" → tenant-host /dashboard via buildBookingPortalUrl
  *
  * Phase 1 scope is the simplest variant: free booking + optional reason +

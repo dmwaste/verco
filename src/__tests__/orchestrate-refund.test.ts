@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { orchestrateRefund } from '@/lib/payments/orchestrate-refund'
+import { REFUND_REASONS } from '@/lib/refunds/auto-raised'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { Database } from '@/lib/supabase/types'
 
@@ -56,7 +57,7 @@ beforeEach(() => {
   })
 })
 
-const input = { bookingId: BOOKING, contactId: CONTACT, clientId: CLIENT, amountCents: 5000, reason: 'test' }
+const input = { bookingId: BOOKING, contactId: CONTACT, clientId: CLIENT, amountCents: 5000, reason: REFUND_REASONS.staffCancellation }
 
 describe('orchestrateRefund', () => {
   it("returns 'none' and does nothing when amount <= 0", async () => {
@@ -79,7 +80,7 @@ describe('orchestrateRefund', () => {
     // which derives the DISPLAYED refund amount from this row (never trusts a
     // caller-supplied cents figure).
     expect(res.refundRequestId).toBe('refund-1')
-    expect(inserted[0]).toMatchObject({ booking_id: BOOKING, amount_cents: 5000, status: 'Pending', reason: 'test' })
+    expect(inserted[0]).toMatchObject({ booking_id: BOOKING, amount_cents: 5000, status: 'Pending', reason: REFUND_REASONS.staffCancellation })
     expect(fetchCalls.some((u) => u.includes('/process-refund'))).toBe(true)
   })
 
