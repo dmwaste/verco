@@ -132,9 +132,14 @@ describe('inline quantity editor — interaction', () => {
     fireEvent.click(save)
 
     await waitFor(() => expect(updateBookingQuantities).toHaveBeenCalledTimes(1))
-    expect(updateBookingQuantities).toHaveBeenCalledWith('booking-uuid', [
-      { service_id: 'svc-general', no_services: 2 },
-    ])
+    // items = the TARGET (2); expectedItems = the ORIGINAL rendered qty (3) — the
+    // #387.1 concurrency baseline. The baseline must be the original, never the
+    // reduced draft, or the RPC guard would 409 every legitimate reduction.
+    expect(updateBookingQuantities).toHaveBeenCalledWith(
+      'booking-uuid',
+      [{ service_id: 'svc-general', no_services: 2 }],
+      [{ service_id: 'svc-general', no_services: 3 }],
+    )
   })
 
   it('cannot decrement a service below 1 (removal = cancel & rebook)', () => {

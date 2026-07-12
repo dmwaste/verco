@@ -104,10 +104,23 @@ beforeEach(() => {
 })
 
 const REDUCE = [{ service_id: SVC_GENERAL, no_services: 1 }]
+// The ORIGINAL rendered quantity the admin saw when the editor opened (#387.1
+// view-to-write guard baseline). Distinct from REDUCE (the target) so the tests
+// prove the action forwards the baseline, not the draft.
+const EXPECTED = [{ service_id: SVC_GENERAL, no_services: 3 }]
 
 describe('updateBookingQuantities — reduction → refund orchestration', () => {
+  it('forwards the RENDERED baseline as expected_items so the RPC guard covers the full view-to-write window', async () => {
+    await updateBookingQuantities(B1, REDUCE, EXPECTED)
+    const efCall = fetchCalls.find((c) => c.url.includes('/create-booking'))!
+    // The concurrency precondition must be the admin's original (rendered) set,
+    // NOT the reduced target — else the guard would 409 every legitimate edit.
+    expect(efCall.body.expected_items).toEqual(EXPECTED)
+    expect(efCall.body.items).toEqual(REDUCE)
+  })
+
   it('calls the EF with inline_edit + replaces + items and NO contact, then refunds via the existing machinery', async () => {
-    const res = await updateBookingQuantities(B1, REDUCE)
+    const res = await updateBookingQuantities(B1, REDUCE, EXPECTED)
     expect(res).toEqual({ ok: true, data: { refundOwedCents: 5000, refundState: 'initiated' } })
 
     const efCall = fetchCalls.find((c) => c.url.includes('/create-booking'))!
@@ -136,14 +149,14 @@ describe('updateBookingQuantities — reduction → refund orchestration', () =>
 
   it('re-sends the booking allocation swap when present (so the EF does not strip it)', async () => {
     swapRow = { id: 'swap-1' }
-    await updateBookingQuantities(B1, REDUCE)
+    await updateBookingQuantities(B1, REDUCE, EXPECTED)
     const efCall = fetchCalls.find((c) => c.url.includes('/create-booking'))!
     expect(efCall.body.swap).toBe(true)
   })
 
   it('does NOT refund when the EF reports refund_owed_cents = 0 (free-quota change)', async () => {
     efResponse.payload.refund_owed_cents = 0
-    const res = await updateBookingQuantities(B1, [{ service_id: SVC_GENERAL, no_services: 2 }])
+    const res = await updateBookingQuantities(B1, [{ service_id: SVC_GENERAL, no_services: 2 }], EXPECTED)
     expect(res).toEqual({ ok: true, data: { refundOwedCents: 0, refundState: 'none' } })
     expect(refundInserts).toHaveLength(0)
     expect(fetchCalls.some((c) => c.url.includes('/process-refund'))).toBe(false)
@@ -151,14 +164,14 @@ describe('updateBookingQuantities — reduction → refund orchestration', () =>
 
   it("returns refundState 'failed' when the refund_request insert is rejected (no Pending row to retry)", async () => {
     refundInsertError = { message: 'RLS denied' }
-    const res = await updateBookingQuantities(B1, REDUCE)
+    const res = await updateBookingQuantities(B1, REDUCE, EXPECTED)
     expect(res).toEqual({ ok: true, data: { refundOwedCents: 5000, refundState: 'failed' } })
     expect(fetchCalls.some((c) => c.url.includes('/process-refund'))).toBe(false)
   })
 
   it("returns refundState 'queued' when process-refund declines (e.g. -staff role, approval-tier EF)", async () => {
     processRefundOk = false
-    const res = await updateBookingQuantities(B1, REDUCE)
+    const res = await updateBookingQuantities(B1, REDUCE, EXPECTED)
     expect(res).toEqual({ ok: true, data: { refundOwedCents: 5000, refundState: 'queued' } })
     // The Pending refund_request row exists — recoverable from the Refunds page.
     expect(refundInserts).toHaveLength(1)
@@ -166,7 +179,7 @@ describe('updateBookingQuantities — reduction → refund orchestration', () =>
 
   it('surfaces an EF block (drift / requires payment) as an error and does not refund', async () => {
     efResponse = { ok: false, status: 409, payload: { error: 'Increasing the quantity adds a paid extra. Cancel and rebook to add paid services.', code: 'requires_payment' } }
-    const res = await updateBookingQuantities(B1, [{ service_id: SVC_GENERAL, no_services: 5 }])
+    const res = await updateBookingQuantities(B1, [{ service_id: SVC_GENERAL, no_services: 5 }], EXPECTED)
     expect(res.ok).toBe(false)
     if (!res.ok) expect(res.error).toMatch(/Cancel and rebook to add paid services/)
     expect(refundInserts).toHaveLength(0)
@@ -178,7 +191,7 @@ describe('updateBookingQuantities — booking_updated notification payload per r
 
   it("initiated → refund_status 'processed' + refund_request_id, NEVER a caller-supplied refund_cents", async () => {
     // Default beforeEach state: refund_owed_cents=5000, insert ok, process-refund ok.
-    await updateBookingQuantities(B1, REDUCE)
+    await updateBookingQuantities(B1, REDUCE, EXPECTED)
     const body = notify().body
     expect(body.type).toBe('booking_updated')
     expect(body.refund_status).toBe('processed')
@@ -193,7 +206,7 @@ describe('updateBookingQuantities — booking_updated notification payload per r
 
   it("queued → refund_status 'pending_review' + refund_request_id (Pending row awaits approval)", async () => {
     processRefundOk = false
-    await updateBookingQuantities(B1, REDUCE)
+    await updateBookingQuantities(B1, REDUCE, EXPECTED)
     const body = notify().body
     expect(body.type).toBe('booking_updated')
     expect(body.refund_status).toBe('pending_review')
@@ -204,7 +217,7 @@ describe('updateBookingQuantities — booking_updated notification payload per r
 
   it('failed → no refund fields (no Pending row exists, so nothing to show)', async () => {
     refundInsertError = { message: 'RLS denied' }
-    await updateBookingQuantities(B1, REDUCE)
+    await updateBookingQuantities(B1, REDUCE, EXPECTED)
     const body = notify().body
     expect(body.type).toBe('booking_updated')
     expect('refund_status' in body).toBe(false)
@@ -217,7 +230,7 @@ describe('updateBookingQuantities — booking_updated notification payload per r
 
   it('none → no refund fields (free-quota change, nothing owed)', async () => {
     efResponse.payload.refund_owed_cents = 0
-    await updateBookingQuantities(B1, [{ service_id: SVC_GENERAL, no_services: 2 }])
+    await updateBookingQuantities(B1, [{ service_id: SVC_GENERAL, no_services: 2 }], EXPECTED)
     const body = notify().body
     expect(body.type).toBe('booking_updated')
     expect('refund_status' in body).toBe(false)
@@ -230,27 +243,27 @@ describe('updateBookingQuantities — booking_updated notification payload per r
 describe('updateBookingQuantities — gating (server re-enforces the UI gate)', () => {
   it('rejects a MUD booking before calling the EF', async () => {
     booking!.type = 'MUD'
-    const res = await updateBookingQuantities(B1, REDUCE)
+    const res = await updateBookingQuantities(B1, REDUCE, EXPECTED)
     expect(res.ok).toBe(false)
     expect(fetchCalls).toHaveLength(0)
   })
 
   it('rejects a non-Confirmed booking (Pending Payment) before calling the EF', async () => {
     booking!.status = 'Pending Payment'
-    const res = await updateBookingQuantities(B1, REDUCE)
+    const res = await updateBookingQuantities(B1, REDUCE, EXPECTED)
     expect(res.ok).toBe(false)
     expect(fetchCalls).toHaveLength(0)
   })
 
   it('rejects a non-admin role', async () => {
     role = 'ranger'
-    const res = await updateBookingQuantities(B1, REDUCE)
+    const res = await updateBookingQuantities(B1, REDUCE, EXPECTED)
     expect(res.ok).toBe(false)
     if (!res.ok) expect(res.error).toMatch(/permission/i)
   })
 
   it('rejects an empty item set (removal = cancel & rebook)', async () => {
-    const res = await updateBookingQuantities(B1, [{ service_id: SVC_GENERAL, no_services: 0 }])
+    const res = await updateBookingQuantities(B1, [{ service_id: SVC_GENERAL, no_services: 0 }], EXPECTED)
     expect(res.ok).toBe(false)
     expect(fetchCalls).toHaveLength(0)
   })
@@ -263,7 +276,7 @@ describe('updateBookingQuantities — gating (server re-enforces the UI gate)', 
     'rejects a %s booking even for contractor-admin (post-dispatch = cancel & rebook)',
     async (status) => {
       booking!.status = status
-      const res = await updateBookingQuantities(B1, REDUCE)
+      const res = await updateBookingQuantities(B1, REDUCE, EXPECTED)
       expect(res.ok).toBe(false)
       if (!res.ok) expect(res.error).toMatch(new RegExp(status))
       expect(fetchCalls).toHaveLength(0)
@@ -272,14 +285,14 @@ describe('updateBookingQuantities — gating (server re-enforces the UI gate)', 
   )
 
   it('rejects a non-UUID booking id before any read', async () => {
-    const res = await updateBookingQuantities('b1', REDUCE)
+    const res = await updateBookingQuantities('b1', REDUCE, EXPECTED)
     expect(res.ok).toBe(false)
     expect(fetchCalls).toHaveLength(0)
   })
 
   it('rejects a booking with no location instead of fabricating one', async () => {
     booking!.location = null
-    const res = await updateBookingQuantities(B1, REDUCE)
+    const res = await updateBookingQuantities(B1, REDUCE, EXPECTED)
     expect(res.ok).toBe(false)
     if (!res.ok) expect(res.error).toMatch(/location/i)
     expect(fetchCalls).toHaveLength(0)
@@ -287,7 +300,7 @@ describe('updateBookingQuantities — gating (server re-enforces the UI gate)', 
 
   it('fails loud when the allocation_swap read errors (silently omitting swap would delete it)', async () => {
     swapError = { message: 'transient' }
-    const res = await updateBookingQuantities(B1, REDUCE)
+    const res = await updateBookingQuantities(B1, REDUCE, EXPECTED)
     expect(res.ok).toBe(false)
     if (!res.ok) expect(res.error).toMatch(/allocation swap/i)
     expect(fetchCalls).toHaveLength(0)

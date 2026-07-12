@@ -17,6 +17,19 @@ export type BookingItem = z.infer<typeof BookingItemSchema>
 // Maximum quantity per service on a booking — mirrors the create-booking EF zod `.max(10)`.
 export const MAX_SERVICE_QTY = 10
 
+// A single service line for the inline quantity editor (#380). Both the TARGET
+// `items` and the #387.1 `expectedItems` concurrency baseline use this shape, and
+// it mirrors the create-booking EF's per-service guard shape (service_id → summed
+// no_services). no_services 0 is allowed on the target (drops that line via the
+// EF smart-diff); the ≥1-remaining guard in updateBookingQuantities still forces
+// at least one kept service.
+export const QuantityEditItemSchema = z.object({
+  service_id: z.string().uuid(),
+  no_services: z.number().int().min(0).max(MAX_SERVICE_QTY),
+})
+
+export type QuantityEditItem = z.infer<typeof QuantityEditItemSchema>
+
 /**
  * Normalise an Australian mobile number to E.164 format (+614XXXXXXXX).
  * Accepts: 04XXXXXXXX, +614XXXXXXXX, 614XXXXXXXX
