@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { shouldAutoApproveRefund } from '@/lib/payments/refund-auto-approve'
+import { resolveLatestRefund, shouldAutoApproveRefund } from '@/lib/payments/refund-auto-approve'
 
 // Unit coverage for the stripe-webhook amount guard (#387.2). The backstop
 // only auto-approves a Pending refund_request when the Stripe refund amount
@@ -30,5 +30,36 @@ describe('shouldAutoApproveRefund', () => {
     const oldestPendingAmount = 5000 // the $50 full-cancel request, selected by the EF
     const refundForNewerRequest = 2000 // Stripe refund actually sized for the $20 reduction
     expect(shouldAutoApproveRefund(refundForNewerRequest, oldestPendingAmount)).toBe(false)
+  })
+})
+
+// The webhook PAYLOAD shape follows the endpoint's pinned Stripe API version,
+// NOT the SDK's. On API >= 2022-11-15 the embedded `charge.refunds` list is
+// omitted, so the backstop must fall back to a fetch — otherwise it reads a
+// null amount and silently parks every direct-in-Stripe refund Pending (#387.2
+// observability follow-up).
+describe('resolveLatestRefund', () => {
+  it('returns the embedded refund without fetching when the webhook includes it', async () => {
+    let fetched = false
+    const embedded = { id: 're_embed', amount: 5000 }
+    const result = await resolveLatestRefund(embedded, async () => {
+      fetched = true
+      return null
+    })
+    expect(result).toBe(embedded)
+    expect(fetched).toBe(false) // the embed is authoritative — no needless API call
+  })
+
+  it('fetches from Stripe when the embedded refunds list is absent (modern-pin payloads)', async () => {
+    const fetchedRefund = { id: 're_fetched', amount: 2000 }
+    const result = await resolveLatestRefund(undefined, async () => fetchedRefund)
+    expect(result).toBe(fetchedRefund)
+  })
+
+  it('returns null when the embed is absent and the fetch finds no refund', async () => {
+    // Genuine anomaly (charge.refunded fired but no refund resolvable) — the
+    // caller parks Pending AND emits a Sentry warning rather than settling blind.
+    const result = await resolveLatestRefund(undefined, async () => null)
+    expect(result).toBeNull()
   })
 })
