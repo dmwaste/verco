@@ -3,9 +3,11 @@
 import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { format } from 'date-fns'
+import { Dialog } from '@base-ui/react/dialog'
 import { createClient } from '@/lib/supabase/client'
 import { buildSearchOrFilter } from '@/lib/search/or-filter'
 import { getStatusStyle } from '@/lib/ui/status-styles'
+import { isAutoRaised, autoRaisedContext } from '@/lib/refunds/auto-raised'
 import Link from 'next/link'
 import { SkeletonRow } from '@/components/ui/skeleton'
 import { RowActionMenu } from '@/components/admin/row-action-menu'
@@ -29,6 +31,9 @@ export function RefundsClient() {
   const [search, setSearch] = useState('')
   const [processingId, setProcessingId] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
+  // Reject forfeits owed money permanently (no re-raise, resident not notified),
+  // so it is gated behind a confirm dialog. Holds the row awaiting confirmation.
+  const [rejectTarget, setRejectTarget] = useState<{ id: string; amountCents: number; reason: string } | null>(null)
 
   const { data: refundData, isLoading } = useQuery({
     queryKey: ['admin-refunds', statusFilter, search, page],
@@ -100,6 +105,15 @@ export function RefundsClient() {
       setProcessingId(null)
     }
   }
+
+  async function confirmReject() {
+    if (!rejectTarget) return
+    const { id } = rejectTarget
+    setRejectTarget(null)
+    await handleAction(id, 'reject')
+  }
+
+  const rejectContext = rejectTarget ? autoRaisedContext(rejectTarget.reason) : null
 
   return (
     <>
@@ -182,8 +196,13 @@ export function RefundsClient() {
                     <td className="px-4 py-3 font-[family-name:var(--font-heading)] text-body-sm font-semibold text-[#293F52]">
                       ${(refund.amount_cents / 100).toFixed(2)}
                     </td>
-                    <td className="max-w-[200px] truncate px-4 py-3 text-xs">
-                      {refund.reason || '—'}
+                    <td className="max-w-[240px] px-4 py-3 text-xs">
+                      {isAutoRaised(refund.reason) && (
+                        <span className="mb-1 inline-flex items-center whitespace-nowrap rounded-full bg-status-info-bg px-2 py-0.5 text-caption font-semibold text-status-info">
+                          Owed · auto-raised
+                        </span>
+                      )}
+                      <div className="truncate text-gray-600">{refund.reason || '—'}</div>
                     </td>
                     <td className="px-4 py-3">
                       <StatusBadge entity="refund" status={refund.status} />
@@ -206,7 +225,12 @@ export function RefundsClient() {
                             <RowActionMenu
                               actions={[
                                 { label: 'Approve & Refund', onSelect: () => handleAction(refund.id, 'approve') },
-                                { label: 'Reject', onSelect: () => handleAction(refund.id, 'reject'), tone: 'danger' },
+                                {
+                                  label: 'Reject',
+                                  onSelect: () =>
+                                    setRejectTarget({ id: refund.id, amountCents: refund.amount_cents, reason: refund.reason ?? '' }),
+                                  tone: 'danger',
+                                },
                               ]}
                             />
                           )}
@@ -222,6 +246,47 @@ export function RefundsClient() {
 
         <Pagination page={page} pageSize={PAGE_SIZE} total={total} onPageChange={setPage} />
       </div>
+
+      {/* Reject confirmation — Reject permanently forfeits an owed refund. */}
+      <Dialog.Root open={rejectTarget !== null} onOpenChange={(open) => { if (!open) setRejectTarget(null) }}>
+        <Dialog.Portal>
+          <Dialog.Backdrop className="fixed inset-0 z-40 bg-black/40" />
+          <Dialog.Popup className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
+              <div className="mb-4 flex size-10 items-center justify-center rounded-full bg-[#FFF0F0]">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#E53E3E" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+                  <line x1="12" y1="9" x2="12" y2="13" />
+                  <line x1="12" y1="17" x2="12.01" y2="17" />
+                </svg>
+              </div>
+              <Dialog.Title className="font-[family-name:var(--font-heading)] text-lg font-bold text-[#293F52]">
+                Reject this refund?
+              </Dialog.Title>
+              <p className="mt-1.5 text-body-sm leading-relaxed text-gray-500">
+                {rejectContext ? (
+                  <>This booking was already <span className="font-semibold text-[#293F52]">{rejectContext}</span>, so the <span className="font-semibold text-[#293F52]">${((rejectTarget?.amountCents ?? 0) / 100).toFixed(2)}</span> shown is already owed to the resident.</>
+                ) : (
+                  <>The <span className="font-semibold text-[#293F52]">${((rejectTarget?.amountCents ?? 0) / 100).toFixed(2)}</span> shown may be owed to the resident.</>
+                )}{' '}
+                Rejecting is permanent — the refund can’t be re-raised and the resident won’t be notified.
+              </p>
+              <div className="mt-5 flex gap-2.5">
+                <Dialog.Close className="flex-1 rounded-xl border-[1.5px] border-gray-100 bg-white px-3.5 py-3 font-[family-name:var(--font-heading)] text-sm font-semibold text-[#293F52]">
+                  Keep Request
+                </Dialog.Close>
+                <button
+                  type="button"
+                  onClick={confirmReject}
+                  className="flex-1 rounded-xl bg-[#E53E3E] px-3.5 py-3 font-[family-name:var(--font-heading)] text-sm font-semibold text-white"
+                >
+                  Reject Refund
+                </button>
+              </div>
+            </div>
+          </Dialog.Popup>
+        </Dialog.Portal>
+      </Dialog.Root>
     </>
   )
 }

@@ -5,6 +5,7 @@ import type { Result } from '@/lib/result'
 import { verifyStaffRole } from '@/lib/auth/server'
 import { OPEN_EXCEPTION_FILTER_STATUSES } from '@/lib/exceptions/status'
 import { orchestrateRefund } from '@/lib/payments/orchestrate-refund'
+import { REFUND_REASONS } from '@/lib/refunds/auto-raised'
 
 export async function updateNcnStatus(
   ncnId: string,
@@ -274,7 +275,7 @@ export async function resolveWithRefund(
     contactId: booking.contact_id,
     clientId: booking.client_id,
     amountCents: refundAmountCents,
-    reason: 'Contractor fault — NCN resolution',
+    reason: REFUND_REASONS.ncnContractorFault,
   })
 
   return { ok: true, data: undefined }
