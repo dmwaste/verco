@@ -2,6 +2,7 @@ import { serve } from 'https://deno.land/std@0.177.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.100.0'
 import Stripe from 'https://esm.sh/stripe@17.7.0?target=deno'
 import { reconcileCheckoutSession } from '../_shared/checkout-reconcile.ts'
+import { shouldAutoApproveRefund } from '../_shared/refund-auto-approve.ts'
 import { withSentry } from '../_shared/sentry.ts'
 
 serve(withSentry('stripe-webhook', async (req) => {
@@ -156,7 +157,7 @@ async function handleChargeRefunded(
   // the refund amount matches the request; otherwise leave it Pending for a
   // human to reconcile, and log loudly.
   const latestRefundCents = latestRefund?.amount ?? null
-  if (latestRefundCents == null || latestRefundCents !== refundRequest.amount_cents) {
+  if (!shouldAutoApproveRefund(latestRefundCents, refundRequest.amount_cents)) {
     console.log(
       `Charge refund ${stripeRefundId ?? '(none)'} for booking ${payment.booking_id}: ` +
         `refund amount ${latestRefundCents}c does not match oldest Pending request ` +

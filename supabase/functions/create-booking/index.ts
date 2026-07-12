@@ -7,6 +7,7 @@ import { type TermsAcceptanceChannel } from '../_shared/terms.ts'
 import { classifyCreator, CREATOR_STAFF_ROLES } from '../_shared/classify-creator.ts'
 import { evaluateEditGuard, mayKeepClosedHeldDate } from '../_shared/edit-guard.ts'
 import { evaluateQuantityEdit } from '../_shared/quantity-edit-decision.ts'
+import { mapEditErrorToStatus } from '../_shared/edit-error-mapping.ts'
 import { withSentry } from '../_shared/sentry.ts'
 
 /**
@@ -543,18 +544,18 @@ serve(withSentry('create-booking', async (req) => {
 
       if (editError) {
         console.error('Edit RPC error:', editError)
-        if (editError.message?.includes('Insufficient')) {
-          return jsonResponse({ error: editError.message }, 409)
+        const editMessage = editError.message ?? ''
+        // Capacity shortfall keeps its own 409 — it predates the concurrent-edit
+        // taxonomy and is not an "edit error → status" case, so it is matched
+        // before mapEditErrorToStatus runs.
+        if (editMessage.includes('Insufficient')) {
+          return jsonResponse({ error: editMessage }, 409)
         }
-        if (editError.message?.includes('not found')) {
-          return jsonResponse({ error: editError.message }, 404)
-        }
-        // #387.1: a concurrent edit changed the items since this one was priced.
-        // Surface as a retryable conflict so the admin reloads and re-edits.
-        if (editError.message?.includes('changed since this edit was priced')) {
-          return jsonResponse({ error: editError.message, code: 'concurrent_edit' }, 409)
-        }
-        return jsonResponse({ error: `Failed to update booking: ${editError.message}` }, 500)
+        // not found → 404; the #387.1 concurrent-edit marker → 409
+        // concurrent_edit (retryable — admin reloads and re-prices); else → 500.
+        const { status, code } = mapEditErrorToStatus(editMessage)
+        const error = status === 500 ? `Failed to update booking: ${editMessage}` : editMessage
+        return jsonResponse({ error, ...(code ? { code } : {}) }, status)
       }
 
       const edited = editResult as { booking_id: string; ref: string }
