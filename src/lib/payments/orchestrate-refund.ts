@@ -41,7 +41,7 @@ export interface RefundOrchestrationInput {
 export async function orchestrateRefund(
   supabase: SupabaseClient<Database>,
   input: RefundOrchestrationInput,
-): Promise<{ state: RefundOrchestrationState }> {
+): Promise<{ state: RefundOrchestrationState; refundRequestId?: string }> {
   const { bookingId, contactId, clientId, amountCents, reason } = input
   if (amountCents <= 0 || !contactId || !clientId) return { state: 'none' }
 
@@ -66,12 +66,17 @@ export async function orchestrateRefund(
     return { state: 'failed' }
   }
 
+  // The created row id is returned so callers can hand it to send-notification,
+  // which derives the DISPLAYED refund amount from this row (never trusts a
+  // caller-supplied cents figure). Present on both 'initiated' and 'queued'.
+  const refundRequestId = refundReq.id as string
+
   const {
     data: { session },
   } = await supabase.auth.getSession()
   if (!session?.access_token) {
     // Pending row exists — recoverable from the Refunds page.
-    return { state: 'queued' }
+    return { state: 'queued', refundRequestId }
   }
 
   let res: Response
@@ -92,14 +97,14 @@ export async function orchestrateRefund(
       `orchestrateRefund: process-refund fetch failed for booking ${bookingId}:`,
       err instanceof Error ? err.message : String(err),
     )
-    return { state: 'queued' }
+    return { state: 'queued', refundRequestId }
   }
 
   if (!res.ok) {
     const errText = await res.text().catch(() => 'Unknown error')
     console.error(`orchestrateRefund: process-refund failed for booking ${bookingId}: ${errText}`)
-    return { state: 'queued' }
+    return { state: 'queued', refundRequestId }
   }
 
-  return { state: 'initiated' }
+  return { state: 'initiated', refundRequestId }
 }

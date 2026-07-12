@@ -75,6 +75,10 @@ describe('orchestrateRefund', () => {
   it("returns 'initiated' when the request is created and process-refund accepts", async () => {
     const res = await orchestrateRefund(makeClient(), input)
     expect(res.state).toBe('initiated')
+    // The created row id is returned so callers can hand it to send-notification,
+    // which derives the DISPLAYED refund amount from this row (never trusts a
+    // caller-supplied cents figure).
+    expect(res.refundRequestId).toBe('refund-1')
     expect(inserted[0]).toMatchObject({ booking_id: BOOKING, amount_cents: 5000, status: 'Pending', reason: 'test' })
     expect(fetchCalls.some((u) => u.includes('/process-refund'))).toBe(true)
   })
@@ -109,6 +113,8 @@ describe('orchestrateRefund', () => {
     insertError = { message: 'RLS denied' }
     const res = await orchestrateRefund(makeClient(), input)
     expect(res.state).toBe('failed')
+    // No row created → no id to hand downstream.
+    expect(res.refundRequestId).toBeUndefined()
     expect(fetchCalls.some((u) => u.includes('/process-refund'))).toBe(false)
   })
 })

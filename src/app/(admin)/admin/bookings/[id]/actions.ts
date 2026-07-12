@@ -602,7 +602,7 @@ export async function updateBookingQuantities(
   // booking is already reduced by this point, so refund failures are SURFACED
   // in refundState, never swallowed — 'failed' means no Pending row exists, and
   // '-staff' reductions land 'queued' (process-refund is approval-tier only).
-  const { state: refundState } = await orchestrateRefund(supabase, {
+  const { state: refundState, refundRequestId } = await orchestrateRefund(supabase, {
     bookingId,
     contactId: booking.contact_id,
     clientId: booking.client_id,
@@ -614,7 +614,9 @@ export async function updateBookingQuantities(
   // snapshot + a refund line so money moving back is explained (#388). Only
   // surface a refund when one actually went through: 'initiated' → processed,
   // 'queued' → pending review; 'failed'/'none' show no refund line. edit_ref
-  // makes the idempotency key unique per edit. Fire-and-forget.
+  // makes the idempotency key unique per edit. We pass the refund_request_id
+  // (not the amount) — send-notification derives the DISPLAYED cents from that
+  // row so the figure can't be forged. Fire-and-forget.
   const refundStatus =
     refundState === 'initiated' ? ('processed' as const)
     : refundState === 'queued' ? ('pending_review' as const)
@@ -623,7 +625,9 @@ export async function updateBookingQuantities(
     type: 'booking_updated',
     booking_id: bookingId,
     edit_ref: new Date().toISOString(),
-    ...(refundStatus ? { refund_status: refundStatus, refund_cents: refundOwedCents } : {}),
+    ...(refundStatus && refundRequestId
+      ? { refund_status: refundStatus, refund_request_id: refundRequestId }
+      : {}),
   })
 
   return { ok: true, data: { refundOwedCents, refundState } }

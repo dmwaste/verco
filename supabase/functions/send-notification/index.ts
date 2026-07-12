@@ -384,6 +384,21 @@ serve(async (req) => {
       return { ok: false, error: result.error ?? 'Unknown Twilio error' }
     },
 
+    loadRefundAmountCents: async (
+      refundRequestId: string,
+      bookingId: string,
+    ): Promise<number | null> => {
+      const { data, error } = await supabaseService
+        .from('refund_request')
+        .select('amount_cents, booking_id')
+        .eq('id', refundRequestId)
+        .maybeSingle()
+      // Fail safe: no row, load error, or a row that belongs to a DIFFERENT
+      // booking → no refund line (never surface another booking's amount).
+      if (error || !data || data.booking_id !== bookingId) return null
+      return data.amount_cents as number
+    },
+
     appUrl: Deno.env.get('APP_URL') ?? 'https://verco.au',
     defaultFromEmail: Deno.env.get('DEFAULT_FROM_EMAIL') ?? 'noreply@verco.au',
   }
