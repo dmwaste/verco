@@ -24,7 +24,7 @@ describe('dispatch', () => {
       const booking = makeMockBooking({ id: 'b1' })
       const deps = createMockDispatchDeps({
         bookings: { b1: booking },
-        refundAmounts: { 'rr-1': 3000 }, // $30.00 — the authoritative row amount
+        refundAmounts: { 'rr-1:b1': 3000 }, // $30.00 — the authoritative row amount for booking b1
       })
 
       const result = await dispatch(deps, {
@@ -61,11 +61,37 @@ describe('dispatch', () => {
       expect(html).not.toContain('A refund of')
     })
 
+    it('renders NO refund block when the refund_request belongs to a DIFFERENT booking (cross-booking fail-safe)', async () => {
+      const booking = makeMockBooking({ id: 'b1' })
+      const deps = createMockDispatchDeps({
+        bookings: { b1: booking },
+        // The row exists but is keyed to booking b2. A payload pointing b1's
+        // notification at b2's refund_request must never surface b2's amount —
+        // the EF looks up (refund_request_id, bookingId) and returns null when
+        // the row's booking_id differs.
+        refundAmounts: { 'rr-cross:b2': 9900 },
+      })
+
+      await dispatch(deps, {
+        type: 'booking_updated',
+        booking_id: 'b1',
+        edit_ref: 'e1',
+        refund_status: 'processed',
+        refund_request_id: 'rr-cross',
+      })
+
+      // Looked up under b1 (the dispatched booking), not b2 → null → no refund line.
+      expect(deps.loadRefundAmountCentsMock).toHaveBeenCalledWith('rr-cross', 'b1')
+      const html = deps.sendEmailMock.mock.calls[0]?.[0].htmlBody as string
+      expect(html).not.toContain('A refund of')
+      expect(html).not.toContain('$99.00')
+    })
+
     it('does not look up or render a refund when no refund_request_id is supplied', async () => {
       const booking = makeMockBooking({ id: 'b1' })
       const deps = createMockDispatchDeps({
         bookings: { b1: booking },
-        refundAmounts: { 'rr-1': 3000 },
+        refundAmounts: { 'rr-1:b1': 3000 },
       })
 
       // A #378 date-only correction: booking_updated with no refund fields.
