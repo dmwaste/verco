@@ -1,5 +1,6 @@
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.100.0'
+import type { Database, TablesInsert, TablesUpdate } from '../_shared/database.types.ts'
 import { z } from 'https://esm.sh/zod@3.23.8'
 import { corsHeaders, jsonResponse, optionsResponse, errorResponse } from '../_shared/cors.ts'
 
@@ -67,7 +68,7 @@ serve(async (req) => {
     return errorResponse('Unauthorized', 401)
   }
 
-  const supabaseUser = createClient(
+  const supabaseUser = createClient<Database>(
     Deno.env.get('SUPABASE_URL')!,
     Deno.env.get('SUPABASE_ANON_KEY')!,
     { global: { headers: { Authorization: authHeader } } },
@@ -92,7 +93,7 @@ serve(async (req) => {
   // Service-role client for writes (contact upsert + ticket insert).
   // Auth has already gated the caller; service role is used only for the
   // mutations themselves, NOT for identity checks.
-  const supabaseService = createClient(
+  const supabaseService = createClient<Database>(
     Deno.env.get('SUPABASE_URL')!,
     Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
   )
@@ -165,7 +166,7 @@ serve(async (req) => {
 
     if (existingContact) {
       // full_name is a generated column — must write first/last_name.
-      const updateData: Record<string, string> = {
+      const updateData: TablesUpdate<'contacts'> = {
         first_name: contact.first_name,
         last_name: contact.last_name,
       }
@@ -185,7 +186,7 @@ serve(async (req) => {
 
       contactId = existingContact.id
     } else {
-      const insertData: Record<string, string> = {
+      const insertData: TablesInsert<'contacts'> = {
         first_name: contact.first_name,
         last_name: contact.last_name,
         email: contact.email,

@@ -72,3 +72,6 @@ scripts/.faq-snapshots/
 # local agent/session state (skill sources, gstack retros) — machine-local, not project code
 .agents/
 .context/
+
+# Deno lockfile — local artifact from `deno check` on edge functions; not a managed file
+deno.lock

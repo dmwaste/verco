@@ -83,6 +83,39 @@ jobs:
 
       - run: pnpm typecheck
 
+  edge-functions-check:
+    name: Edge Function Type Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      # @types/node (a declared devDependency) must be present in node_modules:
+      # deno follows the transitive `@types/node` type reference in the Stripe/
+      # Sentry deps and errors without it. The deploy job installs for the same
+      # reason, so the check runs in the same environment the deploy bundles in.
+      - run: pnpm install --frozen-lockfile
+
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      # supabase/functions is excluded from tsc, so `pnpm typecheck` never sees
+      # the Edge Functions. This gate deno-checks them so the createClient<Database>
+      # generic keeps real DB types on the money path (create-booking, stripe-webhook,
+      # process-refund, …) and can't silently regress to `never`. Remote deps are
+      # fetched from esm.sh at check time, same as the deploy step.
+      - name: deno check all edge functions
+        run: deno check supabase/functions/*/index.ts
+
   types-check:
     name: Supabase Types Freshness
     runs-on: ubuntu-latest

@@ -1,12 +1,13 @@
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.100.0'
+import type { Database } from '../_shared/database.types.ts'
 
 // Service-role only — triggered by pg_cron daily.
 // Closes NCN and NP notices that have been in 'Issued' status for 14+ days
 // with no resident dispute.
 
 serve(async (_req) => {
-  const supabase = createClient(
+  const supabase = createClient<Database>(
     Deno.env.get('SUPABASE_URL')!,
     Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
   )

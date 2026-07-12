@@ -1,5 +1,6 @@
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.100.0'
+import type { Database, TablesUpdate } from '../_shared/database.types.ts'
 import { sendgridEventToStatus, shouldApplyDeliveryStatus, type DeliveryStatus } from '../_shared/sendgrid-events.ts'
 
 /**
@@ -57,7 +58,7 @@ serve(async (req) => {
     return new Response('Bad payload', { status: 400 })
   }
 
-  const supabase = createClient(
+  const supabase = createClient<Database>(
     Deno.env.get('SUPABASE_URL')!,
     Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
   )
@@ -84,7 +85,7 @@ serve(async (req) => {
 
 /** Apply a delivery status to the most-recent email notification_log row for `email` (rank-guarded). */
 async function applyDeliveryStatus(
-  supabase: ReturnType<typeof createClient>,
+  supabase: ReturnType<typeof createClient<Database>>,
   email: string,
   next: DeliveryStatus,
   reason: string | null,
@@ -103,7 +104,7 @@ async function applyDeliveryStatus(
   const current = (row.delivery_status as DeliveryStatus | null) ?? null
   if (!shouldApplyDeliveryStatus(current, next)) return false
 
-  const update: Record<string, unknown> = {
+  const update: TablesUpdate<'notification_log'> = {
     delivery_status: next,
     delivery_updated_at: new Date().toISOString(),
   }
@@ -136,7 +137,7 @@ async function verifySignature(publicKeyB64: string, timestamp: string, body: st
   }
 }
 
-function base64ToBytes(b64: string): Uint8Array {
+function base64ToBytes(b64: string): Uint8Array<ArrayBuffer> {
   const bin = atob(b64)
   const out = new Uint8Array(bin.length)
   for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i)
@@ -144,7 +145,7 @@ function base64ToBytes(b64: string): Uint8Array {
 }
 
 /** ASN.1-DER ECDSA signature (SEQUENCE { INTEGER r, INTEGER s }) → raw r||s (64 bytes for P-256). */
-function derToRawEcdsa(der: Uint8Array): Uint8Array {
+function derToRawEcdsa(der: Uint8Array): Uint8Array<ArrayBuffer> {
   if (der[0] !== 0x30) throw new Error('bad DER: no SEQUENCE')
   let offset = der[1] & 0x80 ? 2 + (der[1] & 0x7f) : 2
   if (der[offset] !== 0x02) throw new Error('bad DER: no INTEGER r')

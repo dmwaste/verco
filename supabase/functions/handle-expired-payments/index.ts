@@ -1,5 +1,6 @@
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.100.0'
+import type { Database } from '../_shared/database.types.ts'
 import Stripe from 'https://esm.sh/stripe@17.7.0?target=deno'
 import { reconcileCheckoutSession } from '../_shared/checkout-reconcile.ts'
 import {
@@ -34,7 +35,7 @@ interface Assessment {
 }
 
 async function assessBooking(
-  supabase: ReturnType<typeof createClient>,
+  supabase: ReturnType<typeof createClient<Database>>,
   stripe: Stripe,
   bookingId: string,
 ): Promise<Assessment> {
@@ -77,7 +78,7 @@ serve(async (_req) => {
   const supabaseUrl = Deno.env.get('SUPABASE_URL')!
   const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
 
-  const supabase = createClient(supabaseUrl, serviceRoleKey)
+  const supabase = createClient<Database>(supabaseUrl, serviceRoleKey)
   const stripe = new Stripe(Deno.env.get('STRIPE_SECRET_KEY')!, {
     apiVersion: '2024-12-18.acacia',
   })

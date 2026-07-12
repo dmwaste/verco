@@ -1,15 +1,19 @@
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.100.0'
+import type { Database } from '../_shared/database.types.ts'
 
 // Service-role only — triggered by pg_cron, no JWT validation.
 // Aggregates attended bookings from Verco and upserts into DM-Ops booked_collection table.
 
 serve(async (_req) => {
-  const verco = createClient(
+  const verco = createClient<Database>(
     Deno.env.get('SUPABASE_URL')!,
     Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
   )
 
+  // NOTE: DM-Ops is a SEPARATE Supabase project with a different schema
+  // (booked_collection etc.). Verco's `Database` type does not describe it, so
+  // this client stays untyped — do not add <Database> here.
   const dmOps = createClient(
     Deno.env.get('DM_OPS_SUPABASE_URL')!,
     Deno.env.get('DM_OPS_SUPABASE_SERVICE_ROLE_KEY')!,

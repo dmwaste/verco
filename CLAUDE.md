@@ -290,8 +290,12 @@ pnpm supabase migration new <name>                       # new migration
 pnpm supabase db push                                    # push migrations
 pnpm supabase functions deploy <name> --no-verify-jwt    # deploy EF
 pnpm supabase gen types typescript --project-id tfddjmplcizfirxqhotv > src/lib/supabase/types.ts
-# After type gen, strip any CLI warnings the command appends to the file.
+# After type gen, strip any CLI warnings the command appends to the file, then
+# regenerate the Deno-importable copy the Edge Functions consume:
+bash scripts/sync-mirrors.sh   # rewrites supabase/functions/_shared/database.types.ts
 ```
+
+**Edge Function DB types:** EFs import `Database` from `supabase/functions/_shared/database.types.ts` — a generated, CI-gated copy of `src/lib/supabase/types.ts` (Deno can't resolve the `@/lib/supabase/types` alias, and a cross-boundary import into `src/` doesn't survive `supabase functions deploy`'s per-function bundle). It's produced by `scripts/sync-mirrors.sh` and gated by the `sync-mirrors.sh --check` step in CI, so it can't drift. Always instantiate EF clients as `createClient<Database>(...)`; the `deno check` CI job (`.github/workflows/ci.yml`) fails if that regresses.
 
 ## 19. Key Documents
 

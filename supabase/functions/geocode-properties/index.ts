@@ -1,5 +1,6 @@
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.100.0'
+import type { Database } from '../_shared/database.types.ts'
 import { jsonResponse, optionsResponse, errorResponse } from '../_shared/cors.ts'
 
 type RequestBody = {
@@ -64,7 +65,7 @@ serve(async (req) => {
   // Service-role direct match: CLI / cron callers bypass user-role check.
   // Otherwise validate the user JWT and gate on admin roles.
   if (bearer !== serviceRoleKey) {
-    const supabaseUser = createClient(supabaseUrl, anonKey, {
+    const supabaseUser = createClient<Database>(supabaseUrl, anonKey, {
       global: { headers: { Authorization: authHeader } },
     })
     const { data: userData, error: userError } = await supabaseUser.auth.getUser()
@@ -81,7 +82,7 @@ serve(async (req) => {
     }
   }
 
-  const supabase = createClient(supabaseUrl, serviceRoleKey)
+  const supabase = createClient<Database>(supabaseUrl, serviceRoleKey)
 
   const apiKey = Deno.env.get('GOOGLE_PLACES_API_KEY')
   if (!apiKey) {
