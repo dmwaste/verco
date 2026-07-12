@@ -61,8 +61,10 @@ describe('authorizeNotificationDispatch', () => {
     expect(deps.callerCanReadBooking).toHaveBeenCalledWith('own-booking')
   })
 
-  it('denies the cross-tenant refund exploit regardless of the forged amount', async () => {
-    // Council-A staff JWT targeting a council-B booking with a forged refund.
+  it('denies the cross-tenant refund exploit regardless of the forged refund reference', async () => {
+    // Council-A staff JWT targeting a council-B booking with a forged refund
+    // pointer (post-#406 the amount is derived server-side from the row, so a
+    // caller can only forge the refund_request_id, not the cents).
     const deps = makeDeps({
       callerCanReadBooking: vi.fn(async () => false), // RLS hides council-B's booking
     })
@@ -73,7 +75,7 @@ describe('authorizeNotificationDispatch', () => {
         booking_id: 'council-b-booking',
         edit_ref: '2026-07-11T00:00:00Z',
         refund_status: 'processed',
-        refund_cents: 999_999,
+        refund_request_id: 'council-a-refund-forged',
       },
       deps
     )
