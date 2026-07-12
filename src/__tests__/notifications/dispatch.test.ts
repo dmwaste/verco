@@ -364,9 +364,11 @@ describe('dispatch', () => {
       })
 
       expect(result).toMatchObject({ ok: true, sent: true })
-      // Verify the email body contains the "pending review" copy
+      // Verify the email body carries the softened "pending review" copy — a
+      // requested-refund notice with NO unfulfillable follow-up promise.
       const emailCall = deps.sendEmailMock.mock.calls[0]?.[0] as { htmlBody: string } | undefined
-      expect(emailCall?.htmlBody).toContain('reviewed by our team')
+      expect(emailCall?.htmlBody).toContain('has been requested')
+      expect(emailCall?.htmlBody).not.toContain("We'll be in touch")
       expect(emailCall?.htmlBody).not.toContain('has been processed')
     })
   })

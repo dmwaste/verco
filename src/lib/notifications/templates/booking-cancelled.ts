@@ -53,7 +53,7 @@ export function renderBookingCancelled(
   if (refundAmount > 0 && options.refund_status === 'processed') {
     refundBlock = `<p style="margin:0 0 16px 0">A refund of <strong>${formatCurrency(refundAmount)}</strong> has been processed to your original payment method. It should appear within 1–3 business days.</p>`
   } else if (refundAmount > 0 && options.refund_status === 'pending_review') {
-    refundBlock = `<p style="margin:0 0 16px 0">Your refund of <strong>${formatCurrency(refundAmount)}</strong> will be reviewed by our team. We'll be in touch once it's processed.</p>`
+    refundBlock = `<p style="margin:0 0 16px 0">Your refund of <strong>${formatCurrency(refundAmount)}</strong> has been requested and will be returned to your original payment method once processed.</p>`
   }
 
   const bodyHtml = `

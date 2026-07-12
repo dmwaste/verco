@@ -11,6 +11,7 @@ import {
 import { STAFF_ROLES } from '@/lib/auth/roles'
 import { orchestrateRefund, type RefundOrchestrationState } from '@/lib/payments/orchestrate-refund'
 import { REFUND_REASONS } from '@/lib/refunds/auto-raised'
+import { refundStateToNotificationStatus } from '@/lib/refunds/notification-status'
 import type { Result } from '@/lib/result'
 
 /**
@@ -192,10 +193,7 @@ export async function cancelBooking(bookingId: string): Promise<Result<void>> {
   // process-refund actually accepted it — a -staff cancel legitimately lands
   // 'queued' (awaiting admin approval on the Refunds page), and
   // 'failed'/'none' must not show a refund line at all.
-  const refundStatus =
-    refundState === 'initiated' ? ('processed' as const)
-    : refundState === 'queued' ? ('pending_review' as const)
-    : undefined
+  const refundStatus = refundStateToNotificationStatus(refundState)
   await invokeSendNotification(supabase, {
     type: 'booking_cancelled',
     booking_id: bookingId,
@@ -618,10 +616,7 @@ export async function updateBookingQuantities(
   // makes the idempotency key unique per edit. We pass the refund_request_id
   // (not the amount) — send-notification derives the DISPLAYED cents from that
   // row so the figure can't be forged. Fire-and-forget.
-  const refundStatus =
-    refundState === 'initiated' ? ('processed' as const)
-    : refundState === 'queued' ? ('pending_review' as const)
-    : undefined
+  const refundStatus = refundStateToNotificationStatus(refundState)
   await invokeSendNotification(supabase, {
     type: 'booking_updated',
     booking_id: bookingId,
