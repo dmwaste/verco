@@ -1,5 +1,6 @@
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.100.0'
+import type { Database } from '../_shared/database.types.ts'
 import { dispatch } from '../_shared/dispatch.ts'
 import type {
   BookingForDispatch,
@@ -15,7 +16,11 @@ import type {
 } from '../_shared/dispatch.ts'
 import { sendEmail as sendgridSendEmail } from '../_shared/sendgrid.ts'
 import { sendSMS as twilioSendSMS } from '../_shared/twilio.ts'
-import { authorizeNotificationDispatch } from '../_shared/notification-authz.ts'
+import {
+  authorizeNotificationDispatch,
+  resolveTargetBookingId,
+  validateDispatchInputShape,
+} from '../_shared/notification-authz.ts'
 
 /**
  * send-notification Edge Function
@@ -97,7 +102,10 @@ serve(async (req) => {
   }
   const token = authHeader.slice('Bearer '.length)
   const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
-  const isServiceRole = token === serviceRoleKey
+  // Guard the key length: if SUPABASE_SERVICE_ROLE_KEY is ever unset, an empty
+  // bearer ('Authorization: Bearer ') would otherwise satisfy `'' === ''` and
+  // authenticate as service-role, bypassing the tenant gate entirely.
+  const isServiceRole = serviceRoleKey.length > 0 && token === serviceRoleKey
 
   const PERMITTED_USER_ROLES = new Set([
     'contractor-admin',
@@ -114,7 +122,7 @@ serve(async (req) => {
   // the service-role path, where neither check runs.
   const supabaseAnon = isServiceRole
     ? null
-    : createClient(
+    : createClient<Database>(
         Deno.env.get('SUPABASE_URL') ?? '',
         Deno.env.get('SUPABASE_ANON_KEY') ?? '',
         { global: { headers: { Authorization: authHeader } } }
@@ -148,40 +156,17 @@ serve(async (req) => {
     )
   }
 
-  // Minimal shape validation — the dispatcher will handle the detailed
-  // branching between NotificationPayload and NotificationResumePayload.
-  if (!input || typeof input !== 'object') {
-    return jsonResponse({ ok: false, error: 'Payload must be a JSON object' }, 400)
-  }
-  if (
-    !('notification_log_id' in input) &&
-    !('type' in input && 'booking_id' in input)
-  ) {
-    return jsonResponse(
-      { ok: false, error: 'Payload must include either {type, booking_id} or {notification_log_id}' },
-      400
-    )
-  }
-  // Reject the HYBRID shape: a payload is EITHER a fresh {type, booking_id} OR a
-  // resume {notification_log_id}, never both (NotificationDispatchInput is a
-  // discriminated union — no legitimate caller sends both). Without this, a raw
-  // HTTP caller could send {booking_id: <own readable>, notification_log_id:
-  // <victim log>}: the tenant gate resolves booking_id-first and authorizes the
-  // caller's OWN booking, but dispatch() resumes notification_log_id-first and
-  // acts on the VICTIM's log row — a cross-tenant gate bypass in the exact path
-  // the gate defends. Rejecting the ambiguous shape closes it at the boundary.
-  if (
-    'notification_log_id' in input &&
-    ('type' in input || 'booking_id' in input)
-  ) {
-    return jsonResponse(
-      { ok: false, error: 'Payload must be either {type, booking_id} or {notification_log_id}, not both' },
-      400
-    )
+  // Shape-validate at the boundary — the pure helper encodes the object /
+  // must-include-one / not-both rules (see validateDispatchInputShape). The
+  // dispatcher then handles the detailed branching between NotificationPayload
+  // and NotificationResumePayload.
+  const shapeCheck = validateDispatchInputShape(input)
+  if (!shapeCheck.ok) {
+    return jsonResponse({ ok: false, error: shapeCheck.error }, shapeCheck.status)
   }
 
   // ── Build service-role Supabase client ─────────────────────────────────
-  const supabaseService = createClient(
+  const supabaseService = createClient<Database>(
     Deno.env.get('SUPABASE_URL') ?? '',
     Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
   )
@@ -196,26 +181,20 @@ serve(async (req) => {
   // a council-B resident. Service-role callers short-circuit inside the helper.
   const authz = await authorizeNotificationDispatch(input, {
     isServiceRole,
-    resolveBookingId: async (payload) => {
-      // Resolve notification_log_id FIRST — mirroring dispatch()'s resume-first
-      // precedence (dispatch.ts) so the gate authorizes the SAME booking dispatch
-      // will act on. (The parse guard above already rejects both-key payloads;
-      // this precedence match is defence-in-depth if that guard is ever changed.)
-      if ('notification_log_id' in payload && payload.notification_log_id) {
-        // Map log → booking only to choose WHICH booking to gate; the gate is
-        // the user-scoped read below, so this service-role read grants nothing.
+    // notification_log_id-first precedence lives in the pure helper so it stays
+    // in lock-step with dispatch()'s resume-first order and is unit-testable.
+    // The injected log→booking read only chooses WHICH booking to gate; the gate
+    // itself is the user-scoped read in callerCanReadBooking, so this
+    // service-role mapping read grants nothing.
+    resolveBookingId: (payload) =>
+      resolveTargetBookingId(payload, async (logId) => {
         const { data } = await supabaseService
           .from('notification_log')
           .select('booking_id')
-          .eq('id', payload.notification_log_id)
+          .eq('id', logId)
           .maybeSingle()
         return (data?.booking_id as string | undefined) ?? null
-      }
-      if ('booking_id' in payload && payload.booking_id) {
-        return payload.booking_id
-      }
-      return null
-    },
+      }),
     callerCanReadBooking: async (bookingId) => {
       if (!supabaseAnon) return false
       const { data, error } = await supabaseAnon

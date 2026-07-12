@@ -1534,14 +1534,24 @@ All Edge Functions are in `supabase/functions/`. Auth pattern: Bearer JWT unless
 - **Concurrency & money-safety:** claims the request (`reviewed_at` guard) before touching Stripe so concurrent calls can't double-refund; spreads the amount newest-charge-first across all paid `booking_payment` rows (`allocateRefund`), each capped by that charge's Stripe-remaining, with a per-`(request, charge)` idempotency key; 409s on shortfall rather than under-refunding
 - **Side effects:** Initiates one Stripe refund per charge, sets `refund_request.status` → `Approved`
 
+### `send-notification`
+- **Auth (dual):** **either** a service-role bearer (EF→EF callers — `create-booking`, `stripe-webhook`, `handle-expired-payments`) **or** a valid user JWT whose `current_user_role()` is in the permitted set (`contractor-admin`, `contractor-staff`, `client-admin`, `client-staff`, `field`, `ranger`, `resident`). Server-action→EF callers (admin/resident cancel, field NCN/NP raise) use the JWT path because the service-role key must never appear in `app/` code (Red Line #3). The service-role branch requires `SUPABASE_SERVICE_ROLE_KEY` to be set and non-empty — an empty bearer can never authenticate as service-role.
+- **Input:** `NotificationDispatchInput` — **either** a fresh `{ type, booking_id, … }` **or** a resume `{ notification_log_id }`, **never both** (the ambiguous hybrid shape is rejected `400`; it would otherwise let the tenant gate authorise the caller's own `booking_id` while `dispatch()` resumes the victim's `notification_log_id`). Shape validation + log-id-first resolution live in the pure, unit-tested `notification-authz.ts` helper.
+- **Tenant-scope gate:** the dispatcher loads the booking with the **service-role** client (RLS-bypassing) to read contact + branding, so the role check is *not* a tenant gate. A user-JWT caller must additionally pass `authorizeNotificationDispatch` — their **own** RLS must be able to read the target booking (`booking_*_select`, incl. sub-client narrowing), resolved log-id-first to match the dispatcher. This blocks a council-A staffer from firing a council-B-branded (and potentially forged-refund) notification at a council-B resident. Service-role callers short-circuit the gate.
+- **Refund amount is DB-derived:** a `booking_updated` payload carries `refund_request_id` (opaque identity) + `refund_status`, never a cents figure. The displayed amount is looked up from the `refund_request` row keyed by `(refund_request_id, booking_id)` — a row belonging to a *different* booking yields no refund line.
+- **Status codes:** `400` malformed/ambiguous payload · `401` missing bearer, or a user JWT whose role is not permitted (bad/absent **credentials**) · `403` valid caller, but the target booking is outside their tenant **scope** · `200` in every dispatch outcome (sent / skipped / failed — fire-and-forget) · `500` only on an uncaught crash.
+- **Side effects:** Renders + sends email (SendGrid) and SMS (Twilio) directly via `_shared/`, writes `notification_log` with per-channel idempotency on `(booking_id, type, channel)`.
+
 ### `send-email`
 - **Auth:** Internal (service role)
+- **Legacy:** lower-level template sender; `send-notification` is the current single entry point for transactional notifications (it renders + sends directly, not through this EF).
 - **Input:** `{ template, to, booking_id?, tenant_id?, data }`
 - **Templates:** `booking_created`, `booking_updated`, `booking_cancelled`, `place_out_reminder`, `ncn_raised`, `np_raised`, `collection_completed`, `refund_confirmed`
 - **Side effects:** Sends email, inserts `notification_log`
 
 ### `send-sms`
 - **Auth:** Internal (service role)
+- **Legacy:** see `send-notification` (the current transactional entry point).
 - **Input:** `{ template, to_e164, booking_id?, tenant_id?, data }`
 - **Templates:** `booking_created`, `place_out_reminder`
 - **Side effects:** Sends SMS, inserts `notification_log`

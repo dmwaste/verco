@@ -174,9 +174,11 @@ export interface MockDispatchState {
     to_address: string
   }>
   /**
-   * Authoritative refund_request amounts keyed by refund_request_id — the
-   * booking_updated refund derivation reads this via loadRefundAmountCents.
-   * A missing key returns null (row not found / not this booking).
+   * Authoritative refund_request amounts keyed by `${refund_request_id}:${booking_id}`
+   * — the booking_updated refund derivation reads this via loadRefundAmountCents.
+   * A missing key returns null, which covers BOTH "row not found" AND "the row
+   * belongs to a different booking" (the EF's cross-booking fail-safe:
+   * `data.booking_id !== bookingId → null`).
    */
   refundAmounts?: Record<string, number>
 }
@@ -217,8 +219,11 @@ export function createMockDispatchDeps(
   const updateLogStatusMock = vi.fn(async () => {})
 
   const loadRefundAmountCentsMock = vi.fn(
-    async (refundRequestId: string, _bookingId: string) => {
-      return state.refundAmounts?.[refundRequestId] ?? null
+    async (refundRequestId: string, bookingId: string) => {
+      // Keyed by BOTH ids so a refund_request that belongs to a DIFFERENT
+      // booking resolves to null — mirrors the EF's cross-booking fail-safe
+      // (send-notification/index.ts: `data.booking_id !== bookingId → null`).
+      return state.refundAmounts?.[`${refundRequestId}:${bookingId}`] ?? null
     },
   )
 

@@ -1,5 +1,6 @@
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.100.0'
+import type { Database } from '../_shared/database.types.ts'
 import { addOneDay, awstDateFromUtc } from '../_shared/schedule-transition.ts'
 import { getRoutes, getRoutingApiKey, type OrRoute } from '../_shared/optimoroute.ts'
 
@@ -55,7 +56,7 @@ serve(async (req) => {
   }
   if (bearer !== anonKey) {
     // Not the cron's routing bearer — must be a valid contractor-staff JWT.
-    const callerClient = createClient(supabaseUrl, anonKey, {
+    const callerClient = createClient<Database>(supabaseUrl, anonKey, {
       global: { headers: { Authorization: `Bearer ${bearer}` } },
     })
     const {
@@ -76,7 +77,7 @@ serve(async (req) => {
     }
   }
 
-  const supabase = createClient(supabaseUrl, serviceRoleKey)
+  const supabase = createClient<Database>(supabaseUrl, serviceRoleKey)
 
   const today = awstDateFromUtc(new Date())
   const windowDates: string[] = [today]

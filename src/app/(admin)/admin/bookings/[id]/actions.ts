@@ -1,6 +1,7 @@
 'use server'
 
 import { z } from 'zod'
+import { QuantityEditItemSchema } from '@/lib/booking/schemas'
 import { createClient } from '@/lib/supabase/server'
 import { invokeSendNotification } from '@/lib/notifications/invoke'
 import { isPastCancellationCutoff } from '@/lib/booking/cancellation-cutoff'
@@ -11,6 +12,7 @@ import {
 import { STAFF_ROLES } from '@/lib/auth/roles'
 import { orchestrateRefund, type RefundOrchestrationState } from '@/lib/payments/orchestrate-refund'
 import { REFUND_REASONS } from '@/lib/refunds/auto-raised'
+import { refundStateToNotificationStatus } from '@/lib/refunds/notification-status'
 import type { Result } from '@/lib/result'
 
 /**
@@ -192,10 +194,7 @@ export async function cancelBooking(bookingId: string): Promise<Result<void>> {
   // process-refund actually accepted it — a -staff cancel legitimately lands
   // 'queued' (awaiting admin approval on the Refunds page), and
   // 'failed'/'none' must not show a refund line at all.
-  const refundStatus =
-    refundState === 'initiated' ? ('processed' as const)
-    : refundState === 'queued' ? ('pending_review' as const)
-    : undefined
+  const refundStatus = refundStateToNotificationStatus(refundState)
   await invokeSendNotification(supabase, {
     type: 'booking_cancelled',
     booking_id: bookingId,
@@ -465,10 +464,13 @@ const updateQuantitiesInput = z.object({
   bookingId: z.string().uuid(),
   // no_services 0 = remove that service line (the EF's smart-diff drops it);
   // the ≥1-remaining guard below still forces at least one kept service.
-  items: z
-    .array(z.object({ service_id: z.string().uuid(), no_services: z.number().int().min(0).max(10) }))
-    .min(1)
-    .max(20),
+  items: z.array(QuantityEditItemSchema).min(1).max(20),
+  // #387.1 concurrency baseline: the per-service quantities the admin's page
+  // RENDERED when the editor opened. Forwarded to the EF (→ RPC p_expected_items)
+  // so the guard covers the full view-to-write window, not just the EF-read→lock
+  // gap. The client builds this from the original booking_item snapshot via
+  // buildQuantityEditItems — NEVER from the editor draft.
+  expectedItems: z.array(QuantityEditItemSchema).min(1).max(20),
 })
 
 /** How the refund half of a quantity reduction ended up (see orchestrateRefund). */
@@ -477,8 +479,12 @@ export type QuantityEditRefundState = RefundOrchestrationState
 export async function updateBookingQuantities(
   bookingId: string,
   items: Array<{ service_id: string; no_services: number }>,
+  // The per-service quantities the admin's page rendered when the editor opened
+  // (#387.1). Required — TypeScript forces the client to pass it so the guard is
+  // never silently skipped. Forwarded verbatim as the EF's expected_items.
+  expectedItems: Array<{ service_id: string; no_services: number }>,
 ): Promise<Result<{ refundOwedCents: number; refundState: QuantityEditRefundState }>> {
-  const parsed = updateQuantitiesInput.safeParse({ bookingId, items })
+  const parsed = updateQuantitiesInput.safeParse({ bookingId, items, expectedItems })
   if (!parsed.success) {
     return { ok: false, error: 'Invalid quantity edit input.' }
   }
@@ -580,6 +586,11 @@ export async function updateBookingQuantities(
       // location is rejected above).
       location: booking.location,
       items: cleanItems,
+      // #387.1: the RENDERED baseline (all original lines, unfiltered) becomes the
+      // RPC's p_expected_items concurrency precondition. Sent as-is — never the
+      // reduced target — so the guard fires when the persisted state has drifted
+      // from what the admin was looking at.
+      expected_items: parsed.data.expectedItems,
       replaces: bookingId,
       inline_edit: true,
       ...(swapRow ? { swap: true } : {}),
@@ -618,10 +629,7 @@ export async function updateBookingQuantities(
   // makes the idempotency key unique per edit. We pass the refund_request_id
   // (not the amount) — send-notification derives the DISPLAYED cents from that
   // row so the figure can't be forged. Fire-and-forget.
-  const refundStatus =
-    refundState === 'initiated' ? ('processed' as const)
-    : refundState === 'queued' ? ('pending_review' as const)
-    : undefined
+  const refundStatus = refundStateToNotificationStatus(refundState)
   await invokeSendNotification(supabase, {
     type: 'booking_updated',
     booking_id: bookingId,

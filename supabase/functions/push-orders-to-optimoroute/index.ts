@@ -1,5 +1,6 @@
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts'
 import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2.100.0'
+import type { Database, Json, TablesInsert } from '../_shared/database.types.ts'
 import { awstDateFromUtc } from '../_shared/schedule-transition.ts'
 import {
   buildOrderNo,
@@ -151,7 +152,7 @@ function payloadDiffers(existing: ExistingStopRow, desired: DesiredStop): boolea
 }
 
 serve(async (_req) => {
-  const supabase: SupabaseClient = createClient(
+  const supabase: SupabaseClient<Database> = createClient<Database>(
     Deno.env.get('SUPABASE_URL')!,
     Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
   )
@@ -350,10 +351,18 @@ serve(async (_req) => {
       }
 
       if (inserts.length > 0) {
+        // services_summary is a jsonb column typed `Json`; our structured
+        // ServiceSummaryEntry[] can't be proven to satisfy the recursive Json
+        // type, so cast that one field at the write boundary. Every other column
+        // is now type-checked against collection_stop's Insert shape.
+        const insertRows: TablesInsert<'collection_stop'>[] = inserts.map((s) => ({
+          ...s,
+          services_summary: s.services_summary as unknown as Json,
+        }))
         // ignoreDuplicates tolerates a concurrent manual run racing this one.
         const { data: insertedRows, error: insertError } = await supabase
           .from('collection_stop')
-          .upsert(inserts as unknown as Record<string, unknown>[], {
+          .upsert(insertRows, {
             onConflict: 'booking_id,stream',
             ignoreDuplicates: true,
           })
@@ -370,7 +379,7 @@ serve(async (_req) => {
             address: payload.address,
             latitude: payload.latitude,
             longitude: payload.longitude,
-            services_summary: payload.services_summary,
+            services_summary: payload.services_summary as unknown as Json,
             waste_location: payload.waste_location,
             driver_notes: payload.driver_notes,
             pushed_at: null, // changed payload → re-push in pass 2
@@ -396,7 +405,7 @@ serve(async (_req) => {
             address: payload.address,
             latitude: payload.latitude,
             longitude: payload.longitude,
-            services_summary: payload.services_summary,
+            services_summary: payload.services_summary as unknown as Json,
             waste_location: payload.waste_location,
             driver_notes: payload.driver_notes,
             pushed_at: null,

@@ -112,3 +112,28 @@ export function withSentry(name: string, handler: Handler): Handler {
     );
   };
 }
+
+/**
+ * Capture a non-fatal WARNING to Sentry — for a code path that does not throw but
+ * still needs a human's eyes (e.g. a money-path event the EF deliberately parks
+ * for manual reconciliation). `withSentry` only captures thrown exceptions, so a
+ * silent `return` inside a handler would otherwise leave `console.log` as the only
+ * signal.
+ *
+ * Inert + zero-overhead when SENTRY_DSN is unset, and — like `withSentry` — can
+ * NEVER throw, so an observability call can't break a money-path EF. The event
+ * runs through `beforeSend`/`scrubEvent` (message + extra are PII-scrubbed), but
+ * pass only non-PII structured context (ids, amounts) — the scrubber is a
+ * backstop, not a licence to send contact fields.
+ *
+ * Sent under the withSentry span when one is active; `withSentry`'s `flush`
+ * covers delivery before the runtime freezes.
+ */
+export function captureWarning(message: string, extra?: Record<string, unknown>): void {
+  if (!SENTRY_ENABLED) return;
+  try {
+    Sentry.captureMessage(message, { level: "warning", extra });
+  } catch (_e) {
+    // Never let a warning capture break an Edge Function.
+  }
+}

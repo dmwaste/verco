@@ -25,6 +25,7 @@
 import { createClient } from '@supabase/supabase-js'
 import { writeFileSync } from 'node:fs'
 import { parseFlags, requireEnv } from './lib/cli'
+import { timestamp } from './lib/report'
 import {
   parseEfResponse,
   estimateCostUsd,
@@ -281,12 +282,6 @@ async function main() {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms))
-}
-
-function timestamp(): string {
-  const d = new Date()
-  const z = (n: number) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}${z(d.getMonth() + 1)}${z(d.getDate())}-${z(d.getHours())}${z(d.getMinutes())}${z(d.getSeconds())}`
 }
 
 main().catch((err) => {

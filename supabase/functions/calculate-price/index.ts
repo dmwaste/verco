@@ -1,5 +1,6 @@
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.100.0'
+import type { Database } from '../_shared/database.types.ts'
 import { z } from 'https://esm.sh/zod@3.23.8'
 import { calculatePrice } from '../_shared/pricing.ts'
 
@@ -34,7 +35,7 @@ serve(async (req) => {
     return new Response('Unauthorized', { status: 401, headers: corsHeaders })
   }
 
-  const supabase = createClient(
+  const supabase = createClient<Database>(
     Deno.env.get('SUPABASE_URL')!,
     Deno.env.get('SUPABASE_ANON_KEY')!,
     { global: { headers: { Authorization: authHeader } } }
@@ -60,7 +61,9 @@ serve(async (req) => {
       .eq('id', property_id)
       .single()
 
-    if (propError || !property) {
+    // collection_area_id is nullable in the schema; a property with no area can't
+    // be priced (no allocation rules resolve), so reject it like a missing property.
+    if (propError || !property || !property.collection_area_id) {
       return new Response(
         JSON.stringify({ error: 'Property not found' }),
         { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }

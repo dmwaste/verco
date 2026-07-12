@@ -2109,6 +2109,7 @@ export type Database = {
           created_at: string
           id: string
           reason: string
+          review_notes: string | null
           reviewed_at: string | null
           reviewed_by: string | null
           status: string
@@ -2123,6 +2124,7 @@ export type Database = {
           created_at?: string
           id?: string
           reason?: string
+          review_notes?: string | null
           reviewed_at?: string | null
           reviewed_by?: string | null
           status?: string
@@ -2137,6 +2139,7 @@ export type Database = {
           created_at?: string
           id?: string
           reason?: string
+          review_notes?: string | null
           reviewed_at?: string | null
           reviewed_by?: string | null
           status?: string
@@ -2869,6 +2872,7 @@ export type Database = {
           p_actor_id?: string
           p_booking_id: string
           p_collection_date_id: string
+          p_expected_items?: Json
           p_items: Json
           p_location?: string
           p_notes?: string

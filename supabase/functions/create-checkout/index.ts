@@ -1,5 +1,6 @@
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.100.0'
+import type { Database } from '../_shared/database.types.ts'
 import { z } from 'https://esm.sh/zod@3.23.8'
 import Stripe from 'https://esm.sh/stripe@17.7.0?target=deno'
 import { jsonResponse, optionsResponse, errorResponse } from '../_shared/cors.ts'
@@ -21,14 +22,14 @@ serve(withSentry('create-checkout', async (req) => {
   }
 
   // Authenticated user client — validates booking ownership
-  const supabase = createClient(
+  const supabase = createClient<Database>(
     Deno.env.get('SUPABASE_URL')!,
     Deno.env.get('SUPABASE_ANON_KEY')!,
     { global: { headers: { Authorization: authHeader } } }
   )
 
   // Service-role client for inserting booking_payment
-  const supabaseService = createClient(
+  const supabaseService = createClient<Database>(
     Deno.env.get('SUPABASE_URL')!,
     Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
   )
@@ -76,7 +77,7 @@ serve(withSentry('create-checkout', async (req) => {
     // Residents must own the booking via contact_id match.
     const { data: roleData } = await supabase.rpc('current_user_role')
     const adminRoles = ['contractor-admin', 'contractor-staff', 'client-admin', 'client-staff']
-    const isAdmin = adminRoles.includes(roleData)
+    const isAdmin = roleData !== null && adminRoles.includes(roleData)
 
     if (!isAdmin) {
       const { data: profile } = await supabase

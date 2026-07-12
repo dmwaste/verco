@@ -1,6 +1,8 @@
 import { describe, it, expect, vi } from 'vitest'
 import {
   authorizeNotificationDispatch,
+  resolveTargetBookingId,
+  validateDispatchInputShape,
   type NotificationAuthzDeps,
 } from '@/lib/notifications/authz'
 import type {
@@ -142,5 +144,113 @@ describe('authorizeNotificationDispatch', () => {
         false
       )
     }
+  })
+})
+
+describe('validateDispatchInputShape — EF boundary contract', () => {
+  it('accepts a fresh {type, booking_id} payload', () => {
+    expect(
+      validateDispatchInputShape({ type: 'booking_created', booking_id: 'b1' })
+    ).toEqual({ ok: true })
+  })
+
+  it('accepts a resume {notification_log_id} payload', () => {
+    expect(validateDispatchInputShape({ notification_log_id: 'log-1' })).toEqual({
+      ok: true,
+    })
+  })
+
+  it('rejects the HYBRID payload (both {type,booking_id} AND {notification_log_id}) with 400', () => {
+    // The cross-tenant gate bypass: the tenant gate would authorize the caller's
+    // OWN booking_id while dispatch() resumes the VICTIM's notification_log_id.
+    const result = validateDispatchInputShape({
+      type: 'booking_updated',
+      booking_id: 'own-readable-booking',
+      notification_log_id: 'victim-log',
+    })
+    expect(result.ok).toBe(false)
+    if (!result.ok) {
+      expect(result.status).toBe(400)
+      expect(result.error).toMatch(/not both/)
+    }
+  })
+
+  it('rejects a hybrid carrying only notification_log_id + booking_id (no type) with 400', () => {
+    const result = validateDispatchInputShape({
+      booking_id: 'own-readable-booking',
+      notification_log_id: 'victim-log',
+    })
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.status).toBe(400)
+  })
+
+  it('rejects a payload with neither shape (400)', () => {
+    const result = validateDispatchInputShape({ foo: 'bar' })
+    expect(result.ok).toBe(false)
+    if (!result.ok) {
+      expect(result.status).toBe(400)
+      expect(result.error).toMatch(/must include either/)
+    }
+  })
+
+  it('rejects {type} without booking_id (incomplete fresh shape) as neither', () => {
+    const result = validateDispatchInputShape({ type: 'booking_created' })
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.status).toBe(400)
+  })
+
+  it('rejects non-object input (null, string) with 400', () => {
+    for (const bad of [null, 'a string', 42, undefined]) {
+      const result = validateDispatchInputShape(bad)
+      expect(result.ok).toBe(false)
+      if (!result.ok) {
+        expect(result.status).toBe(400)
+        expect(result.error).toMatch(/JSON object/)
+      }
+    }
+  })
+})
+
+describe('resolveTargetBookingId — resume-first precedence', () => {
+  it('resolves notification_log_id via loadLogBooking (log id FIRST)', async () => {
+    const loadLogBooking = vi.fn(async () => 'booking-from-log')
+    const result = await resolveTargetBookingId(
+      { notification_log_id: 'log-1' },
+      loadLogBooking
+    )
+    expect(result).toBe('booking-from-log')
+    expect(loadLogBooking).toHaveBeenCalledWith('log-1')
+  })
+
+  it('prefers notification_log_id over booking_id when a (rejected-upstream) hybrid slips through', async () => {
+    // The parse guard rejects hybrids at the boundary, but resolveTargetBookingId
+    // must independently match dispatch()'s resume-first order so the gate and
+    // the dispatcher can never authorize different bookings.
+    const loadLogBooking = vi.fn(async () => 'booking-from-log')
+    const hybrid = {
+      type: 'booking_updated',
+      booking_id: 'booking-from-payload',
+      notification_log_id: 'log-1',
+    } as unknown as NotificationDispatchInput
+    const result = await resolveTargetBookingId(hybrid, loadLogBooking)
+    expect(result).toBe('booking-from-log')
+    expect(loadLogBooking).toHaveBeenCalledOnce()
+  })
+
+  it('resolves a fresh payload to its booking_id without touching loadLogBooking', async () => {
+    const loadLogBooking = vi.fn(async () => 'should-not-be-used')
+    const result = await resolveTargetBookingId(
+      { type: 'booking_created', booking_id: 'b-direct' },
+      loadLogBooking
+    )
+    expect(result).toBe('b-direct')
+    expect(loadLogBooking).not.toHaveBeenCalled()
+  })
+
+  it('returns null when neither key resolves (e.g. empty notification_log_id)', async () => {
+    const loadLogBooking = vi.fn(async () => null)
+    const empty = { notification_log_id: '' } as unknown as NotificationDispatchInput
+    expect(await resolveTargetBookingId(empty, loadLogBooking)).toBeNull()
+    expect(loadLogBooking).not.toHaveBeenCalled()
   })
 })

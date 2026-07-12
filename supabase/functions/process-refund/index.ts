@@ -1,5 +1,6 @@
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.100.0'
+import type { Database } from '../_shared/database.types.ts'
 import { z } from 'https://esm.sh/zod@3.23.8'
 import Stripe from 'https://esm.sh/stripe@17.7.0?target=deno'
 import { jsonResponse, optionsResponse, errorResponse } from '../_shared/cors.ts'
@@ -18,14 +19,14 @@ serve(async (req) => {
   }
 
   // User-scoped client for role validation
-  const supabase = createClient(
+  const supabase = createClient<Database>(
     Deno.env.get('SUPABASE_URL')!,
     Deno.env.get('SUPABASE_ANON_KEY')!,
     { global: { headers: { Authorization: authHeader } } }
   )
 
   // Service-role client for writes
-  const supabaseService = createClient(
+  const supabaseService = createClient<Database>(
     Deno.env.get('SUPABASE_URL')!,
     Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
   )
@@ -261,7 +262,7 @@ serve(async (req) => {
 
     // Surface Stripe-specific errors
     if (err instanceof Stripe.errors.StripeError) {
-      return errorResponse(`Stripe error: ${err.message}`, 502)
+      return errorResponse(`Stripe error: ${err instanceof Error ? err.message : String(err)}`, 502)
     }
 
     return errorResponse('Internal Server Error', 500)

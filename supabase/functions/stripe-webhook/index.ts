@@ -1,8 +1,10 @@
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.100.0'
+import type { Database } from '../_shared/database.types.ts'
 import Stripe from 'https://esm.sh/stripe@17.7.0?target=deno'
 import { reconcileCheckoutSession } from '../_shared/checkout-reconcile.ts'
-import { withSentry } from '../_shared/sentry.ts'
+import { resolveLatestRefund, shouldAutoApproveRefund } from '../_shared/refund-auto-approve.ts'
+import { captureWarning, withSentry } from '../_shared/sentry.ts'
 
 serve(withSentry('stripe-webhook', async (req) => {
   // Webhook only accepts POST
@@ -36,7 +38,7 @@ serve(withSentry('stripe-webhook', async (req) => {
   }
 
   // Service-role client — webhook writes require bypassing RLS
-  const supabase = createClient(
+  const supabase = createClient<Database>(
     Deno.env.get('SUPABASE_URL')!,
     Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
   )
@@ -48,7 +50,7 @@ serve(withSentry('stripe-webhook', async (req) => {
         break
       }
       case 'charge.refunded': {
-        await handleChargeRefunded(supabase, event.data.object as Stripe.Charge)
+        await handleChargeRefunded(supabase, stripe, event.data.object as Stripe.Charge)
         break
       }
       default:
@@ -70,7 +72,8 @@ serve(withSentry('stripe-webhook', async (req) => {
 // Updates refund_request with the Stripe refund ID and marks as Approved.
 
 async function handleChargeRefunded(
-  supabase: ReturnType<typeof createClient>,
+  supabase: ReturnType<typeof createClient<Database>>,
+  stripe: Stripe,
   charge: Stripe.Charge,
 ) {
   const chargeId = charge.id
@@ -87,8 +90,25 @@ async function handleChargeRefunded(
     return
   }
 
-  // Get the latest refund from the charge
-  const latestRefund = charge.refunds?.data?.[0]
+  // Get the latest refund from the charge.
+  //
+  // The webhook PAYLOAD shape follows the WEBHOOK ENDPOINT's pinned Stripe API
+  // version — NOT the SDK's `apiVersion` set above. On API versions >= 2022-11-15
+  // the embedded `charge.refunds` list is OMITTED from the payload, so
+  // `charge.refunds.data[0]` is undefined → every direct-in-Stripe refund would
+  // read a null amount → never auto-approve → silently park Pending. Resolve via
+  // the embed when present, else fetch (`resolveLatestRefund`), so the backstop
+  // is correct regardless of the endpoint's pin — this also feeds the stamped-id
+  // recovery path below.
+  //
+  // TODO(dan): confirm + document the LIVE endpoint's pinned API version in the
+  // Stripe dashboard (D&M acct_1HKxMa → Developers → Webhooks → this endpoint →
+  // "API version"). The fetch fallback makes correctness independent of the
+  // answer, but recording the pin here removes the ambiguity for the next reader.
+  const latestRefund = await resolveLatestRefund(
+    charge.refunds?.data?.[0],
+    async () => (await stripe.refunds.list({ charge: chargeId, limit: 1 })).data[0] ?? null,
+  )
   const stripeRefundId = latestRefund?.id ?? null
 
   // #387.1 hardening: refunds created by process-refund carry the request id in
@@ -156,12 +176,30 @@ async function handleChargeRefunded(
   // the refund amount matches the request; otherwise leave it Pending for a
   // human to reconcile, and log loudly.
   const latestRefundCents = latestRefund?.amount ?? null
-  if (latestRefundCents == null || latestRefundCents !== refundRequest.amount_cents) {
+  if (!shouldAutoApproveRefund(latestRefundCents, refundRequest.amount_cents)) {
+    // Two ways to land here, both needing a human: (1) the refund amount could
+    // not be resolved at all (embed absent AND the fetch found none), or (2) it
+    // was resolved but does not match the oldest Pending request.
+    const reason = latestRefundCents == null
+      ? 'no refund amount could be resolved (embed absent + Stripe fetch found none)'
+      : 'refund amount does not match the oldest Pending request'
     console.log(
-      `Charge refund ${stripeRefundId ?? '(none)'} for booking ${payment.booking_id}: ` +
-        `refund amount ${latestRefundCents}c does not match oldest Pending request ` +
-        `${refundRequest.id} (${refundRequest.amount_cents}c) — leaving Pending for manual review`,
+      `Charge refund ${stripeRefundId ?? '(none)'} for booking ${payment.booking_id}: ${reason} — ` +
+        `refund ${latestRefundCents}c vs oldest Pending request ${refundRequest.id} ` +
+        `(${refundRequest.amount_cents}c) — leaving Pending for manual review`,
     )
+    // Promote to a Sentry WARNING: a console.log alone is unwatched, and this is
+    // the only signal that a direct-in-Stripe refund needs manual reconciliation.
+    // IDs + amounts only — no PII (scrubEvent is a backstop, not a licence).
+    captureWarning(`stripe-webhook: charge.refunded parked for manual review — ${reason}`, {
+      booking_id: payment.booking_id,
+      refund_request_id: refundRequest.id,
+      stripe_refund_id: stripeRefundId,
+      stripe_charge_id: chargeId,
+      refund_amount_cents: latestRefundCents,
+      request_amount_cents: refundRequest.amount_cents,
+      refunds_embed_absent: (charge.refunds?.data?.[0] ?? null) == null,
+    })
     return
   }
 

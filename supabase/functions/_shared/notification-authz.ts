@@ -93,3 +93,66 @@ export async function authorizeNotificationDispatch(
 
   return { ok: true }
 }
+
+/**
+ * Shape-validate a parsed dispatch payload at the EF boundary. Returns a 400
+ * Result for every malformed shape; `{ ok: true }` for a well-formed one.
+ *
+ * `NotificationDispatchInput` is a discriminated union: a fresh
+ * `{ type, booking_id }` OR a resume `{ notification_log_id }`, never both. The
+ * HYBRID shape is rejected because it is a cross-tenant gate bypass: the tenant
+ * gate resolves `booking_id`-first and would authorize the caller's OWN
+ * booking, while `dispatch()` resumes `notification_log_id`-first and acts on
+ * the VICTIM's log row. Rejecting the ambiguous shape closes it at the boundary.
+ *
+ * Pure (no I/O) so the EF's input contract is unit-testable in Node.
+ */
+export function validateDispatchInputShape(
+  input: unknown
+): NotificationAuthzResult {
+  if (!input || typeof input !== 'object') {
+    return { ok: false, status: 400, error: 'Payload must be a JSON object' }
+  }
+  const hasLog = 'notification_log_id' in input
+  const hasFresh = 'type' in input && 'booking_id' in input
+  if (!hasLog && !hasFresh) {
+    return {
+      ok: false,
+      status: 400,
+      error:
+        'Payload must include either {type, booking_id} or {notification_log_id}',
+    }
+  }
+  if (hasLog && ('type' in input || 'booking_id' in input)) {
+    return {
+      ok: false,
+      status: 400,
+      error:
+        'Payload must be either {type, booking_id} or {notification_log_id}, not both',
+    }
+  }
+  return { ok: true }
+}
+
+/**
+ * Resolve the booking a payload targets, mirroring `dispatch()`'s resume-first
+ * precedence: a `notification_log_id` maps to its booking (via the injected
+ * `loadLogBooking`) BEFORE any `booking_id` is consulted, so the tenant gate
+ * authorizes the SAME booking `dispatch()` will act on. Returns null when the
+ * target cannot be resolved.
+ *
+ * `loadLogBooking` is injected (a service-role mapping read in the EF) so this
+ * decision stays pure and unit-testable.
+ */
+export async function resolveTargetBookingId(
+  input: NotificationDispatchInput,
+  loadLogBooking: (logId: string) => Promise<string | null>
+): Promise<string | null> {
+  if ('notification_log_id' in input && input.notification_log_id) {
+    return await loadLogBooking(input.notification_log_id)
+  }
+  if ('booking_id' in input && input.booking_id) {
+    return input.booking_id
+  }
+  return null
+}

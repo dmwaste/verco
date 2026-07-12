@@ -26,6 +26,7 @@ import { loadAreaMap, resolveAreaId } from './lib/area-map'
 import { upsertEligibleProperties } from './lib/verco-upsert'
 import { upsertContact } from './lib/contact-upsert'
 import { parseFlags, requireEnv } from './lib/cli'
+import { timestamp } from './lib/report'
 import type { AirtableMudRecord, MudPropertyInsert } from './lib/types'
 
 const EXTERNAL_SOURCE = 'airtable-mud'
@@ -71,12 +72,6 @@ function buildNotes(raw: string | null, offStreet: boolean): string | null {
 
 function isStubRecord(rec: AirtableMudRecord): boolean {
   return !rec.address.trim() && !rec.mudRef
-}
-
-function timestamp(): string {
-  const d = new Date()
-  const z = (n: number) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}${z(d.getMonth() + 1)}${z(d.getDate())}-${z(d.getHours())}${z(d.getMinutes())}${z(d.getSeconds())}`
 }
 
 // ─── Main ─────────────────────────────────────────────────────────────────────

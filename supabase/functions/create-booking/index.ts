@@ -7,7 +7,9 @@ import { type TermsAcceptanceChannel } from '../_shared/terms.ts'
 import { classifyCreator, CREATOR_STAFF_ROLES } from '../_shared/classify-creator.ts'
 import { evaluateEditGuard, mayKeepClosedHeldDate } from '../_shared/edit-guard.ts'
 import { evaluateQuantityEdit } from '../_shared/quantity-edit-decision.ts'
+import { mapEditErrorToStatus } from '../_shared/edit-error-mapping.ts'
 import { withSentry } from '../_shared/sentry.ts'
+import type { Database } from '../_shared/database.types.ts'
 
 /**
  * Fire-and-forget POST to the send-notification Edge Function. Returns
@@ -100,6 +102,12 @@ const CreateBookingRequest = z.object({
   // strict `total_cents>0` reject unchanged — so this can't introduce a refund
   // leak on the wizard flow, which does not orchestrate refunds. See spec §3/§4.
   inline_edit: z.boolean().optional(),
+  // #387.1 concurrency baseline: the per-service quantities the admin's page
+  // RENDERED when the inline editor opened. When present, it (not this EF's own
+  // fresh read) becomes the RPC's p_expected_items precondition, so the guard
+  // covers the full view-to-write window. Optional for back-compat: the wizard
+  // edit path and any pre-deploy caller omit it and fall back to the fresh read.
+  expected_items: z.array(BookingItemInput).min(1).max(20).optional(),
 })
 
 serve(withSentry('create-booking', async (req) => {
@@ -113,7 +121,7 @@ serve(withSentry('create-booking', async (req) => {
   }
 
   // Anon-key client for reads (respects RLS public SELECT policies)
-  const supabaseAnon = createClient(
+  const supabaseAnon = createClient<Database>(
     Deno.env.get('SUPABASE_URL')!,
     Deno.env.get('SUPABASE_ANON_KEY')!,
     { global: { headers: { Authorization: authHeader } } }
@@ -122,7 +130,7 @@ serve(withSentry('create-booking', async (req) => {
   // Service-role client for writes (booking, booking_item, contacts inserts)
   // Required because INSERT policies on these tables require auth, but guest
   // bookings are allowed from public routes with only the anon key.
-  const supabaseService = createClient(
+  const supabaseService = createClient<Database>(
     Deno.env.get('SUPABASE_URL')!,
     Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
   )
@@ -137,7 +145,7 @@ serve(withSentry('create-booking', async (req) => {
       return jsonResponse({ error: parsed.error.message }, 400)
     }
 
-    const { property_id, collection_area_id, collection_date_id, location, notes, contact, items, replaces, swap, terms_accepted, inline_edit } = parsed.data
+    const { property_id, collection_area_id, collection_date_id, location, notes, contact, items, replaces, swap, terms_accepted, inline_edit, expected_items } = parsed.data
 
     // ── 2. Resolve collection area → client_id, contractor_id, area code ─────
 
@@ -260,17 +268,20 @@ serve(withSentry('create-booking', async (req) => {
         )
         .eq('is_active', true)
         .eq('from_allocation_rules.collection_area_id', collection_area_id)
+        // Aliased multi-FK embed the PostgREST type parser can't infer — declare
+        // the shape explicitly with .returns<T>() rather than casting the result.
+        .returns<Array<{
+          id: string
+          from_units: number
+          to_units: number
+          to_service_id: string
+          from_allocation_rules: { collection_area_id: string; category: { code: string } | null } | null
+          to_allocation_rules: { category: { code: string } | null } | null
+        }>>()
       if (ruleErr) {
         return jsonResponse({ error: `Failed to load swap rule: ${ruleErr.message}` }, 500)
       }
-      const rule = (ruleRows ?? [])[0] as {
-        id: string
-        from_units: number
-        to_units: number
-        to_service_id: string
-        from_allocation_rules: { collection_area_id: string; category: { code: string } | null } | null
-        to_allocation_rules: { category: { code: string } | null } | null
-      } | undefined
+      const rule = (ruleRows ?? [])[0]
       if (!rule?.from_allocation_rules?.category || !rule?.to_allocation_rules?.category) {
         return jsonResponse({ error: 'No allocation swap is available for this area.' }, 400)
       }
@@ -295,7 +306,8 @@ serve(withSentry('create-booking', async (req) => {
       const { data: swapUsage } = await supabaseAnon.rpc('get_property_fy_usage', {
         p_property_id: property_id,
         p_fy_id: fy.id,
-        p_exclude_booking_id: replaces ?? null,
+        // Optional param (DEFAULT NULL) — omit to mean "no exclusion".
+        p_exclude_booking_id: replaces ?? undefined,
       })
       const fromUsed = Number(
         (swapUsage ?? []).find(
@@ -409,20 +421,37 @@ serve(withSentry('create-booking', async (req) => {
         }
       }
       let refundOwedCents = 0
-      // The item set the inline refund is priced against — passed to the RPC as
-      // p_expected_items so it can abort under its lock if a concurrent edit
-      // changed the items since this baseline was read (#387.1). Null on the
-      // wizard path (no refund, no precondition).
+      // The item set the RPC's concurrency guard checks under its lock (#387.1),
+      // passed as p_expected_items so it can abort if the persisted items changed
+      // since this baseline. Null on the wizard path (no refund, no precondition).
       let expectedItems: Array<{ service_id: string; no_services: number }> | null = null
       if (inline_edit) {
-        // Baseline: re-price the booking's CURRENT items with the SAME engine
-        // call/state as new_total (exclude self, same swap/unitMultiplier), so
-        // other bookings' usage cancels in the delta (drift-immune marginal cost).
+        // Pricing baseline: re-price the booking's CURRENT items with the SAME
+        // engine call/state as new_total (exclude self, same swap/unitMultiplier),
+        // so other bookings' usage cancels in the delta (drift-immune marginal cost).
         const currentItemsMap = new Map<string, number>()
         for (const bi of (ownedBooking?.booking_item ?? []) as Array<{ service_id: string; no_services: number }>) {
           currentItemsMap.set(bi.service_id, (currentItemsMap.get(bi.service_id) ?? 0) + bi.no_services)
         }
-        expectedItems = Array.from(currentItemsMap.entries()).map(([service_id, no_services]) => ({
+        // Guard precondition source — DECOUPLED from the pricing baseline above.
+        // Prefer the client's RENDERED baseline (the set the admin's page showed
+        // when the editor opened) so the guard covers the full view-to-write window
+        // (two admins on stale pages, minutes apart), not just this EF-read→lock
+        // gap. Fall back to the fresh read when the caller omits it (wizard path;
+        // pre-deploy 6-arg callers). Aggregate per service_id → summed no_services
+        // to match the RPC's comparison shape regardless of source. The PRICING
+        // baseline stays the fresh read (currentItemsMap) — marginal cost is
+        // drift-immune, so the refund is correct either way; only the precondition
+        // moves to the wider window.
+        const guardSource: Array<{ service_id: string; no_services: number }> =
+          expected_items && expected_items.length > 0
+            ? expected_items
+            : Array.from(currentItemsMap.entries()).map(([service_id, no_services]) => ({ service_id, no_services }))
+        const guardMap = new Map<string, number>()
+        for (const it of guardSource) {
+          guardMap.set(it.service_id, (guardMap.get(it.service_id) ?? 0) + it.no_services)
+        }
+        expectedItems = Array.from(guardMap.entries()).map(([service_id, no_services]) => ({
           service_id,
           no_services,
         }))
@@ -528,13 +557,14 @@ serve(withSentry('create-booking', async (req) => {
           p_booking_id: replaces,
           p_collection_date_id: collection_date_id,
           p_items: editItems,
-          p_actor_id: actingUserEarly?.id ?? null,
-          // Inline quantity edits never change location/notes — pass null so
-          // the RPC keeps the current values (re-sending the caller's copy
-          // would silently revert a concurrent location edit). Wizard path
-          // still updates both.
-          p_location: inline_edit ? null : location,
-          p_notes: inline_edit ? null : (notes ?? null),
+          p_actor_id: actingUserEarly?.id,
+          // Inline quantity edits never change location/notes — omit them so the
+          // RPC's COALESCE(p_x, current) keeps the current values (re-sending the
+          // caller's copy would silently revert a concurrent location edit).
+          // Optional params default to NULL, so undefined == the previous explicit
+          // null. Wizard path still updates both.
+          p_location: inline_edit ? undefined : location,
+          p_notes: inline_edit ? undefined : (notes ?? undefined),
           // Concurrency guard (#387.1): only the inline refund path sends the
           // baseline it priced against; the RPC aborts if the items changed
           // under its lock. Wizard path sends null → guard skipped.
@@ -543,18 +573,18 @@ serve(withSentry('create-booking', async (req) => {
 
       if (editError) {
         console.error('Edit RPC error:', editError)
-        if (editError.message?.includes('Insufficient')) {
-          return jsonResponse({ error: editError.message }, 409)
+        const editMessage = editError.message ?? ''
+        // Capacity shortfall keeps its own 409 — it predates the concurrent-edit
+        // taxonomy and is not an "edit error → status" case, so it is matched
+        // before mapEditErrorToStatus runs.
+        if (editMessage.includes('Insufficient')) {
+          return jsonResponse({ error: editMessage }, 409)
         }
-        if (editError.message?.includes('not found')) {
-          return jsonResponse({ error: editError.message }, 404)
-        }
-        // #387.1: a concurrent edit changed the items since this one was priced.
-        // Surface as a retryable conflict so the admin reloads and re-edits.
-        if (editError.message?.includes('changed since this edit was priced')) {
-          return jsonResponse({ error: editError.message, code: 'concurrent_edit' }, 409)
-        }
-        return jsonResponse({ error: `Failed to update booking: ${editError.message}` }, 500)
+        // not found → 404; the #387.1 concurrent-edit marker → 409
+        // concurrent_edit (retryable — admin reloads and re-prices); else → 500.
+        const { status, code } = mapEditErrorToStatus(editMessage)
+        const error = status === 500 ? `Failed to update booking: ${editMessage}` : editMessage
+        return jsonResponse({ error, ...(code ? { code } : {}) }, status)
       }
 
       const edited = editResult as { booking_id: string; ref: string }
@@ -786,10 +816,14 @@ serve(withSentry('create-booking', async (req) => {
         p_fy_id: fy.id,
         p_area_code: area.code,
         p_location: location,
-        p_notes: notes ?? null,
+        // p_notes is a text param with no SQL DEFAULT, so it is generated as a
+        // required non-null `string`; but booking.notes is nullable and the RPC
+        // INSERTs p_notes directly, so null is valid (means "no notes"). The cast
+        // bridges the over-strict generated type without changing behavior.
+        p_notes: (notes ?? null) as string,
         p_status: initialStatus,
         p_items: rpcItems,
-        p_actor_id: actingUser?.id ?? null,
+        p_actor_id: actingUser?.id,
         p_terms_accepted: terms_accepted ?? false,
         p_terms_channel: termsChannel,
         p_created_via: createdVia,
@@ -809,8 +843,17 @@ serve(withSentry('create-booking', async (req) => {
       return jsonResponse({ error: `Failed to create booking: ${rpcError.message}` }, 500)
     }
 
-    const bookingId = rpcResult.booking_id
-    const ref = rpcResult.ref
+    if (!rpcResult) {
+      return jsonResponse({ error: 'Failed to create booking: no result returned' }, 500)
+    }
+
+    // RETURNS jsonb is opaque to the type system (generated as Json), and
+    // .returns<>/.overrideTypes<> reject a single-object shape because Json
+    // includes Json[]. Cast the RPC's guaranteed success payload once here.
+    const { booking_id: bookingId, ref } = rpcResult as unknown as {
+      booking_id: string
+      ref: string
+    }
 
     // ── 10b. Record the allocation swap (forfeits the from-category for the FY) ─
     // The unique(property_id, fy_id) constraint is the concurrency backstop: a
