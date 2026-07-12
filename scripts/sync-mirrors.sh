@@ -73,6 +73,8 @@ sync_one "$SHARED/cancellation-cutoff.ts" "src/lib/booking/cancellation-cutoff.t
 sync_one "$SHARED/edit-guard.ts" "src/lib/booking/edit-guard.ts" || drift=1
 sync_one "$SHARED/refund-allocation.ts" "src/lib/payments/refund-allocation.ts" || drift=1
 sync_one "$SHARED/quantity-edit-decision.ts" "src/lib/booking/quantity-edit-decision.ts" || drift=1
+sync_one "$SHARED/edit-error-mapping.ts" "src/lib/booking/edit-error-mapping.ts" || drift=1
+sync_one "$SHARED/refund-auto-approve.ts" "src/lib/payments/refund-auto-approve.ts" || drift=1
 
 if [ "$mode" = "check" ]; then
   if [ "$drift" -eq 1 ]; then

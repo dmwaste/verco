@@ -32,6 +32,10 @@ const TEST_DATES_CLOSED_AND_PAST = [
 async function setupAdminMocks(page: Page, opts: { role?: string; dates?: unknown[] } = {}) {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? 'http://localhost:54321'
   const role = opts.role ?? 'contractor-admin'
+  // Captured collection_date REST URLs so a test can assert the query SHAPE
+  // (role branch + #390.3 window) rather than the returned rows — that regresses
+  // the filter logic regardless of what fixture data comes back.
+  const collectionDateUrls: string[] = []
 
   await page.route(`${supabaseUrl}/rest/v1/**`, async (route: Route) => {
     const url = route.request().url()
@@ -40,6 +44,7 @@ async function setupAdminMocks(page: Page, opts: { role?: string; dates?: unknow
       return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(role) })
     }
     if (url.includes('collection_date')) {
+      collectionDateUrls.push(url)
       return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(opts.dates ?? TEST_AVAILABLE_DATES_OPEN) })
     }
     if (url.includes('auth')) {
@@ -59,6 +64,18 @@ async function setupAdminMocks(page: Page, opts: { role?: string; dates?: unknow
   await page.route(`${supabaseUrl}/functions/v1/process-refund`, (route: Route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ stripe_refund_id: 're_1', stripe_refund_ids: ['re_1'] }) }),
   )
+
+  return { collectionDateUrls }
+}
+
+/** ISO yyyy-mm-dd `days` before now (UTC), matching the app's date maths. */
+function isoDaysAgo(days: number): string {
+  return new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString().split('T')[0]!
+}
+
+/** The plain `collection_date` table query (not `collection_date_pool`). */
+function pickCollectionDateUrl(urls: string[]): string | undefined {
+  return urls.find((u) => u.includes('/collection_date?') && !u.includes('collection_date_pool'))
 }
 
 /** Navigate to the booking; return false (and skip) if the server has no seed data for it. */
@@ -126,5 +143,40 @@ test.describe('Contractor date-override dropdown (#378)', () => {
     await page.getByLabel(/edit collection details/i).click()
     const options = page.locator('select option')
     await expect(options.filter({ hasText: /closed|past/i })).toHaveCount(0)
+  })
+})
+
+// Assert on the intercepted collection_date REQUEST URL, not the returned rows.
+// This regresses the role branch + #390.3 past-date window in the query itself,
+// so it holds regardless of what fixture data the mock returns. NOTE: the role
+// branch (`isContractor`) is derived from the SERVER-rendered session role, not
+// the client mock — a seeded run must be logged in AS the role each test names.
+test.describe('Reschedule date query shape (role branch + #390.3 window)', () => {
+  test('client-admin query filters is_open=eq.true and date>=today', async ({ page }) => {
+    const { collectionDateUrls } = await setupAdminMocks(page, { role: 'client-admin' })
+    if (!(await gotoBookingOrSkip(page))) return
+
+    await page.getByLabel(/edit collection details/i).click()
+    await expect.poll(() => (pickCollectionDateUrl(collectionDateUrls) ? 1 : 0)).toBeGreaterThan(0)
+
+    const url = pickCollectionDateUrl(collectionDateUrls)!
+    expect(url).toContain('is_open=eq.true')
+    // date=gte.<today> — tolerate a UTC-midnight tick between app render and assert.
+    expect(url.includes(`date=gte.${isoDaysAgo(0)}`) || url.includes(`date=gte.${isoDaysAgo(1)}`)).toBe(true)
+  })
+
+  test('contractor query drops is_open and floors date at ~90 days ago', async ({ page }) => {
+    const { collectionDateUrls } = await setupAdminMocks(page, { role: 'contractor-admin' })
+    if (!(await gotoBookingOrSkip(page))) return
+
+    await page.getByLabel(/edit collection details/i).click()
+    await expect.poll(() => (pickCollectionDateUrl(collectionDateUrls) ? 1 : 0)).toBeGreaterThan(0)
+
+    const url = pickCollectionDateUrl(collectionDateUrls)!
+    // No is_open FILTER (the column still appears in the select list, so match the
+    // `=eq.` filter form specifically, not the bare column name).
+    expect(url).not.toContain('is_open=eq.')
+    // date=gte.<~90-day floor>, NOT today — proves the #390.3 relaxed window.
+    expect(url.includes(`date=gte.${isoDaysAgo(90)}`) || url.includes(`date=gte.${isoDaysAgo(91)}`)).toBe(true)
   })
 })

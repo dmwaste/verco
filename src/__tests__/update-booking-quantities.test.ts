@@ -173,6 +173,60 @@ describe('updateBookingQuantities — reduction → refund orchestration', () =>
   })
 })
 
+describe('updateBookingQuantities — booking_updated notification payload per refund state', () => {
+  const notify = () => fetchCalls.find((c) => c.url.includes('/send-notification'))!
+
+  it("initiated → refund_status 'processed' + refund_request_id, NEVER a caller-supplied refund_cents", async () => {
+    // Default beforeEach state: refund_owed_cents=5000, insert ok, process-refund ok.
+    await updateBookingQuantities(B1, REDUCE)
+    const body = notify().body
+    expect(body.type).toBe('booking_updated')
+    expect(body.refund_status).toBe('processed')
+    expect(body.refund_request_id).toBe('refund-1')
+    // The amount is derived server-side by send-notification from the
+    // refund_request row (money-integrity hardening) — the payload must never
+    // carry a forgeable cents figure.
+    expect('refund_cents' in body).toBe(false)
+    expect(typeof body.edit_ref).toBe('string')
+    expect((body.edit_ref as string).length).toBeGreaterThan(0)
+  })
+
+  it("queued → refund_status 'pending_review' + refund_request_id (Pending row awaits approval)", async () => {
+    processRefundOk = false
+    await updateBookingQuantities(B1, REDUCE)
+    const body = notify().body
+    expect(body.type).toBe('booking_updated')
+    expect(body.refund_status).toBe('pending_review')
+    expect(body.refund_request_id).toBe('refund-1')
+    expect('refund_cents' in body).toBe(false)
+    expect((body.edit_ref as string).length).toBeGreaterThan(0)
+  })
+
+  it('failed → no refund fields (no Pending row exists, so nothing to show)', async () => {
+    refundInsertError = { message: 'RLS denied' }
+    await updateBookingQuantities(B1, REDUCE)
+    const body = notify().body
+    expect(body.type).toBe('booking_updated')
+    expect('refund_status' in body).toBe(false)
+    expect('refund_request_id' in body).toBe(false)
+    expect('refund_cents' in body).toBe(false)
+    // The resident is still notified their booking changed — just without a
+    // refund line — so edit_ref must be present to key idempotency.
+    expect((body.edit_ref as string).length).toBeGreaterThan(0)
+  })
+
+  it('none → no refund fields (free-quota change, nothing owed)', async () => {
+    efResponse.payload.refund_owed_cents = 0
+    await updateBookingQuantities(B1, [{ service_id: SVC_GENERAL, no_services: 2 }])
+    const body = notify().body
+    expect(body.type).toBe('booking_updated')
+    expect('refund_status' in body).toBe(false)
+    expect('refund_request_id' in body).toBe(false)
+    expect('refund_cents' in body).toBe(false)
+    expect((body.edit_ref as string).length).toBeGreaterThan(0)
+  })
+})
+
 describe('updateBookingQuantities — gating (server re-enforces the UI gate)', () => {
   it('rejects a MUD booking before calling the EF', async () => {
     booking!.type = 'MUD'
