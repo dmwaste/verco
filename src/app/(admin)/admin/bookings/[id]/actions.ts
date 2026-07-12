@@ -10,6 +10,7 @@ import {
 } from '@/lib/booking/collection-details-edit'
 import { STAFF_ROLES } from '@/lib/auth/roles'
 import { orchestrateRefund, type RefundOrchestrationState } from '@/lib/payments/orchestrate-refund'
+import { REFUND_REASONS } from '@/lib/refunds/auto-raised'
 import type { Result } from '@/lib/result'
 
 /**
@@ -181,7 +182,7 @@ export async function cancelBooking(bookingId: string): Promise<Result<void>> {
     contactId: booking.contact_id,
     clientId: booking.client_id,
     amountCents: refundAmountCents,
-    reason: 'Booking cancelled by staff',
+    reason: REFUND_REASONS.staffCancellation,
   })
 
   // Fire booking_cancelled notification. Fire-and-forget — failure never
@@ -607,7 +608,7 @@ export async function updateBookingQuantities(
     contactId: booking.contact_id,
     clientId: booking.client_id,
     amountCents: refundOwedCents,
-    reason: 'Booking quantity reduced by staff',
+    reason: REFUND_REASONS.quantityReduction,
   })
 
   // Notify the resident their (Confirmed) booking changed — a current-state

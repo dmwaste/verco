@@ -5,6 +5,7 @@ import type { Result } from '@/lib/result'
 import { verifyStaffRole } from '@/lib/auth/server'
 import { OPEN_EXCEPTION_FILTER_STATUSES } from '@/lib/exceptions/status'
 import { orchestrateRefund } from '@/lib/payments/orchestrate-refund'
+import { REFUND_REASONS } from '@/lib/refunds/auto-raised'
 
 export async function updateNpStatus(
   npId: string,
@@ -271,7 +272,7 @@ export async function resolveNpWithRefund(
     contactId: booking.contact_id,
     clientId: booking.client_id,
     amountCents: refundAmountCents,
-    reason: 'Contractor fault — Nothing Presented resolution',
+    reason: REFUND_REASONS.npContractorFault,
   })
 
   return { ok: true, data: undefined }
