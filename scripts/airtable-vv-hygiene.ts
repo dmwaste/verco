@@ -25,6 +25,7 @@ import {
 import { loadAreaMap, resolveAreaId } from './lib/area-map'
 import { normaliseAddress } from './lib/normalise'
 import { parseFlags, requireEnv } from './lib/cli'
+import { timestamp } from './lib/report'
 import { VV_BASES, type VvBase } from './lib/types'
 
 type Finding<T> = T & { baseId: string }
@@ -237,12 +238,6 @@ function printHumanSummary(report: Report, path: string, applied: boolean) {
   if (!applied && (report.summary.orphan_council_codes ?? 0) > 0) {
     console.log(`Re-run with --apply to delete the ${report.summary.orphan_council_codes} orphan Council_Code row(s).`)
   }
-}
-
-function timestamp(): string {
-  const d = new Date()
-  const z = (n: number) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}${z(d.getMonth() + 1)}${z(d.getDate())}-${z(d.getHours())}${z(d.getMinutes())}${z(d.getSeconds())}`
 }
 
 main().catch((err) => {
