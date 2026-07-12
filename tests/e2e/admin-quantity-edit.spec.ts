@@ -8,17 +8,24 @@ import { test, expect, type Page, type Route } from '@playwright/test'
 // redirects, so each test skips gracefully. Real coverage runs against a dev
 // server with seed data or a preview deployment.
 
-const TEST_BOOKING_ID = 'booking-qty-001'
+// Valid UUID (booking.id is a uuid PK) so a seeded environment CAN contain this
+// booking — a non-UUID id here made the seeded escape-hatch unreachable and
+// every spec skip forever. Seed a booking with this id to exercise the specs.
+const TEST_BOOKING_ID = '00000000-0000-4000-8000-000000390001'
 const SERVICE_NAME = 'Mattress'
 
 const TEST_AVAILABLE_DATES_OPEN = [
   { id: 'cd-future-1', date: '2026-08-20', is_open: true, bulk_capacity_limit: 100, bulk_units_booked: 5, bulk_is_closed: false, anc_capacity_limit: 100, anc_units_booked: 0, anc_is_closed: false, id_capacity_limit: 0, id_units_booked: 0, id_is_closed: false },
 ]
-// A closed + a past date — only a contractor's relaxed query should surface these.
+// A closed + a past date — only a contractor's relaxed query should surface
+// these. The past date sits inside the contractor 90-day floor (#390.3): the
+// production query would never return anything older, so the fixture must not
+// either.
+const PAST_IN_WINDOW = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]!
 const TEST_DATES_CLOSED_AND_PAST = [
   ...TEST_AVAILABLE_DATES_OPEN,
   { id: 'cd-closed-1', date: '2026-08-27', is_open: false, bulk_capacity_limit: 100, bulk_units_booked: 5, bulk_is_closed: false, anc_capacity_limit: 100, anc_units_booked: 0, anc_is_closed: false, id_capacity_limit: 0, id_units_booked: 0, id_is_closed: false },
-  { id: 'cd-past-1', date: '2020-01-01', is_open: true, bulk_capacity_limit: 100, bulk_units_booked: 5, bulk_is_closed: false, anc_capacity_limit: 100, anc_units_booked: 0, anc_is_closed: false, id_capacity_limit: 0, id_units_booked: 0, id_is_closed: false },
+  { id: 'cd-past-1', date: PAST_IN_WINDOW, is_open: true, bulk_capacity_limit: 100, bulk_units_booked: 5, bulk_is_closed: false, anc_capacity_limit: 100, anc_units_booked: 0, anc_is_closed: false, id_capacity_limit: 0, id_units_booked: 0, id_is_closed: false },
 ]
 
 /** Mock the client-side calls the booking-detail page makes; the server render itself is not mockable. */
@@ -42,8 +49,10 @@ async function setupAdminMocks(page: Page, opts: { role?: string; dates?: unknow
   })
 
   // The reduction refund fires through the create-booking + process-refund EFs
-  // inside the server action (server-side, not interceptable here) — mock them
-  // for completeness so a seeded run doesn't move real money.
+  // inside the server action — SERVER-side fetches, so page.route() CANNOT
+  // intercept them. These mocks only catch any future client-side EF calls.
+  // A seeded run therefore exercises the REAL EFs end-to-end: only run seeded
+  // e2e against environments on Stripe TEST keys.
   await page.route(`${supabaseUrl}/functions/v1/create-booking`, (route: Route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ booking_id: TEST_BOOKING_ID, ref: 'KWN-1-QTY001', edited: true, requires_payment: false, refund_owed_cents: 5000 }) }),
   )

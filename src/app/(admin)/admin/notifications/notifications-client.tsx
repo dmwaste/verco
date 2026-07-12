@@ -13,7 +13,9 @@ import { retryNotification } from './actions'
 
 const NOTIFICATION_TYPE_LABELS: Record<string, string> = {
   booking_created: 'Booking Created',
+  booking_updated: 'Booking Updated',
   booking_cancelled: 'Booking Cancelled',
+  collection_reminder: 'Collection Reminder',
   ncn_raised: 'NCN Raised',
   np_raised: 'Nothing Presented',
   completion_survey: 'Survey',
@@ -24,7 +26,9 @@ const NOTIFICATION_TYPE_LABELS: Record<string, string> = {
 const TYPE_OPTIONS = [
   { value: '', label: 'All types' },
   { value: 'booking_created', label: 'Booking Created' },
+  { value: 'booking_updated', label: 'Booking Updated' },
   { value: 'booking_cancelled', label: 'Booking Cancelled' },
+  { value: 'collection_reminder', label: 'Collection Reminder' },
   { value: 'ncn_raised', label: 'NCN Raised' },
   { value: 'np_raised', label: 'Nothing Presented' },
   { value: 'completion_survey', label: 'Survey' },
