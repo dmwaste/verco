@@ -7,6 +7,7 @@ import {
   updateCompletionDetails,
   type OrCompletionInput,
 } from '../_shared/optimoroute.ts'
+import { logSyncRun } from '../_shared/sync-run-log.ts'
 
 /**
  * sync-completions-to-optimoroute cron Edge Function
@@ -108,6 +109,19 @@ serve(async (_req) => {
 
     console.log(JSON.stringify({ event: 'sync_completions_to_optimoroute', ...results }))
 
+    // Durable outcome row — but only for ticks that did (or failed to do)
+    // work: this cron fires every 5 minutes, and a no-op tick is not signal.
+    // Cron liveness is visible in cron.job_run_details; what needs a durable
+    // record is each actual sync and each failure (see logSyncRun).
+    if (results.synced > 0 || results.failed > 0) {
+      await logSyncRun(
+        supabase,
+        'sync-completions-to-optimoroute',
+        results.failed > 0 ? 'failed' : 'success',
+        results,
+      )
+    }
+
     // 500 on any per-order failure so pg_cron monitoring sees it.
     const status = results.failed > 0 ? 500 : 200
     return new Response(JSON.stringify({ ok: results.failed === 0, ...results }), {
@@ -116,6 +130,13 @@ serve(async (_req) => {
     })
   } catch (err) {
     console.error('sync-completions-to-optimoroute error:', err)
+    await logSyncRun(
+      supabase,
+      'sync-completions-to-optimoroute',
+      'failed',
+      results,
+      err instanceof Error ? err.message : String(err),
+    )
     return new Response(
       JSON.stringify({ ok: false, error: err instanceof Error ? err.message : String(err) }),
       { status: 500, headers: { 'Content-Type': 'application/json' } },

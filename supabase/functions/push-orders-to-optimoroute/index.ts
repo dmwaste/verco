@@ -19,6 +19,7 @@ import {
   type WasteStream,
 } from '../_shared/stops.ts'
 import { createOrUpdateOrders, getRoutingApiKey, type OrOrderInput } from '../_shared/optimoroute.ts'
+import { logSyncRun } from '../_shared/sync-run-log.ts'
 
 /**
  * push-orders-to-optimoroute cron Edge Function
@@ -514,10 +515,17 @@ serve(async (_req) => {
           results.failed++
           const message = result?.error ?? 'no result returned'
           console.error(`Push failed for ${stops[i]!.external_order_ref}: ${message}`)
-          await supabase
+          const { error: stampFailError } = await supabase
             .from('collection_stop')
             .update({ last_push_error: message })
             .eq('id', stops[i]!.id)
+          if (stampFailError) {
+            // A lost stamp erases the only per-order forensic record
+            // (12-13/07/2026 incident) — surface it, but keep processing.
+            console.error(
+              `last_push_error stamp failed for ${stops[i]!.external_order_ref}: ${stampFailError.message}`,
+            )
+          }
         }
       }
 
@@ -540,6 +548,16 @@ serve(async (_req) => {
 
     console.log(JSON.stringify({ event: 'push_orders_to_optimoroute', ...results }))
 
+    // Durable per-run outcome: one row per nightly run, so a missing row is
+    // itself the alarm (a run that died overnight leaves no other durable
+    // trace — see logSyncRun).
+    await logSyncRun(
+      supabase,
+      'push-orders-to-optimoroute',
+      results.failed > 0 ? 'failed' : 'success',
+      results,
+    )
+
     // 500 on any per-order failure so pg_cron monitoring sees it.
     const status = results.failed > 0 ? 500 : 200
     return new Response(JSON.stringify({ ok: results.failed === 0, ...results }), {
@@ -548,6 +566,14 @@ serve(async (_req) => {
     })
   } catch (err) {
     console.error('push-orders-to-optimoroute error:', err)
+    // Partial counters show how far the run got before it died.
+    await logSyncRun(
+      supabase,
+      'push-orders-to-optimoroute',
+      'failed',
+      results,
+      err instanceof Error ? err.message : String(err),
+    )
     return new Response(
       JSON.stringify({ ok: false, error: err instanceof Error ? err.message : String(err) }),
       { status: 500, headers: { 'Content-Type': 'application/json' } },
