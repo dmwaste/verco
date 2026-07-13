@@ -16,11 +16,12 @@ const RUN_LEVEL_ENTITY_ID = '00000000-0000-0000-0000-000000000000'
  *
  * Never throws: observability must not fail the run it is observing.
  *
- * Stale-run check for a daily cron (no row in the last 25h = the run died or
- * never fired):
- *   SELECT max(created_at) FROM sync_log
+ * Stale-run check for a daily cron (stale = the run died or never fired).
+ * Count-based on purpose: a max()/HAVING form returns no row when the table
+ * has no matching rows at all, so "never fired" reads as healthy.
+ *   SELECT count(*) = 0 AS stale FROM sync_log
  *   WHERE entity_type = 'push-orders-to-optimoroute'
- *   HAVING max(created_at) < now() - interval '25 hours';
+ *     AND created_at > now() - interval '25 hours';
  */
 export async function logSyncRun(
   supabase: SupabaseClient<Database>,

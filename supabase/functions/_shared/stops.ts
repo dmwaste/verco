@@ -146,6 +146,13 @@ export function servicesSummariesEqual(
   a: ServiceSummaryEntry[],
   b: ServiceSummaryEntry[],
 ): boolean {
+  // The stored side is unconstrained jsonb — the type signature can lie
+  // (manual row surgery, legacy shapes). Malformed input must read as
+  // "changed" (one refresh converges it), never throw: a throw escapes the
+  // per-stop loop and aborts the whole nightly push.
+  const wellFormed = (xs: ServiceSummaryEntry[]) =>
+    Array.isArray(xs) && xs.every((e) => typeof e === 'object' && e !== null)
+  if (!wellFormed(a) || !wellFormed(b)) return false
   if (a.length !== b.length) return false
   const key = (e: ServiceSummaryEntry) => `${e.name}\u0000${e.qty}`
   const as = a.map(key).sort()
