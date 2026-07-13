@@ -257,3 +257,45 @@ export function computeRollup(
   if (live.some((s) => s === 'Nothing Presented')) return 'Nothing Presented'
   return 'Completed'
 }
+
+export interface PushFailure {
+  id: string
+  orderRef: string
+  error: string
+}
+
+export interface PushResultPartition {
+  /** Stop ids whose OR order succeeded — stamp pushed_at in one update. */
+  okIds: string[]
+  /** Failures carrying the per-order message for last_push_error + logging. */
+  failures: PushFailure[]
+}
+
+/**
+ * Positionally matches OptimoRoute per-order results back to the stops that
+ * produced them (createOrUpdateOrders guarantees result[i] ↔ order[i]). A
+ * missing or falsy result is a FAILURE, never a silent success: a short or
+ * dropped results array must never let an unconfirmed stop be stamped
+ * pushed_at (which would suppress its re-push forever). Message default
+ * matches the historical inline behaviour.
+ */
+export function partitionPushResults(
+  stops: ReadonlyArray<{ id: string; external_order_ref: string }>,
+  results: ReadonlyArray<{ success: boolean; error?: string } | undefined>,
+): PushResultPartition {
+  const okIds: string[] = []
+  const failures: PushFailure[] = []
+  for (let i = 0; i < stops.length; i++) {
+    const result = results[i]
+    if (result?.success) {
+      okIds.push(stops[i]!.id)
+    } else {
+      failures.push({
+        id: stops[i]!.id,
+        orderRef: stops[i]!.external_order_ref,
+        error: result?.error ?? 'no result returned',
+      })
+    }
+  }
+  return { okIds, failures }
+}

@@ -6,6 +6,7 @@ import {
   canStopTransition,
   computeRollup,
   groupItemsByStream,
+  partitionPushResults,
   STOP_DURATION_MINUTES,
   STREAM_PRIORITY,
   STREAM_SUFFIX,
@@ -321,5 +322,50 @@ describe('computeRollup — parity with rollup_booking_status_from_stops', () =>
     expect(roll('Completed', 'Cancelled')).toBe('Completed')
     expect(roll('Cancelled', 'Nothing Presented')).toBe('Nothing Presented')
     expect(roll('Cancelled', 'Non-conformance', 'Completed')).toBe('Non-conformance')
+  })
+})
+
+describe('partitionPushResults — positional match of OR results to stops', () => {
+  const stop = (id: string, ref: string) => ({ id, external_order_ref: ref })
+
+  it('routes successes to okIds and failures with their per-order message', () => {
+    const { okIds, failures } = partitionPushResults(
+      [stop('s1', 'KWN-1-A'), stop('s2', 'KWN-1-B'), stop('s3', 'KWN-1-G')],
+      [{ success: true }, { success: false, error: 'rejected' }, { success: true }],
+    )
+    expect(okIds).toEqual(['s1', 's3'])
+    expect(failures).toEqual([{ id: 's2', orderRef: 'KWN-1-B', error: 'rejected' }])
+  })
+
+  it('a missing result (short/dropped results array) is a failure, never a silent push', () => {
+    // The bug this guards: if OR returns fewer results than orders sent, the
+    // tail stops must NOT be stamped pushed_at — they were never confirmed.
+    const { okIds, failures } = partitionPushResults(
+      [stop('s1', 'KWN-1-A'), stop('s2', 'KWN-1-B')],
+      [{ success: true }], // s2 has no matching result
+    )
+    expect(okIds).toEqual(['s1'])
+    expect(failures).toEqual([{ id: 's2', orderRef: 'KWN-1-B', error: 'no result returned' }])
+  })
+
+  it('defaults the message when a failure result carries no error string', () => {
+    const { failures } = partitionPushResults(
+      [stop('s1', 'KWN-1-A')],
+      [{ success: false }],
+    )
+    expect(failures).toEqual([{ id: 's1', orderRef: 'KWN-1-A', error: 'no result returned' }])
+  })
+
+  it('handles all-success and all-fail cleanly', () => {
+    expect(
+      partitionPushResults([stop('s1', 'r1')], [{ success: true }]),
+    ).toEqual({ okIds: ['s1'], failures: [] })
+    expect(
+      partitionPushResults([stop('s1', 'r1')], [{ success: false, error: 'HTTP 500' }]),
+    ).toEqual({ okIds: [], failures: [{ id: 's1', orderRef: 'r1', error: 'HTTP 500' }] })
+  })
+
+  it('is empty-safe', () => {
+    expect(partitionPushResults([], [])).toEqual({ okIds: [], failures: [] })
   })
 })

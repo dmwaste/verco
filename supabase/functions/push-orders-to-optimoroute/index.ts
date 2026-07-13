@@ -7,6 +7,7 @@ import {
   buildOrderNotes,
   buildServicesSummary,
   groupItemsByStream,
+  partitionPushResults,
   servicesSummariesEqual,
   shouldCancelOrphanStop,
   STOP_DURATION_MINUTES,
@@ -14,11 +15,18 @@ import {
   stopItemKey,
   vehicleFeaturesForStream,
   wasteLocationOrNull,
+  type PushFailure,
   type ServiceSummaryEntry,
   type StopItem,
   type WasteStream,
 } from '../_shared/stops.ts'
-import { createOrUpdateOrders, getRoutingApiKey, type OrOrderInput } from '../_shared/optimoroute.ts'
+import {
+  chunk,
+  createOrUpdateOrders,
+  getRoutingApiKey,
+  OR_BULK_LIMIT,
+  type OrOrderInput,
+} from '../_shared/optimoroute.ts'
 import { logSyncRun } from '../_shared/sync-run-log.ts'
 
 /**
@@ -483,66 +491,87 @@ serve(async (_req) => {
         }
       }
 
-      const orders: OrOrderInput[] = stops.map((stop) => ({
-        orderNo: stop.external_order_ref,
-        date: stop.collection_date.date,
-        duration: STOP_DURATION_MINUTES,
-        priority: STREAM_PRIORITY[stop.stream],
-        vehicleFeatures: vehicleFeaturesForStream(stop.stream),
-        notes: buildOrderNotes(stop.services_summary ?? [], stop.waste_location, stop.driver_notes),
-        email: emailByBooking.get(stop.booking_id),
-        location:
-          stop.latitude !== null && stop.longitude !== null
-            ? {
-                latitude: Number(stop.latitude),
-                longitude: Number(stop.longitude),
-                locationName: stop.address ?? undefined,
-              }
-            : {
-                address: stop.address ?? undefined,
-                acceptPartialMatch: true,
-              },
-      }))
+      // Push in ≤500 stop batches (OR's bulk cap) and stamp pushed_at after
+      // EACH batch, so every run makes monotonic progress: a mid-run kill (the
+      // 150s request-idle ceiling, or an oversized post-outage backlog) leaves
+      // already-pushed batches durably stamped instead of re-SYNCing
+      // OR-accepted orders next night — a SYNC replace can unschedule an order
+      // ops already planned. Batches before the kill point are converged; the
+      // next tick resumes from the first un-stamped batch. A network throw from
+      // createOrUpdateOrders propagates to the top-level catch (500 + failed
+      // sync_log row) with prior batches already stamped.
+      for (const batch of chunk(stops, OR_BULK_LIMIT)) {
+        const orders: OrOrderInput[] = batch.map((stop) => ({
+          orderNo: stop.external_order_ref,
+          date: stop.collection_date.date,
+          duration: STOP_DURATION_MINUTES,
+          priority: STREAM_PRIORITY[stop.stream],
+          vehicleFeatures: vehicleFeaturesForStream(stop.stream),
+          notes: buildOrderNotes(stop.services_summary ?? [], stop.waste_location, stop.driver_notes),
+          email: emailByBooking.get(stop.booking_id),
+          location:
+            stop.latitude !== null && stop.longitude !== null
+              ? {
+                  latitude: Number(stop.latitude),
+                  longitude: Number(stop.longitude),
+                  locationName: stop.address ?? undefined,
+                }
+              : {
+                  address: stop.address ?? undefined,
+                  acceptPartialMatch: true,
+                },
+        }))
 
-      const orderResults = await createOrUpdateOrders(apiKey, orders)
+        const { okIds, failures } = partitionPushResults(
+          batch,
+          await createOrUpdateOrders(apiKey, orders),
+        )
 
-      const okIds: string[] = []
-      for (let i = 0; i < stops.length; i++) {
-        const result = orderResults[i]
-        if (result?.success) {
-          okIds.push(stops[i]!.id)
-        } else {
-          results.failed++
-          const message = result?.error ?? 'no result returned'
-          console.error(`Push failed for ${stops[i]!.external_order_ref}: ${message}`)
-          const { error: stampFailError } = await supabase
+        if (okIds.length > 0) {
+          // external_deleted_at reset: if the hourly sweep deleted this orderNo
+          // mid-push (booking cancelled while we were in flight), clearing the
+          // marker lets the next sweep see the recreated order and re-delete it.
+          const { error: stampError } = await supabase
             .from('collection_stop')
-            .update({ last_push_error: message })
-            .eq('id', stops[i]!.id)
-          if (stampFailError) {
-            // A lost stamp erases the only per-order forensic record
-            // (12-13/07/2026 incident) — surface it, but keep processing.
-            console.error(
-              `last_push_error stamp failed for ${stops[i]!.external_order_ref}: ${stampFailError.message}`,
-            )
+            .update({
+              pushed_at: new Date().toISOString(),
+              last_push_error: null,
+              external_deleted_at: null,
+            })
+            .in('id', okIds)
+          if (stampError) throw new Error(`pushed_at stamp: ${stampError.message}`)
+          results.orders_pushed += okIds.length
+        }
+
+        if (failures.length > 0) {
+          results.failed += failures.length
+          // Batch last_push_error by identical message: a wholesale OR
+          // rejection (HTTP error, envelope failure) shares one error across a
+          // whole batch, so grouping collapses N per-order round-trips — which
+          // themselves eat into the invocation window — to one update per
+          // distinct message, preserving the exact per-row forensic value.
+          const byError = new Map<string, PushFailure[]>()
+          for (const f of failures) {
+            const group = byError.get(f.error)
+            if (group) group.push(f)
+            else byError.set(f.error, [f])
+          }
+          for (const [message, group] of byError) {
+            const refs = group.map((f) => f.orderRef)
+            console.error(`Push failed for ${group.length} stop(s): ${message}`, refs)
+            const { error: stampFailError } = await supabase
+              .from('collection_stop')
+              .update({ last_push_error: message })
+              .in('id', group.map((f) => f.id))
+            if (stampFailError) {
+              // A lost stamp erases the only per-order forensic record
+              // (12-13/07/2026 incident) — surface it, but keep processing.
+              console.error(
+                `last_push_error stamp failed for ${refs.length} stop(s): ${stampFailError.message}`,
+              )
+            }
           }
         }
-      }
-
-      if (okIds.length > 0) {
-        // external_deleted_at reset: if the hourly sweep deleted this orderNo
-        // mid-push (booking cancelled while we were in flight), clearing the
-        // marker lets the next sweep see the recreated order and re-delete it.
-        const { error: stampError } = await supabase
-          .from('collection_stop')
-          .update({
-            pushed_at: new Date().toISOString(),
-            last_push_error: null,
-            external_deleted_at: null,
-          })
-          .in('id', okIds)
-        if (stampError) throw new Error(`pushed_at stamp: ${stampError.message}`)
-        results.orders_pushed = okIds.length
       }
     }
 
