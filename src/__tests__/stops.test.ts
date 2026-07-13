@@ -6,7 +6,9 @@ import {
   canStopTransition,
   computeRollup,
   groupItemsByStream,
+  num,
   partitionPushResults,
+  payloadDiffers,
   STOP_DURATION_MINUTES,
   STREAM_PRIORITY,
   STREAM_SUFFIX,
@@ -16,6 +18,8 @@ import {
   vehicleFeaturesForStream,
   wasteLocationOrNull,
   type ServiceSummaryEntry,
+  type StopDiffDesired,
+  type StopDiffExisting,
   type StopItem,
   type StopStatus,
   type WasteStream,
@@ -188,6 +192,64 @@ describe('servicesSummariesEqual', () => {
     const stored = 'x' as unknown as ServiceSummaryEntry[]
     const desired: ServiceSummaryEntry[] = [{ name: 'Bulk Waste', qty: 1 }]
     expect(servicesSummariesEqual(stored, desired)).toBe(false)
+  })
+})
+
+describe('num — Postgres numeric coercion', () => {
+  it('coerces a numeric string to a number and passes null through', () => {
+    expect(num('-32.1')).toBe(-32.1)
+    expect(num(115.7)).toBe(115.7)
+    expect(num(null)).toBeNull()
+  })
+})
+
+describe('payloadDiffers — Pass-1 change detection', () => {
+  const existing: StopDiffExisting = {
+    collection_date_id: 'd1',
+    address: '4 William Street COTTESLOE WA 6011',
+    latitude: '-31.9950', // Postgres numeric comes back as a string
+    longitude: '115.7500',
+    waste_location: 'Front Verge',
+    driver_notes: 'Behind the gate',
+    services_summary: [{ qty: 1, name: 'Bulk Waste' }], // jsonb key order: qty first
+  }
+  const desired: StopDiffDesired = {
+    collection_date_id: 'd1',
+    address: '4 William Street COTTESLOE WA 6011',
+    latitude: -31.995, // number, and string↔number must compare equal
+    longitude: 115.75,
+    waste_location: 'Front Verge',
+    driver_notes: 'Behind the gate',
+    services_summary: [{ name: 'Bulk Waste', qty: 1 }], // built key order: name first
+  }
+
+  it('is false when nothing changed, despite jsonb key reorder + numeric-string lat/long', () => {
+    // The exact refresh-storm guard: a JSON.stringify comparison of
+    // services_summary would flag this identical stop as changed every night.
+    expect(payloadDiffers(existing, desired)).toBe(false)
+  })
+
+  it('is true on a real services_summary content change (qty)', () => {
+    expect(payloadDiffers(existing, { ...desired, services_summary: [{ name: 'Bulk Waste', qty: 2 }] })).toBe(true)
+  })
+
+  it('is true when any scalar field changes', () => {
+    expect(payloadDiffers(existing, { ...desired, collection_date_id: 'd2' })).toBe(true)
+    expect(payloadDiffers(existing, { ...desired, address: '5 William Street' })).toBe(true)
+    expect(payloadDiffers(existing, { ...desired, latitude: -32.0 })).toBe(true)
+    expect(payloadDiffers(existing, { ...desired, longitude: 116.0 })).toBe(true)
+    expect(payloadDiffers(existing, { ...desired, waste_location: 'Driveway' })).toBe(true)
+    expect(payloadDiffers(existing, { ...desired, driver_notes: 'Out front' })).toBe(true)
+  })
+
+  it('treats null and absent-nullable fields as equal (?? null normalisation)', () => {
+    const noExtras: StopDiffExisting = {
+      ...existing,
+      address: null,
+      waste_location: null,
+      driver_notes: null,
+    }
+    expect(payloadDiffers(noExtras, { ...desired, address: null, waste_location: null, driver_notes: null })).toBe(false)
   })
 })
 
