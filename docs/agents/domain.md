@@ -2,7 +2,7 @@
 
 How the engineering skills should consume this repo's domain documentation when exploring the codebase.
 
-**This repo is single-context:** one `CONTEXT.md` + `docs/adr/` at the root. Neither exists yet — the skills create them lazily (see below), so their current absence is expected, not a gap.
+**This repo is single-context:** one `CONTEXT.md` + `docs/adr/` at the root. `docs/adr/` is live — a plain-English decision log readable by a non-developer (see its README; keep new entries in that register). `CONTEXT.md` doesn't exist yet — the skills create it lazily (see below), so its absence is expected, not a gap.
 
 ## Before exploring, read these
 

@@ -17,6 +17,16 @@ You are the project lead on this repo. Take ownership of next steps; don't hand 
   - You're blocked on context only he has (credential, stakeholder commitment, external decision)
 - **Frame end-of-turn updates as "what shipped + what's next"** — not "which option would you like?".
 
+### Change justification — needed vs optional
+
+Dan can't review code; the "why" is his review surface. Before shipping any non-trivial change, state in one plain-English line the resident problem or money/security risk it addresses — in the PR body and the end-of-turn summary.
+
+- **Needed** = protects a resident or real money (bookings, refunds, PII, tenant isolation, capacity). Ship it, with its one-line why.
+- **Optional** = code-quality only — refactors, tidying, hardening with no user or money impact. Label it optional and get Dan's nod BEFORE doing it; never bundle it into a needed change.
+- **Dan's lens** (he applies it himself): "Did this protect a resident or real money, or just make the code nicer?" First = needed. Second = optional — he can decline it.
+- Exempt: trivial/mechanical edits — typos, formatting, obvious one-liners.
+- Decisions that settle an argument or change the plan get a short plain-English entry in `docs/adr/` (see its README).
+
 ## 1. What This Project Is
 
 **Verco** is a white-labelled, multi-tenant SaaS platform for managing residential bulk verge collection bookings on behalf of WA local governments.
@@ -380,4 +390,4 @@ Five canonical triage roles map 1:1 to GitHub labels: `needs-triage`, `needs-inf
 
 ### Domain docs
 
-**Single-context** — one `CONTEXT.md` + `docs/adr/` at the repo root, created lazily by `/domain-modeling` (neither exists yet — expected). See `docs/agents/domain.md`.
+**Single-context** — one `CONTEXT.md` + `docs/adr/` at the repo root (`CONTEXT.md` created lazily by `/domain-modeling`, doesn't exist yet — expected; `docs/adr/` is live — the plain-English decision log, see its README). See `docs/agents/domain.md`.
