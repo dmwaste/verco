@@ -134,6 +134,26 @@ export function buildServicesSummary(items: StopItem[]): ServiceSummaryEntry[] {
 }
 
 /**
+ * Content equality for services_summary payloads, independent of object key
+ * order and entry order. Postgres jsonb normalises object keys ({"qty": …,
+ * "name": …}) while buildServicesSummary emits {name, qty}, so a
+ * JSON.stringify comparison flags every stored summary as changed — which made
+ * the push EF reset pushed_at and re-push every pending stop every night
+ * (12/07/2026 incident: the run outgrew its invocation window and died between
+ * reset and re-push, stranding every stop as "never pushed").
+ */
+export function servicesSummariesEqual(
+  a: ServiceSummaryEntry[],
+  b: ServiceSummaryEntry[],
+): boolean {
+  if (a.length !== b.length) return false
+  const key = (e: ServiceSummaryEntry) => `${e.name}\u0000${e.qty}`
+  const as = a.map(key).sort()
+  const bs = b.map(key).sort()
+  return as.every((v, i) => v === bs[i])
+}
+
+/**
  * Structured OptimoRoute order notes — a labelled block the crew reads in the
  * driver app / order detail, e.g.
  *

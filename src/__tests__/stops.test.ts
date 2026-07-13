@@ -9,10 +9,12 @@ import {
   STOP_DURATION_MINUTES,
   STREAM_PRIORITY,
   STREAM_SUFFIX,
+  servicesSummariesEqual,
   shouldCancelOrphanStop,
   stopItemKey,
   vehicleFeaturesForStream,
   wasteLocationOrNull,
+  type ServiceSummaryEntry,
   type StopItem,
   type StopStatus,
   type WasteStream,
@@ -124,6 +126,51 @@ describe('buildServicesSummary', () => {
     const b = buildServicesSummary([item('Mattress', 'ancillary'), item('Whitegoods', 'ancillary')])
     expect(a).toEqual(b)
     expect(a.map((s) => s.name)).toEqual(['Mattress', 'Whitegoods'])
+  })
+})
+
+describe('servicesSummariesEqual', () => {
+  it('treats jsonb key-reordered entries as equal (nightly refresh-storm bug, 13/07/2026)', () => {
+    // Postgres jsonb returns {"qty": …, "name": …} (shorter key first) while the
+    // EF builds {name, qty} — a JSON.stringify comparison is unequal for
+    // identical content, so payloadDiffers refreshed + re-pushed every pending
+    // stop every night until the run outgrew its invocation window.
+    const stored: ServiceSummaryEntry[] = [{ qty: 1, name: 'Bulk Waste' }]
+    const desired: ServiceSummaryEntry[] = [{ name: 'Bulk Waste', qty: 1 }]
+    expect(JSON.stringify(stored)).not.toBe(JSON.stringify(desired))
+    expect(servicesSummariesEqual(stored, desired)).toBe(true)
+  })
+
+  it('is entry-order-insensitive', () => {
+    expect(
+      servicesSummariesEqual(
+        [
+          { name: 'Mattress', qty: 1 },
+          { name: 'Whitegoods', qty: 2 },
+        ],
+        [
+          { name: 'Whitegoods', qty: 2 },
+          { name: 'Mattress', qty: 1 },
+        ],
+      ),
+    ).toBe(true)
+  })
+
+  it('detects real changes', () => {
+    const base: ServiceSummaryEntry[] = [{ name: 'Bulk Waste', qty: 1 }]
+    expect(servicesSummariesEqual(base, [{ name: 'Bulk Waste', qty: 2 }])).toBe(false)
+    expect(servicesSummariesEqual(base, [{ name: 'Green Waste', qty: 1 }])).toBe(false)
+    expect(servicesSummariesEqual(base, [])).toBe(false)
+    expect(
+      servicesSummariesEqual(base, [
+        { name: 'Bulk Waste', qty: 1 },
+        { name: 'E-Waste', qty: 1 },
+      ]),
+    ).toBe(false)
+  })
+
+  it('treats two empty summaries as equal', () => {
+    expect(servicesSummariesEqual([], [])).toBe(true)
   })
 })
 
