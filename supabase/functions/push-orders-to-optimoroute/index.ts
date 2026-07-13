@@ -7,6 +7,7 @@ import {
   buildOrderNotes,
   buildServicesSummary,
   groupItemsByStream,
+  servicesSummariesEqual,
   shouldCancelOrphanStop,
   STOP_DURATION_MINUTES,
   STREAM_PRIORITY,
@@ -147,7 +148,10 @@ function payloadDiffers(existing: ExistingStopRow, desired: DesiredStop): boolea
     num(existing.longitude) !== desired.longitude ||
     (existing.waste_location ?? null) !== (desired.waste_location ?? null) ||
     (existing.driver_notes ?? null) !== (desired.driver_notes ?? null) ||
-    JSON.stringify(existing.services_summary ?? []) !== JSON.stringify(desired.services_summary)
+    // Content comparison, NOT JSON.stringify: jsonb reorders object keys, so a
+    // stringify diff is true for every stop and turns the nightly run into a
+    // full reset-and-re-push of everything (see servicesSummariesEqual).
+    !servicesSummariesEqual(existing.services_summary ?? [], desired.services_summary)
   )
 }
 
