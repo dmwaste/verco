@@ -172,6 +172,22 @@ describe('servicesSummariesEqual', () => {
   it('treats two empty summaries as equal', () => {
     expect(servicesSummariesEqual([], [])).toBe(true)
   })
+
+  it('treats malformed stored entries as changed instead of throwing', () => {
+    // services_summary is unconstrained jsonb — incident-time manual row
+    // surgery can leave shapes the type signature promises away. A throw here
+    // escapes the per-stop loop and aborts the entire nightly push.
+    const desired: ServiceSummaryEntry[] = [{ name: 'Bulk Waste', qty: 1 }]
+    const poisoned = [null] as unknown as ServiceSummaryEntry[]
+    expect(servicesSummariesEqual(poisoned, desired)).toBe(false)
+  })
+
+  it('treats a non-array stored value as changed instead of throwing', () => {
+    // jsonb string scalar of length 1 passes the length guard but has no .map
+    const stored = 'x' as unknown as ServiceSummaryEntry[]
+    const desired: ServiceSummaryEntry[] = [{ name: 'Bulk Waste', qty: 1 }]
+    expect(servicesSummariesEqual(stored, desired)).toBe(false)
+  })
 })
 
 describe('buildOrderNotes — structured OptimoRoute notes block', () => {
