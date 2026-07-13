@@ -6,13 +6,20 @@ import {
   canStopTransition,
   computeRollup,
   groupItemsByStream,
+  num,
+  partitionPushResults,
+  payloadDiffers,
   STOP_DURATION_MINUTES,
   STREAM_PRIORITY,
   STREAM_SUFFIX,
+  servicesSummariesEqual,
   shouldCancelOrphanStop,
   stopItemKey,
   vehicleFeaturesForStream,
   wasteLocationOrNull,
+  type ServiceSummaryEntry,
+  type StopDiffDesired,
+  type StopDiffExisting,
   type StopItem,
   type StopStatus,
   type WasteStream,
@@ -124,6 +131,125 @@ describe('buildServicesSummary', () => {
     const b = buildServicesSummary([item('Mattress', 'ancillary'), item('Whitegoods', 'ancillary')])
     expect(a).toEqual(b)
     expect(a.map((s) => s.name)).toEqual(['Mattress', 'Whitegoods'])
+  })
+})
+
+describe('servicesSummariesEqual', () => {
+  it('treats jsonb key-reordered entries as equal (nightly refresh-storm bug, 13/07/2026)', () => {
+    // Postgres jsonb returns {"qty": …, "name": …} (shorter key first) while the
+    // EF builds {name, qty} — a JSON.stringify comparison is unequal for
+    // identical content, so payloadDiffers refreshed + re-pushed every pending
+    // stop every night until the run outgrew its invocation window.
+    const stored: ServiceSummaryEntry[] = [{ qty: 1, name: 'Bulk Waste' }]
+    const desired: ServiceSummaryEntry[] = [{ name: 'Bulk Waste', qty: 1 }]
+    expect(JSON.stringify(stored)).not.toBe(JSON.stringify(desired))
+    expect(servicesSummariesEqual(stored, desired)).toBe(true)
+  })
+
+  it('is entry-order-insensitive', () => {
+    expect(
+      servicesSummariesEqual(
+        [
+          { name: 'Mattress', qty: 1 },
+          { name: 'Whitegoods', qty: 2 },
+        ],
+        [
+          { name: 'Whitegoods', qty: 2 },
+          { name: 'Mattress', qty: 1 },
+        ],
+      ),
+    ).toBe(true)
+  })
+
+  it('detects real changes', () => {
+    const base: ServiceSummaryEntry[] = [{ name: 'Bulk Waste', qty: 1 }]
+    expect(servicesSummariesEqual(base, [{ name: 'Bulk Waste', qty: 2 }])).toBe(false)
+    expect(servicesSummariesEqual(base, [{ name: 'Green Waste', qty: 1 }])).toBe(false)
+    expect(servicesSummariesEqual(base, [])).toBe(false)
+    expect(
+      servicesSummariesEqual(base, [
+        { name: 'Bulk Waste', qty: 1 },
+        { name: 'E-Waste', qty: 1 },
+      ]),
+    ).toBe(false)
+  })
+
+  it('treats two empty summaries as equal', () => {
+    expect(servicesSummariesEqual([], [])).toBe(true)
+  })
+
+  it('treats malformed stored entries as changed instead of throwing', () => {
+    // services_summary is unconstrained jsonb — incident-time manual row
+    // surgery can leave shapes the type signature promises away. A throw here
+    // escapes the per-stop loop and aborts the entire nightly push.
+    const desired: ServiceSummaryEntry[] = [{ name: 'Bulk Waste', qty: 1 }]
+    const poisoned = [null] as unknown as ServiceSummaryEntry[]
+    expect(servicesSummariesEqual(poisoned, desired)).toBe(false)
+  })
+
+  it('treats a non-array stored value as changed instead of throwing', () => {
+    // jsonb string scalar of length 1 passes the length guard but has no .map
+    const stored = 'x' as unknown as ServiceSummaryEntry[]
+    const desired: ServiceSummaryEntry[] = [{ name: 'Bulk Waste', qty: 1 }]
+    expect(servicesSummariesEqual(stored, desired)).toBe(false)
+  })
+})
+
+describe('num — Postgres numeric coercion', () => {
+  it('coerces a numeric string to a number and passes null through', () => {
+    expect(num('-32.1')).toBe(-32.1)
+    expect(num(115.7)).toBe(115.7)
+    expect(num(null)).toBeNull()
+  })
+})
+
+describe('payloadDiffers — Pass-1 change detection', () => {
+  const existing: StopDiffExisting = {
+    collection_date_id: 'd1',
+    address: '4 William Street COTTESLOE WA 6011',
+    latitude: '-31.9950', // Postgres numeric comes back as a string
+    longitude: '115.7500',
+    waste_location: 'Front Verge',
+    driver_notes: 'Behind the gate',
+    services_summary: [{ qty: 1, name: 'Bulk Waste' }], // jsonb key order: qty first
+  }
+  const desired: StopDiffDesired = {
+    collection_date_id: 'd1',
+    address: '4 William Street COTTESLOE WA 6011',
+    latitude: -31.995, // number, and string↔number must compare equal
+    longitude: 115.75,
+    waste_location: 'Front Verge',
+    driver_notes: 'Behind the gate',
+    services_summary: [{ name: 'Bulk Waste', qty: 1 }], // built key order: name first
+  }
+
+  it('is false when nothing changed, despite jsonb key reorder + numeric-string lat/long', () => {
+    // The exact refresh-storm guard: a JSON.stringify comparison of
+    // services_summary would flag this identical stop as changed every night.
+    expect(payloadDiffers(existing, desired)).toBe(false)
+  })
+
+  it('is true on a real services_summary content change (qty)', () => {
+    expect(payloadDiffers(existing, { ...desired, services_summary: [{ name: 'Bulk Waste', qty: 2 }] })).toBe(true)
+  })
+
+  it('is true when any scalar field changes', () => {
+    expect(payloadDiffers(existing, { ...desired, collection_date_id: 'd2' })).toBe(true)
+    expect(payloadDiffers(existing, { ...desired, address: '5 William Street' })).toBe(true)
+    expect(payloadDiffers(existing, { ...desired, latitude: -32.0 })).toBe(true)
+    expect(payloadDiffers(existing, { ...desired, longitude: 116.0 })).toBe(true)
+    expect(payloadDiffers(existing, { ...desired, waste_location: 'Driveway' })).toBe(true)
+    expect(payloadDiffers(existing, { ...desired, driver_notes: 'Out front' })).toBe(true)
+  })
+
+  it('treats null and absent-nullable fields as equal (?? null normalisation)', () => {
+    const noExtras: StopDiffExisting = {
+      ...existing,
+      address: null,
+      waste_location: null,
+      driver_notes: null,
+    }
+    expect(payloadDiffers(noExtras, { ...desired, address: null, waste_location: null, driver_notes: null })).toBe(false)
   })
 })
 
@@ -274,5 +400,50 @@ describe('computeRollup — parity with rollup_booking_status_from_stops', () =>
     expect(roll('Completed', 'Cancelled')).toBe('Completed')
     expect(roll('Cancelled', 'Nothing Presented')).toBe('Nothing Presented')
     expect(roll('Cancelled', 'Non-conformance', 'Completed')).toBe('Non-conformance')
+  })
+})
+
+describe('partitionPushResults — positional match of OR results to stops', () => {
+  const stop = (id: string, ref: string) => ({ id, external_order_ref: ref })
+
+  it('routes successes to okIds and failures with their per-order message', () => {
+    const { okIds, failures } = partitionPushResults(
+      [stop('s1', 'KWN-1-A'), stop('s2', 'KWN-1-B'), stop('s3', 'KWN-1-G')],
+      [{ success: true }, { success: false, error: 'rejected' }, { success: true }],
+    )
+    expect(okIds).toEqual(['s1', 's3'])
+    expect(failures).toEqual([{ id: 's2', orderRef: 'KWN-1-B', error: 'rejected' }])
+  })
+
+  it('a missing result (short/dropped results array) is a failure, never a silent push', () => {
+    // The bug this guards: if OR returns fewer results than orders sent, the
+    // tail stops must NOT be stamped pushed_at — they were never confirmed.
+    const { okIds, failures } = partitionPushResults(
+      [stop('s1', 'KWN-1-A'), stop('s2', 'KWN-1-B')],
+      [{ success: true }], // s2 has no matching result
+    )
+    expect(okIds).toEqual(['s1'])
+    expect(failures).toEqual([{ id: 's2', orderRef: 'KWN-1-B', error: 'no result returned' }])
+  })
+
+  it('defaults the message when a failure result carries no error string', () => {
+    const { failures } = partitionPushResults(
+      [stop('s1', 'KWN-1-A')],
+      [{ success: false }],
+    )
+    expect(failures).toEqual([{ id: 's1', orderRef: 'KWN-1-A', error: 'no result returned' }])
+  })
+
+  it('handles all-success and all-fail cleanly', () => {
+    expect(
+      partitionPushResults([stop('s1', 'r1')], [{ success: true }]),
+    ).toEqual({ okIds: ['s1'], failures: [] })
+    expect(
+      partitionPushResults([stop('s1', 'r1')], [{ success: false, error: 'HTTP 500' }]),
+    ).toEqual({ okIds: [], failures: [{ id: 's1', orderRef: 'r1', error: 'HTTP 500' }] })
+  })
+
+  it('is empty-safe', () => {
+    expect(partitionPushResults([], [])).toEqual({ okIds: [], failures: [] })
   })
 })

@@ -134,6 +134,86 @@ export function buildServicesSummary(items: StopItem[]): ServiceSummaryEntry[] {
 }
 
 /**
+ * Content equality for services_summary payloads, independent of object key
+ * order and entry order. Postgres jsonb normalises object keys ({"qty": …,
+ * "name": …}) while buildServicesSummary emits {name, qty}, so a
+ * JSON.stringify comparison flags every stored summary as changed — which made
+ * the push EF reset pushed_at and re-push every pending stop every night
+ * (12/07/2026 incident: the run outgrew its invocation window and died between
+ * reset and re-push, stranding every stop as "never pushed").
+ */
+export function servicesSummariesEqual(
+  a: ServiceSummaryEntry[],
+  b: ServiceSummaryEntry[],
+): boolean {
+  // The stored side is unconstrained jsonb — the type signature can lie
+  // (manual row surgery, legacy shapes). Malformed input must read as
+  // "changed" (one refresh converges it), never throw: a throw escapes the
+  // per-stop loop and aborts the whole nightly push.
+  const wellFormed = (xs: ServiceSummaryEntry[]) =>
+    Array.isArray(xs) && xs.every((e) => typeof e === 'object' && e !== null)
+  if (!wellFormed(a) || !wellFormed(b)) return false
+  if (a.length !== b.length) return false
+  const key = (e: ServiceSummaryEntry) => `${e.name}\u0000${e.qty}`
+  const as = a.map(key).sort()
+  const bs = b.map(key).sort()
+  return as.every((v, i) => v === bs[i])
+}
+
+/**
+ * Coerces a Postgres numeric read (which PostgREST returns as string | number)
+ * to a number for comparison. null stays null.
+ */
+export function num(value: number | string | null): number | null {
+  return value === null ? null : Number(value)
+}
+
+/** The existing collection_stop fields payloadDiffers reads. lat/long come
+ *  back from Postgres numeric as string | number. */
+export interface StopDiffExisting {
+  collection_date_id: string
+  address: string | null
+  latitude: number | string | null
+  longitude: number | string | null
+  waste_location: string | null
+  driver_notes: string | null
+  services_summary: ServiceSummaryEntry[]
+}
+
+/** The desired-stop fields payloadDiffers compares against. */
+export interface StopDiffDesired {
+  collection_date_id: string
+  address: string | null
+  latitude: number | null
+  longitude: number | null
+  waste_location: string | null
+  driver_notes: string | null
+  services_summary: ServiceSummaryEntry[]
+}
+
+/**
+ * Pass-1 change detection: does a stored Pending stop need its payload
+ * refreshed (and pushed_at reset to re-push) to match the live booking?
+ *
+ * services_summary MUST be compared via servicesSummariesEqual, NEVER
+ * JSON.stringify: Postgres jsonb reorders object keys, so a stringify diff is
+ * true for every stop and turns the nightly run into a full reset-and-re-push
+ * of everything — the 12/07/2026 refresh-storm incident. Tested here so that
+ * regression can't silently return.
+ */
+export function payloadDiffers(existing: StopDiffExisting, desired: StopDiffDesired): boolean {
+  return (
+    existing.collection_date_id !== desired.collection_date_id ||
+    (existing.address ?? null) !== (desired.address ?? null) ||
+    num(existing.latitude) !== desired.latitude ||
+    num(existing.longitude) !== desired.longitude ||
+    (existing.waste_location ?? null) !== (desired.waste_location ?? null) ||
+    (existing.driver_notes ?? null) !== (desired.driver_notes ?? null) ||
+    !servicesSummariesEqual(existing.services_summary ?? [], desired.services_summary)
+  )
+}
+
+/**
  * Structured OptimoRoute order notes — a labelled block the crew reads in the
  * driver app / order detail, e.g.
  *
@@ -236,4 +316,46 @@ export function computeRollup(
   if (live.some((s) => s === 'Non-conformance')) return 'Non-conformance'
   if (live.some((s) => s === 'Nothing Presented')) return 'Nothing Presented'
   return 'Completed'
+}
+
+export interface PushFailure {
+  id: string
+  orderRef: string
+  error: string
+}
+
+export interface PushResultPartition {
+  /** Stop ids whose OR order succeeded — stamp pushed_at in one update. */
+  okIds: string[]
+  /** Failures carrying the per-order message for last_push_error + logging. */
+  failures: PushFailure[]
+}
+
+/**
+ * Positionally matches OptimoRoute per-order results back to the stops that
+ * produced them (createOrUpdateOrders guarantees result[i] ↔ order[i]). A
+ * missing or falsy result is a FAILURE, never a silent success: a short or
+ * dropped results array must never let an unconfirmed stop be stamped
+ * pushed_at (which would suppress its re-push forever). Message default
+ * matches the historical inline behaviour.
+ */
+export function partitionPushResults(
+  stops: ReadonlyArray<{ id: string; external_order_ref: string }>,
+  results: ReadonlyArray<{ success: boolean; error?: string } | undefined>,
+): PushResultPartition {
+  const okIds: string[] = []
+  const failures: PushFailure[] = []
+  for (let i = 0; i < stops.length; i++) {
+    const result = results[i]
+    if (result?.success) {
+      okIds.push(stops[i]!.id)
+    } else {
+      failures.push({
+        id: stops[i]!.id,
+        orderRef: stops[i]!.external_order_ref,
+        error: result?.error ?? 'no result returned',
+      })
+    }
+  }
+  return { okIds, failures }
 }
