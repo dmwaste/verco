@@ -161,6 +161,59 @@ export function servicesSummariesEqual(
 }
 
 /**
+ * Coerces a Postgres numeric read (which PostgREST returns as string | number)
+ * to a number for comparison. null stays null.
+ */
+export function num(value: number | string | null): number | null {
+  return value === null ? null : Number(value)
+}
+
+/** The existing collection_stop fields payloadDiffers reads. lat/long come
+ *  back from Postgres numeric as string | number. */
+export interface StopDiffExisting {
+  collection_date_id: string
+  address: string | null
+  latitude: number | string | null
+  longitude: number | string | null
+  waste_location: string | null
+  driver_notes: string | null
+  services_summary: ServiceSummaryEntry[]
+}
+
+/** The desired-stop fields payloadDiffers compares against. */
+export interface StopDiffDesired {
+  collection_date_id: string
+  address: string | null
+  latitude: number | null
+  longitude: number | null
+  waste_location: string | null
+  driver_notes: string | null
+  services_summary: ServiceSummaryEntry[]
+}
+
+/**
+ * Pass-1 change detection: does a stored Pending stop need its payload
+ * refreshed (and pushed_at reset to re-push) to match the live booking?
+ *
+ * services_summary MUST be compared via servicesSummariesEqual, NEVER
+ * JSON.stringify: Postgres jsonb reorders object keys, so a stringify diff is
+ * true for every stop and turns the nightly run into a full reset-and-re-push
+ * of everything — the 12/07/2026 refresh-storm incident. Tested here so that
+ * regression can't silently return.
+ */
+export function payloadDiffers(existing: StopDiffExisting, desired: StopDiffDesired): boolean {
+  return (
+    existing.collection_date_id !== desired.collection_date_id ||
+    (existing.address ?? null) !== (desired.address ?? null) ||
+    num(existing.latitude) !== desired.latitude ||
+    num(existing.longitude) !== desired.longitude ||
+    (existing.waste_location ?? null) !== (desired.waste_location ?? null) ||
+    (existing.driver_notes ?? null) !== (desired.driver_notes ?? null) ||
+    !servicesSummariesEqual(existing.services_summary ?? [], desired.services_summary)
+  )
+}
+
+/**
  * Structured OptimoRoute order notes — a labelled block the crew reads in the
  * driver app / order detail, e.g.
  *

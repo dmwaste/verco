@@ -7,8 +7,9 @@ import {
   buildOrderNotes,
   buildServicesSummary,
   groupItemsByStream,
+  num,
   partitionPushResults,
-  servicesSummariesEqual,
+  payloadDiffers,
   shouldCancelOrphanStop,
   STOP_DURATION_MINUTES,
   STREAM_PRIORITY,
@@ -143,25 +144,6 @@ async function fetchAll<T>(
     rows.push(...page)
     if (page.length < PAGE_SIZE) return rows
   }
-}
-
-function num(value: number | string | null): number | null {
-  return value === null ? null : Number(value)
-}
-
-function payloadDiffers(existing: ExistingStopRow, desired: DesiredStop): boolean {
-  return (
-    existing.collection_date_id !== desired.collection_date_id ||
-    (existing.address ?? null) !== (desired.address ?? null) ||
-    num(existing.latitude) !== desired.latitude ||
-    num(existing.longitude) !== desired.longitude ||
-    (existing.waste_location ?? null) !== (desired.waste_location ?? null) ||
-    (existing.driver_notes ?? null) !== (desired.driver_notes ?? null) ||
-    // Content comparison, NOT JSON.stringify: jsonb reorders object keys, so a
-    // stringify diff is true for every stop and turns the nightly run into a
-    // full reset-and-re-push of everything (see servicesSummariesEqual).
-    !servicesSummariesEqual(existing.services_summary ?? [], desired.services_summary)
-  )
 }
 
 serve(async (_req) => {
