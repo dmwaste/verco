@@ -11,6 +11,7 @@ import { Spinner } from '@/components/ui/spinner'
 import { VercoButton } from '@/components/ui/verco-button'
 import { stripAddressPrefix } from '@/lib/mud/address-strip'
 import { formatFinancialYearLabel } from '@/lib/booking/financial-year'
+import { finiteCoord } from '@/lib/booking/finite-coord'
 import { isAreaBookable } from '@/lib/booking/area-gate'
 import {
   addressMatchKey as buildAddressMatchKey,
@@ -274,10 +275,15 @@ export function AddressForm({
     router.push(`/book/services?${params.toString()}`)
   }
 
-  const hasCoords =
-    selectedProperty?.has_geocode &&
-    selectedProperty.latitude !== null &&
-    selectedProperty.longitude !== null
+  // Imported geocode data is untrusted: finiteCoord rejects '', 'junk' and
+  // other non-finite values that would otherwise pin the map at 0,0 or throw
+  // inside Leaflet (L.map with a NaN center).
+  const propertyLat = selectedProperty?.has_geocode
+    ? finiteCoord(selectedProperty.latitude)
+    : null
+  const propertyLng = selectedProperty?.has_geocode
+    ? finiteCoord(selectedProperty.longitude)
+    : null
 
   return (
     <div className="flex flex-col">
@@ -397,10 +403,10 @@ export function AddressForm({
               </div>
 
               {/* Map or placeholder */}
-              {hasCoords ? (
+              {propertyLat !== null && propertyLng !== null ? (
                 <PropertyMap
-                  lat={Number(selectedProperty.latitude)}
-                  lng={Number(selectedProperty.longitude)}
+                  lat={propertyLat}
+                  lng={propertyLng}
                   address={
                     selectedProperty.formatted_address ??
                     selectedProperty.address
