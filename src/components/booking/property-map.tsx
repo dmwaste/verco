@@ -11,7 +11,6 @@ interface PropertyMapProps {
 }
 
 export function PropertyMap({ lat, lng, address }: PropertyMapProps) {
-  console.log('[PropertyMap] coords:', { lat, lng })
   const mapRef = useRef<HTMLDivElement>(null)
   const mapInstanceRef = useRef<L.Map | null>(null)
 
@@ -23,6 +22,12 @@ export function PropertyMap({ lat, lng, address }: PropertyMapProps) {
       zoom: 16,
       zoomControl: false,
       attributionControl: true,
+      // Disable drag momentum. Inertia schedules a deferred requestAnimationFrame
+      // that runs panBy() -> DomUtil.addClass(map._mapPane, …). If the resident
+      // flicks the map and navigates away before it settles, map.remove() nulls
+      // _mapPane first and the queued frame throws a TypeError on the removed map
+      // (Sentry JAVASCRIPT-NEXTJS-K). Panning still works; only the coast is gone.
+      inertia: false,
     })
 
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -55,9 +60,17 @@ export function PropertyMap({ lat, lng, address }: PropertyMapProps) {
       popupAnchor: [0, -44],
     })
 
+    // Leaflet assigns STRING popup content via innerHTML. The address is
+    // admin/CSV-imported eligible_properties data on a public multi-tenant
+    // page, so hand Leaflet an element built with textContent — any markup in
+    // a poisoned address row stays inert instead of executing on the booking
+    // origin (same rule as FAQ rendering: no raw HTML on public pages).
+    const popupContent = document.createElement('div')
+    popupContent.textContent = address
+
     L.marker([lat, lng], { icon: pinIcon })
       .addTo(map)
-      .bindPopup(address)
+      .bindPopup(popupContent)
 
     mapInstanceRef.current = map
 
