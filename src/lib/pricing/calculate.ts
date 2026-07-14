@@ -32,7 +32,12 @@ export interface PriceCalculationResult {
 export interface AllocationOverride {
   service_id: string
   extra_allocations: number
-  reason: string
+  /**
+   * Staff-authored note. Optional because the resident-facing pricing path
+   * sources overrides from the PII-free get_property_allocation_overrides RPC,
+   * which deliberately omits it (residents never see the internal reason).
+   */
+  reason?: string
 }
 
 export interface ServiceRule {

@@ -293,8 +293,22 @@ export function ConfirmForm() {
         if (rule) conversion = toActiveConversion(rule)
       }
 
+      // Admin allocation top-ups for this property + FY. allocation_override is
+      // RLS-scoped to staff, and this page renders as anon/resident, so a direct
+      // read returns zero — the granted rollover would be priced as paid extras,
+      // disagreeing with the create-booking EF. get_property_allocation_overrides
+      // is SECURITY DEFINER and returns PII-free counts regardless of auth state.
+      const { data: overrideRows } = await supabase.rpc('get_property_allocation_overrides', {
+        p_property_id: propertyId,
+        p_fy_id: fyResult.data?.id ?? undefined,
+      })
+      const overrides = (overrideRows ?? []).map((r) => ({
+        service_id: r.service_id,
+        extra_allocations: Number(r.extra_allocations),
+      }))
+
       // Price via the shared dual-limit engine — keeps the breakdown in lockstep
-      // with the services-step total (both honour the category cap + swap).
+      // with the services-step total (both honour the category cap + swap + override).
       const { included, extras } = buildConfirmBreakdown({
         items: Array.from(selectedItems.entries()).map(
           ([service_id, quantity]) => ({ service_id, quantity })
@@ -306,6 +320,7 @@ export function ConfirmForm() {
         serviceUsageMap,
         categoryUsageMap,
         conversion,
+        overrides,
       })
 
       return {

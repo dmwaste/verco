@@ -129,6 +129,41 @@ export function ServicesForm({ clientSlug }: { clientSlug: string }) {
   const fyUsageByCategory = fyUsage?.byCategory
   const fyUsageByService = fyUsage?.byService
 
+  // Admin allocation top-ups (allocation_override) for this property + current FY.
+  // Same RLS blind-spot as FY usage: the services step runs pre-OTP (anon) and
+  // allocation_override's SELECT policy is staff-only, so a direct read returns
+  // zero — a granted rollover would show "0 remaining" and price as paid.
+  // get_property_allocation_overrides is SECURITY DEFINER + PII-free (p_fy_id
+  // omitted → current FY).
+  const { data: overrides, isLoading: overridesLoading } = useQuery({
+    queryKey: ['allocation-overrides', propertyId],
+    enabled: !!propertyId,
+    queryFn: async () => {
+      const { data } = await supabase.rpc('get_property_allocation_overrides', {
+        p_property_id: propertyId,
+      })
+      return (data ?? []).map((r) => ({
+        service_id: r.service_id,
+        extra_allocations: Number(r.extra_allocations),
+      }))
+    },
+  })
+
+  // Roll the per-service overrides up to category buckets for the badge maths
+  // (the "X of Y remaining" pill is category-level; computeLineItems does the
+  // same rollup internally for the free/paid split).
+  const categoryExtraByCode = useMemo(() => {
+    const m = new Map<string, number>()
+    if (overrides && serviceRules) {
+      const catOf = new Map(serviceRules.map((r) => [r.service_id, r.service.category.code]))
+      for (const o of overrides) {
+        const code = catOf.get(o.service_id)
+        if (code) m.set(code, (m.get(code) ?? 0) + o.extra_allocations)
+      }
+    }
+    return m
+  }, [overrides, serviceRules])
+
   // Active allocation conversion rule for this area (e.g. 3 Ancillary -> 1 Green).
   // null when the area has no swap configured.
   const { data: conversionRule } = useQuery({
@@ -166,7 +201,7 @@ export function ServicesForm({ clientSlug }: { clientSlug: string }) {
   })
 
   // Show loading state if any critical query is loading
-  const isLoadingData = serviceRulesLoading || categoryAllocationsLoading || fyUsageLoading
+  const isLoadingData = serviceRulesLoading || categoryAllocationsLoading || fyUsageLoading || overridesLoading
 
   // Group services by category code
   const grouped = useMemo(() => {
@@ -216,7 +251,7 @@ export function ServicesForm({ clientSlug }: { clientSlug: string }) {
       serviceCategoryMap,
       fyUsageByService,
       fyUsageByCategory,
-      undefined,
+      overrides,
       1,
       conversion,
     )
@@ -243,21 +278,24 @@ export function ServicesForm({ clientSlug }: { clientSlug: string }) {
     }
 
     return { pricingItems: items, categoryFreeUsed: formUsed }
-  }, [serviceRules, fyUsageByService, fyUsageByCategory, categoryAllocations, quantities, swapApplied, conversionRule])
+  }, [serviceRules, fyUsageByService, fyUsageByCategory, categoryAllocations, quantities, swapApplied, conversionRule, overrides])
 
   // Effective category max, accounting for an applied swap (e.g. the from
   // category loses from_units, the to category gains to_units).
   function effectiveCategoryMax(categoryCode: string): number {
     const base = categoryAllocations?.get(categoryCode) ?? 0
+    const extra = categoryExtraByCode.get(categoryCode) ?? 0
+    // Mirror computeLineItems: swap-adjust the base (with its clamp) first, THEN
+    // add the additive override extra — order matters when from_units > base.
+    let swapAdjusted = base
     if (swapApplied && conversionRule) {
       if (categoryCode === conversionRule.from_category_code) {
-        return Math.max(0, base - conversionRule.from_units)
-      }
-      if (categoryCode === conversionRule.to_category_code) {
-        return base + conversionRule.to_units
+        swapAdjusted = Math.max(0, base - conversionRule.from_units)
+      } else if (categoryCode === conversionRule.to_category_code) {
+        swapAdjusted = base + conversionRule.to_units
       }
     }
-    return base
+    return swapAdjusted + extra
   }
 
   // Badge remaining: effective_max - fyUsed - freeUnitsConsumedByForm
