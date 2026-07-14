@@ -11,7 +11,6 @@ interface PropertyMapProps {
 }
 
 export function PropertyMap({ lat, lng, address }: PropertyMapProps) {
-  console.log('[PropertyMap] coords:', { lat, lng })
   const mapRef = useRef<HTMLDivElement>(null)
   const mapInstanceRef = useRef<L.Map | null>(null)
 
@@ -23,6 +22,12 @@ export function PropertyMap({ lat, lng, address }: PropertyMapProps) {
       zoom: 16,
       zoomControl: false,
       attributionControl: true,
+      // Disable drag momentum. Inertia schedules a deferred requestAnimationFrame
+      // that runs panBy() -> DomUtil.addClass(map._mapPane, …). If the resident
+      // flicks the map and navigates away before it settles, map.remove() nulls
+      // _mapPane first and the queued frame throws a TypeError on the removed map
+      // (Sentry JAVASCRIPT-NEXTJS-K). Panning still works; only the coast is gone.
+      inertia: false,
     })
 
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
