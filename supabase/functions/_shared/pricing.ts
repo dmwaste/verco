@@ -109,12 +109,16 @@ export async function calculatePrice(
 
     usagePromise,
 
-    // Allocation overrides for this property and FY
-    supabase
-      .from('allocation_override')
-      .select('service_id, extra_allocations, reason')
-      .eq('property_id', propertyId)
-      .eq('fy_id', fyId),
+    // Allocation overrides for this property and FY, via the PII-free SECURITY
+    // DEFINER RPC. allocation_override's SELECT policy is staff-only, but this
+    // engine prices as the caller (anon/resident on the public /book flow), so a
+    // direct table read returns zero rows and a granted rollover would be priced
+    // as paid. get_property_allocation_overrides bypasses that RLS and returns
+    // only (service_id, SUM(extra_allocations)) — never the staff reason.
+    supabase.rpc('get_property_allocation_overrides', {
+      p_property_id: propertyId,
+      p_fy_id: fyId,
+    }),
   ])
 
   const rulesMap = new Map(
@@ -140,22 +144,22 @@ export async function calculatePrice(
   // Build override maps: service_id → SUM(extra_allocations), category_code → SUM(extra_allocations)
   const serviceExtraMap = new Map<string, number>()
   const categoryExtraMap = new Map<string, number>()
-  let firstOverrideReason: string | undefined
+  // The RPC is PII-free: it returns per-service extra_allocations but never the
+  // staff-authored reason, so override_reason is undefined on the resident path.
+  const firstOverrideReason: string | undefined = undefined
   if (overrideResult.data) {
     for (const override of overrideResult.data) {
+      const extra = Number(override.extra_allocations)
       serviceExtraMap.set(
         override.service_id,
-        (serviceExtraMap.get(override.service_id) ?? 0) + override.extra_allocations,
+        (serviceExtraMap.get(override.service_id) ?? 0) + extra,
       )
       const catCode = serviceCategoryMap.get(override.service_id)
       if (catCode) {
         categoryExtraMap.set(
           catCode,
-          (categoryExtraMap.get(catCode) ?? 0) + override.extra_allocations,
+          (categoryExtraMap.get(catCode) ?? 0) + extra,
         )
-      }
-      if (!firstOverrideReason) {
-        firstOverrideReason = override.reason
       }
     }
   }

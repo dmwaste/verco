@@ -105,6 +105,24 @@ describe('buildConfirmBreakdown', () => {
     ])
   })
 
+  it('REGRESSION (allocation override): granted rollover units are included, not billed', () => {
+    // 133 Banksia shape: the Bulk category is fully used this FY (2/2), but an
+    // admin granted a +2 Bulk override ("allocation rollover"). A new Green
+    // (Bulk) must be Included (free) — without override support the confirm page
+    // priced it as a paid extra, contradicting the create-booking EF.
+    const result = buildConfirmBreakdown({
+      ...kwinanaInput([{ service_id: SVC_GREEN, quantity: 1 }], {
+        category: [[CAT_BULK, 2]],
+        service: [[SVC_GENERAL, 2]],
+      }),
+      overrides: [
+        { service_id: SVC_GREEN, extra_allocations: 2, reason: 'allocation rollover' },
+      ],
+    })
+    expect(result.extras).toEqual([])
+    expect(result.included).toEqual([{ name: 'Green', qty: 1 }])
+  })
+
   it('reflects an active swap: the extra Green is included, no extras', () => {
     // With the swap, 2 General + 1 Green are all free (2 base Bulk + 1 swapped Green).
     const result = buildConfirmBreakdown({

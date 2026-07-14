@@ -72,6 +72,8 @@ const TEST_COLLECTION_DATE = {
 /** Set up network interceptors for Supabase REST and Edge Functions */
 async function setupMocks(page: Page, options?: {
   priorUsage?: Array<{ service_id: string; no_services: number }>
+  /** Admin allocation top-ups returned by get_property_allocation_overrides. */
+  overrides?: Array<{ service_id: string; extra_allocations: number }>
   createBookingResult?: Record<string, unknown>
   inactiveArea?: boolean
   /** When set, the client's terms_markdown — drives the T&Cs acceptance gate. */
@@ -178,6 +180,18 @@ async function setupMocks(page: Page, options?: {
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify([...serviceRows, ...categoryRows]),
+      })
+    }
+
+    // get_property_allocation_overrides RPC — the wizard + confirm page read
+    // admin allocation top-ups through this SECURITY DEFINER function (the
+    // allocation_override table's staff-only RLS otherwise hides them from the
+    // anon/resident pricing path). Default: none.
+    if (url.includes('rpc/get_property_allocation_overrides')) {
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(options?.overrides ?? []),
       })
     }
 

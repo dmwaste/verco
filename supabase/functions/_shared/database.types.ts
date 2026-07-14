@@ -2796,6 +2796,13 @@ export type Database = {
           on_time: number
         }[]
       }
+      get_property_allocation_overrides: {
+        Args: { p_fy_id?: string; p_property_id: string }
+        Returns: {
+          extra_allocations: number
+          service_id: string
+        }[]
+      }
       get_property_fy_usage: {
         Args: {
           p_exclude_booking_id?: string
