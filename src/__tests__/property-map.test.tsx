@@ -14,8 +14,9 @@ const leaflet = vi.hoisted(() => {
   )
   const tileLayer = vi.fn(() => ({ addTo: vi.fn(() => ({})) }))
   const divIcon = vi.fn(() => ({}))
-  const marker = vi.fn(() => ({ addTo: vi.fn(() => ({ bindPopup: vi.fn() })) }))
-  return { remove, mapInstance, map, tileLayer, divIcon, marker }
+  const bindPopup = vi.fn()
+  const marker = vi.fn(() => ({ addTo: vi.fn(() => ({ bindPopup })) }))
+  return { remove, map, tileLayer, divIcon, marker, bindPopup }
 })
 
 vi.mock('leaflet', () => ({
@@ -52,5 +53,20 @@ describe('PropertyMap', () => {
     )
     unmount()
     expect(leaflet.remove).toHaveBeenCalledTimes(1)
+  })
+
+  it('passes the address to the popup as inert text, never as an HTML string', () => {
+    // Leaflet assigns STRING popup content via innerHTML. The address is
+    // admin/CSV-imported eligible_properties data rendered on the public
+    // booking origin, so markup in it must stay inert (stored-XSS guard).
+    const hostile = '<img src=x onerror="window.__pwned=true"> 23 Leda Blvd, Wellard'
+    render(<PropertyMap lat={-32.24} lng={115.75} address={hostile} />)
+
+    expect(leaflet.bindPopup).toHaveBeenCalledTimes(1)
+    const content = leaflet.bindPopup.mock.calls[0]![0]
+    expect(content).toBeInstanceOf(HTMLElement)
+    expect((content as HTMLElement).textContent).toBe(hostile)
+    // The markup must not have been parsed into live nodes.
+    expect((content as HTMLElement).querySelector('img')).toBeNull()
   })
 })

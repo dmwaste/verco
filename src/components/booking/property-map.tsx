@@ -60,9 +60,17 @@ export function PropertyMap({ lat, lng, address }: PropertyMapProps) {
       popupAnchor: [0, -44],
     })
 
+    // Leaflet assigns STRING popup content via innerHTML. The address is
+    // admin/CSV-imported eligible_properties data on a public multi-tenant
+    // page, so hand Leaflet an element built with textContent — any markup in
+    // a poisoned address row stays inert instead of executing on the booking
+    // origin (same rule as FAQ rendering: no raw HTML on public pages).
+    const popupContent = document.createElement('div')
+    popupContent.textContent = address
+
     L.marker([lat, lng], { icon: pinIcon })
       .addTo(map)
-      .bindPopup(address)
+      .bindPopup(popupContent)
 
     mapInstanceRef.current = map
 
