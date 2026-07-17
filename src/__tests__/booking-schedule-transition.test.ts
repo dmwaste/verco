@@ -79,9 +79,9 @@ describe('filterBookingsReadyToSchedule', () => {
   })
 
   it('includes straggler bookings whose earliest date is already past (catch-up)', () => {
-    // <= semantics: a booking confirmed after its date's 15:25 tick (e.g. a
-    // late admin Confirm on a rebook) transitions on the next tick rather
-    // than sitting Confirmed forever.
+    // <= semantics: a booking confirmed after its date's 15:25 tick (e.g. an
+    // NCN/NP rebook created that evening, already Confirmed) transitions on
+    // the next tick rather than sitting Confirmed forever.
     const bookings: BookingWithItemDates[] = [
       {
         id: 'b1',

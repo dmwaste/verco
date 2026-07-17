@@ -65,7 +65,7 @@ export async function rebookNp(
        collection_stop:collection_stop_id(stream),
        booking:booking!nothing_presented_booking_id_fkey(
          id, ref, status, type, property_id, contact_id, collection_area_id, client_id, contractor_id, fy_id, location, notes,
-         booking_item(no_services, is_extra, unit_price_cents, service_id, service!inner(waste_stream))
+         booking_item(no_services, is_extra, unit_price_cents, service_id, service!inner(waste_stream, category(code)))
        )`
     )
     .eq('id', npId)
@@ -73,7 +73,10 @@ export async function rebookNp(
 
   if (npError || !np) return { ok: false, error: 'NP record not found.' }
 
-  if (np.status === 'Resolved' || np.status === 'Rebooked') {
+  // Gate on the full non-terminal set — 'Closed' (auto-close cron) is terminal
+  // too; a bare Resolved/Rebooked check would insert the clone and then die on
+  // the notice trigger, stranding an orphan Confirmed booking.
+  if (!(OPEN_EXCEPTION_FILTER_STATUSES as readonly string[]).includes(np.status)) {
     return { ok: false, error: `NP is already ${np.status}.` }
   }
 
@@ -94,7 +97,7 @@ export async function rebookNp(
       is_extra: boolean
       unit_price_cents: number
       service_id: string
-      service: { waste_stream: string }
+      service: { waste_stream: string; category: { code: string } | null }
     }>
   }
 
@@ -133,13 +136,34 @@ export async function rebookNp(
     }
   }
 
+  // Server-side date validation mirroring the dialog's filters: the date must
+  // belong to THIS booking's area, be in the future (AWST — never Date#setHours,
+  // see cancellation-cutoff), be open, and not closed for any bucket the cloned
+  // items occupy. A stale dialog or forged call otherwise strands a Confirmed
+  // rebook on a dead date that never dispatches.
+  const awstToday = new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().slice(0, 10)
   const { data: collDate } = await supabase
     .from('collection_date')
-    .select('id, date')
+    .select('id, date, is_open, bulk_is_closed, anc_is_closed, id_is_closed')
     .eq('id', collectionDateId)
+    .eq('collection_area_id', booking.collection_area_id)
     .single()
 
-  if (!collDate) return { ok: false, error: 'Collection date not found.' }
+  if (!collDate) return { ok: false, error: "Collection date not found for this booking's area." }
+  if (!collDate.is_open || collDate.date <= awstToday) {
+    return { ok: false, error: 'That collection date is no longer available — pick an upcoming open date.' }
+  }
+  const closedByBucket: Record<string, boolean> = {
+    bulk: collDate.bulk_is_closed,
+    anc: collDate.anc_is_closed,
+    id: collDate.id_is_closed,
+  }
+  const hitsClosedBucket = itemsToClone.some(
+    (i) => i.service.category?.code && closedByBucket[i.service.category.code],
+  )
+  if (hitsClosedBucket) {
+    return { ok: false, error: "That collection date is full for this booking's services — pick another date." }
+  }
 
   const { data: refData, error: refError } = await supabase
     .rpc('generate_booking_ref', { p_area_code: '' })
@@ -150,11 +174,14 @@ export async function rebookNp(
 
   type BookingType = Database['public']['Enums']['booking_type']
 
+  // Land directly in 'Confirmed' (auto-confirm design): the transition-scheduled
+  // cron and the T-3 OptimoRoute push only select Confirmed/Scheduled bookings,
+  // so a 'Submitted' rebook would strand undispatched unless manually confirmed.
   const { data: newBooking, error: bookingError } = await supabase
     .from('booking')
     .insert({
       ref: newRef,
-      status: 'Submitted',
+      status: 'Confirmed',
       type: booking.type as BookingType,
       property_id: booking.property_id,
       contact_id: booking.contact_id,
@@ -172,13 +199,17 @@ export async function rebookNp(
     return { ok: false, error: bookingError?.message ?? 'Failed to create rebooked booking.' }
   }
 
+  // Clones are always priced at 0: a rebook is a remedy delivery, never a sale —
+  // no payment is taken on this path, and the original booking keeps the real
+  // payment/refund record. Cloning original prices here made a later cancel of
+  // the rebooked booking auto-raise a refund_request for money never paid on it.
   const newItems = itemsToClone.map((item) => ({
     booking_id: newBooking.id,
     service_id: item.service_id,
     collection_date_id: collectionDateId,
     no_services: item.no_services,
     is_extra: item.is_extra,
-    unit_price_cents: contractorFault ? 0 : item.unit_price_cents,
+    unit_price_cents: 0,
   }))
 
   if (newItems.length > 0) {
@@ -191,7 +222,9 @@ export async function rebookNp(
     }
   }
 
-  const { error: npUpdateError } = await supabase
+  // Predicated on the non-terminal set so a concurrent resolve/rebook in
+  // another tab matches 0 rows instead of hitting the terminal-notice trigger.
+  const { data: npUpdated, error: npUpdateError } = await supabase
     .from('nothing_presented')
     .update({
       status: 'Rebooked',
@@ -203,9 +236,27 @@ export async function rebookNp(
       rescheduled_date: collDate.date,
     })
     .eq('id', npId)
+    .in('status', [...OPEN_EXCEPTION_FILTER_STATUSES])
+    .select('id')
 
-  if (npUpdateError) {
-    return { ok: false, error: `Rebook created but NP update failed: ${npUpdateError.message}` }
+  if (npUpdateError || !npUpdated || npUpdated.length === 0) {
+    // The clone already committed — cancel it (best-effort) so no orphan
+    // Confirmed booking gets scheduled and dispatched for a dead rebook.
+    const { error: undoError } = await supabase
+      .from('booking')
+      .update({ status: 'Cancelled', cancelled_at: new Date().toISOString() })
+      .eq('id', newBooking.id)
+    if (undoError) {
+      console.error(
+        `Orphaned rebook booking ${newBooking.id} could not be cancelled after NP update failure: ${undoError.message}`,
+      )
+    }
+    return {
+      ok: false,
+      error: npUpdateError
+        ? `Rebook created but NP update failed: ${npUpdateError.message}`
+        : 'This record has already been resolved or rebooked.',
+    }
   }
 
   // Update original booking status to Rebooked. With the sibling-Pending

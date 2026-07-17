@@ -546,6 +546,77 @@ if (!haveDb) {
   })
 
   // ---------------------------------------------------------------------------
+  // Staff booking INSERT (NCN/NP rebook path). The rebook server actions clone
+  // the source booking with a direct insert under the staff JWT; until
+  // migration 20260717014018 the only INSERT policy on booking was
+  // resident-only and booking_item had none, so every staff rebook ever
+  // attempted died with 42501 (zero successful rebooks in prod). These assert
+  // the staff policies: all four staff tiers may insert within their tenant
+  // scope; field is excluded; cross-tenant inserts stay rejected.
+  // ---------------------------------------------------------------------------
+  describe('staff booking INSERT — rebook path (20260717014018)', () => {
+    const insertBookingSql = (ref: string, areaId: string, clientId: string) =>
+      `INSERT INTO booking (ref, type, status, collection_area_id, client_id, contractor_id, fy_id)
+       VALUES ('${ref}', 'Residential', 'Confirmed', '${areaId}', '${clientId}', '${CONTRACTOR_ID}',
+               (SELECT id FROM financial_year WHERE is_current LIMIT 1))`
+
+    it.for([
+      ['contractor-admin', USERS['contractor-admin']],
+      ['contractor-staff', USERS['contractor-staff']],
+      ['client-admin', USERS['client-admin']],
+      ['client-staff', USERS['client-staff']],
+    ] as const)('%s CAN insert a booking in an accessible client (1 row)', async ([role, uid], ctx) => {
+      if (!kwnAreaId) return ctx.skip()
+      const n = await updateAs(uid, insertBookingSql(`RLS-RBK-${role}`, kwnAreaId, CLIENT_ID))
+      expect(n).toBe(1)
+    })
+
+    it('client-admin CANNOT insert a booking under ANOTHER client (RLS rejects)', async (ctx) => {
+      if (!vvAreaId) return ctx.skip()
+      await expect(
+        updateAs(USERS['client-admin'], insertBookingSql('RLS-RBK-XT', vvAreaId, VV_CLIENT_ID)),
+      ).rejects.toThrow(/row-level security/)
+    })
+
+    it.for([
+      ['field', 'RLS-RBK-FLD'],
+      ['ranger', 'RLS-RBK-RNG'],
+    ] as const)('%s CANNOT insert a booking (RLS rejects)', async ([role, ref], ctx) => {
+      if (!kwnAreaId) return ctx.skip()
+      await expect(
+        updateAs(USERS[role], insertBookingSql(ref, kwnAreaId, CLIENT_ID)),
+      ).rejects.toThrow(/row-level security/)
+    })
+
+    it('contractor-admin CAN insert a booking_item on an accessible booking (1 row)', async (ctx) => {
+      if (!kwnAreaId) return ctx.skip()
+      const n = await updateAs(
+        USERS['contractor-admin'],
+        `INSERT INTO booking_item (booking_id, service_id, collection_date_id, no_services, is_extra, unit_price_cents)
+         VALUES ('${F5_RESIDENT_BOOKING}',
+                 (SELECT id FROM service LIMIT 1),
+                 (SELECT id FROM collection_date WHERE collection_area_id = '${kwnAreaId}' LIMIT 1),
+                 1, false, 0)`,
+      )
+      expect(n).toBe(1)
+    })
+
+    it('field CANNOT insert a booking_item (RLS rejects)', async (ctx) => {
+      if (!kwnAreaId) return ctx.skip()
+      await expect(
+        updateAs(
+          USERS.field,
+          `INSERT INTO booking_item (booking_id, service_id, collection_date_id, no_services, is_extra, unit_price_cents)
+           VALUES ('${F5_RESIDENT_BOOKING}',
+                   (SELECT id FROM service LIMIT 1),
+                   (SELECT id FROM collection_date WHERE collection_area_id = '${kwnAreaId}' LIMIT 1),
+                   1, false, 0)`,
+        ),
+      ).rejects.toThrow(/row-level security/)
+    })
+  })
+
+  // ---------------------------------------------------------------------------
   // TC-F5 (VER-247): residents can cancel their OWN booking. The bug was an
   // implicit WITH CHECK on booking_resident_update that rejected status
   // 'Cancelled' (0 rows, no error). These assert the policy now lets a resident
