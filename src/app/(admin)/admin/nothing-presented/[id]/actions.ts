@@ -150,11 +150,14 @@ export async function rebookNp(
 
   type BookingType = Database['public']['Enums']['booking_type']
 
+  // Land directly in 'Confirmed' (auto-confirm design): the transition-scheduled
+  // cron and the T-3 OptimoRoute push only select Confirmed/Scheduled bookings,
+  // so a 'Submitted' rebook would strand undispatched unless manually confirmed.
   const { data: newBooking, error: bookingError } = await supabase
     .from('booking')
     .insert({
       ref: newRef,
-      status: 'Submitted',
+      status: 'Confirmed',
       type: booking.type as BookingType,
       property_id: booking.property_id,
       contact_id: booking.contact_id,

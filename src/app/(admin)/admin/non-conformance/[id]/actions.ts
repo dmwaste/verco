@@ -148,14 +148,17 @@ export async function rebookNcn(
     ? `RBK-${Math.random().toString(36).substring(2, 8).toUpperCase()}`
     : refData as string
 
-  // Create the new booking (rebook — no payment required)
+  // Create the new booking (rebook — no payment required). Land directly in
+  // 'Confirmed' (auto-confirm design): the transition-scheduled cron and the
+  // T-3 OptimoRoute push only select Confirmed/Scheduled bookings, so a
+  // 'Submitted' rebook would strand undispatched unless manually confirmed.
   type BookingType = Database['public']['Enums']['booking_type']
 
   const { data: newBooking, error: bookingError } = await supabase
     .from('booking')
     .insert({
       ref: newRef,
-      status: 'Submitted',
+      status: 'Confirmed',
       type: booking.type as BookingType,
       property_id: booking.property_id,
       contact_id: booking.contact_id,
