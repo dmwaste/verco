@@ -53,9 +53,13 @@ WHERE ca.id = cs.collection_area_id
   AND cs.id_capacity_limit <> 2;
 
 -- 2. Existing open future dates: cap -> 2 and recompute closed flag.
+-- The recompute mirrors recalculate_collection_date_units (20260518005937):
+-- locked_closed is the sticky T-3 hard-close and MUST be OR-ed back in, or a
+-- hard-closed imminent date with <2 ID units would silently re-open here (the
+-- close-imminent cron never re-touches rows with locked_closed = true).
 UPDATE collection_date cd
 SET id_capacity_limit = 2,
-    id_is_closed      = (cd.id_units_booked >= 2)
+    id_is_closed      = (cd.locked_closed OR cd.id_units_booked >= 2)
 FROM collection_area ca
 WHERE ca.id = cd.collection_area_id
   AND ca.client_id = (SELECT id FROM client WHERE slug = 'kwn')

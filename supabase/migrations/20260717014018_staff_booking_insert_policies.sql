@@ -28,9 +28,17 @@
 -- still keeps units_booked counters correct. Rebooks are remedies for failed
 -- collections — over-capacity staff adds are tracked in #426.
 
+-- Session-scoped current_user_role() is wrapped `(select …)` per the repo's
+-- initplan convention (20260709010000); the row-correlated helpers can't hoist.
+-- The collection_area subquery binds the row's area to its own client_id —
+-- without it a staff caller could insert a booking under their own client_id
+-- but pointing at ANOTHER tenant's area/dates (cross-tenant capacity pollution;
+-- no FK enforces area↔client coherence).
+DROP POLICY IF EXISTS booking_staff_insert ON booking;
 CREATE POLICY booking_staff_insert ON booking FOR INSERT
+  TO authenticated
   WITH CHECK (
-    current_user_role() = ANY (ARRAY[
+    (SELECT current_user_role()) = ANY (ARRAY[
       'contractor-admin'::app_role,
       'contractor-staff'::app_role,
       'client-admin'::app_role,
@@ -39,20 +47,41 @@ CREATE POLICY booking_staff_insert ON booking FOR INSERT
     AND client_id IN (SELECT accessible_client_ids())
     AND user_sub_client_allows_area(collection_area_id)
     AND collection_area_is_active(collection_area_id)
+    AND collection_area_id IN (
+      SELECT ca.id FROM collection_area ca WHERE ca.client_id = booking.client_id
+    )
+    -- enforce_booking_state_transition fires on UPDATE only, so INSERT must
+    -- pin the legitimate initial statuses — else a staff session could mint a
+    -- booking directly in 'Scheduled'/'Completed' (Red Line #5 bypass).
+    AND status = ANY (ARRAY[
+      'Confirmed'::booking_status,
+      'Pending Payment'::booking_status,
+      'Submitted'::booking_status
+    ])
   );
 
 -- The parent-booking EXISTS runs under the caller's booking SELECT RLS, which
 -- already scopes staff by accessible_client_ids() + sub-client — so an item
 -- can only attach to a booking the caller can read (mirrors
--- booking_item_staff_update, 20260515055645).
+-- booking_item_staff_update, 20260515055645). The collection_date join pins
+-- the item's date to the parent booking's own area — otherwise a staff caller
+-- could point an item at another tenant's date and consume its capacity
+-- counters (no FK ties booking_item.collection_date_id to the booking's area).
+DROP POLICY IF EXISTS booking_item_staff_insert ON booking_item;
 CREATE POLICY booking_item_staff_insert ON booking_item FOR INSERT
   TO authenticated
   WITH CHECK (
-    current_user_role() = ANY (ARRAY[
+    (SELECT current_user_role()) = ANY (ARRAY[
       'contractor-admin'::app_role,
       'contractor-staff'::app_role,
       'client-admin'::app_role,
       'client-staff'::app_role
     ])
-    AND EXISTS (SELECT 1 FROM booking WHERE booking.id = booking_item.booking_id)
+    AND EXISTS (
+      SELECT 1
+      FROM booking b
+      JOIN collection_date cd ON cd.id = booking_item.collection_date_id
+      WHERE b.id = booking_item.booking_id
+        AND cd.collection_area_id = b.collection_area_id
+    )
   );

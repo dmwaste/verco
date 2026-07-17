@@ -134,7 +134,7 @@ Authoritative implementation: `supabase/functions/_shared/pricing.ts`. Node extr
 Valid transitions only. The DB trigger `enforce_booking_state_transition` will reject invalid transitions — but never try to force one from application code either.
 
 ```
-(initial)       → Confirmed       (create-booking EF — free path; NCN/NP rebook actions)
+(initial)       → Confirmed       (create-booking EF — free path; MUD/ID booking RPCs; NCN/NP rebook actions)
 (initial)       → Pending Payment (create-booking EF — paid path)
 Pending Payment → Confirmed       (Stripe webhook on payment success — auto-confirm)
 Pending Payment → Submitted       (legacy — no production code path writes it)
@@ -147,8 +147,8 @@ Scheduled       → Completed       (field role only)
 Scheduled       → Non-conformance (field role only)
 Scheduled       → Nothing Presented (field role only)
 Scheduled       → Cancelled       (any staff role pre-cutoff)
-Non-conformance → Rebooked        (client-admin, contractor-*)
-Nothing Presented → Rebooked      (client-admin, contractor-*)
+Non-conformance → Rebooked        (any staff role — verifyStaffRole gates the rebook actions)
+Nothing Presented → Rebooked      (any staff role — verifyStaffRole gates the rebook actions)
 ```
 
 **Bookings skip Submitted by design (auto-confirm, 2026-05-18).** Free bookings land directly in Confirmed; paid bookings flip Pending Payment → Confirmed on Stripe success. The Submitted enum value and `Submitted → Confirmed` transition stay as a safety net for any legacy row or future re-introduced manual gate.

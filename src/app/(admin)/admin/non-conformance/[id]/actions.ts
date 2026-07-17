@@ -62,7 +62,7 @@ export async function rebookNcn(
        collection_stop:collection_stop_id(stream),
        booking:booking_id(
          id, ref, status, type, property_id, contact_id, collection_area_id, client_id, contractor_id, fy_id, location, notes,
-         booking_item(no_services, is_extra, unit_price_cents, service_id, service!inner(waste_stream))
+         booking_item(no_services, is_extra, unit_price_cents, service_id, service!inner(waste_stream, category(code)))
        )`
     )
     .eq('id', ncnId)
@@ -70,7 +70,10 @@ export async function rebookNcn(
 
   if (ncnError || !ncn) return { ok: false, error: 'NCN not found.' }
 
-  if (ncn.status === 'Resolved' || ncn.status === 'Rescheduled') {
+  // Gate on the full non-terminal set — 'Closed' (auto-close cron) is terminal
+  // too; a bare Resolved/Rescheduled check would insert the clone and then die
+  // on the notice trigger, stranding an orphan Confirmed booking.
+  if (!(OPEN_EXCEPTION_FILTER_STATUSES as readonly string[]).includes(ncn.status)) {
     return { ok: false, error: `NCN is already ${ncn.status}.` }
   }
 
@@ -91,7 +94,7 @@ export async function rebookNcn(
       is_extra: boolean
       unit_price_cents: number
       service_id: string
-      service: { waste_stream: string }
+      service: { waste_stream: string; category: { code: string } | null }
     }>
   }
 
@@ -130,14 +133,34 @@ export async function rebookNcn(
     }
   }
 
-  // Fetch the selected collection date
+  // Server-side date validation mirroring the dialog's filters: the date must
+  // belong to THIS booking's area, be in the future (AWST — never Date#setHours,
+  // see cancellation-cutoff), be open, and not closed for any bucket the cloned
+  // items occupy. A stale dialog or forged call otherwise strands a Confirmed
+  // rebook on a dead date that never dispatches.
+  const awstToday = new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().slice(0, 10)
   const { data: collDate } = await supabase
     .from('collection_date')
-    .select('id, date')
+    .select('id, date, is_open, bulk_is_closed, anc_is_closed, id_is_closed')
     .eq('id', collectionDateId)
+    .eq('collection_area_id', booking.collection_area_id)
     .single()
 
-  if (!collDate) return { ok: false, error: 'Collection date not found.' }
+  if (!collDate) return { ok: false, error: "Collection date not found for this booking's area." }
+  if (!collDate.is_open || collDate.date <= awstToday) {
+    return { ok: false, error: 'That collection date is no longer available — pick an upcoming open date.' }
+  }
+  const closedByBucket: Record<string, boolean> = {
+    bulk: collDate.bulk_is_closed,
+    anc: collDate.anc_is_closed,
+    id: collDate.id_is_closed,
+  }
+  const hitsClosedBucket = itemsToClone.some(
+    (i) => i.service.category?.code && closedByBucket[i.service.category.code],
+  )
+  if (hitsClosedBucket) {
+    return { ok: false, error: "That collection date is full for this booking's services — pick another date." }
+  }
 
   // Generate a booking ref
   const { data: refData, error: refError } = await supabase
@@ -176,14 +199,18 @@ export async function rebookNcn(
     return { ok: false, error: bookingError?.message ?? 'Failed to create rebooked booking.' }
   }
 
-  // Clone booking items with the new collection date
+  // Clone booking items with the new collection date. Clones are always priced
+  // at 0: a rebook is a remedy delivery, never a sale — no payment is taken on
+  // this path, and the original booking keeps the real payment/refund record.
+  // Cloning original prices here made a later cancel of the rebooked booking
+  // auto-raise a refund_request for money never paid on it.
   const newItems = itemsToClone.map((item) => ({
     booking_id: newBooking.id,
     service_id: item.service_id,
     collection_date_id: collectionDateId,
     no_services: item.no_services,
     is_extra: item.is_extra,
-    unit_price_cents: contractorFault ? 0 : item.unit_price_cents,
+    unit_price_cents: 0,
   }))
 
   if (newItems.length > 0) {
@@ -196,7 +223,9 @@ export async function rebookNcn(
     }
   }
 
-  const { error: ncnUpdateError } = await supabase
+  // Predicated on the non-terminal set so a concurrent resolve/rebook in
+  // another tab matches 0 rows instead of hitting the terminal-notice trigger.
+  const { data: ncnUpdated, error: ncnUpdateError } = await supabase
     .from('non_conformance_notice')
     .update({
       status: 'Rescheduled' as Database['public']['Enums']['ncn_status'],
@@ -208,9 +237,27 @@ export async function rebookNcn(
       rescheduled_date: collDate.date,
     })
     .eq('id', ncnId)
+    .in('status', [...OPEN_EXCEPTION_FILTER_STATUSES])
+    .select('id')
 
-  if (ncnUpdateError) {
-    return { ok: false, error: `Rebook created but NCN update failed: ${ncnUpdateError.message}` }
+  if (ncnUpdateError || !ncnUpdated || ncnUpdated.length === 0) {
+    // The clone already committed — cancel it (best-effort) so no orphan
+    // Confirmed booking gets scheduled and dispatched for a dead rebook.
+    const { error: undoError } = await supabase
+      .from('booking')
+      .update({ status: 'Cancelled', cancelled_at: new Date().toISOString() })
+      .eq('id', newBooking.id)
+    if (undoError) {
+      console.error(
+        `Orphaned rebook booking ${newBooking.id} could not be cancelled after NCN update failure: ${undoError.message}`,
+      )
+    }
+    return {
+      ok: false,
+      error: ncnUpdateError
+        ? `Rebook created but NCN update failed: ${ncnUpdateError.message}`
+        : 'This record has already been resolved or rebooked.',
+    }
   }
 
   // Update original booking status to Rebooked. With the sibling-Pending
