@@ -134,7 +134,7 @@ Authoritative implementation: `supabase/functions/_shared/pricing.ts`. Node extr
 Valid transitions only. The DB trigger `enforce_booking_state_transition` will reject invalid transitions — but never try to force one from application code either.
 
 ```
-(initial)       → Confirmed       (create-booking EF — free path)
+(initial)       → Confirmed       (create-booking EF — free path; NCN/NP rebook actions)
 (initial)       → Pending Payment (create-booking EF — paid path)
 Pending Payment → Confirmed       (Stripe webhook on payment success — auto-confirm)
 Pending Payment → Submitted       (legacy — no production code path writes it)
