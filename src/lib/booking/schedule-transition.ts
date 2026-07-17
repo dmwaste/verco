@@ -38,8 +38,9 @@ export function addOneDay(yyyymmdd: string): string {
  * visibility on that case should inspect inputs separately.
  *
  * <= (not ===) so stragglers transition: a booking confirmed AFTER the daily
- * 15:25 tick for tomorrow (e.g. rebookNcn → Submitted → admin Confirm that
- * evening) is caught on the next tick instead of sitting Confirmed forever —
+ * 15:25 tick for tomorrow (e.g. an NCN/NP rebook created that evening, which
+ * lands directly in Confirmed) is caught on the next tick instead of sitting
+ * Confirmed forever —
  * which matters because the collection_stop rollup only completes bookings
  * that reached Scheduled.
  */

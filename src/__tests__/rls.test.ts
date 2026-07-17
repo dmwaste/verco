@@ -560,21 +560,14 @@ if (!haveDb) {
        VALUES ('${ref}', 'Residential', 'Confirmed', '${areaId}', '${clientId}', '${CONTRACTOR_ID}',
                (SELECT id FROM financial_year WHERE is_current LIMIT 1))`
 
-    it('contractor-admin CAN insert a booking in an accessible client (1 row)', async (ctx) => {
+    it.for([
+      ['contractor-admin', USERS['contractor-admin']],
+      ['contractor-staff', USERS['contractor-staff']],
+      ['client-admin', USERS['client-admin']],
+      ['client-staff', USERS['client-staff']],
+    ] as const)('%s CAN insert a booking in an accessible client (1 row)', async ([role, uid], ctx) => {
       if (!kwnAreaId) return ctx.skip()
-      const n = await updateAs(
-        USERS['contractor-admin'],
-        insertBookingSql('RLS-RBK-CA', kwnAreaId, CLIENT_ID),
-      )
-      expect(n).toBe(1)
-    })
-
-    it('client-admin CAN insert a booking in their OWN client (1 row)', async (ctx) => {
-      if (!kwnAreaId) return ctx.skip()
-      const n = await updateAs(
-        USERS['client-admin'],
-        insertBookingSql('RLS-RBK-CLA', kwnAreaId, CLIENT_ID),
-      )
+      const n = await updateAs(uid, insertBookingSql(`RLS-RBK-${role}`, kwnAreaId, CLIENT_ID))
       expect(n).toBe(1)
     })
 
@@ -585,10 +578,13 @@ if (!haveDb) {
       ).rejects.toThrow(/row-level security/)
     })
 
-    it('field CANNOT insert a booking (RLS rejects)', async (ctx) => {
+    it.for([
+      ['field', 'RLS-RBK-FLD'],
+      ['ranger', 'RLS-RBK-RNG'],
+    ] as const)('%s CANNOT insert a booking (RLS rejects)', async ([role, ref], ctx) => {
       if (!kwnAreaId) return ctx.skip()
       await expect(
-        updateAs(USERS.field, insertBookingSql('RLS-RBK-FLD', kwnAreaId, CLIENT_ID)),
+        updateAs(USERS[role], insertBookingSql(ref, kwnAreaId, CLIENT_ID)),
       ).rejects.toThrow(/row-level security/)
     })
 
