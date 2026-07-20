@@ -666,4 +666,35 @@ test.describe('Booking Flow', () => {
     await expect(page.getByText('Property found!')).toHaveCount(0)
     await expect(page.getByRole('button', { name: /Book new collection/i })).toHaveCount(0)
   })
+
+  test('address lookup — allocation panel honours admin top-ups and RPC usage', async ({ page }) => {
+    // Regression: a property whose base allocation is exhausted but who was
+    // granted admin top-ups (allocation_override) must see the topped-up
+    // remaining counts on the address-lookup panel — not "0 remaining"
+    // (the wizard already honoured overrides; the panel lagged behind).
+    await setupMocks(page, {
+      // Exhausts the base allocation: bulk 3/3, anc 2/2
+      priorUsage: [
+        { service_id: 'svc-general', no_services: 3 },
+        { service_id: 'svc-mattress', no_services: 2 },
+      ],
+      // Admin top-ups: +2 bulk (General Waste), +1 anc (Mattress)
+      overrides: [
+        { service_id: 'svc-general', extra_allocations: 2 },
+        { service_id: 'svc-mattress', extra_allocations: 1 },
+      ],
+    })
+
+    await page.goto('/book')
+    await page.getByPlaceholder('Start typing your address...').fill('23 Leda')
+    await page.getByText('23 Leda Blvd, Wellard WA 6170').click()
+    await expect(page.getByText('Property found!')).toBeVisible()
+
+    // Bulk: 3 used of 5 effective (3 base + 2 override) → 2 remaining
+    await expect(page.getByText('3 of 5 included used')).toBeVisible()
+    await expect(page.getByText('2 remaining')).toBeVisible()
+    // Ancillary: 2 used of 3 effective (2 base + 1 override) → 1 remaining
+    await expect(page.getByText('2 of 3 included used')).toBeVisible()
+    await expect(page.getByText('1 remaining')).toBeVisible()
+  })
 })
