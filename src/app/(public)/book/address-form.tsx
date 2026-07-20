@@ -217,33 +217,61 @@ export function AddressForm({
         .select('max_collections, category!inner(name, code)')
         .eq('collection_area_id', selectedProperty.collection_area_id!)
 
-      const { data: usageItems } = await supabase
-        .from('booking_item')
-        .select(
-          'no_services, service!inner(category!inner(code)), booking!inner(property_id, fy_id, status)'
-        )
-        .eq('booking.property_id', selectedProperty.id)
-        .eq('booking.fy_id', fy.id)
-        .not('booking.status', 'in', '("Cancelled","Pending Payment")')
+      // FY usage via the authoritative SECURITY DEFINER RPC (§21): this page is
+      // public, so a direct booking_item read is RLS-scoped to the viewer — an
+      // anonymous resident would see zero usage (full availability) here even
+      // after exhausting their allocation. p_fy_id omitted → current FY.
+      const { data: usageRows } = await supabase.rpc('get_property_fy_usage', {
+        p_property_id: selectedProperty.id,
+      })
 
       const usageByCode = new Map<string, number>()
-      if (usageItems) {
-        for (const item of usageItems) {
-          const svc = item.service as unknown as { category: { code: string } }
-          const code = svc.category.code
-          usageByCode.set(code, (usageByCode.get(code) ?? 0) + item.no_services)
+      for (const row of usageRows ?? []) {
+        if (row.usage_kind === 'category') {
+          usageByCode.set(row.usage_key, Number(row.units))
+        }
+      }
+
+      // Admin allocation top-ups (allocation_override) via the companion DEFINER
+      // RPC — the table's SELECT policy is staff-only, so a direct read returns
+      // zero for residents and a granted top-up would show "0 remaining" here
+      // while the wizard (already on this RPC) shows the topped-up count.
+      const { data: overrideRows } = await supabase.rpc(
+        'get_property_allocation_overrides',
+        { p_property_id: selectedProperty.id }
+      )
+
+      // Overrides are per-service; roll up to category for the panel's tiles.
+      const extraByCode = new Map<string, number>()
+      if (overrideRows && overrideRows.length > 0) {
+        const { data: services } = await supabase
+          .from('service')
+          .select('id, category!inner(code)')
+          .in('id', overrideRows.map((r) => r.service_id))
+        const codeByServiceId = new Map(
+          (services ?? []).map((s) => {
+            const cat = s.category as unknown as { code: string }
+            return [s.id, cat.code] as const
+          })
+        )
+        for (const r of overrideRows) {
+          const code = codeByServiceId.get(r.service_id)
+          if (code) {
+            extraByCode.set(code, (extraByCode.get(code) ?? 0) + Number(r.extra_allocations))
+          }
         }
       }
 
       const allocations = (rules ?? []).map((rule) => {
         const cat = rule.category as unknown as { name: string; code: string }
         const used = usageByCode.get(cat.code) ?? 0
+        const maxCollections = rule.max_collections + (extraByCode.get(cat.code) ?? 0)
         return {
           categoryName: cat.name,
           code: cat.code,
-          maxCollections: rule.max_collections,
-          used: Math.min(used, rule.max_collections),
-          remaining: Math.max(0, rule.max_collections - used),
+          maxCollections,
+          used: Math.min(used, maxCollections),
+          remaining: Math.max(0, maxCollections - used),
         }
       })
 
