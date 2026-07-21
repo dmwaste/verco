@@ -669,6 +669,9 @@ export function ConfirmForm() {
       // Carry the edit signal back — without it, Confirm → Back → Next re-enters
       // the wizard as a NEW booking and creates a duplicate instead of editing.
       ...(replacesParam ? { replaces: replacesParam } : {}),
+      // Carry the allocation swap back — without it, Confirm → Back → Next
+      // silently unticks the swap and re-prices the swapped unit as paid.
+      ...(swap ? { swap: 'true' } : {}),
     })
     router.push(`/book/details?${params.toString()}`)
   }
