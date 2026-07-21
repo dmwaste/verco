@@ -1,10 +1,14 @@
 import { test, expect, type Page, type Route } from '@playwright/test'
 
 /**
- * Allocation swap (Kwinana: 3 Ancillary -> 1 Green) — services-step interaction.
+ * Allocation swap (Kwinana: 3 Ancillary -> 1 Green) — full wizard walk.
  * Mocks Supabase REST so no real backend is needed (same approach as
  * booking-flow.spec.ts). Verifies: the swap checkbox shows when eligible,
- * ticking it disables the ancillary steppers, and the swap flag carries onward.
+ * ticking it disables the ancillary steppers, and the swap flag carries
+ * through EVERY step (services -> date -> details -> confirm) so the confirm
+ * breakdown prices the swapped Green as free. Regression: the date/details
+ * steps rebuild the query string from a whitelist and used to drop `swap`,
+ * so confirm silently re-priced the swapped Green as a paid extra.
  */
 
 const AREA = '22222222-2222-2222-2222-222222222222'
@@ -45,6 +49,27 @@ const CONVERSION_RULE = [{
   to_allocation_rules: { category: { code: 'bulk' } },
 }]
 
+// Services list (date-step needed-buckets + confirm-page names)
+const SERVICES = [
+  { id: 'svc-general', name: 'General', category: { name: 'Bulk', code: 'bulk' } },
+  { id: 'svc-green', name: 'Green', category: { name: 'Bulk', code: 'bulk' } },
+  { id: 'svc-mattress', name: 'Mattress', category: { name: 'Ancillary', code: 'anc' } },
+]
+
+const COLLECTION_DATE = {
+  id: 'cd-1',
+  date: '2027-03-15',
+  is_open: true,
+  for_mud: false,
+  bulk_is_closed: false,
+  anc_is_closed: false,
+  bulk_units_booked: 0,
+  bulk_capacity_limit: 100,
+  anc_units_booked: 0,
+  anc_capacity_limit: 50,
+  collection_area_id: AREA,
+}
+
 async function setupMocks(page: Page) {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? 'http://localhost:54321'
   await page.route(`${supabaseUrl}/rest/v1/**`, async (route: Route) => {
@@ -68,13 +93,27 @@ async function setupMocks(page: Page) {
     }
     if (url.includes('allocation_rules')) return json(ALLOCATION_RULES)
     if (url.includes('service_rules')) return json(SERVICE_RULES_NESTED)
+    // collection_date first — its URL also contains `collection_area_id=eq...`,
+    // so a bare 'collection_area' substring match would swallow it.
+    if (url.includes('collection_date')) return json(single ? COLLECTION_DATE : [COLLECTION_DATE])
+    // confirm-page tenant brand: collection_area → client(service_name, terms_markdown)
+    if (url.includes('/collection_area?') && url.includes('client')) {
+      const row = { client: { service_name: null, terms_markdown: null } }
+      return json(single ? row : [row])
+    }
+    // date-step pool membership: collection_area → capacity_pool_id (null = unpooled)
+    if (url.includes('/collection_area?')) {
+      const row = { id: AREA, capacity_pool_id: null }
+      return json(single ? row : [row])
+    }
+    if (url.includes('/service?') || url.includes('/service&')) return json(SERVICES)
     if (url.includes('booking_item')) return json([]) // 0 prior usage
     return json([])
   })
 }
 
-test.describe('Allocation swap — services step', () => {
-  test('checkbox appears, disables ancillary, and carries the swap flag', async ({ page }) => {
+test.describe('Allocation swap — wizard flow', () => {
+  test('swap flag carries services → date → details → confirm; swapped Green prices free', async ({ page }) => {
     await setupMocks(page)
     await page.goto(
       `/book/services?property_id=${PROPERTY.id}&collection_area_id=${AREA}&address=${encodeURIComponent(PROPERTY.formatted_address)}`
@@ -98,11 +137,27 @@ test.describe('Allocation swap — services step', () => {
     await expect(checkbox).toBeChecked()
     await expect(plus.nth(2)).toBeDisabled()
 
-    // Add a Green (free via the swap) and continue.
+    // Add THREE Green. Only 2 are free on base rules (green service max 2, bulk
+    // category max 2) — the 3rd is free purely via the swap (+1 to both budgets).
+    await plus.nth(1).click()
+    await plus.nth(1).click()
     await plus.nth(1).click()
     await page.getByRole('button', { name: /Next Step/i }).click()
 
     // The swap flag carries to the date step.
     await expect(page).toHaveURL(/\/book\/date\?.*swap=true/)
+
+    // Date step: pick the available date and continue — swap must survive the hop.
+    await page.getByRole('button', { name: /available/i }).first().click()
+    await page.getByRole('button', { name: /Next Step/i }).click()
+    await expect(page).toHaveURL(/\/book\/details\?.*swap=true/)
+
+    // Details step: default location (Front Verge) is fine — continue.
+    await page.getByRole('button', { name: /Next Step/i }).click()
+    await expect(page).toHaveURL(/\/book\/confirm\?.*swap=true/)
+
+    // Confirm: the breakdown honours the swap — banner shown, 3rd Green NOT charged.
+    await expect(page.getByText(/Ancillary allocation swapped/i)).toBeVisible()
+    await expect(page.getByTestId('booking-total')).toHaveText('No Charge')
   })
 })

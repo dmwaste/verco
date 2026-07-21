@@ -37,13 +37,16 @@ export function DetailsForm({ contactPhone }: { contactPhone: string }) {
   const notesRequired = location === STAFF_LOCATION_OPTION
   const notesMissing = notesRequired && notes.trim().length === 0
 
-  // Carry params through for edit flow
+  // Carry params through for edit flow + allocation swap
   const contactFirstName = searchParams.get('contact_first_name')
   const contactLastName = searchParams.get('contact_last_name')
   const contactEmail = searchParams.get('contact_email')
   const contactMobile = searchParams.get('contact_mobile')
   const returnUrl = searchParams.get('return_url')
   const replaces = searchParams.get('replaces')
+  // Allocation swap ticked on the services step. Dropping this re-prices the
+  // swapped unit as a paid extra at confirm (and the EF never records the swap).
+  const swap = searchParams.get('swap') === 'true'
   const carryParams = {
     ...(contactFirstName ? { contact_first_name: contactFirstName } : {}),
     ...(contactLastName ? { contact_last_name: contactLastName } : {}),
@@ -51,6 +54,7 @@ export function DetailsForm({ contactPhone }: { contactPhone: string }) {
     ...(contactMobile ? { contact_mobile: contactMobile } : {}),
     ...(returnUrl ? { return_url: returnUrl } : {}),
     ...(replaces ? { replaces } : {}),
+    ...(swap ? { swap: 'true' } : {}),
   }
 
   function handleContinue() {
