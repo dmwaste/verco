@@ -170,6 +170,11 @@ export async function calculatePrice(
   // the old cart-scoped map, which silently dropped such usage.
   const serviceUsageMap = new Map<string, number>()
   const categoryUsageMap = new Map<string, number>()
+  // The RPC also emits ('swap', <conversion_rule_id>, 1) when the property has
+  // an applied allocation swap this FY (suppressed when the swap's own booking
+  // is excluded via excludeBookingId — edits of the swap-origin booking are
+  // governed by the caller's explicit `conversion` alone).
+  let existingSwapRuleId: string | null = null
 
   if (usageResult.data) {
     for (const row of usageResult.data as Array<{ usage_kind: string; usage_key: string; units: number }>) {
@@ -177,6 +182,46 @@ export async function calculatePrice(
         serviceUsageMap.set(row.usage_key, Number(row.units))
       } else if (row.usage_kind === 'category') {
         categoryUsageMap.set(row.usage_key, Number(row.units))
+      } else if (row.usage_kind === 'swap') {
+        existingSwapRuleId = row.usage_key
+      }
+    }
+  }
+
+  // Design §2 (allocation swap): once applied, the forfeiture lasts the whole
+  // FY — every subsequent booking must price with the from-category zeroed and
+  // the to-category/service grant applied, or the resident double-dips (the
+  // forfeited Ancillary reappears free) and the granted extra Green is charged.
+  // An explicit `conversion` (a swap being requested/kept on THIS booking)
+  // wins; otherwise derive it from the recorded swap. Fetched by id WITHOUT an
+  // is_active filter: the swap was applied under that rule, so the forfeiture
+  // stands for the FY even if the rule is later deactivated. Residential only,
+  // matching the budget-delta guard below (MUD swaps are out of scope).
+  let activeConversion = conversion
+  if (!activeConversion && existingSwapRuleId && unitMultiplier === 1) {
+    const { data: swapRule } = await supabase
+      .from('allocation_conversion_rule')
+      .select(
+        'from_units, to_units, to_service_id, ' +
+        'from_allocation_rules:from_allocation_rules_id ( category:category_id ( code ) ), ' +
+        'to_allocation_rules:to_allocation_rules_id ( category:category_id ( code ) )'
+      )
+      .eq('id', existingSwapRuleId)
+      .maybeSingle()
+    const raw = swapRule as unknown as {
+      from_units: number
+      to_units: number
+      to_service_id: string
+      from_allocation_rules: { category: { code: string } | null } | null
+      to_allocation_rules: { category: { code: string } | null } | null
+    } | null
+    if (raw?.from_allocation_rules?.category && raw?.to_allocation_rules?.category) {
+      activeConversion = {
+        from_category_code: raw.from_allocation_rules.category.code,
+        to_category_code: raw.to_allocation_rules.category.code,
+        to_service_id: raw.to_service_id,
+        from_units: raw.from_units,
+        to_units: raw.to_units,
       }
     }
   }
@@ -189,16 +234,16 @@ export async function calculatePrice(
   // != 1) so swap units are never scaled by unit count. Mirrors calculate.ts.
   const effectiveCategoryMax = new Map(categoryMaxMap)
   const serviceMaxBonus = new Map<string, number>()
-  if (conversion && unitMultiplier === 1) {
+  if (activeConversion && unitMultiplier === 1) {
     effectiveCategoryMax.set(
-      conversion.from_category_code,
-      Math.max(0, (effectiveCategoryMax.get(conversion.from_category_code) ?? 0) - conversion.from_units),
+      activeConversion.from_category_code,
+      Math.max(0, (effectiveCategoryMax.get(activeConversion.from_category_code) ?? 0) - activeConversion.from_units),
     )
     effectiveCategoryMax.set(
-      conversion.to_category_code,
-      (effectiveCategoryMax.get(conversion.to_category_code) ?? 0) + conversion.to_units,
+      activeConversion.to_category_code,
+      (effectiveCategoryMax.get(activeConversion.to_category_code) ?? 0) + activeConversion.to_units,
     )
-    serviceMaxBonus.set(conversion.to_service_id, conversion.to_units)
+    serviceMaxBonus.set(activeConversion.to_service_id, activeConversion.to_units)
   }
 
   const lineItems: PricedLineItem[] = items.map((item) => {

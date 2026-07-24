@@ -70,7 +70,7 @@ const COLLECTION_DATE = {
   collection_area_id: AREA,
 }
 
-async function setupMocks(page: Page) {
+async function setupMocks(page: Page, opts: { fyUsageRows?: unknown[] } = {}) {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? 'http://localhost:54321'
   await page.route(`${supabaseUrl}/rest/v1/**`, async (route: Route) => {
     const url = route.request().url()
@@ -87,10 +87,10 @@ async function setupMocks(page: Page) {
     if (url.includes('eligible_properties')) return json(single ? PROPERTY : [PROPERTY])
     if (url.includes('financial_year')) return json(single ? FY : [FY])
     if (url.includes('allocation_conversion_rule')) return json(CONVERSION_RULE)
-    // head:true count query for allocation_swap → count 0 via Content-Range
-    if (url.includes('allocation_swap')) {
-      return route.fulfill({ status: 200, contentType: 'application/json', body: '[]', headers: { 'content-range': '*/0' } })
-    }
+    // FY usage RPC — the sole source of prior usage AND applied-swap state
+    // (an existing swap surfaces as a ('swap', <rule_id>, 1) row; the
+    // allocation_swap table itself is never read by the /book flow any more).
+    if (url.includes('get_property_fy_usage')) return json(opts.fyUsageRows ?? [])
     if (url.includes('allocation_rules')) return json(ALLOCATION_RULES)
     if (url.includes('service_rules')) return json(SERVICE_RULES_NESTED)
     // collection_date first — its URL also contains `collection_area_id=eq...`,
@@ -158,6 +158,71 @@ test.describe('Allocation swap — wizard flow', () => {
 
     // Confirm: the breakdown honours the swap — banner shown, 3rd Green NOT charged.
     await expect(page.getByText(/Ancillary allocation swapped/i)).toBeVisible()
+    await expect(page.getByTestId('booking-total')).toHaveText('No Charge')
+  })
+
+  /**
+   * Regression (24/07/2026, 19 McNairn Cross / 41 Shipwright Ave): a swap
+   * applied EARLIER this FY was only read to hide the checkbox — the pricing
+   * surfaces never applied its budget shift on subsequent bookings. The
+   * forfeited 3 Ancillary reappeared as free (badge "3 of 3", free e-waste /
+   * mattress) and the swap-granted extra Green was charged. Design §2: the
+   * forfeiture lasts the whole FY.
+   */
+  test('existing swap: no checkbox, note shown, ancillary paid, granted Green free', async ({ page }) => {
+    await setupMocks(page, {
+      fyUsageRows: [
+        // The swap booking already consumed 1 Green (the granted unit's twin
+        // scenario in prod), plus the swap marker row.
+        { usage_kind: 'service', usage_key: 'svc-green', units: 1 },
+        { usage_kind: 'category', usage_key: 'bulk', units: 1 },
+        { usage_kind: 'swap', usage_key: 'conv-1', units: 1 },
+      ],
+    })
+    await page.goto(
+      `/book/services?property_id=${PROPERTY.id}&collection_area_id=${AREA}&address=${encodeURIComponent(PROPERTY.formatted_address)}`
+    )
+
+    // The already-swapped note renders; the opt-in checkbox does NOT.
+    await expect(page.getByText(/have been swapped for 1 extra green waste/i)).toBeVisible()
+    await expect(page.getByRole('checkbox')).toHaveCount(0)
+
+    // Post-swap budgets: Ancillary zeroed, Bulk granted +1 (1 already used).
+    await expect(page.getByText('0 of 0 remaining')).toBeVisible()
+    await expect(page.getByText('2 of 3 remaining')).toBeVisible()
+
+    const plus = page.getByRole('button', { name: '+', exact: true })
+
+    // Ancillary is forfeited → adding a Mattress prices as a PAID extra.
+    await plus.nth(2).click()
+    await expect(page.getByText(/1 extra mattress @ \$45\.00 each/i)).toBeVisible()
+    await expect(page.getByText('Total extra services cost')).toBeVisible()
+
+    // Remove it again — cart back to free-only.
+    const minus = page.getByRole('button', { name: '−', exact: true })
+    await minus.nth(2).click()
+    await expect(page.getByText('Total extra services cost')).toHaveCount(0)
+
+    // Two more Green: green svc max 2+1(swap)=3 minus 1 used = 2 free; bulk
+    // cat 2+1(swap)=3 minus 1 used = 2 free. Both free — the granted extra
+    // Green must NOT be charged (this was the "charged for the 3rd green" bug).
+    await plus.nth(1).click()
+    await plus.nth(1).click()
+    await expect(page.getByText('Total extra services cost')).toHaveCount(0)
+    await page.getByRole('button', { name: /Next Step/i }).click()
+
+    // No swap=true in the URL — this booking does NOT request a new swap.
+    await expect(page).toHaveURL(/\/book\/date\?/)
+    expect(page.url()).not.toContain('swap=true')
+
+    await page.getByRole('button', { name: /available/i }).first().click()
+    await page.getByRole('button', { name: /Next Step/i }).click()
+    await expect(page).toHaveURL(/\/book\/details\?/)
+    await page.getByRole('button', { name: /Next Step/i }).click()
+    await expect(page).toHaveURL(/\/book\/confirm\?/)
+
+    // Confirm: existing-swap banner wording + nothing charged.
+    await expect(page.getByText(/swapped for an extra green waste collection earlier/i)).toBeVisible()
     await expect(page.getByTestId('booking-total')).toHaveText('No Charge')
   })
 })

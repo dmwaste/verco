@@ -29,6 +29,28 @@ export function isSwapEligible(i: SwapEligibilityInput): boolean {
 }
 
 /**
+ * Row shape returned by `get_property_fy_usage`. The RPC emits per-service and
+ * per-category usage counts plus — when the property has an applied allocation
+ * swap this FY — a `('swap', <conversion_rule_id>, 1)` row.
+ */
+export interface FyUsageRow {
+  usage_kind: string
+  usage_key: string
+}
+
+/**
+ * The property's applied-swap conversion-rule id from the FY-usage rows, or
+ * null when no swap is applied. This is how every pricing surface learns about
+ * an EXISTING swap (design §2: the forfeiture lasts the whole FY): the direct
+ * `allocation_swap` table is RLS-scoped to the caller's booking visibility, so
+ * a pre-OTP anonymous resident reads zero rows — the SECURITY DEFINER RPC is
+ * the only identity-independent source (same blind-spot as FY usage itself).
+ */
+export function findExistingSwapRuleId(rows: FyUsageRow[] | null | undefined): string | null {
+  return rows?.find((r) => r.usage_kind === 'swap')?.usage_key ?? null
+}
+
+/**
  * Row shape returned by the `allocation_conversion_rule` query, flattened with
  * the from/to category codes resolved.
  */

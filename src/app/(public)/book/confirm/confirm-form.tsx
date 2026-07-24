@@ -18,6 +18,7 @@ import { buildConfirmBreakdown } from '@/lib/pricing/build-breakdown'
 import { type ActiveConversion } from '@/lib/pricing/calculate'
 import {
   CONVERSION_RULE_SELECT,
+  findExistingSwapRuleId,
   flattenConversionRule,
   toActiveConversion,
   type RawConversionRuleRow,
@@ -230,6 +231,11 @@ export function ConfirmForm() {
       // vanished from the breakdown while the total still charged for them.
       const serviceUsageMap = new Map<string, number>()
       const categoryUsageMap = new Map<string, number>()
+      // Conversion-rule id of a swap ALREADY applied to this property this FY
+      // (from the RPC's ('swap', <rule_id>, 1) row — the allocation_swap table
+      // itself is RLS-scoped and reads empty pre-OTP). The forfeiture lasts the
+      // whole FY, so the breakdown must price with it (design §2).
+      let existingSwapRuleId: string | null = null
       {
         // FY usage via the authoritative RPC. booking / booking_item are
         // RLS-scoped to the resident, and this confirm page can render pre-OTP
@@ -247,6 +253,7 @@ export function ConfirmForm() {
           if (row.usage_kind === 'service') serviceUsageMap.set(row.usage_key, Number(row.units))
           else if (row.usage_kind === 'category') categoryUsageMap.set(row.usage_key, Number(row.units))
         }
+        existingSwapRuleId = findExistingSwapRuleId(usageRows)
       }
 
       // Service rules (per-service max + extra price)
@@ -279,15 +286,21 @@ export function ConfirmForm() {
         serviceCategoryMap.set(st.id, st.category.code)
       }
 
-      // Active allocation swap (if the resident ticked it) — load the rule so
-      // the breakdown shows the extra Green as included.
+      // Active allocation swap — either ticked on THIS booking (load the
+      // area's active rule) or already applied earlier this FY (load the rule
+      // the swap was recorded under, by id, WITHOUT an is_active filter — the
+      // forfeiture stands even if the rule is later deactivated). Either way
+      // the breakdown prices with the budgets shifted, matching the EF.
       let conversion: ActiveConversion | undefined
-      if (swap) {
-        const { data: ruleData } = await supabase
+      if (swap || existingSwapRuleId) {
+        const query = supabase
           .from('allocation_conversion_rule')
           .select(CONVERSION_RULE_SELECT)
-          .eq('is_active', true)
-          .eq('from_allocation_rules.collection_area_id', collectionAreaId)
+        const { data: ruleData } = existingSwapRuleId
+          ? await query.eq('id', existingSwapRuleId)
+          : await query
+              .eq('is_active', true)
+              .eq('from_allocation_rules.collection_area_id', collectionAreaId)
         const raw = (ruleData ?? [])[0] as unknown as RawConversionRuleRow | undefined
         const rule = raw ? flattenConversionRule(raw) : null
         if (rule) conversion = toActiveConversion(rule)
@@ -328,6 +341,9 @@ export function ConfirmForm() {
         included,
         extras,
         swapped: !!conversion,
+        // Applied earlier this FY (vs ticked on this booking) — the banner
+        // wording differs: nothing about THIS booking includes a free green.
+        swappedExisting: !!existingSwapRuleId && !swap,
       }
     },
   })
@@ -834,7 +850,9 @@ export function ConfirmForm() {
             {summaryData.swapped && (
               <div className="mb-3 rounded-lg border border-[var(--brand-accent-dark)] bg-[#F0FBF5] px-3.5 py-2.5 text-body-sm text-[#2f5320]">
                 <strong className="text-[var(--brand)]">Ancillary allocation swapped</strong>{' '}
-                — your extra green waste collection is included free.
+                {summaryData.swappedExisting
+                  ? '— your ancillary collections were swapped for an extra green waste collection earlier this financial year.'
+                  : '— your extra green waste collection is included free.'}
               </div>
             )}
 
