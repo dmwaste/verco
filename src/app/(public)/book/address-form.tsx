@@ -23,6 +23,12 @@ import {
   filterBySuburbAgreement,
 } from '@/lib/booking/address-match-key'
 import { decideMudRedirect, type MudLookupCandidate } from '@/lib/mud/mud-lookup'
+import {
+  CONVERSION_RULE_SELECT,
+  findExistingSwapRuleId,
+  flattenConversionRule,
+  type RawConversionRuleRow,
+} from '@/lib/pricing/swap'
 import type { Database } from '@/lib/supabase/types'
 
 type EligibleProperty = Database['public']['Tables']['eligible_properties']['Row']
@@ -232,6 +238,30 @@ export function AddressForm({
         }
       }
 
+      // Applied allocation swap (e.g. Kwinana 3 Ancillary -> 1 Green): the RPC
+      // emits ('swap', <conversion_rule_id>, 1) when this property swapped this
+      // FY. The panel must show the post-swap budgets (ancillary 0, bulk +1) —
+      // before this it showed the forfeited ancillary as still available. Rule
+      // fetched by id WITHOUT is_active (the forfeiture stands for the FY).
+      const swapRuleId = findExistingSwapRuleId(usageRows)
+      let swapDelta: { fromCode: string; toCode: string; fromUnits: number; toUnits: number } | null = null
+      if (swapRuleId) {
+        const { data: swapRuleRows } = await supabase
+          .from('allocation_conversion_rule')
+          .select(CONVERSION_RULE_SELECT)
+          .eq('id', swapRuleId)
+        const raw = (swapRuleRows ?? [])[0] as unknown as RawConversionRuleRow | undefined
+        const rule = raw ? flattenConversionRule(raw) : null
+        if (rule) {
+          swapDelta = {
+            fromCode: rule.from_category_code,
+            toCode: rule.to_category_code,
+            fromUnits: rule.from_units,
+            toUnits: rule.to_units,
+          }
+        }
+      }
+
       // Admin allocation top-ups (allocation_override) via the companion DEFINER
       // RPC — the table's SELECT policy is staff-only, so a direct read returns
       // zero for residents and a granted top-up would show "0 remaining" here
@@ -265,7 +295,17 @@ export function AddressForm({
       const allocations = (rules ?? []).map((rule) => {
         const cat = rule.category as unknown as { name: string; code: string }
         const used = usageByCode.get(cat.code) ?? 0
-        const maxCollections = rule.max_collections + (extraByCode.get(cat.code) ?? 0)
+        // Mirror the pricing engine's order: swap-adjust the base (with its
+        // clamp at 0) FIRST, then add the additive override extra.
+        let swapAdjusted = rule.max_collections
+        if (swapDelta) {
+          if (cat.code === swapDelta.fromCode) {
+            swapAdjusted = Math.max(0, swapAdjusted - swapDelta.fromUnits)
+          } else if (cat.code === swapDelta.toCode) {
+            swapAdjusted = swapAdjusted + swapDelta.toUnits
+          }
+        }
+        const maxCollections = swapAdjusted + (extraByCode.get(cat.code) ?? 0)
         return {
           categoryName: cat.name,
           code: cat.code,
@@ -284,7 +324,7 @@ export function AddressForm({
         .order('created_at', { ascending: false })
         .limit(5)
 
-      return { fy, allocations, bookings: bookings ?? [] }
+      return { fy, allocations, bookings: bookings ?? [], swapDelta }
     },
   })
 
@@ -498,6 +538,15 @@ export function AddressForm({
                   </div>
                 ))}
               </div>
+
+              {/* Applied swap note — the tiles above already show the post-swap
+                  budgets; this says WHY ancillary reads 0 (future reference). */}
+              {allocationData.swapDelta && (
+                <div className="mt-2 rounded-lg border border-[var(--brand-accent-dark)] bg-[#F0FBF5] px-3.5 py-2.5 text-caption text-[#2f5320]">
+                  {allocationData.swapDelta.fromUnits} ancillary collections swapped for{' '}
+                  {allocationData.swapDelta.toUnits} extra green waste collection this financial year.
+                </div>
+              )}
 
               <VercoButton type="button" onClick={handleContinue} className="mt-4 w-full">
                 Book new collection &rarr;

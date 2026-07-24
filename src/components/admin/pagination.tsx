@@ -23,7 +23,11 @@ export function Pagination({ page, pageSize, total, onPageChange, className }: P
   if (totalPages <= 1) return null
 
   return (
-    <div className={cn('mt-4 flex items-center justify-between text-xs text-gray-500', className)}>
+    // tablet:mb-20 — the bug-report FAB is `fixed bottom-6 right-6` (~68px
+    // tall footprint incl. offset) on tablet+; this row is the last element
+    // on admin list pages, so without clearance the FAB permanently covers
+    // the Next button at full scroll.
+    <div className={cn('mt-4 tablet:mb-20 flex items-center justify-between text-xs text-gray-500', className)}>
       <span className="tabular-nums">
         Showing {page * pageSize + 1}&ndash;{Math.min((page + 1) * pageSize, total)} of {total}
       </span>
