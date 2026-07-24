@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest'
-import { isSwapEligible, toActiveConversion, type ConversionRuleRow } from '@/lib/pricing/swap'
+import {
+  isSwapEligible,
+  toActiveConversion,
+  findExistingSwapRuleId,
+  type ConversionRuleRow,
+} from '@/lib/pricing/swap'
 
 describe('isSwapEligible', () => {
   it('eligible when a rule exists, 0 ancillary used, no existing swap, no ancillary in cart', () => {
@@ -18,6 +23,33 @@ describe('isSwapEligible', () => {
     expect(isSwapEligible({ hasRule: false, ancillaryFyUsed: 0, hasExistingSwap: false, ancillaryInCart: 0 })).toBe(false)
     expect(isSwapEligible({ hasRule: true, ancillaryFyUsed: 0, hasExistingSwap: true, ancillaryInCart: 0 })).toBe(false)
     expect(isSwapEligible({ hasRule: true, ancillaryFyUsed: 0, hasExistingSwap: false, ancillaryInCart: 2 })).toBe(false)
+  })
+})
+
+describe('findExistingSwapRuleId', () => {
+  it('returns the conversion-rule id from a swap usage row', () => {
+    expect(
+      findExistingSwapRuleId([
+        { usage_kind: 'service', usage_key: 'svc-green' },
+        { usage_kind: 'category', usage_key: 'bulk' },
+        { usage_kind: 'swap', usage_key: 'rule-1' },
+      ]),
+    ).toBe('rule-1')
+  })
+
+  it('returns null when no swap row is present (usage-only rows)', () => {
+    expect(
+      findExistingSwapRuleId([
+        { usage_kind: 'service', usage_key: 'svc-green' },
+        { usage_kind: 'category', usage_key: 'bulk' },
+      ]),
+    ).toBeNull()
+  })
+
+  it('returns null for empty, null, or undefined row sets', () => {
+    expect(findExistingSwapRuleId([])).toBeNull()
+    expect(findExistingSwapRuleId(null)).toBeNull()
+    expect(findExistingSwapRuleId(undefined)).toBeNull()
   })
 })
 

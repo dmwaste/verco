@@ -14,6 +14,7 @@ import { computeLineItems, type ServiceRule } from '@/lib/pricing/calculate'
 import {
   isSwapEligible,
   toActiveConversion,
+  findExistingSwapRuleId,
   flattenConversionRule,
   CONVERSION_RULE_SELECT,
   type ConversionRuleRow,
@@ -122,12 +123,23 @@ export function ServicesForm({ clientSlug }: { clientSlug: string }) {
         if (row.usage_kind === 'category') byCategory.set(row.usage_key, Number(row.units))
         else if (row.usage_kind === 'service') byService.set(row.usage_key, Number(row.units))
       }
-      return { byCategory, byService }
+      // The RPC also emits ('swap', <conversion_rule_id>, 1) when this property
+      // already swapped its allocation this FY. Sourced HERE (not a direct
+      // allocation_swap read) because that table is RLS-scoped to the caller's
+      // booking visibility — a pre-OTP anonymous resident reads zero rows and
+      // would wrongly be offered the swap again.
+      return { byCategory, byService, swapRuleId: findExistingSwapRuleId(data) }
     },
   })
 
   const fyUsageByCategory = fyUsage?.byCategory
   const fyUsageByService = fyUsage?.byService
+  // This property already applied a swap this FY (one per property/FY). The
+  // forfeiture lasts the whole FY (design §2): the preview below prices with
+  // the conversion applied so the swapped-away ancillary shows 0 remaining
+  // (anything added is paid) and the granted extra green prices free.
+  const existingSwapRuleId = fyUsage?.swapRuleId ?? null
+  const hasExistingSwap = !!existingSwapRuleId
 
   // Admin allocation top-ups (allocation_override) for this property + current FY.
   // Same RLS blind-spot as FY usage: the services step runs pre-OTP (anon) and
@@ -164,39 +176,26 @@ export function ServicesForm({ clientSlug }: { clientSlug: string }) {
     return m
   }, [overrides, serviceRules])
 
-  // Active allocation conversion rule for this area (e.g. 3 Ancillary -> 1 Green).
-  // null when the area has no swap configured.
+  // Active allocation conversion rule (e.g. 3 Ancillary -> 1 Green). Two modes:
+  // - No applied swap: the area's ACTIVE rule — drives the opt-in checkbox.
+  // - Swap already applied: the rule the swap was recorded under, fetched by id
+  //   WITHOUT an is_active filter (the forfeiture stands for the FY even if the
+  //   rule is later deactivated) — drives the preview's budget adjustment and
+  //   the "already swapped" note. Waits for fyUsage so the mode is known.
   const { data: conversionRule } = useQuery({
-    queryKey: ['conversion-rule', collectionAreaId],
-    enabled: !!collectionAreaId,
+    queryKey: ['conversion-rule', collectionAreaId, existingSwapRuleId],
+    enabled: !!collectionAreaId && !fyUsageLoading,
     queryFn: async (): Promise<ConversionRuleRow | null> => {
-      const { data } = await supabase
+      const query = supabase
         .from('allocation_conversion_rule')
         .select(CONVERSION_RULE_SELECT)
-        .eq('is_active', true)
-        .eq('from_allocation_rules.collection_area_id', collectionAreaId)
+      const { data } = existingSwapRuleId
+        ? await query.eq('id', existingSwapRuleId)
+        : await query
+            .eq('is_active', true)
+            .eq('from_allocation_rules.collection_area_id', collectionAreaId)
       const raw = (data ?? [])[0] as unknown as RawConversionRuleRow | undefined
       return raw ? flattenConversionRule(raw) : null
-    },
-  })
-
-  // Whether this property already applied a swap this FY (one per property/FY).
-  const { data: hasExistingSwap } = useQuery({
-    queryKey: ['existing-swap', propertyId],
-    enabled: !!propertyId,
-    queryFn: async (): Promise<boolean> => {
-      const { data: fy } = await supabase
-        .from('financial_year')
-        .select('id')
-        .eq('is_current', true)
-        .single()
-      if (!fy) return false
-      const { count } = await supabase
-        .from('allocation_swap')
-        .select('id', { count: 'exact', head: true })
-        .eq('property_id', propertyId)
-        .eq('fy_id', fy.id)
-      return (count ?? 0) > 0
     },
   })
 
@@ -240,7 +239,11 @@ export function ServicesForm({ clientSlug }: { clientSlug: string }) {
     const serviceCategoryMap = new Map<string, string>(
       serviceRules.map((r) => [r.service_id, r.service.category.code])
     )
-    const conversion = swapApplied && conversionRule ? toActiveConversion(conversionRule) : undefined
+    // Ticked on THIS booking (swapApplied) or already applied earlier this FY
+    // (hasExistingSwap) — either way the budgets shift: from-category zeroed,
+    // to-category/service granted. Mirrors calculatePrice's derivation.
+    const conversion =
+      (swapApplied || hasExistingSwap) && conversionRule ? toActiveConversion(conversionRule) : undefined
 
     // Single source of pricing truth — the same engine the EF + confirm page use
     // (the inline copy this replaced is the bug class fixed in PR #147).
@@ -278,7 +281,7 @@ export function ServicesForm({ clientSlug }: { clientSlug: string }) {
     }
 
     return { pricingItems: items, categoryFreeUsed: formUsed }
-  }, [serviceRules, fyUsageByService, fyUsageByCategory, categoryAllocations, quantities, swapApplied, conversionRule, overrides])
+  }, [serviceRules, fyUsageByService, fyUsageByCategory, categoryAllocations, quantities, swapApplied, hasExistingSwap, conversionRule, overrides])
 
   // Effective category max, accounting for an applied swap (e.g. the from
   // category loses from_units, the to category gains to_units).
@@ -288,7 +291,7 @@ export function ServicesForm({ clientSlug }: { clientSlug: string }) {
     // Mirror computeLineItems: swap-adjust the base (with its clamp) first, THEN
     // add the additive override extra — order matters when from_units > base.
     let swapAdjusted = base
-    if (swapApplied && conversionRule) {
+    if ((swapApplied || hasExistingSwap) && conversionRule) {
       if (categoryCode === conversionRule.from_category_code) {
         swapAdjusted = Math.max(0, base - conversionRule.from_units)
       } else if (categoryCode === conversionRule.to_category_code) {
@@ -319,7 +322,7 @@ export function ServicesForm({ clientSlug }: { clientSlug: string }) {
   const swapEligible = isSwapEligible({
     hasRule: !!conversionRule,
     ancillaryFyUsed: fromCat ? (fyUsageByCategory?.get(fromCat) ?? 0) : 0,
-    hasExistingSwap: hasExistingSwap ?? false,
+    hasExistingSwap,
     ancillaryInCart,
   })
 
@@ -545,6 +548,21 @@ export function ServicesForm({ clientSlug }: { clientSlug: string }) {
 
             {grouped.anc.length > 0 &&
               renderServiceSection('Ancillary collection', 'anc', grouped.anc, swapApplied)}
+
+            {/* Already swapped this FY — the forfeiture stands for the rest of
+                the year, so no checkbox: just say what happened (the ancillary
+                badge above reads 0 and any ancillary added is priced as paid). */}
+            {hasExistingSwap && conversionRule && (
+              <div className="flex items-start gap-3 rounded-xl border-[1.5px] border-[var(--brand-accent-dark)] bg-[#F0FBF5] px-4 py-3.5 shadow-sm">
+                <span className="text-body-sm text-gray-700">
+                  <strong className="text-[var(--brand)]">
+                    Your {conversionRule.from_units} ancillary collections have been swapped for{' '}
+                    {conversionRule.to_units} extra green waste collection this financial year.
+                  </strong>{' '}
+                  Any e-waste, whitegoods or mattress collections added below will be charged.
+                </span>
+              </div>
+            )}
 
             {/* Allocation swap — forfeit the ancillary allocation for an extra Green */}
             {(swapEligible || swapApplied) && conversionRule && (
