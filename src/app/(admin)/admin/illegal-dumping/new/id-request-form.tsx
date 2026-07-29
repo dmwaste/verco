@@ -10,6 +10,7 @@ import { cn } from '@/lib/utils'
 import { FieldLabel, Input, Select, Textarea } from '@/components/admin/form'
 import {
   ID_WASTE_TYPES,
+  idWasteTypeLabel,
   ID_VOLUMES,
   ID_PHOTOS_BUCKET,
   ID_PHOTOS_PREFIX,
@@ -436,7 +437,7 @@ export function IdRequestForm({
                     : 'border-gray-100 bg-white text-gray-700 hover:bg-gray-50'
                 )}
               >
-                {type}
+                {idWasteTypeLabel(type)}
               </button>
             ))}
           </div>

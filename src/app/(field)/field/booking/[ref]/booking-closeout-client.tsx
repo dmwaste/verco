@@ -6,6 +6,7 @@ import { VercoButton } from '@/components/ui/verco-button'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Suspense } from 'react'
 import { BookingStatusBadge } from '@/components/booking/booking-status-badge'
+import { idWasteTypeLabel } from '@/lib/booking/id-options'
 import { NcnForm } from './ncn-form'
 import { MudAllocationForm } from './mud-allocation-form'
 import { completeBooking, raiseNothingPresented } from './actions'
@@ -222,7 +223,7 @@ function CloseoutInner({ booking }: { booking: Booking }) {
                       key={w}
                       className="inline-flex rounded-full bg-[#E8EEF2] px-2.5 py-0.5 text-caption font-medium text-[var(--brand)]"
                     >
-                      {w}
+                      {idWasteTypeLabel(w)}
                     </span>
                   ))}
                   {booking.id_volume && (

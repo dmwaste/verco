@@ -9,6 +9,7 @@ import { format } from 'date-fns'
 import { createClient } from '@/lib/supabase/client'
 import { invokeEfWithUserToken } from '@/lib/supabase/invoke-ef-client'
 import { BookingStatusBadge } from '@/components/booking/booking-status-badge'
+import { idWasteTypeLabel } from '@/lib/booking/id-options'
 import { DetailHeader } from '@/components/admin/detail-header'
 import { FieldLabel, Input, Select, Textarea } from '@/components/admin/form'
 import { LOCATION_OPTIONS, MAX_SERVICE_QTY, type LocationOption } from '@/lib/booking/schemas'
@@ -665,7 +666,7 @@ export function BookingDetailClient({
                       key={w}
                       className="inline-flex rounded-full bg-[#E8EEF2] px-2.5 py-0.5 text-caption font-medium text-[#293F52]"
                     >
-                      {w}
+                      {idWasteTypeLabel(w)}
                     </span>
                   ))}
                   {booking.id_volume && (

@@ -10,6 +10,18 @@ export const ID_WASTE_TYPES = [
   'E-Waste',
 ] as const
 
+// Display labels for stored id_waste_types values (#461 — WMRC wording).
+// The stored strings are stable identifiers living on historical booking
+// rows, so only the LABEL changes (service-name-rename gotcha: never key
+// logic off display names). Unmapped values render as-is.
+const ID_WASTE_TYPE_LABELS: Record<string, string> = {
+  'General / Mixed': 'Bulk Waste',
+}
+
+/** Label for an id_waste_types value — every render site must use this. */
+export const idWasteTypeLabel = (value: string): string =>
+  ID_WASTE_TYPE_LABELS[value] ?? value
+
 // Volumes are 3m³ allocation units (VER-258). The intake value is a crew-facing
 // ESTIMATE only — actual allocations consumed are confirmed at collection
 // closeout for billing (booking_item.actual_services, same as the MUD pattern).
