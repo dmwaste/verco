@@ -2,6 +2,7 @@
 
 import { z } from 'zod'
 import { QuantityEditItemSchema } from '@/lib/booking/schemas'
+import { canonicaliseAuMobile, normalisePhone } from '@/lib/phone'
 import { createClient } from '@/lib/supabase/server'
 import { invokeSendNotification } from '@/lib/notifications/invoke'
 import { isPastCancellationCutoff } from '@/lib/booking/cancellation-cutoff'
@@ -205,7 +206,7 @@ export async function cancelBooking(bookingId: string): Promise<Result<void>> {
 }
 
 export async function updateContact(
-  contactId: string,
+  bookingId: string,
   data: { first_name: string; last_name: string; email: string; mobile_e164: string | null },
 ): Promise<Result<void>> {
   const supabase = await createClient()
@@ -222,16 +223,22 @@ export async function updateContact(
   const newFirst = data.first_name.trim()
   const newLast = data.last_name.trim()
   const newEmail = data.email.trim().toLowerCase()
-  const newMobile = data.mobile_e164?.trim() || null
+  // Store rule (#457/#346): mobiles → E.164, landlines/1300 → stripped.
+  const rawMobile = data.mobile_e164?.trim() || null
+  const newMobile = rawMobile ? (canonicaliseAuMobile(rawMobile) ?? normalisePhone(rawMobile)) : null
 
-  // Compare to current state — skip the UPDATE entirely if nothing changed.
+  // Compare to current state — skip the write entirely if nothing changed.
   // Avoids producing "0 fields updated" audit-log noise when the user clicks
-  // Save without altering any field.
-  const { data: current } = await supabase
-    .from('contacts')
-    .select('first_name, last_name, email, mobile_e164')
-    .eq('id', contactId)
+  // Save without altering any field. Read via the booking so the anchor
+  // matches what the RPC will scope on.
+  const { data: bookingRow } = await supabase
+    .from('booking')
+    .select('contact:contact_id(first_name, last_name, email, mobile_e164)')
+    .eq('id', bookingId)
     .single()
+  const current = bookingRow?.contact as
+    | { first_name: string | null; last_name: string | null; email: string | null; mobile_e164: string | null }
+    | null
 
   if (
     current &&
@@ -243,24 +250,18 @@ export async function updateContact(
     return { ok: true, data: undefined }
   }
 
-  // full_name is a generated column — write first/last_name only.
-  // Chain .select() so silent RLS rejection (zero rows affected) fails loud.
-  const { data: updated, error } = await supabase
-    .from('contacts')
-    .update({
-      first_name: newFirst,
-      last_name: newLast,
-      email: newEmail,
-      mobile_e164: newMobile,
-    })
-    .eq('id', contactId)
-    .select('id')
-    .single()
+  // contacts has SELECT-only RLS by design (BR-0031/#452) — writes go through
+  // the SECURITY DEFINER RPC, which re-gates on staff role and scopes the
+  // contact via this booking's tenant (+ sub-client narrowing).
+  const { error: rpcError } = await supabase.rpc('update_booking_contact', {
+    p_booking_id: bookingId,
+    p_first_name: newFirst,
+    p_last_name: newLast,
+    p_email: newEmail,
+    p_mobile_e164: newMobile ?? '',
+  })
 
-  if (error) return { ok: false, error: error.message }
-  if (!updated) {
-    return { ok: false, error: 'Contact update was not applied (RLS or row missing).' }
-  }
+  if (rpcError) return { ok: false, error: rpcError.message }
   return { ok: true, data: undefined }
 }
 

@@ -1,6 +1,8 @@
 import Link from 'next/link'
 import { headers } from 'next/headers'
 import { createClient } from '@/lib/supabase/server'
+import { resolveServiceDescription } from '@/lib/client/service-descriptions'
+import type { Json } from '@/lib/supabase/types'
 import { HeroSearch } from './hero-search'
 import { TenantBrandMark } from '@/components/branding/tenant-brand-mark'
 
@@ -13,6 +15,7 @@ interface ClientBranding {
   logo_light_url: string | null
   hero_banner_url: string | null
   privacy_policy_url: string | null
+  service_descriptions: Json
 }
 
 async function getBranding(): Promise<ClientBranding> {
@@ -20,17 +23,17 @@ async function getBranding(): Promise<ClientBranding> {
   const clientId = headerStore.get('x-client-id')
 
   if (!clientId) {
-    return { name: 'Verge Collection', service_name: 'Verge Collection Bookings', show_powered_by: true, landing_headline: null, landing_subheading: null, logo_light_url: null, hero_banner_url: null, privacy_policy_url: null }
+    return { name: 'Verge Collection', service_name: 'Verge Collection Bookings', show_powered_by: true, landing_headline: null, landing_subheading: null, logo_light_url: null, hero_banner_url: null, privacy_policy_url: null, service_descriptions: {} }
   }
 
   const supabase = await createClient()
   const { data } = await supabase
     .from('client')
-    .select('name, service_name, show_powered_by, landing_headline, landing_subheading, logo_light_url, hero_banner_url, privacy_policy_url')
+    .select('name, service_name, show_powered_by, landing_headline, landing_subheading, logo_light_url, hero_banner_url, privacy_policy_url, service_descriptions')
     .eq('id', clientId)
     .single()
 
-  return data ?? { name: 'Verge Collection', service_name: 'Verge Collection Bookings', show_powered_by: true, landing_headline: null, landing_subheading: null, logo_light_url: null, hero_banner_url: null, privacy_policy_url: null }
+  return data ?? { name: 'Verge Collection', service_name: 'Verge Collection Bookings', show_powered_by: true, landing_headline: null, landing_subheading: null, logo_light_url: null, hero_banner_url: null, privacy_policy_url: null, service_descriptions: {} }
 }
 
 const FEATURES = [
@@ -68,9 +71,10 @@ const STEPS = [
   { title: 'We collect & process', body: 'Your waste is collected and responsibly processed. You\u2019ll get a completion notification.' },
 ]
 
-// Per-service descriptions. Service names live in the DB (no description
-// column), so we map by name. Keys cover both short ("General") and long
-// ("General Waste") forms \u2014 different clients may rename.
+// Default per-service descriptions, keyed by service name. Keys cover both
+// short ("General") and long ("General Waste") forms \u2014 different clients may
+// rename. A tenant can override any entry via client.service_descriptions
+// (jsonb map, #454) \u2014 the override wins, these are the fallback copy.
 const SERVICE_DESCRIPTIONS: Record<string, string> = {
   'Bulk': 'Household bulk items \u2014 furniture, equipment, floor coverings',
   'Bulk Waste': 'Household bulk items \u2014 furniture, equipment, floor coverings',
@@ -90,7 +94,8 @@ interface ClientService {
 }
 
 async function getClientServices(
-  clientId: string | null
+  clientId: string | null,
+  descriptionOverrides: Json
 ): Promise<ClientService[]> {
   if (!clientId) return []
   const supabase = await createClient()
@@ -114,7 +119,7 @@ async function getClientServices(
     seen.add(svc.name)
     result.push({
       name: svc.name,
-      desc: SERVICE_DESCRIPTIONS[svc.name] ?? '',
+      desc: resolveServiceDescription(descriptionOverrides, svc.name) ?? SERVICE_DESCRIPTIONS[svc.name] ?? '',
       categoryCode: cat.code,
     })
   }
@@ -133,7 +138,7 @@ export default async function LandingPage() {
 
   const headerStore = await headers()
   const clientId = headerStore.get('x-client-id')
-  const services = await getClientServices(clientId)
+  const services = await getClientServices(clientId, branding.service_descriptions)
 
   // Placeholder for future per-tenant page-footer content. Null today, so the
   // footer-content section below the CTA collapses entirely. Wire to a client

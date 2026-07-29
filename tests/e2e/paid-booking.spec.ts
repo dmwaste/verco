@@ -166,7 +166,7 @@ async function fillContactAndPay(page: Page, items: string, totalCents: string) 
   await page.getByPlaceholder('First name').fill('Jane')
   await page.getByPlaceholder('Last name').fill('Smith')
   await page.getByPlaceholder('Email address').fill('jane@example.com')
-  await page.getByPlaceholder(/Mobile number/).fill('0412345678')
+  await page.getByPlaceholder(/Phone number/).fill('0412345678')
 }
 
 // ── Tests ────────────────────────────────────────────────

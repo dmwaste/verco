@@ -125,6 +125,8 @@ export const FIELD_LABELS: Record<string, string> = {
   contact_name: 'Contact Name',
   contact_phone: 'Contact Phone',
   contact_email: 'Contact Email',
+  office_hours: 'Office Hours',
+  service_descriptions: 'Service Descriptions',
   privacy_policy_url: 'Privacy Policy URL',
   email_footer_html: 'Email Footer HTML',
   faq_items: 'FAQ Items',

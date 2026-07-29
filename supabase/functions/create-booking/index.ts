@@ -8,6 +8,7 @@ import { classifyCreator, CREATOR_STAFF_ROLES } from '../_shared/classify-creato
 import { evaluateEditGuard, mayKeepClosedHeldDate } from '../_shared/edit-guard.ts'
 import { evaluateQuantityEdit } from '../_shared/quantity-edit-decision.ts'
 import { mapEditErrorToStatus } from '../_shared/edit-error-mapping.ts'
+import { canonicaliseAuMobile, isValidPhone, normalisePhone } from '../_shared/phone.ts'
 import { withSentry } from '../_shared/sentry.ts'
 import type { Database } from '../_shared/database.types.ts'
 
@@ -63,7 +64,16 @@ const ContactInput = z.object({
   first_name: z.string().min(1).max(100),
   last_name: z.string().min(1).max(100),
   email: z.string().email().max(320),
-  mobile_e164: z.string().regex(/^\+614\d{8}$/, 'Must be a valid AU mobile in E.164 format'),
+  // Any real phone (mobile / landline / 1300 / intl) — WMRC #457. Mobiles are
+  // canonicalised to E.164 (+614…); non-mobiles stored formatting-stripped.
+  // SMS dispatch guards on /^\+614\d{8}$/ and skips non-mobiles cleanly.
+  mobile_e164: z
+    .string()
+    .trim()
+    .min(6, 'Enter a valid phone number')
+    .max(25)
+    .refine(isValidPhone, 'Enter a valid phone number')
+    .transform((v) => canonicaliseAuMobile(v) ?? normalisePhone(v)),
 })
 
 const BookingItemInput = z.object({

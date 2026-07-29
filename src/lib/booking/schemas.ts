@@ -30,47 +30,35 @@ export const QuantityEditItemSchema = z.object({
 
 export type QuantityEditItem = z.infer<typeof QuantityEditItemSchema>
 
-/**
- * Normalise an Australian mobile number to E.164 format (+614XXXXXXXX).
- * Accepts: 04XXXXXXXX, +614XXXXXXXX, 614XXXXXXXX
- * Returns null if invalid.
- */
-export function normaliseAuMobile(raw: string): string | null {
-  const digits = raw.replace(/[\s\-()]+/g, '')
-
-  // +614XXXXXXXX (already E.164)
-  if (/^\+614\d{8}$/.test(digits)) return digits
-  // 614XXXXXXXX (missing +)
-  if (/^614\d{8}$/.test(digits)) return `+${digits}`
-  // 04XXXXXXXX (local format)
-  if (/^04\d{8}$/.test(digits)) return `+61${digits.slice(1)}`
-
-  return null
-}
-
-/**
- * Format an E.164 AU mobile for display: 04XX XXX XXX
- */
-export function formatAuMobileDisplay(e164: string): string {
-  // +614XXXXXXXX → 04XX XXX XXX
-  const local = '0' + e164.replace('+61', '')
-  if (local.length !== 10) return e164
-  return `${local.slice(0, 4)} ${local.slice(4, 7)} ${local.slice(7)}`
-}
+// Phone helpers live in the mirrored single-brain module (src/lib/phone.ts ←
+// supabase/functions/_shared/phone.ts). Re-exported here because this file was
+// their historical home and app-wide imports point at it.
+export {
+  normaliseAuMobile,
+  formatAuMobileDisplay,
+  normalisePhone,
+  isValidPhone,
+  canonicaliseAuMobile,
+  isSmsCapable,
+} from '@/lib/phone'
+import { canonicaliseAuMobile, isValidPhone, normalisePhone } from '@/lib/phone'
 
 export const ContactSchema = z.object({
   first_name: z.string().min(1, 'First name is required').max(100),
   last_name: z.string().min(1, 'Last name is required').max(100),
   email: z.string().min(1, 'Email is required').email('Invalid email address'),
+  // Accept any real phone — mobile / landline / 1300 / international (WMRC
+  // #457). Canonicalise on store: mobiles → E.164 (+614…) so SMS works;
+  // non-mobiles → formatting-stripped (SMS dispatch skips them cleanly and
+  // the form warns the resident). One-brain rule as the strata contact path
+  // (VER-315) — hint and stored value must never disagree.
   mobile: z
     .string()
-    .min(1, 'Mobile number is required')
-    .transform((val) => val.replace(/[\s\-()]+/g, ''))
-    .refine(
-      (val) => normaliseAuMobile(val) !== null,
-      'Please enter a valid Australian mobile number (e.g. 0412 345 678)'
-    )
-    .transform((val) => normaliseAuMobile(val)!),
+    .trim()
+    .min(1, 'Phone number is required')
+    .max(25, 'Please enter a valid phone number')
+    .refine(isValidPhone, 'Please enter a valid phone number (e.g. 0412 345 678)')
+    .transform((val) => canonicaliseAuMobile(val) ?? normalisePhone(val)),
 })
 
 export type ContactFormData = z.infer<typeof ContactSchema>

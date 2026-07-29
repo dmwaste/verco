@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation'
 import { format } from 'date-fns'
 import { createClient } from '@/lib/supabase/server'
 import { BookingStatusBadge } from '@/components/booking/booking-status-badge'
+import { idWasteTypeLabel } from '@/lib/booking/id-options'
 import type { Database } from '@/lib/supabase/types'
 
 type BookingStatus = Database['public']['Enums']['booking_status']
@@ -98,7 +99,7 @@ export default async function MyIdsPage() {
                     key={w}
                     className="inline-flex rounded-full bg-[#E8EEF2] px-2.5 py-0.5 text-caption font-medium text-[var(--brand)]"
                   >
-                    {w}
+                    {idWasteTypeLabel(w)}
                   </span>
                 ))}
                 {b.id_volume && (

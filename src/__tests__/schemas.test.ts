@@ -138,9 +138,37 @@ describe('ContactSchema', () => {
     expect(result.success).toBe(false)
   })
 
-  it('rejects invalid mobile', () => {
-    const result = ContactSchema.safeParse({ ...validContact, mobile: '0312345678' })
-    expect(result.success).toBe(false)
+  // WMRC #457 — landlines/1300s are accepted (stored formatting-stripped,
+  // SMS dispatch skips them); only non-phone junk is rejected.
+  it('accepts a landline and stores it formatting-stripped', () => {
+    const result = ContactSchema.safeParse({ ...validContact, mobile: '08 9527 5500' })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.mobile).toBe('0895275500')
+    }
+  })
+
+  it('accepts a 1300 number', () => {
+    const result = ContactSchema.safeParse({ ...validContact, mobile: '1300 123 456' })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.mobile).toBe('1300123456')
+    }
+  })
+
+  it('still canonicalises written mobile variants to E.164 (+61 0412 …)', () => {
+    const result = ContactSchema.safeParse({ ...validContact, mobile: '+61 0412 345 678' })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.mobile).toBe('+61412345678')
+    }
+  })
+
+  it('rejects non-phone junk', () => {
+    for (const junk of ['not a phone', '12345', '04abc12345', '+0412345678']) {
+      const result = ContactSchema.safeParse({ ...validContact, mobile: junk })
+      expect(result.success, `should reject "${junk}"`).toBe(false)
+    }
   })
 })
 

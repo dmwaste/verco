@@ -998,10 +998,12 @@ export type Database = {
           logo_dark_url: string | null
           logo_light_url: string | null
           name: string
+          office_hours: string | null
           place_out_hours_before: number
           primary_colour: string | null
           privacy_policy_url: string | null
           reply_to_email: string | null
+          service_descriptions: Json
           service_name: string | null
           show_powered_by: boolean
           slug: string
@@ -1032,10 +1034,12 @@ export type Database = {
           logo_dark_url?: string | null
           logo_light_url?: string | null
           name: string
+          office_hours?: string | null
           place_out_hours_before?: number
           primary_colour?: string | null
           privacy_policy_url?: string | null
           reply_to_email?: string | null
+          service_descriptions?: Json
           service_name?: string | null
           show_powered_by?: boolean
           slug: string
@@ -1066,10 +1070,12 @@ export type Database = {
           logo_dark_url?: string | null
           logo_light_url?: string | null
           name?: string
+          office_hours?: string | null
           place_out_hours_before?: number
           primary_colour?: string | null
           privacy_policy_url?: string | null
           reply_to_email?: string | null
+          service_descriptions?: Json
           service_name?: string | null
           show_powered_by?: boolean
           slug?: string
@@ -2873,6 +2879,16 @@ export type Database = {
       submit_survey_by_token: {
         Args: { p_responses: Json; p_token: string }
         Returns: Json
+      }
+      update_booking_contact: {
+        Args: {
+          p_booking_id: string
+          p_email: string
+          p_first_name: string
+          p_last_name: string
+          p_mobile_e164: string
+        }
+        Returns: string
       }
       update_booking_items_in_place: {
         Args: {

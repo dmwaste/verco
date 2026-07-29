@@ -395,7 +395,7 @@ test.describe('Booking Flow', () => {
     await page.getByPlaceholder('First name').fill('Jane')
     await page.getByPlaceholder('Last name').fill('Smith')
     await page.getByPlaceholder('Email address').fill('jane@example.com')
-    await page.getByPlaceholder(/Mobile number/).fill('0412345678')
+    await page.getByPlaceholder(/Phone number/).fill('0412345678')
 
     // Verify total shows "No Charge" (free booking — nothing to pay)
     await expect(page.getByTestId('booking-total')).toHaveText('No Charge')
@@ -469,7 +469,7 @@ test.describe('Booking Flow', () => {
     await page.getByPlaceholder('First name').fill('Jane')
     await page.getByPlaceholder('Last name').fill('Smith')
     await page.getByPlaceholder('Email address').fill('jane@example.com')
-    await page.getByPlaceholder(/Mobile number/).fill('0412345678')
+    await page.getByPlaceholder(/Phone number/).fill('0412345678')
 
     let createBookingPayload: Record<string, unknown> | null = null
     page.on('request', (req) => {
@@ -545,7 +545,7 @@ test.describe('Booking Flow', () => {
     await page.getByPlaceholder('First name').fill('Jane')
     await page.getByPlaceholder('Last name').fill('Smith')
     await page.getByPlaceholder('Email address').fill('jane@example.com')
-    await page.getByPlaceholder(/Mobile number/).fill('0412345678')
+    await page.getByPlaceholder(/Phone number/).fill('0412345678')
 
     // Verify total block shows $50.00 (the large accent-coloured text in the brand total bar)
     await expect(page.getByTestId('booking-total')).toContainText('$50.00')
@@ -602,7 +602,7 @@ test.describe('Booking Flow', () => {
     await page.getByPlaceholder('First name').fill('Jane')
     await page.getByPlaceholder('Last name').fill('Smith')
     await page.getByPlaceholder('Email address').fill('jane@example.com')
-    await page.getByPlaceholder(/Mobile number/).fill('0412345678')
+    await page.getByPlaceholder(/Phone number/).fill('0412345678')
 
     // Verify "Included in allocation" section shows the free item under the
     // Service/Qty/Amount table (per-row "Included" badge retired for a Qty column).

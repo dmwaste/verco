@@ -30,6 +30,8 @@ import {
   type ContactFormData,
   formatAuMobileDisplay,
   normaliseAuMobile,
+  isValidPhone,
+  isSmsCapable,
 } from '@/lib/booking/schemas'
 import { STAFF_ROLES, type StaffRole } from '@/lib/auth/roles'
 
@@ -790,12 +792,12 @@ export function ConfirmForm() {
             </div>
             <div>
               <label className="mb-1 block text-xs font-medium text-gray-700">
-                Mobile<span className="ml-0.5 text-red-500">*</span>
+                Phone<span className="ml-0.5 text-red-500">*</span>
               </label>
               <input
                 type="tel"
                 autoComplete={onBehalf ? 'off' : 'tel'}
-                placeholder="Mobile number (e.g. 0412 345 678)"
+                placeholder="Phone number (e.g. 0412 345 678)"
                 value={mobileDisplay}
                 onChange={handleMobileChange}
                 className="w-full rounded-[10px] border-[1.5px] border-gray-100 bg-gray-50 px-3.5 py-3 text-sm text-gray-900 outline-none placeholder:text-gray-300 focus:border-[var(--brand)] focus:bg-white"
@@ -807,6 +809,16 @@ export function ConfirmForm() {
                   {errors.mobile.message}
                 </p>
               )}
+              {/* Landlines are accepted (WMRC #457) but can't receive SMS —
+                  warn before booking, matching the MUD form's hint. */}
+              <div aria-live="polite">
+                {!errors.mobile && isValidPhone(mobileDisplay) && !isSmsCapable(mobileDisplay) && (
+                  <p className="mt-1 text-caption text-gray-500">
+                    This number can&apos;t receive SMS, so you won&apos;t get text reminders to
+                    place your items out — we&apos;ll send booking updates by email instead.
+                  </p>
+                )}
+              </div>
             </div>
           </div>
         </form>

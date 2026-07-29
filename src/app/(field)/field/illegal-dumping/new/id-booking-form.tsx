@@ -10,6 +10,7 @@ import { cn } from '@/lib/utils'
 import { VercoButton } from '@/components/ui/verco-button'
 import {
   ID_WASTE_TYPES as WASTE_TYPES,
+  idWasteTypeLabel,
   ID_VOLUMES as VOLUMES,
   ID_PHOTOS_BUCKET,
   ID_PHOTOS_PREFIX,
@@ -385,7 +386,7 @@ export function IdBookingForm({ collectionDates, prefill }: IdBookingFormProps) 
                         : 'border-gray-100 bg-white text-gray-700'
                     )}
                   >
-                    {type}
+                    {idWasteTypeLabel(type)}
                   </button>
                 ))}
               </div>

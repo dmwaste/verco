@@ -9,6 +9,7 @@ import { format } from 'date-fns'
 import { createClient } from '@/lib/supabase/client'
 import { invokeEfWithUserToken } from '@/lib/supabase/invoke-ef-client'
 import { BookingStatusBadge } from '@/components/booking/booking-status-badge'
+import { idWasteTypeLabel } from '@/lib/booking/id-options'
 import { DetailHeader } from '@/components/admin/detail-header'
 import { FieldLabel, Input, Select, Textarea } from '@/components/admin/form'
 import { LOCATION_OPTIONS, MAX_SERVICE_QTY, type LocationOption } from '@/lib/booking/schemas'
@@ -380,7 +381,9 @@ export function BookingDetailClient({
     if (!booking.contact_id) return
     setIsPending(true)
     setError(null)
-    const result = await updateContact(booking.contact_id, {
+    // Booking-anchored (#452): the RPC derives the contact from the booking,
+    // so a caller can never point the write at an arbitrary contact id.
+    const result = await updateContact(booking.id, {
       first_name: editFirstName,
       last_name: editLastName,
       email: editEmail,
@@ -665,7 +668,7 @@ export function BookingDetailClient({
                       key={w}
                       className="inline-flex rounded-full bg-[#E8EEF2] px-2.5 py-0.5 text-caption font-medium text-[#293F52]"
                     >
-                      {w}
+                      {idWasteTypeLabel(w)}
                     </span>
                   ))}
                   {booking.id_volume && (
