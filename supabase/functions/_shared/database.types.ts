@@ -998,6 +998,7 @@ export type Database = {
           faq_items: Json | null
           favicon_url: string | null
           hero_banner_url: string | null
+          hero_colour: string | null
           id: string
           is_active: boolean
           landing_headline: string | null
@@ -1034,6 +1035,7 @@ export type Database = {
           faq_items?: Json | null
           favicon_url?: string | null
           hero_banner_url?: string | null
+          hero_colour?: string | null
           id?: string
           is_active?: boolean
           landing_headline?: string | null
@@ -1070,6 +1072,7 @@ export type Database = {
           faq_items?: Json | null
           favicon_url?: string | null
           hero_banner_url?: string | null
+          hero_colour?: string | null
           id?: string
           is_active?: boolean
           landing_headline?: string | null

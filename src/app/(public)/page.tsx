@@ -14,6 +14,7 @@ interface ClientBranding {
   landing_subheading: string | null
   logo_light_url: string | null
   hero_banner_url: string | null
+  hero_colour: string | null
   privacy_policy_url: string | null
   service_descriptions: Json
 }
@@ -23,17 +24,17 @@ async function getBranding(): Promise<ClientBranding> {
   const clientId = headerStore.get('x-client-id')
 
   if (!clientId) {
-    return { name: 'Verge Collection', service_name: 'Verge Collection Bookings', show_powered_by: true, landing_headline: null, landing_subheading: null, logo_light_url: null, hero_banner_url: null, privacy_policy_url: null, service_descriptions: {} }
+    return { name: 'Verge Collection', service_name: 'Verge Collection Bookings', show_powered_by: true, landing_headline: null, landing_subheading: null, logo_light_url: null, hero_banner_url: null, hero_colour: null, privacy_policy_url: null, service_descriptions: {} }
   }
 
   const supabase = await createClient()
   const { data } = await supabase
     .from('client')
-    .select('name, service_name, show_powered_by, landing_headline, landing_subheading, logo_light_url, hero_banner_url, privacy_policy_url, service_descriptions')
+    .select('name, service_name, show_powered_by, landing_headline, landing_subheading, logo_light_url, hero_banner_url, hero_colour, privacy_policy_url, service_descriptions')
     .eq('id', clientId)
     .single()
 
-  return data ?? { name: 'Verge Collection', service_name: 'Verge Collection Bookings', show_powered_by: true, landing_headline: null, landing_subheading: null, logo_light_url: null, hero_banner_url: null, privacy_policy_url: null, service_descriptions: {} }
+  return data ?? { name: 'Verge Collection', service_name: 'Verge Collection Bookings', show_powered_by: true, landing_headline: null, landing_subheading: null, logo_light_url: null, hero_banner_url: null, hero_colour: null, privacy_policy_url: null, service_descriptions: {} }
 }
 
 const FEATURES = [
@@ -140,6 +141,20 @@ export default async function LandingPage() {
   const clientId = headerStore.get('x-client-id')
   const services = await getClientServices(clientId, branding.service_descriptions)
 
+  // Hero-only background override (#476 correction, WMRC 29/07): the tenant
+  // can recolour the hero gradient WITHOUT touching the rest of its brand
+  // system (the earlier primary/accent swap recoloured the whole site).
+  // Strict hex gate — admin-authored config never reaches an inline style
+  // unvalidated. Mirrors the class gradient's colour-mix formula.
+  const heroColour = /^#[0-9a-fA-F]{6}$/.test(branding.hero_colour ?? '')
+    ? branding.hero_colour
+    : null
+  const heroStyle = heroColour
+    ? {
+        backgroundImage: `linear-gradient(to bottom right, color-mix(in srgb, ${heroColour} 85%, black), ${heroColour}, color-mix(in srgb, ${heroColour} 60%, white))`,
+      }
+    : undefined
+
   // Placeholder for future per-tenant page-footer content. Null today, so the
   // footer-content section below the CTA collapses entirely. Wire to a client
   // field when per-tenant footers are introduced.
@@ -162,7 +177,10 @@ export default async function LandingPage() {
           />
         </section>
       ) : (
-        <section className="relative bg-gradient-to-br from-[var(--brand-hover)] via-[var(--brand)] to-[color-mix(in_srgb,var(--brand)_60%,white)] px-8 py-20 lg:px-20 lg:py-24">
+        <section
+          className="relative bg-gradient-to-br from-[var(--brand-hover)] via-[var(--brand)] to-[color-mix(in_srgb,var(--brand)_60%,white)] px-8 py-20 lg:px-20 lg:py-24"
+          style={heroStyle}
+        >
           {/* Decorative radials — use accent colour. Clipped to the hero so they
               don't leak. */}
           <div className="pointer-events-none absolute inset-0 overflow-hidden">
