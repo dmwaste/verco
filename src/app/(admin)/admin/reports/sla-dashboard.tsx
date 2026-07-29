@@ -104,6 +104,7 @@ import {
   type ServicePreferenceResult,
 } from '@/lib/reports/resident-satisfaction'
 import { computeNoticeReasons } from '@/lib/reports/notice-types'
+import { computeNpDwellingSplit } from '@/lib/reports/np-dwelling-split'
 
 /** Booking statuses that "reached the field" this FY (BC denominator, spec §3.1). */
 const BC_ELIGIBLE_STATUSES = [
@@ -259,6 +260,7 @@ export function SlaDashboard({ clientId, selectedArea, period, viewerRole }: {
         <div className="grid grid-cols-[repeat(auto-fit,minmax(min(320px,100%),1fr))] gap-4">
           {show('service-breakdown') && <VolumeMixCard {...scope} />}
           {show('notice-types') && <NoticeTypesCard {...scope} />}
+          {show('np-dwellings') && <NpDwellingSplitCard {...scope} />}
         </div>
       </section>
 
@@ -1190,6 +1192,78 @@ function NoticeTypesCard({ clientId, area, period }: CardScope) {
               value: s.value,
               color: REASON_COLORS[i % REASON_COLORS.length]!,
             }))}
+          />
+        )}
+      </div>
+      <div className="mt-auto">
+        <ProvenanceStamp text={`${liveStamp(period)} · by reported date`} />
+      </div>
+    </div>
+  )
+}
+
+// ── NP Dwellings — MUD vs standard donut (#459, WMRC 29/07) ──────────────────
+// Period anchor: notice reported_at (the rect convention), matching NCN Types
+// beside it. Counts every NP in the period regardless of status — incidence,
+// not open workload (see np-dwelling-split.ts).
+const DWELLING_COLORS = { mud: '#293F52', standard: '#93A7B8' } as const
+
+type NpDwellingEmbed = { is_mud: boolean | null } | { is_mud: boolean | null }[] | null
+type NpDwellingQueryRow = {
+  orig: { property: NpDwellingEmbed } | { property: NpDwellingEmbed }[] | null
+}
+
+function NpDwellingSplitCard({ clientId, area, period }: CardScope) {
+  const supabase = createClient()
+  const bounds = awstTimestampBounds(period)
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ['sla-np-dwellings', clientId, area, ...periodKey(period)],
+    enabled: !!clientId && !period.unresolved,
+    queryFn: async () => {
+      // Dwelling type joins the notice's INTAKE booking (NP has two booking
+      // FKs — alias explicitly, §21 trap) → the booking's linked property.
+      const q0 = supabase
+        .from('nothing_presented')
+        .select(
+          'id, orig:booking!nothing_presented_booking_id_fkey!inner(collection_area_id, property:property_id(is_mud))'
+        )
+        .eq('client_id', clientId)
+      let q = area ? q0.eq('orig.collection_area_id', area) : q0
+      if (bounds.gte) q = q.gte('reported_at', bounds.gte)
+      if (bounds.lt) q = q.lt('reported_at', bounds.lt)
+      const rows = orThrow(await q) as NpDwellingQueryRow[] | null
+      return computeNpDwellingSplit(
+        (rows ?? []).map((r) => {
+          const orig = Array.isArray(r.orig) ? r.orig[0] : r.orig
+          const prop = orig ? (Array.isArray(orig.property) ? orig.property[0] : orig.property) : null
+          return { is_mud: prop?.is_mud ?? null }
+        })
+      )
+    },
+  })
+  const total = data ? data.mud + data.standard : 0
+  return (
+    <div className="flex flex-col rounded-xl bg-white p-5 shadow-sm">
+      <CardLabel text="Nothing Presented — Dwellings" />
+      <div className="flex flex-1 items-center py-3">
+        {period.unresolved ? (
+          <p className="text-caption text-gray-500">Period unavailable.</p>
+        ) : isError ? (
+          <p className="font-[family-name:var(--font-heading)] text-sm font-bold text-amber-600">
+            Couldn&apos;t load
+          </p>
+        ) : isLoading ? (
+          <p className="text-caption text-gray-500">Loading…</p>
+        ) : total === 0 ? (
+          <p className="text-caption text-gray-500">No NP notices in this period.</p>
+        ) : (
+          <DonutChart
+            svgClassName="h-36 w-36"
+            ariaLabel="Nothing Presented by dwelling type"
+            segments={[
+              { label: 'Multi-unit (MUD)', value: data!.mud, color: DWELLING_COLORS.mud },
+              { label: 'Standard', value: data!.standard, color: DWELLING_COLORS.standard },
+            ].filter((s) => s.value > 0)}
           />
         )}
       </div>
