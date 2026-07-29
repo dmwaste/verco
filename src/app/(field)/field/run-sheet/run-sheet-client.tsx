@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { BookingStatusBadge } from '@/components/booking/booking-status-badge'
+import { idWasteTypeLabel } from '@/lib/booking/id-options'
 import type { Database } from '@/lib/supabase/types'
 
 type BookingStatus = Database['public']['Enums']['booking_status']
@@ -70,7 +71,7 @@ function IdDetail({ booking }: { booking: Booking }) {
               key={w}
               className="inline-flex rounded-full bg-[#E8EEF2] px-2.5 py-0.5 text-caption font-medium text-[var(--brand)]"
             >
-              {w}
+              {idWasteTypeLabel(w)}
             </span>
           ))}
           {volume && (
