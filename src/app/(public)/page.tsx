@@ -180,7 +180,15 @@ export default async function LandingPage() {
               ))}
             </h1>
 
-            <p className="max-w-[520px] text-base md:text-lg leading-relaxed text-[#C7D3DD] lg:text-lg">
+            {/* Near-white, not the navy-tinted #C7D3DD it used to be: the hero
+                gradient is the tenant's brand colour, and on light brands (VV
+                green) the tinted grey washed out. Inline style because
+                text-white classes can silently fail under Tailwind v4 +
+                Turbopack (memory: tailwind-v4-turbopack-gotcha). */}
+            <p
+              className="max-w-[520px] text-base md:text-lg leading-relaxed lg:text-lg"
+              style={{ color: 'rgba(255, 255, 255, 0.9)' }}
+            >
               {subheading}
             </p>
           </div>

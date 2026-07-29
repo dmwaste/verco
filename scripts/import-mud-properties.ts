@@ -81,6 +81,17 @@ async function main() {
   const dryRun = !!flags['dry-run']
   const skipForms = !!flags['skip-forms']
   const limit = typeof flags.limit === 'string' ? Number(flags.limit) : null
+  // #460 targeted re-run flags. --only=recA,recB limits the run to specific
+  // Airtable record ids. --forms-only skips Pass 1 entirely — CRITICAL for
+  // rows that already exist in Verco: the Pass-1 upsert payload carries
+  // formatted_address/lat/lng NULL + has_geocode=false + status='Contact
+  // Made', so re-upserting an existing row would wipe its geocode and revert
+  // curated fields. Forms-only also never patches mud_onboarding_status (the
+  // Registered CHECK needs Verco-side contact+notes this mode doesn't sync).
+  const only = typeof flags.only === 'string'
+    ? new Set(flags.only.split(',').map((s) => s.trim()).filter(Boolean))
+    : null
+  const formsOnly = !!flags['forms-only']
 
   const airtableToken = requireEnv('AIRTABLE_TOKEN')
   const supabaseUrl   = requireEnv('NEXT_PUBLIC_SUPABASE_URL')
@@ -95,6 +106,10 @@ async function main() {
   // ── Fetch MUD records ──
   console.log('\nFetching MUD List from Airtable…')
   let records = await fetchAllMudRecords(airtableToken)
+  if (only) {
+    records = records.filter((r) => only.has(r.id))
+    console.log(`--only: narrowed to ${records.length}/${only.size} requested record(s).`)
+  }
   if (limit) records = records.slice(0, limit)
   console.log(`Fetched ${records.length} records.`)
 
@@ -138,16 +153,21 @@ async function main() {
   }
 
   // ── Pass 1: build + upsert properties ──
-  console.log('\nPass 1 — building property rows…')
   const insertable: MudPropertyInsert[] = []
-
-  // Track records that should be upgraded to Registered in pass 2
-  // (has contact, has notes, has auth form in Airtable)
+  // Hoisted above the --forms-only guard: Pass 2 reads registeredCandidates
+  // (empty in forms-only mode, so no status upgrades there by construction).
   const registeredCandidates = new Set<string>()
-
-  // Deduplicate on (collection_area_id, mud_code) — constraint is partial (WHERE mud_code IS NOT NULL)
-  // When a duplicate is found, nullify mud_code on the second occurrence and flag for manual review.
   const seenMudCodes = new Set<string>()
+  if (formsOnly) {
+    console.log('\nPass 1 — skipped (--forms-only).')
+  } else {
+  console.log('\nPass 1 — building property rows…')
+
+  // registeredCandidates: records to upgrade to Registered in pass 2
+  // (has contact, has notes, has auth form in Airtable).
+  // seenMudCodes: dedup on (collection_area_id, mud_code) — partial unique
+  // index; duplicates get mud_code nullified + flagged for manual review.
+  // Both declared above the --forms-only guard.
 
   for (const rec of records) {
     // Skip stubs
@@ -256,6 +276,7 @@ async function main() {
     console.log(`  DRY RUN — would upsert ${insertable.length} rows.`)
     report.propertiesUpserted = 0
   }
+  } // end !formsOnly (Pass 1)
 
   // ── Pass 2: auth form upload ──
   if (skipForms || dryRun) {
@@ -310,8 +331,10 @@ async function main() {
         continue
       }
 
-      // Patch auth_form_url + possibly upgrade status to Registered
-      const shouldUpgrade = registeredCandidates.has(rec.id)
+      // Patch auth_form_url + possibly upgrade status to Registered.
+      // Never upgrade in --forms-only mode: the Registered CHECK requires
+      // Verco-side contact + notes that this mode deliberately doesn't sync.
+      const shouldUpgrade = !formsOnly && registeredCandidates.has(rec.id)
       const patch: Record<string, string> = { auth_form_url: storagePath }
       if (shouldUpgrade) patch.mud_onboarding_status = 'Registered'
 
