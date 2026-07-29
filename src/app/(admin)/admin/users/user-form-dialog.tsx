@@ -7,6 +7,7 @@ import { z } from 'zod'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Dialog } from '@base-ui/react/dialog'
 import { createClient } from '@/lib/supabase/client'
+import { fetchAccessibleClientOptions } from '@/lib/admin/accessible-clients'
 import { invokeEfWithUserToken } from '@/lib/supabase/invoke-ef-client'
 import { normaliseAuMobile, formatAuMobileDisplay } from '@/lib/booking/schemas'
 import type { Database } from '@/lib/supabase/types'
@@ -191,14 +192,11 @@ export function UserFormDialog({ callerRole, editData, open, onOpenChange }: Use
 
   const { data: clients } = useQuery({
     queryKey: ['clients-list'],
-    queryFn: async () => {
-      const { data } = await supabase
-        .from('client')
-        .select('id, name')
-        .eq('is_active', true)
-        .order('name')
-      return data ?? []
-    },
+    // Narrowed through accessible_client_ids() — the bare public-SELECT
+    // `client` read offered every tenant on the platform, so a client-admin
+    // saw other councils as assignable targets (#456; the create-user EF
+    // rejected the write, but the option must never be offered).
+    queryFn: () => fetchAccessibleClientOptions(supabase),
     // Shared query: also needed for strata to scope client_id + MUD properties
     enabled: needsClient || isStrata,
   })
