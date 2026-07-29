@@ -14,7 +14,7 @@ export default async function ContactPage() {
 
   const { data: client } = await supabase
     .from('client')
-    .select('id, service_name, contact_name, contact_phone, contact_email, faq_items')
+    .select('id, service_name, contact_name, contact_phone, contact_email, office_hours, faq_items')
     .eq('id', clientId)
     .single()
 
@@ -22,6 +22,8 @@ export default async function ContactPage() {
   const contactName = client?.contact_name ?? 'D&M Waste Management'
   const contactPhone = client?.contact_phone ?? '08 9527 5500'
   const contactEmail = client?.contact_email ?? 'info@dmwastemanagement.com.au'
+  // Per-tenant hours (#455) — NULL keeps the historical hardcoded line.
+  const officeHours = client?.office_hours ?? 'Mon–Fri 8am–5pm AWST'
 
   // Resolve FAQs — use client's faq_items if valid, otherwise fall back to defaults
   const rawFaqs = client?.faq_items
@@ -159,7 +161,7 @@ export default async function ContactPage() {
             <div>
               <div className="text-xs text-gray-500">Hours</div>
               <div className="text-sm font-medium text-[var(--brand)]">
-                Mon&ndash;Fri 8am&ndash;5pm AWST
+                {officeHours}
               </div>
             </div>
           </div>
