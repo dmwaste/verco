@@ -381,7 +381,9 @@ export function BookingDetailClient({
     if (!booking.contact_id) return
     setIsPending(true)
     setError(null)
-    const result = await updateContact(booking.contact_id, {
+    // Booking-anchored (#452): the RPC derives the contact from the booking,
+    // so a caller can never point the write at an arbitrary contact id.
+    const result = await updateContact(booking.id, {
       first_name: editFirstName,
       last_name: editLastName,
       email: editEmail,

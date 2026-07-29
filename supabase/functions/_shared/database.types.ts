@@ -2887,6 +2887,16 @@ export type Database = {
         Args: { p_responses: Json; p_token: string }
         Returns: Json
       }
+      update_booking_contact: {
+        Args: {
+          p_booking_id: string
+          p_email: string
+          p_first_name: string
+          p_last_name: string
+          p_mobile_e164: string
+        }
+        Returns: string
+      }
       update_booking_items_in_place: {
         Args: {
           p_actor_id?: string
