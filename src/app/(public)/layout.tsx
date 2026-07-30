@@ -5,6 +5,7 @@ import { PublicNav } from '@/components/public/public-nav'
 import { MobileFab } from '@/components/public/mobile-fab'
 import { MobileBottomNav } from '@/components/public/mobile-bottom-nav'
 import { HideOnSurvey } from '@/components/public/hide-on-survey'
+import { OnBehalfBar } from '@/components/admin/on-behalf-bar'
 import { adminOrigin, isAdminHostname, isFieldHostname } from '@/lib/proxy/hostnames'
 import { STAFF_ROLES } from '@/lib/auth/roles'
 import { faviconToIcons } from '@/lib/client/favicon'
@@ -96,6 +97,14 @@ export default async function PublicLayout({
   const isContractorHost = isAdminHostname(host) || isFieldHostname(host)
 
   if (isContractorHost) {
+    // The proxy sets x-client-id on the admin host ONLY for the staff
+    // "act on behalf of a resident" flows (/book, /survey) — /auth gets none,
+    // and inbound copies are stripped — so its presence is the signal that
+    // this is the booking wizard rather than a login page. The field host
+    // never gets it, so /field keeps the bare shell.
+    const onBehalfClientId = headerStore.get('x-client-id')
+    const onBehalfClient = onBehalfClientId ? await getClientBranding() : null
+
     return (
       <div
         className="min-h-screen bg-gray-50"
@@ -109,6 +118,9 @@ export default async function PublicLayout({
           '--brand-accent-dark': 'color-mix(in srgb, #00E47C 75%, black)',
         } as React.CSSProperties}
       >
+        {onBehalfClientId && (
+          <OnBehalfBar clientName={onBehalfClient?.name ?? null} />
+        )}
         {children}
       </div>
     )
