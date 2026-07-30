@@ -15,6 +15,18 @@
  * first-visit admin (switcher cookie not yet written) was silently bounced from
  * the "+ New Booking" CTA even though the admin UI happily defaults to a client
  * (VER-233).
+ *
+ * Security — `accessibleIds` is REQUIRED, and both tiers are gated on it.
+ * The `client` table is public-SELECT (RLS `USING (is_active = true)`) so the
+ * unauthenticated /book flow can read it. RLS therefore scopes NOTHING here: a
+ * lookup filtered only by `is_active` sees every active tenant. The original
+ * implementation relied on RLS to hide inaccessible clients, so its tier-3
+ * "first accessible client" was really "first active client in the whole
+ * table, ordered by name" — which resolved every cookie-less admin to
+ * "City of Kwinana" (alphabetically first). A Verge Valet staffer opening
+ * "+ New Booking" got `x-client-id` = City of Kwinana, and their resident's
+ * address came back "not eligible for VERCO Kwinana". Callers must pass the
+ * ids from `accessible_client_ids()` and scope their queries to the same set.
  */
 export interface OnBehalfClient {
   id: string
@@ -24,12 +36,29 @@ export interface OnBehalfClient {
 
 export async function resolveOnBehalfClient(
   switcherClientId: string | undefined,
+  accessibleIds: string[],
   lookupById: (id: string) => Promise<OnBehalfClient | null>,
   firstAccessible: () => Promise<OnBehalfClient | null>,
 ): Promise<OnBehalfClient | null> {
-  if (switcherClientId) {
+  // Fail closed: no accessible client means no booking can start, and an empty
+  // set must never be read as "unfiltered".
+  if (accessibleIds.length === 0) return null
+
+  // Honour the switcher cookie only when it names a client the user may act
+  // as, so a stale or tampered cookie falls through to the accessible default
+  // instead of scoping the wizard into another tenant.
+  if (switcherClientId && accessibleIds.includes(switcherClientId)) {
     const byId = await lookupById(switcherClientId)
     if (byId) return byId
   }
-  return firstAccessible()
+
+  // Post-condition, not belt-and-braces theatre: callers inject the queries, so
+  // the tier-3 fallback is only as scoped as the SQL behind it — and that is
+  // precisely what regressed (an unscoped `client` read resolved everyone to
+  // the alphabetically-first tenant). Re-checking the result here means a
+  // caller that forgets `.in('id', accessibleIds)` fails closed instead of
+  // silently handing the wizard another tenant.
+  const fallback = await firstAccessible()
+  if (fallback && !accessibleIds.includes(fallback.id)) return null
+  return fallback
 }

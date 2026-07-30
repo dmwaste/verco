@@ -313,13 +313,25 @@ async function handleContractorHost(
     // VER-233 — without it a first-visit admin (switcher cookie not yet
     // written) was silently bounced from "+ New Booking" back to /admin even
     // though the rest of the admin UI defaults to a client just fine.
+    //
+    // Both queries scope to accessible_client_ids(). `client` is public-SELECT,
+    // so filtering by `is_active` alone returns EVERY active tenant — the
+    // cookie-less path then picked the alphabetically-first client ("City of
+    // Kwinana") for everyone, and Verge Valet staff booking on behalf were told
+    // their resident was "not eligible for VERCO Kwinana". Ordering matches
+    // getCurrentAdminClient so the proxy and the admin UI agree on the default.
+    const { data: accessibleIds } = await supabase.rpc('accessible_client_ids')
+    const scopedIds = accessibleIds ?? []
+
     const resolvedClient = await resolveOnBehalfClient(
       request.cookies.get(SWITCHER_COOKIE)?.value,
+      scopedIds,
       async (id) => {
         const { data } = await supabase
           .from('client')
           .select('id, slug, contractor_id')
           .eq('id', id)
+          .in('id', scopedIds)
           .eq('is_active', true)
           .maybeSingle()
         return data
@@ -328,6 +340,7 @@ async function handleContractorHost(
         const { data } = await supabase
           .from('client')
           .select('id, slug, contractor_id')
+          .in('id', scopedIds)
           .eq('is_active', true)
           .order('name', { ascending: true })
           .limit(1)
