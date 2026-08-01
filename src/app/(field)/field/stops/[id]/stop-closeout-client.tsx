@@ -9,6 +9,7 @@ import { StopStatusBadge } from '@/components/field/stop-status-badge'
 import { getStopMapsUrl, STREAM_LABEL } from '@/lib/stops/labels'
 import type { ServiceSummaryEntry, StopStatus, WasteStream } from '@/lib/stops/stops'
 import { completeStop } from './actions'
+import { MattressCounter } from './mattress-counter'
 import { StopNcnForm } from './stop-ncn-form'
 import { StopNpForm } from './stop-np-form'
 import { StopMudForm } from './stop-mud-form'
@@ -44,15 +45,20 @@ export interface StopDetail {
 interface StopCloseoutClientProps {
   stop: StopDetail
   runHref: string
+  /** Client logs mattresses on this stream (#487) — server-derived. */
+  mattressRequired: boolean
 }
 
-function CloseoutInner({ stop, runHref }: StopCloseoutClientProps) {
+function CloseoutInner({ stop, runHref, mattressRequired }: StopCloseoutClientProps) {
   const router = useRouter()
   const searchParams = useSearchParams()
   const action = searchParams.get('action')
 
   const [isPending, setIsPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Lifted here so the entered count survives switching between the Complete
+  // screen and the NCN/NP forms (same route, query-param swap — no remount).
+  const [mattressCount, setMattressCount] = useState(0)
 
   const isMud = stop.booking.type === 'MUD'
   const address = stop.address ?? ''
@@ -87,18 +93,24 @@ function CloseoutInner({ stop, runHref }: StopCloseoutClientProps) {
     return <StopMudForm stop={stop} items={streamItems} returnTo={returnTo} />
   }
 
+  const mattressProps = {
+    mattressRequired,
+    mattressCount,
+    onMattressCountChange: setMattressCount,
+  }
+
   if (action === 'ncn' && actionable) {
-    return <StopNcnForm stop={stop} runHref={runHref} />
+    return <StopNcnForm stop={stop} runHref={runHref} {...mattressProps} />
   }
   if (action === 'np' && actionable) {
-    return <StopNpForm stop={stop} runHref={runHref} />
+    return <StopNpForm stop={stop} runHref={runHref} {...mattressProps} />
   }
 
   async function handleComplete() {
     setIsPending(true)
     setError(null)
     try {
-      const result = await completeStop(stop.id)
+      const result = await completeStop(stop.id, mattressRequired ? mattressCount : null)
       if (!result.ok) {
         setError(result.error)
         return
@@ -207,6 +219,12 @@ function CloseoutInner({ stop, runHref }: StopCloseoutClientProps) {
               ))}
             </div>
           </div>
+        )}
+
+        {/* Mattress count (#487) — required on every closeout path for
+            clients that roll mattresses into the bulk booking (VV). */}
+        {mattressRequired && actionable && (
+          <MattressCounter count={mattressCount} onChange={setMattressCount} />
         )}
 
         {/* Close out actions — this stream only */}

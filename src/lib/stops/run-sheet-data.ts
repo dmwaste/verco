@@ -35,6 +35,8 @@ export interface RunStop {
   driver_serial: string | null
   driver_name: string | null
   booking: { id: string; ref: string; status: string; type: string }
+  /** Mattress-logging pass for the stop's tenant (#487); NULL = never logs. */
+  client: { mattress_closeout_stream: WasteStream | null } | null
 }
 
 /** Run header context pulled from the routing engine (start/finish + depots). */
@@ -112,6 +114,7 @@ export async function fetchRunStops(
          waste_location, driver_notes,
          stop_sequence, scheduled_at, driver_serial, driver_name,
          booking:booking_id(id, ref, status, type),
+         client:client_id(mattress_closeout_stream),
          collection_date!inner(date)`,
       )
       .eq('collection_date.date', date)

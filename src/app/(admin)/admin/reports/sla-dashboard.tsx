@@ -105,6 +105,11 @@ import {
 } from '@/lib/reports/resident-satisfaction'
 import { computeNoticeReasons } from '@/lib/reports/notice-types'
 import { computeNpDwellingSplit } from '@/lib/reports/np-dwelling-split'
+import {
+  computeMattressTotals,
+  mattressMonthlyPoints,
+  type MattressDailyRow,
+} from '@/lib/reports/mattresses'
 
 /** Booking statuses that "reached the field" this FY (BC denominator, spec §3.1). */
 const BC_ELIGIBLE_STATUSES = [
@@ -261,6 +266,7 @@ export function SlaDashboard({ clientId, selectedArea, period, viewerRole }: {
           {show('service-breakdown') && <VolumeMixCard {...scope} />}
           {show('notice-types') && <NoticeTypesCard {...scope} />}
           {show('np-dwellings') && <NpDwellingSplitCard {...scope} />}
+          {show('mattresses') && <MattressesCard {...scope} />}
         </div>
       </section>
 
@@ -1271,6 +1277,95 @@ function NpDwellingSplitCard({ clientId, area, period }: CardScope) {
         <ProvenanceStamp text={`${liveStamp(period)} · by reported date`} />
       </div>
     </div>
+  )
+}
+
+// ── MATTRESSES — booked (KWN service items) + crew-logged (VV closeout) ─────
+// #487 / BR-0033. One RPC (get_mattress_daily) is the single source of truth
+// for both granularities: the headline sums the selected period's daily rows,
+// the trendline re-buckets a rolling-12 fetch into months. Period anchor is
+// the SERVICE date on both sources — item collection_date for booked units,
+// the stop's as-dispatched date for crew-logged counts (§21: stop=dispatched).
+function mapMattressRows(rows: RpcRow[] | null): MattressDailyRow[] {
+  return (rows ?? []).map((r) => ({
+    day: String(r.day),
+    series: String(r.series),
+    value: Number(r.value ?? 0),
+  }))
+}
+
+function MattressesCard({ clientId, area, period }: CardScope) {
+  const supabase = createClient()
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ['sla-mattresses', clientId, area, ...periodKey(period)],
+    enabled: !!clientId && !period.unresolved,
+    queryFn: async () => {
+      const rows = orThrow(
+        await supabase.rpc('get_mattress_daily', {
+          p_client_id: clientId,
+          p_area_id: area || undefined,
+          p_from: period.from ?? undefined,
+          p_to: period.to ?? undefined,
+        }),
+      )
+      return computeMattressTotals(mapMattressRows(rows))
+    },
+  })
+
+  // Rolling-12 monthly trend off the same RPC (anchor in the queryKey — the
+  // useMonthlyTrend convention; not that helper itself, because daily rows
+  // need SUMMING into months, and its map-based zero-fill would overwrite).
+  const now = new Date()
+  const anchor = rolling12From(now)
+  const upTo = awstDateFromUtc(now)
+  const { data: trend } = useQuery({
+    queryKey: ['sla-mattresses-trend', clientId, area, anchor],
+    enabled: !!clientId,
+    ...MONTHLY_QUERY_OPTIONS,
+    queryFn: async () => {
+      const rows = orThrow(
+        await supabase.rpc('get_mattress_daily', {
+          p_client_id: clientId,
+          p_area_id: area || undefined,
+          p_from: anchor,
+          p_to: upTo,
+        }),
+      )
+      return mattressMonthlyPoints(mapMattressRows(rows), anchor, now) as TrendPoint[]
+    },
+  })
+
+  if (period.unresolved) {
+    return <SlaCard label="Mattresses Collected" value="—" sub="Period unavailable" provenance={liveStamp(period)} />
+  }
+  const r = data
+  // Each tenant only populates one source today (KWN booked, VV crew-logged) —
+  // show only the nonzero parts so the sub never reads "287 booked · 0 logged".
+  const parts = r
+    ? [
+        r.booked > 0 ? `${r.booked} booked` : null,
+        r.logged > 0 ? `${r.logged} crew-logged` : null,
+      ].filter(Boolean)
+    : []
+  return (
+    <SlaCard
+      label="Mattresses Collected"
+      isLoading={isLoading}
+      isError={isError}
+      value={!r || r.total === 0 ? (r && !r.isEmpty ? '0' : '—') : String(r.total)}
+      sub={
+        !r ? undefined
+          : parts.length > 0 ? parts.join(' · ')
+          : 'No mattresses recorded'
+      }
+      tone="neutral"
+      provenance={`${liveStamp(period)} · by service date`}
+      footer={
+        trend && trend.length > 0 ? (
+          <Sparkline points={trend} caption="Mattresses per month · last 12 months" />
+        ) : undefined
+      }
+    />
   )
 }
 

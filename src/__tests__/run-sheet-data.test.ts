@@ -142,6 +142,9 @@ describe('fetchRunStops', () => {
     expect(calls.orders[0]).toEqual(['stop_sequence', { ascending: true, nullsFirst: false }])
     expect(calls.orders).toContainEqual(['id', undefined])
     expect(calls.select).toContain('booking:booking_id(id, ref, status, type)')
+    // #487: the card needs the client's mattress-logging pass to swap the
+    // quick "Done" button for the Enter Count link.
+    expect(calls.select).toContain('client:client_id(mattress_closeout_stream)')
   })
 
   it('uses .is(driver_serial, null) for the unassigned bucket, never .eq', async () => {

@@ -158,6 +158,9 @@ export const FIELD_LABELS: Record<string, string> = {
   completed_by: 'Completed By',
   collection_stop_id: 'Collection Stop',
   waste_stream: 'Waste Stream',
+  mattress_count: 'Mattresses Collected',
+  mattress_closeout_stream: 'Mattress Count Pass',
+  is_mattress: 'Counts as Mattress',
 
   // Allocation rules / service rules
   category_id: 'Category',

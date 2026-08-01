@@ -11,6 +11,7 @@ import { raiseNcnForStop } from './actions'
 import { cn } from '@/lib/utils'
 import { VercoButton } from '@/components/ui/verco-button'
 import type { Database } from '@/lib/supabase/types'
+import { MattressCounter } from './mattress-counter'
 import type { StopDetail } from './stop-closeout-client'
 
 type NcnReason = Database['public']['Enums']['ncn_reason']
@@ -18,9 +19,20 @@ type NcnReason = Database['public']['Enums']['ncn_reason']
 interface StopNcnFormProps {
   stop: StopDetail
   runHref: string
+  /** Mattress count (#487) — state lives in CloseoutInner so it survives
+   *  switching between the closeout screen and this form. */
+  mattressRequired: boolean
+  mattressCount: number
+  onMattressCountChange: (next: number) => void
 }
 
-export function StopNcnForm({ stop, runHref }: StopNcnFormProps) {
+export function StopNcnForm({
+  stop,
+  runHref,
+  mattressRequired,
+  mattressCount,
+  onMattressCountChange,
+}: StopNcnFormProps) {
   const router = useRouter()
   const supabase = createClient()
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -88,7 +100,13 @@ export function StopNcnForm({ stop, runHref }: StopNcnFormProps) {
 
     try {
       // Photos are already uploaded — a retry never re-uploads.
-      const result = await raiseNcnForStop(stop.id, reason, notes, photos)
+      const result = await raiseNcnForStop(
+        stop.id,
+        reason,
+        notes,
+        photos,
+        mattressRequired ? mattressCount : null,
+      )
       if (!result.ok) {
         setError(result.error)
         return
@@ -208,6 +226,11 @@ export function StopNcnForm({ stop, runHref }: StopNcnFormProps) {
             className="h-[72px] w-full resize-none rounded-[10px] border-[1.5px] border-gray-100 bg-gray-50 px-3.5 py-3 text-body-sm text-gray-900 outline-none placeholder:text-gray-400 focus:border-[var(--brand)] focus:bg-white"
           />
         </div>
+
+        {/* Mattress count (#487) — required on every closeout path. */}
+        {mattressRequired && (
+          <MattressCounter count={mattressCount} onChange={onMattressCountChange} />
+        )}
 
         {error && (
           <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-body-sm text-red-700">

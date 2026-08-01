@@ -50,6 +50,9 @@ export const METRIC_AUDIENCE = {
   'notice-types': 'council-visible',
   // NP dwelling split (#459, WMRC 29/07) — built FOR councils
   'np-dwellings': 'council-visible',
+  // Mattresses collected (#487, BR-0033) — the council's own waste volumes,
+  // asked for by both tenants' reporting
+  'mattresses': 'council-visible',
   // Summary cards ('ncn-count'/'np-count' → the 'open-notices' split card,
   // VER-294; 'total-bookings'/'bookings-by-status' retired in batches 3–5)
   'open-tickets': 'council-visible',
