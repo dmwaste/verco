@@ -11,6 +11,11 @@ import {
   serviceLabelFromSummary,
   STOP_CLOSEOUT_SELECT,
 } from '@/lib/stops/service-label'
+import {
+  MATTRESS_COUNT_MAX,
+  stopLogsMattresses,
+  validateMattressCount,
+} from '@/lib/stops/mattress'
 import type { WasteStream } from '@/lib/stops/stops'
 import type { Database, Json } from '@/lib/supabase/types'
 import type { Result } from '@/lib/result'
@@ -37,6 +42,12 @@ const closeoutDetailsSchema = z.object({
     .max(8, 'Please attach at most 8 photos.'),
 })
 const ncnReasonSchema = z.enum(NCN_REASONS)
+const mattressCountSchema = z
+  .number()
+  .int()
+  .min(0)
+  .max(MATTRESS_COUNT_MAX)
+  .nullable()
 
 type SupabaseServerClient = Awaited<ReturnType<typeof createClient>>
 
@@ -179,16 +190,48 @@ async function assertMudStreamCounts(
 }
 
 /**
+ * Mattress gate (#487): stops whose client logs mattresses on THIS stream
+ * (client.mattress_closeout_stream) must carry a crew-entered count into the
+ * closeout; everyone else's submitted count is discarded (stays NULL). Fail
+ * CLOSED on the flag lookup — same rule as the MUD gate: a swallowed query
+ * error must not let a logging stop close without its count.
+ */
+async function resolveMattressCount(
+  supabase: SupabaseServerClient,
+  stop: GuardedStop,
+  submitted: number | null,
+): Promise<Result<number | null>> {
+  const { data: client, error } = await supabase
+    .from('client')
+    .select('mattress_closeout_stream')
+    .eq('id', stop.client_id)
+    .single()
+  if (error) {
+    return { ok: false, error: `Could not verify mattress logging: ${error.message}` }
+  }
+  return validateMattressCount(
+    stopLogsMattresses(client.mattress_closeout_stream, stop.stream),
+    submitted,
+  )
+}
+
+/**
  * Pending → terminal stop transition. The state-machine trigger requires
  * `completed_by = auth.uid()` for non-privileged writers; the `.eq('status',
  * 'Pending')` + row-count check guards the silent-0-row RLS no-op (a sibling
  * crew member may have just closed the same stop).
+ *
+ * mattress_count rides the SAME update as the status flip — the field UPDATE
+ * policy's WITH CHECK only admits terminal rows, so this is the one moment a
+ * crew can write it (and 0 must be written, not skipped: 0 = "logged zero",
+ * NULL = "never logged").
  */
 async function terminaliseStop(
   supabase: SupabaseServerClient,
   stopId: string,
   status: StopTerminalStatus,
   userId: string,
+  mattressCount: number | null,
 ): Promise<Result<void>> {
   const { data: updated, error } = await supabase
     .from('collection_stop')
@@ -196,6 +239,7 @@ async function terminaliseStop(
       status,
       completed_at: new Date().toISOString(),
       completed_by: userId,
+      ...(mattressCount !== null ? { mattress_count: mattressCount } : {}),
     })
     .eq('id', stopId)
     .eq('status', 'Pending')
@@ -259,9 +303,15 @@ async function maybeCreateCompletionSurvey(
   })
 }
 
-export async function completeStop(stopId: string): Promise<Result<void>> {
+export async function completeStop(
+  stopId: string,
+  mattressCount: number | null = null,
+): Promise<Result<void>> {
   if (!stopIdSchema.safeParse(stopId).success) {
     return { ok: false, error: 'Invalid stop reference.' }
+  }
+  if (!mattressCountSchema.safeParse(mattressCount).success) {
+    return { ok: false, error: 'Invalid mattress count.' }
   }
 
   const supabase = await createClient()
@@ -278,12 +328,21 @@ export async function completeStop(stopId: string): Promise<Result<void>> {
     if (!mudGate.ok) return mudGate
   }
 
+  const mattressGate = await resolveMattressCount(supabase, stop, mattressCount)
+  if (!mattressGate.ok) return mattressGate
+
   const {
     data: { user },
   } = await supabase.auth.getUser()
   if (!user) return { ok: false, error: 'Not signed in.' }
 
-  const updated = await terminaliseStop(supabase, stop.id, 'Completed', user.id)
+  const updated = await terminaliseStop(
+    supabase,
+    stop.id,
+    'Completed',
+    user.id,
+    mattressGate.data,
+  )
   if (!updated.ok) return updated
 
   await maybeCreateCompletionSurvey(supabase, stop.booking_id, stop.client_id)
@@ -296,12 +355,16 @@ export async function raiseNcnForStop(
   reason: NcnReason,
   notes: string,
   photoUrls: string[],
+  mattressCount: number | null = null,
 ): Promise<Result<void>> {
   if (!stopIdSchema.safeParse(stopId).success) {
     return { ok: false, error: 'Invalid stop reference.' }
   }
   if (!ncnReasonSchema.safeParse(reason).success) {
     return { ok: false, error: 'Please select a valid reason.' }
+  }
+  if (!mattressCountSchema.safeParse(mattressCount).success) {
+    return { ok: false, error: 'Invalid mattress count.' }
   }
   const details = closeoutDetailsSchema.safeParse({ notes, photoUrls })
   if (!details.success) {
@@ -321,6 +384,11 @@ export async function raiseNcnForStop(
     const mudGate = await assertMudStreamCounts(supabase, stop.booking_id, stop.stream)
     if (!mudGate.ok) return mudGate
   }
+
+  // Gate BEFORE the notice insert — a missing count must not strand an
+  // orphan Issued notice for the compensation path to clean up.
+  const mattressGate = await resolveMattressCount(supabase, stop, mattressCount)
+  if (!mattressGate.ok) return mattressGate
 
   const {
     data: { user },
@@ -348,7 +416,13 @@ export async function raiseNcnForStop(
 
   if (ncnError) return { ok: false, error: ncnError.message }
 
-  const updated = await terminaliseStop(supabase, stop.id, 'Non-conformance', user.id)
+  const updated = await terminaliseStop(
+    supabase,
+    stop.id,
+    'Non-conformance',
+    user.id,
+    mattressGate.data,
+  )
   if (!updated.ok) {
     // Lost the closeout race (another crew just closed this stop) — remove
     // the orphan Issued notice or an admin could action both notices and
@@ -391,9 +465,13 @@ export async function raiseNpForStop(
   notes: string,
   photoUrls: string[],
   dmFault: boolean,
+  mattressCount: number | null = null,
 ): Promise<Result<void>> {
   if (!stopIdSchema.safeParse(stopId).success) {
     return { ok: false, error: 'Invalid stop reference.' }
+  }
+  if (!mattressCountSchema.safeParse(mattressCount).success) {
+    return { ok: false, error: 'Invalid mattress count.' }
   }
   const details = closeoutDetailsSchema.safeParse({ notes, photoUrls })
   if (!details.success) {
@@ -413,6 +491,10 @@ export async function raiseNpForStop(
     const mudGate = await assertMudStreamCounts(supabase, stop.booking_id, stop.stream)
     if (!mudGate.ok) return mudGate
   }
+
+  // Gate BEFORE the record insert — same orphan-notice rationale as the NCN path.
+  const mattressGate = await resolveMattressCount(supabase, stop, mattressCount)
+  if (!mattressGate.ok) return mattressGate
 
   const {
     data: { user },
@@ -437,7 +519,13 @@ export async function raiseNpForStop(
 
   if (npError) return { ok: false, error: npError.message }
 
-  const updated = await terminaliseStop(supabase, stop.id, 'Nothing Presented', user.id)
+  const updated = await terminaliseStop(
+    supabase,
+    stop.id,
+    'Nothing Presented',
+    user.id,
+    mattressGate.data,
+  )
   if (!updated.ok) {
     // Same compensation as the NCN path — see comment there.
     const { data: deleted, error: deleteError } = await supabase

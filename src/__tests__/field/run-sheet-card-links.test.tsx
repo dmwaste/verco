@@ -42,6 +42,7 @@ describe('field run cards link through to their detail page', () => {
         driver_serial: 'T-01',
         driver_name: 'Driver A',
         booking: { id: 'b1', ref: 'VV-STOP1', status: 'Scheduled', type: 'Residential' },
+        client: null,
       },
     ]
 
@@ -139,6 +140,7 @@ describe('run-sheet stop card surfaces waste location + driver notes', () => {
     driver_serial: 'T-01',
     driver_name: 'Driver A',
     booking: { id: 'b2', ref: 'VV-STOP2', status: 'Scheduled', type: 'Residential' },
+    client: null,
   }
 
   it('renders labelled Location + Notes when present', () => {
@@ -162,5 +164,49 @@ describe('run-sheet stop card surfaces waste location + driver notes', () => {
     )
     expect(screen.queryByText('Location:')).not.toBeInTheDocument()
     expect(screen.queryByText('Notes:')).not.toBeInTheDocument()
+  })
+})
+
+describe('run-sheet quick-complete vs count entry (#487)', () => {
+  const stop: ComponentProps<typeof RunSheetStopsClient>['stops'][number] = {
+    id: 'stop-4',
+    stream: 'general',
+    status: 'Pending',
+    address: '5 Example St, Mosman Park WA 6012',
+    latitude: -32.0,
+    longitude: 115.76,
+    services_summary: [{ name: 'Bulk Waste', qty: 1 }],
+    waste_location: null,
+    driver_notes: null,
+    stop_sequence: 1,
+    scheduled_at: null,
+    driver_serial: 'VV-01',
+    driver_name: 'Driver B',
+    booking: { id: 'b4', ref: 'VV-STOP4', status: 'Scheduled', type: 'Residential' },
+    client: { mattress_closeout_stream: 'general' },
+  }
+
+  it('a mattress-logging stop swaps Done for the Enter Count link — quick-complete would only bounce off the server gate', () => {
+    render(
+      <RunSheetStopsClient date="2026-06-16" driverSerial="VV-01" stops={[stop]} runMeta={null} />,
+    )
+    expect(screen.queryByRole('button', { name: /Done/ })).not.toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Enter Count' })).toHaveAttribute(
+      'href',
+      '/field/stops/stop-4',
+    )
+  })
+
+  it('the OTHER pass of the same tenant keeps quick-complete (stream mismatch)', () => {
+    render(
+      <RunSheetStopsClient
+        date="2026-06-16"
+        driverSerial="VV-01"
+        stops={[{ ...stop, id: 'stop-5', stream: 'green', booking: { ...stop.booking, ref: 'VV-STOP5' } }]}
+        runMeta={null}
+      />,
+    )
+    expect(screen.getByRole('button', { name: /Done/ })).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'Enter Count' })).not.toBeInTheDocument()
   })
 })

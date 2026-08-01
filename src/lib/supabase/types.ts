@@ -998,6 +998,9 @@ export type Database = {
           landing_subheading: string | null
           logo_dark_url: string | null
           logo_light_url: string | null
+          mattress_closeout_stream:
+            | Database["public"]["Enums"]["waste_stream"]
+            | null
           name: string
           office_hours: string | null
           place_out_hours_before: number
@@ -1035,6 +1038,9 @@ export type Database = {
           landing_subheading?: string | null
           logo_dark_url?: string | null
           logo_light_url?: string | null
+          mattress_closeout_stream?:
+            | Database["public"]["Enums"]["waste_stream"]
+            | null
           name: string
           office_hours?: string | null
           place_out_hours_before?: number
@@ -1072,6 +1078,9 @@ export type Database = {
           landing_subheading?: string | null
           logo_dark_url?: string | null
           logo_light_url?: string | null
+          mattress_closeout_stream?:
+            | Database["public"]["Enums"]["waste_stream"]
+            | null
           name?: string
           office_hours?: string | null
           place_out_hours_before?: number
@@ -1438,6 +1447,7 @@ export type Database = {
           last_push_error: string | null
           latitude: number | null
           longitude: number | null
+          mattress_count: number | null
           pushed_at: string | null
           routes_pulled_at: string | null
           scheduled_at: string | null
@@ -1467,6 +1477,7 @@ export type Database = {
           last_push_error?: string | null
           latitude?: number | null
           longitude?: number | null
+          mattress_count?: number | null
           pushed_at?: string | null
           routes_pulled_at?: string | null
           scheduled_at?: string | null
@@ -1496,6 +1507,7 @@ export type Database = {
           last_push_error?: string | null
           latitude?: number | null
           longitude?: number | null
+          mattress_count?: number | null
           pushed_at?: string | null
           routes_pulled_at?: string | null
           scheduled_at?: string | null
@@ -2227,6 +2239,7 @@ export type Database = {
           created_at: string
           id: string
           is_active: boolean
+          is_mattress: boolean
           name: string
           updated_at: string
           waste_stream: Database["public"]["Enums"]["waste_stream"]
@@ -2236,6 +2249,7 @@ export type Database = {
           created_at?: string
           id?: string
           is_active?: boolean
+          is_mattress?: boolean
           name: string
           updated_at?: string
           waste_stream: Database["public"]["Enums"]["waste_stream"]
@@ -2245,6 +2259,7 @@ export type Database = {
           created_at?: string
           id?: string
           is_active?: boolean
+          is_mattress?: boolean
           name?: string
           updated_at?: string
           waste_stream?: Database["public"]["Enums"]["waste_stream"]
@@ -2768,6 +2783,19 @@ export type Database = {
         Returns: {
           collections: number
           month: string
+        }[]
+      }
+      get_mattress_daily: {
+        Args: {
+          p_area_id?: string
+          p_client_id: string
+          p_from?: string
+          p_to?: string
+        }
+        Returns: {
+          day: string
+          series: string
+          value: number
         }[]
       }
       get_notices_monthly: {

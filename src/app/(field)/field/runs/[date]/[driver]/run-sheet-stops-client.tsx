@@ -7,6 +7,7 @@ import { format, parseISO } from 'date-fns'
 import { StreamBadge } from '@/components/field/stream-badge'
 import { StopStatusBadge } from '@/components/field/stop-status-badge'
 import { getStopMapsUrl, splitAddress, formatTime } from '@/lib/stops/labels'
+import { stopLogsMattresses } from '@/lib/stops/mattress'
 import type { StopStatus } from '@/lib/stops/stops'
 import type { RunStop, RunMeta } from '@/lib/stops/run-sheet-data'
 import { completeStop } from '../../../stops/[id]/actions'
@@ -32,6 +33,12 @@ function StopCard({ stop, error, isPending, onComplete }: StopCardProps) {
   const { street, suburb } = splitAddress(stop.address)
   const mapsUrl = getStopMapsUrl(stop.latitude, stop.longitude, stop.address)
   const isMud = stop.booking.type === 'MUD'
+  // Counts must be entered on the stop page — MUD allocation counts, or the
+  // mattress count for tenants that log it on this pass (#487). The quick
+  // "Done" would only bounce off the server gate with an error.
+  const needsCountEntry =
+    isMud ||
+    stopLogsMattresses(stop.client?.mattress_closeout_stream ?? null, stop.stream)
   const actionable = stop.status === 'Pending' && stop.booking.status === 'Scheduled'
   const eta = stop.scheduled_at?.match(/^(\d{2}:\d{2})/)?.[1] ?? null
 
@@ -143,7 +150,7 @@ function StopCard({ stop, error, isPending, onComplete }: StopCardProps) {
             >
               NP
             </Link>
-            {isMud ? (
+            {needsCountEntry ? (
               <Link
                 href={`/field/stops/${stop.id}`}
                 className="flex min-h-[44px] items-center rounded-lg bg-[var(--brand)] px-3 text-xs font-semibold"
