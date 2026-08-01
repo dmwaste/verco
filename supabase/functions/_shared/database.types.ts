@@ -19,6 +19,31 @@ export type Database = {
   __InternalSupabase: {
     PostgrestVersion: "14.4"
   }
+  graphql_public: {
+    Tables: {
+      [_ in never]: never
+    }
+    Views: {
+      [_ in never]: never
+    }
+    Functions: {
+      graphql: {
+        Args: {
+          extensions?: Json
+          operationName?: string
+          query?: string
+          variables?: Json
+        }
+        Returns: Json
+      }
+    }
+    Enums: {
+      [_ in never]: never
+    }
+    CompositeTypes: {
+      [_ in never]: never
+    }
+  }
   public: {
     Tables: {
       allocation_conversion_rule: {
@@ -1005,7 +1030,9 @@ export type Database = {
           landing_subheading: string | null
           logo_dark_url: string | null
           logo_light_url: string | null
-          mattress_closeout_stream: Database["public"]["Enums"]["waste_stream"] | null
+          mattress_closeout_stream:
+            | Database["public"]["Enums"]["waste_stream"]
+            | null
           name: string
           office_hours: string | null
           place_out_hours_before: number
@@ -1043,7 +1070,9 @@ export type Database = {
           landing_subheading?: string | null
           logo_dark_url?: string | null
           logo_light_url?: string | null
-          mattress_closeout_stream?: Database["public"]["Enums"]["waste_stream"] | null
+          mattress_closeout_stream?:
+            | Database["public"]["Enums"]["waste_stream"]
+            | null
           name: string
           office_hours?: string | null
           place_out_hours_before?: number
@@ -1081,7 +1110,9 @@ export type Database = {
           landing_subheading?: string | null
           logo_dark_url?: string | null
           logo_light_url?: string | null
-          mattress_closeout_stream?: Database["public"]["Enums"]["waste_stream"] | null
+          mattress_closeout_stream?:
+            | Database["public"]["Enums"]["waste_stream"]
+            | null
           name?: string
           office_hours?: string | null
           place_out_hours_before?: number
@@ -3178,6 +3209,9 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
+  graphql_public: {
+    Enums: {},
+  },
   public: {
     Enums: {
       app_permission_action: ["view", "create", "edit", "delete", "manage"],
