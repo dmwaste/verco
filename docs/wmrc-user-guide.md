@@ -69,7 +69,7 @@ Verge Valet offers **two services** — shown in the portal as **Bulk Waste** an
 
 > **The included allocation is set per member council — it is *not* a single fixed number _(corrected 2026-07-05)_.** Most councils allow **3** included collections per property per financial year, but it varies: e.g. **Fremantle 1**, **Vincent 2**, most councils **3**, **Peppermint Grove 6**. Don't quote a flat "3" to residents — the address-eligibility screen (§2.2) always shows that property's exact allocation and how many remain.
 
-Collections beyond the included allocation become **paid extras** (priced per unit; the amount is shown before payment, and Stripe handles checkout). There are **no ancillary services** on Verge Valet (no mattresses, e-waste, or whitegoods) — a deliberate difference from other Verco tenants.
+Collections beyond the included allocation become **paid extras** (priced per unit; the amount is shown before payment, and Stripe handles checkout). There are **no ancillary services** on Verge Valet (no separate mattress, e-waste, or whitegoods bookings) — a deliberate difference from other Verco tenants. Mattresses presented with the bulk pile ARE collected on the Bulk Waste pass; since 01/08/2026 crews count them at each stop, and the daily/monthly totals appear on the **Reports** dashboard (§4.9).
 
 ---
 
@@ -929,7 +929,7 @@ The list heading reads **"Illegal Dumping"** with the subtitle *"ID collections 
 The Reports page is your at-a-glance view of how Verge Valet is performing for your council. It has four bands:
 
 1. **Headline numbers** — **Total Collections**, **Open Notices** (NCN + NP), **Open Tickets**.
-2. **Insights** — a **Service Breakdown** donut (Bulk Waste vs Green Waste vs …) and an **NCN Types** donut (why collections were non-conformant).
+2. **Insights** — a **Service Breakdown** donut (Bulk Waste vs Green Waste vs …), an **NCN Types** donut (why collections were non-conformant), a **Nothing Presented — Dwellings** donut (MUD vs standard), and a **Mattresses Collected** card _(new 01/08/2026)_ — the period total of mattresses crews counted at bulk-stop closeouts, with a 12-month trend. Honours the same period and area filters as the rest of the page.
 3. **Customer Satisfaction** — **Booking**, **Service** and **Overall** rating cards, plus a *"Do you prefer …?"* preference donut (Yes / No / Indifferent). These are fed by the resident **surveys** (§3.7 / §4.10).
 4. **Service Level** — a grid of eight SLA cards, each with a **period selector**, a **value**, a **target**, and a **12-month sparkline**:
    - Service Delivery · On-Time Collection · Rectification ≤ 2 Days · Ticket First Response · Ticket Resolution · Self-Service Rate · Notification Delivery · Property Penetration.
