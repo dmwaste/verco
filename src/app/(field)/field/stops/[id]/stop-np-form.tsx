@@ -8,11 +8,17 @@ import { compressImage } from '@/lib/images/compress'
 import { STREAM_LABEL } from '@/lib/stops/labels'
 import { raiseNpForStop } from './actions'
 import { VercoButton } from '@/components/ui/verco-button'
+import { MattressCounter } from './mattress-counter'
 import type { StopDetail } from './stop-closeout-client'
 
 interface StopNpFormProps {
   stop: StopDetail
   runHref: string
+  /** Mattress count (#487) — state lives in CloseoutInner so it survives
+   *  switching between the closeout screen and this form. */
+  mattressRequired: boolean
+  mattressCount: number
+  onMattressCountChange: (next: number) => void
 }
 
 /**
@@ -20,7 +26,13 @@ interface StopNpFormProps {
  * verge is the crew's defence when the resident disputes — the legacy
  * per-booking path submitted blind; this form makes evidence first-class.
  */
-export function StopNpForm({ stop, runHref }: StopNpFormProps) {
+export function StopNpForm({
+  stop,
+  runHref,
+  mattressRequired,
+  mattressCount,
+  onMattressCountChange,
+}: StopNpFormProps) {
   const router = useRouter()
   const supabase = createClient()
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -80,7 +92,13 @@ export function StopNpForm({ stop, runHref }: StopNpFormProps) {
 
     try {
       // Photos are already uploaded — a retry never re-uploads.
-      const result = await raiseNpForStop(stop.id, notes, photos, false)
+      const result = await raiseNpForStop(
+        stop.id,
+        notes,
+        photos,
+        false,
+        mattressRequired ? mattressCount : null,
+      )
       if (!result.ok) {
         setError(result.error)
         return
@@ -181,6 +199,12 @@ export function StopNpForm({ stop, runHref }: StopNpFormProps) {
             className="h-[72px] w-full resize-none rounded-[10px] border-[1.5px] border-gray-100 bg-gray-50 px-3.5 py-3 text-body-sm text-gray-900 outline-none placeholder:text-gray-400 focus:border-[var(--brand)] focus:bg-white"
           />
         </div>
+
+        {/* Mattress count (#487) — required on every closeout path; for
+            Nothing Presented the default 0 is almost always the answer. */}
+        {mattressRequired && (
+          <MattressCounter count={mattressCount} onChange={onMattressCountChange} />
+        )}
 
         {error && (
           <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-body-sm text-red-700">
