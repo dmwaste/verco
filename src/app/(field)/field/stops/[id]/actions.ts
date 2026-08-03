@@ -12,6 +12,7 @@ import {
   STOP_CLOSEOUT_SELECT,
 } from '@/lib/stops/service-label'
 import {
+  isMissingRequiredCount,
   MATTRESS_COUNT_MAX,
   stopLogsMattresses,
   validateMattressCount,
@@ -190,11 +191,14 @@ async function assertMudStreamCounts(
 }
 
 /**
- * Mattress gate (#487): stops whose client logs mattresses on THIS stream
- * (client.mattress_closeout_stream) must carry a crew-entered count into the
- * closeout; everyone else's submitted count is discarded (stays NULL). Fail
- * CLOSED on the flag lookup — same rule as the MUD gate: a swallowed query
- * error must not let a logging stop close without its count.
+ * Mattress gate (#487, softened 03/08/2026 — ADR 0011): stops whose client
+ * logs mattresses on THIS stream (client.mattress_closeout_stream) carry the
+ * crew-entered count into the closeout; everyone else's submitted count is
+ * discarded (stays NULL). A MISSING count no longer blocks the closeout — a
+ * pre-#487 client bundle can never send one, and rejecting it stranded every
+ * VV bulk stop on 03/08. It completes as NULL ("uncounted") with a Sentry
+ * warning so stale phones surface. Invalid VALUES still reject, and the flag
+ * lookup still fails closed — an unreadable flag must not skip the prompt.
  */
 async function resolveMattressCount(
   supabase: SupabaseServerClient,
@@ -209,10 +213,17 @@ async function resolveMattressCount(
   if (error) {
     return { ok: false, error: `Could not verify mattress logging: ${error.message}` }
   }
-  return validateMattressCount(
-    stopLogsMattresses(client.mattress_closeout_stream, stop.stream),
-    submitted,
-  )
+  const required = stopLogsMattresses(client.mattress_closeout_stream, stop.stream)
+  if (isMissingRequiredCount(required, submitted)) {
+    Sentry.captureMessage(
+      'Closeout without required mattress count — client bundle predates the counter?',
+      {
+        level: 'warning',
+        extra: { stop_id: stop.id, client_id: stop.client_id, stream: stop.stream },
+      },
+    )
+  }
+  return validateMattressCount(required, submitted)
 }
 
 /**
