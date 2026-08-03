@@ -617,6 +617,123 @@ if (!haveDb) {
   })
 
   // ---------------------------------------------------------------------------
+  // booking_item field UPDATE — MUD actuals (#494, migration 20260803013000).
+  // Until that migration, booking_item had NO field UPDATE policy, so the crew
+  // MUD-counts save (bulk_update_booking_item_actuals, SECURITY INVOKER)
+  // updated 0 rows silently. These assert: field can save actual_services on a
+  // Scheduled booking; ranger cannot; nothing saves once the booking leaves
+  // Scheduled; the column-pin trigger stops a field JWT touching any other
+  // column (unit_price_cents = Red Line #1); and the RPC now RAISES on a
+  // row-count shortfall instead of returning silent success.
+  //
+  // Fixtures are seeded INSIDE the rolled-back transaction (never upserted
+  // durably like the stop fixtures) — booking_item rows move real capacity
+  // counters via recalculate_collection_date_units, so they must not persist.
+  // Self-skips until the migration reaches the remote project.
+  // ---------------------------------------------------------------------------
+  describe('booking_item field UPDATE — MUD actuals (#494)', () => {
+    const BI_BOOKING = 'abababab-0001-4000-8000-000000000001'
+    const BI_ITEM_A = 'abababab-0002-4000-8000-000000000002'
+    const BI_ITEM_B = 'abababab-0003-4000-8000-000000000003'
+
+    let policyLive = false
+
+    beforeAll(async () => {
+      const r = await pg.query(
+        `SELECT 1 FROM pg_policies
+          WHERE tablename = 'booking_item' AND policyname = 'booking_item_field_update'`,
+      )
+      policyLive = (r.rowCount ?? 0) > 0
+    })
+
+    /** Seed a booking + two items as the privileged role, then run `sql`
+     *  impersonated as `userId` — all inside one rolled-back transaction. */
+    async function withSeededBooking(
+      userId: string,
+      sql: string,
+      bookingStatus: 'Scheduled' | 'Confirmed' = 'Scheduled',
+    ): Promise<number> {
+      await pg.query('BEGIN')
+      try {
+        await pg.query(
+          `INSERT INTO public.booking (id, ref, type, status, collection_area_id, client_id, contractor_id, fy_id)
+           VALUES ($1, 'RLS-BI-FIELD', 'Residential', $2, $3, $4, $5,
+                   (SELECT id FROM financial_year WHERE is_current LIMIT 1))`,
+          [BI_BOOKING, bookingStatus, kwnAreaId, CLIENT_ID, CONTRACTOR_ID],
+        )
+        await pg.query(
+          `INSERT INTO public.booking_item (id, booking_id, service_id, collection_date_id, no_services, is_extra, unit_price_cents)
+           SELECT x.id, $1, (SELECT id FROM service LIMIT 1),
+                  (SELECT id FROM collection_date WHERE collection_area_id = $4 LIMIT 1),
+                  1, false, 0
+             FROM (VALUES ($2::uuid), ($3::uuid)) AS x(id)`,
+          [BI_BOOKING, BI_ITEM_A, BI_ITEM_B, kwnAreaId],
+        )
+        await pg.query(`SET LOCAL ROLE authenticated`)
+        await pg.query(`SELECT set_config('request.jwt.claims', $1, true)`, [
+          JSON.stringify({ sub: userId, role: 'authenticated' }),
+        ])
+        const r = await pg.query(sql)
+        return r.rowCount ?? 0
+      } finally {
+        await pg.query('ROLLBACK')
+      }
+    }
+
+    const setCountsSql = `UPDATE booking_item SET actual_services = 2 WHERE booking_id = '${BI_BOOKING}'`
+    const rpcSql = `SELECT bulk_update_booking_item_actuals('${BI_BOOKING}',
+      '[{"id":"${BI_ITEM_A}","actual_count":2},{"id":"${BI_ITEM_B}","actual_count":0}]'::jsonb)`
+
+    it('field CAN save actual_services on a Scheduled booking (2 rows)', async (ctx) => {
+      if (!policyLive || !kwnAreaId) return ctx.skip()
+      expect(await withSeededBooking(USERS.field, setCountsSql)).toBe(2)
+    })
+
+    it('ranger CANNOT save actuals (0 rows — write is field-only, like collection_stop)', async (ctx) => {
+      if (!policyLive || !kwnAreaId) return ctx.skip()
+      expect(await withSeededBooking(USERS.ranger, setCountsSql)).toBe(0)
+    })
+
+    it('field CANNOT save once the booking leaves Scheduled (0 rows)', async (ctx) => {
+      if (!policyLive || !kwnAreaId) return ctx.skip()
+      expect(await withSeededBooking(USERS.field, setCountsSql, 'Confirmed')).toBe(0)
+    })
+
+    it('field CANNOT touch unit_price_cents — column pin (Red Line #1)', async (ctx) => {
+      if (!policyLive || !kwnAreaId) return ctx.skip()
+      await expect(
+        withSeededBooking(
+          USERS.field,
+          `UPDATE booking_item SET actual_services = 2, unit_price_cents = 99900
+            WHERE booking_id = '${BI_BOOKING}'`,
+        ),
+      ).rejects.toThrow(/only change actual_services/)
+    })
+
+    it('staff can still edit other columns — the pin is field-only', async (ctx) => {
+      if (!policyLive || !kwnAreaId) return ctx.skip()
+      expect(
+        await withSeededBooking(
+          USERS['contractor-admin'],
+          `UPDATE booking_item SET no_services = 2 WHERE booking_id = '${BI_BOOKING}'`,
+        ),
+      ).toBe(2)
+    })
+
+    it('bulk_update_booking_item_actuals succeeds for field (raises on any shortfall)', async (ctx) => {
+      if (!policyLive || !kwnAreaId) return ctx.skip()
+      await expect(withSeededBooking(USERS.field, rpcSql)).resolves.toBeDefined()
+    })
+
+    it('bulk_update_booking_item_actuals RAISES for a role RLS filters out — never silent success', async (ctx) => {
+      if (!policyLive || !kwnAreaId) return ctx.skip()
+      await expect(withSeededBooking(USERS.ranger, rpcSql)).rejects.toThrow(
+        /Counts were not saved/,
+      )
+    })
+  })
+
+  // ---------------------------------------------------------------------------
   // TC-F5 (VER-247): residents can cancel their OWN booking. The bug was an
   // implicit WITH CHECK on booking_resident_update that rejected status
   // 'Cancelled' (0 rows, no error). These assert the policy now lets a resident
