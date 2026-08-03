@@ -227,6 +227,25 @@ function CloseoutInner({ stop, runHref, mattressRequired }: StopCloseoutClientPr
           <MattressCounter count={mattressCount} onChange={setMattressCount} />
         )}
 
+        {/* Above the buttons, not below: on a phone the old bottom position
+            sat under the fold, so a rejected closeout looked like a dead
+            button (03/08 mattress-gate outage — nobody saw the reason). */}
+        {error && (
+          <div
+            role="alert"
+            className="flex items-center justify-between gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-body-sm text-red-700"
+          >
+            <span>{error}</span>
+            <button
+              type="button"
+              onClick={handleComplete}
+              className="shrink-0 rounded-md bg-white px-2.5 py-1 text-caption font-semibold text-red-700 shadow-sm"
+            >
+              Retry
+            </button>
+          </div>
+        )}
+
         {/* Close out actions — this stream only */}
         {actionable && (
           <div className="flex flex-col gap-2 rounded-xl bg-white p-3.5 shadow-sm">
@@ -282,18 +301,6 @@ function CloseoutInner({ stop, runHref, mattressRequired }: StopCloseoutClientPr
           </div>
         )}
 
-        {error && (
-          <div className="flex items-center justify-between gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-body-sm text-red-700">
-            <span>{error}</span>
-            <button
-              type="button"
-              onClick={handleComplete}
-              className="shrink-0 rounded-md bg-white px-2.5 py-1 text-caption font-semibold text-red-700 shadow-sm"
-            >
-              Retry
-            </button>
-          </div>
-        )}
       </div>
     </>
   )

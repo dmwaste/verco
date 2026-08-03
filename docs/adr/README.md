@@ -14,3 +14,4 @@ An ADR — "architecture decision record" — is a short record of a decision we
 | [0008](0008-quantity-edits-guarded-against-simultaneous-changes.md) | Editing a paid booking's quantities is guarded against two people editing at once | 12/07/2026 | Accepted |
 | [0009](0009-stop-is-dispatched-record-booking-is-corrected-intent.md) | The crew job sheet is frozen history; corrections live on the booking; on-time KPI uses the frozen record | 11/07/2026 | Accepted |
 | [0010](0010-releases-identified-by-git-sha.md) | Releases are identified by code snapshot (git SHA) and verified live, not version numbers | 02/07/2026 | Accepted |
+| [0011](0011-missing-mattress-count-never-blocks-a-closeout.md) | A missing mattress count never blocks a crew closing out a stop | 03/08/2026 | Accepted |
