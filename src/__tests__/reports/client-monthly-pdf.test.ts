@@ -86,4 +86,38 @@ describe('ClientMonthlyReportPdf', () => {
     )
     expect(buf.subarray(0, 5).toString()).toBe('%PDF-')
   })
+
+  it('renders successfully at multi-page scale (12 sub-client groups)', async () => {
+    const rows = Array.from({ length: 12 }, (_, i) => ({
+      source: 'booked' as const,
+      group_key: `sc${i}`,
+      group_label: `Sub-client Council ${i + 1}`,
+      service_name: 'Bulk Waste',
+      is_mattress: false,
+      is_extra: false,
+      units: 100 + i,
+    }))
+    const report = buildClientMonthlyReport({
+      rows,
+      offered: [{ name: 'Bulk Waste', category: 'bulk' }],
+      grouping: 'sub_client',
+      mattressCloseoutStream: null,
+    })
+    const buf = await renderToBuffer(
+      ClientMonthlyReportPdf({
+        report,
+        monthLabel: 'July 2026',
+        refCode: 'VV-2026-07',
+        issuedLabel: '06/08/2026',
+        serviceName: 'Verge Valet',
+        legalName: 'Western Metropolitan Regional Council',
+        extrasLabel: 'Verge Valet Extra',
+        rowHeader: 'Council',
+        totalRowLabel: 'All Councils',
+        primaryColour: '#414042',
+        accentColour: '#72b75c',
+      })
+    )
+    expect(buf.subarray(0, 5).toString()).toBe('%PDF-')
+  })
 })

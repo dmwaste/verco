@@ -15,7 +15,6 @@ Font.register({
   family: 'DM Sans',
   fonts: [
     { src: path.join(fontDir, 'DMSans-Regular.ttf'), fontWeight: 400 },
-    { src: path.join(fontDir, 'DMSans-Medium.ttf'), fontWeight: 500 },
     { src: path.join(fontDir, 'DMSans-Bold.ttf'), fontWeight: 700 },
   ],
 })
@@ -34,7 +33,11 @@ export interface PdfProps {
   accentColour: string
 }
 
-/** #rrggbb + alpha -> rgba() for tinted backgrounds. */
+/**
+ * #rrggbb + alpha -> rgba() for tinted backgrounds. 6-digit #rrggbb only —
+ * DB writes are zod-gated to that shape and the route caller null-coalesces;
+ * not defensive by design.
+ */
 function tint(hex: string, alpha: number): string {
   const n = parseInt(hex.replace('#', ''), 16)
   return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`
@@ -317,12 +320,14 @@ export function ClientMonthlyReportPdf(props: PdfProps) {
           />
         </View>
 
-        <View style={styles.foot}>
+        <View style={styles.foot} fixed>
           <Text>
             Prepared for the <Text style={{ fontWeight: 700, color: primaryColour }}>{legalName}</Text> by{' '}
             <Text style={{ fontWeight: 700, color: primaryColour }}>D&M Waste Management</Text>
           </Text>
-          <Text>Page 1 of 1</Text>
+          <Text
+            render={({ pageNumber, totalPages }) => `Page ${pageNumber} of ${totalPages}`}
+          />
         </View>
       </Page>
     </Document>
