@@ -99,11 +99,29 @@ function pivot(
 
 export function buildClientMonthlyReport(opts: BuildOptions): ClientMonthlyReport {
   const { rows, offered, grouping, mattressCloseoutStream } = opts
+  const cat = new Map(offered.map((s) => [s.name, s.category]))
 
-  const labelOf = (raw: string) => (grouping === 'area' ? shortenAreaLabel(raw) : raw)
+  // Shortened area labels can collide across distinct areas (e.g. "North
+  // Area 1" / "South Area 1" both -> "Area 1"). This is an invoice-backing
+  // document, so any shortened label shared by 2+ distinct group_keys falls
+  // back to the FULL raw label for every colliding key — auditability wins
+  // over brevity. Non-colliding groups still shorten as normal.
+  const rawLabels = new Map<string, string>()
+  for (const r of rows) rawLabels.set(r.group_key, r.group_label)
 
   const groupLabels = new Map<string, string>()
-  for (const r of rows) groupLabels.set(r.group_key, labelOf(r.group_label))
+  if (grouping === 'area') {
+    const shortened = new Map<string, string>()
+    for (const [key, raw] of rawLabels) shortened.set(key, shortenAreaLabel(raw))
+    const counts = new Map<string, number>()
+    for (const label of shortened.values()) counts.set(label, (counts.get(label) ?? 0) + 1)
+    for (const [key, raw] of rawLabels) {
+      const short = shortened.get(key)!
+      groupLabels.set(key, (counts.get(short) ?? 0) > 1 ? raw : short)
+    }
+  } else {
+    for (const [key, raw] of rawLabels) groupLabels.set(key, raw)
+  }
 
   const hasStopData = rows.some((r) => r.source === 'stop_mattress')
   const mattressExpected = mattressCloseoutStream != null
@@ -138,7 +156,16 @@ export function buildClientMonthlyReport(opts: BuildOptions): ClientMonthlyRepor
   const extrasNames = new Set<string>(
     offered.filter((s) => s.category !== 'id').map((s) => s.name)
   )
-  for (const r of rows) if (r.is_extra) extrasNames.add(r.service_name)
+  // Exclude by category (cat.get(...) === 'id') first — display names get
+  // renamed (#228) and an ID service must never leak into the resident-paid
+  // extras table just because it wasn't spelled "Illegal Dumping". The
+  // ID_NAME literal check is belt-and-braces for a service absent from
+  // `offered` entirely (no category to key off).
+  for (const r of rows) {
+    if (r.is_extra && cat.get(r.service_name) !== 'id' && r.service_name !== ID_NAME) {
+      extrasNames.add(r.service_name)
+    }
+  }
   if (mattressExpected) extrasNames.add(MATTRESS_NAME)
   extrasNames.delete(ID_NAME)
   const extras = pivot(

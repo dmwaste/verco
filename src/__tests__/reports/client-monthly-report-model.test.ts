@@ -73,6 +73,23 @@ describe('buildClientMonthlyReport', () => {
     expect(r.included.totals.total).toBe(13)
     expect(r.extras.totals.total).toBe(1)
     expect(r.extras.columns).not.toContain('Illegal Dumping')
+    expect(r.extras.columns).toEqual(['Bulk Waste', 'Green Waste', 'E-Waste', 'Mattress', 'Whitegoods'])
+  })
+
+  it('excludes an ID service from extras by category even when its display name is not the literal "Illegal Dumping"', () => {
+    const offered: OfferedService[] = [
+      ...KWN_OFFERED,
+      { name: 'Illegal Dump Collection', category: 'id' },
+    ]
+    const rows: ReportRow[] = [
+      booked({ units: 10 }),
+      booked({ service_name: 'Illegal Dump Collection', is_extra: true, units: 5 }),
+    ]
+    const r = buildClientMonthlyReport({
+      rows, offered, grouping: 'area', mattressCloseoutStream: null,
+    })
+    expect(r.extras.columns).not.toContain('Illegal Dump Collection')
+    expect(r.extras.totals.total).toBe(0)
   })
 
   it('renders em-dash (null) mattress cells when closeout stream set but no stop data', () => {
@@ -127,6 +144,45 @@ describe('buildClientMonthlyReport', () => {
     })
     expect(r.included.groups.map((g) => g.label)).toEqual([
       'Shire of Peppermint Grove', 'Town of Mosman Park',
+    ])
+  })
+
+  it('falls back to full raw labels when two distinct groups shorten to the same display label', () => {
+    const rows: ReportRow[] = [
+      booked({ group_key: 'g1', group_label: 'North Area 1', units: 1 }),
+      booked({ group_key: 'g2', group_label: 'South Area 1', units: 1 }),
+    ]
+    const r = buildClientMonthlyReport({
+      rows, offered: [{ name: 'Bulk Waste', category: 'bulk' }],
+      grouping: 'area', mattressCloseoutStream: null,
+    })
+    expect(r.included.groups.map((g) => g.label)).toEqual([
+      'North Area 1', 'South Area 1',
+    ])
+  })
+
+  it('still shortens labels in the non-colliding case', () => {
+    const rows: ReportRow[] = [
+      booked({ group_key: 'g1', group_label: 'Kwinana Area 1', units: 1 }),
+      booked({ group_key: 'g2', group_label: 'Kwinana Area 2', units: 1 }),
+    ]
+    const r = buildClientMonthlyReport({
+      rows, offered: [{ name: 'Bulk Waste', category: 'bulk' }],
+      grouping: 'area', mattressCloseoutStream: null,
+    })
+    expect(r.included.groups.map((g) => g.label)).toEqual(['Area 1', 'Area 2'])
+  })
+
+  it('pins the ancillary-tier default for an unknown service not present in offered', () => {
+    const rows: ReportRow[] = [
+      booked({ service_name: 'Mystery Service', units: 1 }),
+      booked({ service_name: 'Illegal Dumping', units: 2 }),
+    ]
+    const r = buildClientMonthlyReport({
+      rows, offered: KWN_OFFERED, grouping: 'area', mattressCloseoutStream: null,
+    })
+    expect(r.included.columns).toEqual([
+      'Bulk Waste', 'Green Waste', 'E-Waste', 'Mattress', 'Mystery Service', 'Whitegoods', 'Illegal Dumping',
     ])
   })
 })
