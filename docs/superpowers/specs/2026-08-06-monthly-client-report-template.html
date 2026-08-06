@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en-AU">
+<head>
+<meta charset="utf-8">
+<title>Variant B — Statement · City of Kwinana Monthly Collections Report</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700&family=DM+Sans:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  @page { size: A4; margin: 0; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #e8e8e8; font-family: 'DM Sans', -apple-system, sans-serif; color: #1a1a1a; }
+  .page {
+    width: 210mm; min-height: 297mm; margin: 8mm auto; background: #fff;
+    position: relative; box-shadow: 0 1px 6px rgba(0,0,0,.18); page-break-after: always;
+    display: flex; flex-direction: column;
+  }
+  @media print { body { background:#fff } .page { margin:0; box-shadow:none } }
+
+  .band { background: #0d295a; color: #fff; padding: 10mm 16mm 9mm; display: flex; justify-content: space-between; align-items: center; }
+  .band .logo-box { padding: 0; }
+  .band .logo-box img { height: 15mm; display: block; }
+  .band h1 { font-family: 'Poppins', sans-serif; font-size: 15.5pt; font-weight: 600; line-height: 1.25; }
+  .band .period { font-size: 10pt; color: #b9c6da; margin-top: 1mm; }
+  .band .right { text-align: right; }
+
+  .content { padding: 9mm 16mm 0; flex: 1; }
+
+  .tiles { display: flex; gap: 5mm; margin-bottom: 8mm; }
+  .tile { flex: 1; border: 1px solid #dde3ec; border-radius: 2.5mm; padding: 4.5mm 5mm; }
+  .tile .k { font-size: 8pt; text-transform: uppercase; letter-spacing: .8px; color: #64748b; font-weight: 500; }
+  .tile .v { font-family: 'Poppins', sans-serif; font-size: 20pt; font-weight: 700; color: #0d295a; margin-top: 1mm; font-variant-numeric: tabular-nums; }
+  .tile .s { font-size: 8pt; color: #94a3b8; margin-top: .5mm; }
+  .tile.accent { background: #f2f8ee; border-color: #69a24c; }
+  .tile.accent .v { color: #4a7a33; }
+
+  .sec-label { display: inline-block; font-family: 'Poppins', sans-serif; font-size: 9pt; font-weight: 600; color: #fff; background: #0d295a; border-radius: 1.5mm; padding: 1.6mm 4mm; margin-bottom: 3mm; }
+  .sec-label.green { background: #69a24c; }
+  .sec-sub { font-size: 9pt; color: #555; margin: -1mm 0 4mm; line-height: 1.55; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 9.5pt; }
+  thead th { background: #f1f4f9; font-size: 8pt; text-transform: uppercase; letter-spacing: .5px; color: #334155; padding: 2.8mm 2.5mm; text-align: right; font-weight: 700; border-bottom: 2px solid #0d295a; }
+  th:first-child, td:first-child { text-align: left; }
+  td { padding: 2.8mm 2.5mm; text-align: right; border-bottom: 1px solid #e8ecf2; font-variant-numeric: tabular-nums; }
+  tbody tr:nth-child(even) td { background: #fafbfd; }
+  td.rowtotal, th.rowtotal { font-weight: 700; background: #eef4ea !important; color: #33531f; }
+  tr.total td { background: #0d295a !important; color: #fff; font-weight: 700; border-bottom: none; }
+  tr.total td.rowtotal { background: #69a24c !important; color: #fff; font-size: 10.5pt; }
+  .area-code { font-size: 7.5pt; color: #94a3b8; display: block; }
+  tr.total .area-code { color: #b9c6da; }
+
+  .basis { margin-top: 7mm; font-size: 8.5pt; color: #555; line-height: 1.6; background: #f7f8fa; border-radius: 2mm; padding: 4mm 5mm; border: 1px solid #e5e9f0; }
+  .basis strong { color: #0d295a; }
+
+  .foot { margin-top: auto; background: #f1f4f9; padding: 4mm 16mm; display: flex; justify-content: space-between; font-size: 8pt; color: #64748b; }
+  .foot b { color: #0d295a; }
+
+  .zero { color: #c2cad6; }
+</style>
+</head>
+<body>
+
+<!-- PAGE 1 — CHARGEABLE -->
+<div class="page">
+  <div class="band">
+    <div style="display:flex; align-items:center; gap:6mm">
+      <div class="logo-box"><img src="https://www.kwinana.wa.gov.au/assets/images/logo.svg" alt="City of Kwinana"></div>
+      <div>
+        <h1>Monthly Collections Statement</h1>
+        <div class="period">VERCO Kwinana · Bulk Verge Collection Service</div>
+      </div>
+    </div>
+    <div class="right">
+      <div style="font-family:'Poppins',sans-serif; font-size:13pt; font-weight:600">July 2026</div>
+      <div class="period">Ref KWN-2026-07 · Issued 06/08/2026</div>
+    </div>
+  </div>
+
+  <div class="content">
+    <div class="sec-label">Section 1 — Chargeable Collections</div>
+
+    <table>
+      <thead>
+        <tr><th>Collection Area</th><th>Bulk Waste</th><th>Green Waste</th><th>E-Waste</th><th>Mattress</th><th>Whitegoods</th><th>Illegal Dumping</th><th class="rowtotal">Total</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Area 1</td><td>130</td><td>105</td><td>28</td><td>42</td><td>47</td><td>1</td><td class="rowtotal">353</td></tr>
+        <tr><td>Area 2</td><td>152</td><td>60</td><td>38</td><td>77</td><td>48</td><td>5</td><td class="rowtotal">380</td></tr>
+        <tr><td>Area 3</td><td>158</td><td>44</td><td>36</td><td>70</td><td>51</td><td>1</td><td class="rowtotal">360</td></tr>
+        <tr><td>Area 4</td><td>95</td><td>11</td><td>21</td><td>23</td><td>29</td><td class="zero">0</td><td class="rowtotal">179</td></tr>
+        <tr class="total"><td>All Areas</td><td>535</td><td>220</td><td>123</td><td>212</td><td>175</td><td>7</td><td class="rowtotal">1,272</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="foot">
+    <span>Prepared for the <b>City of Kwinana</b> by <b>D&amp;M Waste Management</b></span>
+    <span>Page 1 of 2</span>
+  </div>
+</div>
+
+<!-- PAGE 2 — VV EXTRA -->
+<div class="page">
+  <div class="band">
+    <div style="display:flex; align-items:center; gap:6mm">
+      <div class="logo-box"><img src="https://www.kwinana.wa.gov.au/assets/images/logo.svg" alt="City of Kwinana"></div>
+      <div>
+        <h1>Monthly Collections Statement</h1>
+        <div class="period">VERCO Kwinana · Bulk Verge Collection Service</div>
+      </div>
+    </div>
+    <div class="right">
+      <div style="font-family:'Poppins',sans-serif; font-size:13pt; font-weight:600">July 2026</div>
+      <div class="period">Ref KWN-2026-07 · Issued 06/08/2026</div>
+    </div>
+  </div>
+
+  <div class="content">
+    <div class="sec-label green">Section 2 — Verge Valet Extra (Resident-Paid)</div>
+
+    <table>
+      <thead>
+        <tr><th>Collection Area</th><th>Bulk Waste</th><th>Green Waste</th><th>E-Waste</th><th>Mattress</th><th>Whitegoods</th><th class="rowtotal">Total</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Area 1</td><td>1</td><td class="zero">0</td><td class="zero">0</td><td class="zero">0</td><td class="zero">0</td><td class="rowtotal">1</td></tr>
+        <tr><td>Area 2</td><td class="zero">0</td><td class="zero">0</td><td class="zero">0</td><td class="zero">0</td><td>1</td><td class="rowtotal">1</td></tr>
+        <tr><td>Area 3</td><td>1</td><td>1</td><td class="zero">0</td><td>1</td><td>1</td><td class="rowtotal">4</td></tr>
+        <tr><td>Area 4</td><td class="zero">0</td><td class="zero">0</td><td class="zero">0</td><td class="zero">0</td><td class="zero">0</td><td class="rowtotal">0</td></tr>
+        <tr class="total"><td>All Areas</td><td>2</td><td>1</td><td>0</td><td>1</td><td>2</td><td class="rowtotal">6</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="foot">
+    <span>Prepared for the <b>City of Kwinana</b> by <b>D&amp;M Waste Management</b></span>
+    <span>Page 2 of 2</span>
+  </div>
+</div>
+
+</body>
+</html>
