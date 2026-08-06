@@ -10,8 +10,8 @@ A downloadable PDF per client per month, backing the monthly service invoice. Co
 
 - **Kwinana:** rows = collection areas ("Area 1"–"Area 4"), columns = services (Bulk Waste, Green Waste, E-Waste, Mattress, Whitegoods, Illegal Dumping).
 - **WMRC (Verge Valet):** rows = **sub-clients** (never individual areas), columns = services (Bulk Waste, Green Waste, Illegal Dumping, Mattress).
-- **Section 1 — Chargeable Collections** (top table): allocation/free units only. These quantities are the invoice basis.
-- **Section 2 — Verge Valet Extra (Resident-Paid)** (bottom table, same page): `is_extra` units by service/stream, same table shape. Not chargeable to the council; excluded from Section 1 totals.
+- **"Included Collections"** (top table): allocation/free units only. These quantities are the invoice basis.
+- **Extras** (bottom table, same page): `is_extra` units by service/stream, same table shape. Not chargeable to the council; excluded from the Included totals. Pill label is the tenant's extras product name: **"VERCO Extra"** (Kwinana) / **"Verge Valet Extra"** (WMRC) — derive from client branding, not hardcoded.
 - Counts only — no dollar amounts, no rates (invoice itself stays in Xero/DM-Ops).
 - No comparisons or trend content in v1 (invoicing document; comparisons would be a separate, later section).
 
@@ -56,7 +56,7 @@ Reference implementation: [`2026-08-06-monthly-client-report-template.html`](./2
 - **A4 landscape, one page, both sections stacked** — no page 2.
 - Navy brand band header: **D&M all-white logo** (embedded asset — vault `design-system/logo/dm-logo-all-white.svg`; no per-tenant logo fetching in v1), "Monthly Collections Statement", `client.service_name` subtitle, month + ref (`<SLUG>-<YYYY-MM>`) + issue date right-aligned.
 - **No** summary tiles, **no** section sub-headings, **no** basis-of-preparation disclaimer, **no** web address in the footer.
-- Section pill labels only: navy "Section 1 — Chargeable Collections", green "Section 2 — Verge Valet Extra (Resident-Paid)".
+- Section pill labels only: navy **"Included Collections"**, green extras pill named per tenant (**"VERCO Extra"** for Kwinana, **"Verge Valet Extra"** for WMRC).
 - Table: light header row, zebra rows, green-tinted Total column, navy "All Areas" total row (green-tinted grand total cell). Zeros rendered muted. `tabular-nums`.
 - Rows labelled plainly ("Area 1", sub-client name) — no codes. Total row = "All Areas" (WMRC: "All Sub-clients" — confirm label at plan time).
 - Fonts Poppins (headings) + DM Sans (body), registered TTFs in react-pdf.
