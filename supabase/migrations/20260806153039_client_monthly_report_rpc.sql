@@ -18,6 +18,22 @@
 --                   date corrections move the booking_item, never the stop).
 --   Grouping is derived: client has sub_client rows -> group by sub-client,
 --   else by collection area.
+--
+-- Counting rules the consumer relies on (decided at review):
+-- * booked units bill only when the WHOLE booking finished Completed — a
+--   mixed-outcome booking (one stream NCN) bills nothing for booked units;
+--   the redo (Rebooked -> new booking) bills when IT completes.
+-- * stop_mattress units bill on the STOP's Completed status: crew-logged
+--   mattresses on a mixed-outcome booking were physically collected.
+-- * A tenant must not have BOTH a bookable is_mattress service AND
+--   mattress_closeout_stream set; the booked branch excludes is_mattress
+--   items for stream tenants so a misconfig can never double-bill.
+-- * In sub-client mode, areas with NULL sub_client_id merge into one
+--   group_key=NULL bucket labelled 'Unassigned' (consumer must tolerate
+--   a NULL key).
+-- * Date seam: booked buckets by the item's (corrected) date; stop_mattress
+--   by the stop's as-dispatched date — a cross-month date correction splits
+--   a booking's units across two monthly reports by design.
 
 ALTER TABLE public.client
   ADD COLUMN IF NOT EXISTS legal_name text;
@@ -53,6 +69,7 @@ DECLARE
   v_from   date := date_trunc('month', p_month)::date;
   v_to     date := (date_trunc('month', p_month) + interval '1 month')::date;
   v_by_sub boolean;
+  v_has_mattress_stream boolean;
 BEGIN
   -- NULL-safe contractor-admin gate + tenant gate (§21: role gate alone is
   -- not enough; accessible_client_ids alone is not enough).
@@ -62,6 +79,9 @@ BEGIN
   END IF;
 
   v_by_sub := EXISTS (SELECT 1 FROM sub_client sc WHERE sc.client_id = p_client_id);
+  v_has_mattress_stream := EXISTS (
+    SELECT 1 FROM client c2
+     WHERE c2.id = p_client_id AND c2.mattress_closeout_stream IS NOT NULL);
 
   RETURN QUERY
   SELECT 'booked'::text,
@@ -78,6 +98,7 @@ BEGIN
    WHERE b.client_id = p_client_id
      AND b.deleted_at IS NULL
      AND b.status = 'Completed'::booking_status
+     AND NOT (s.is_mattress AND v_has_mattress_stream)
      AND cd.date >= v_from AND cd.date < v_to
    GROUP BY 2, 3, s.name, s.waste_stream, s.is_mattress, bi.is_extra
 
@@ -97,7 +118,7 @@ BEGIN
      AND c.mattress_closeout_stream IS NOT NULL
      AND cs.mattress_count IS NOT NULL
      AND b.deleted_at IS NULL
-     AND b.status = 'Completed'::booking_status
+     AND cs.status = 'Completed'::stop_status
      AND cd.date >= v_from AND cd.date < v_to
    GROUP BY 2, 3, c.mattress_closeout_stream;
 END;
@@ -106,5 +127,8 @@ $function$;
 -- Postgres grants EXECUTE to PUBLIC on creation (§21): staff-only DEFINER
 -- RPCs must revoke anon/PUBLIC. authenticated keeps EXECUTE; the in-function
 -- gate does the real filtering.
+-- Deliberately NOT granted to service_role: current_user_role() is NULL for
+-- service callers, so the gate would return an EMPTY set — a silent
+-- zero-count invoice. No service-role caller exists; fail loudly instead.
 REVOKE EXECUTE ON FUNCTION public.get_client_monthly_report(uuid, date) FROM PUBLIC, anon;
-GRANT  EXECUTE ON FUNCTION public.get_client_monthly_report(uuid, date) TO authenticated, service_role;
+GRANT  EXECUTE ON FUNCTION public.get_client_monthly_report(uuid, date) TO authenticated;
