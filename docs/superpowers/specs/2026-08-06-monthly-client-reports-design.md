@@ -6,12 +6,12 @@
 
 ## What
 
-A downloadable, client-branded PDF per client per month, backing the monthly service invoice. Contractor-admin only.
+A downloadable PDF per client per month, backing the monthly service invoice. Contractor-admin only. **Single A4 landscape page** carrying both sections; D&M-branded header with the client named in the subtitle and footer.
 
 - **Kwinana:** rows = collection areas ("Area 1"–"Area 4"), columns = services (Bulk Waste, Green Waste, E-Waste, Mattress, Whitegoods, Illegal Dumping).
 - **WMRC (Verge Valet):** rows = **sub-clients** (never individual areas), columns = services (Bulk Waste, Green Waste, Illegal Dumping, Mattress).
-- **Section 1 — Chargeable Collections** (page 1): allocation/free units only. These quantities are the invoice basis.
-- **Section 2 — Verge Valet Extra (Resident-Paid)** (page 2): `is_extra` units by service/stream, same table shape. Not chargeable to the council; excluded from Section 1 totals.
+- **Section 1 — Chargeable Collections** (top table): allocation/free units only. These quantities are the invoice basis.
+- **Section 2 — Verge Valet Extra (Resident-Paid)** (bottom table, same page): `is_extra` units by service/stream, same table shape. Not chargeable to the council; excluded from Section 1 totals.
 - Counts only — no dollar amounts, no rates (invoice itself stays in Xero/DM-Ops).
 - No comparisons or trend content in v1 (invoicing document; comparisons would be a separate, later section).
 
@@ -51,17 +51,17 @@ Rejected alternatives: headless Chromium (~300MB image + flaky on the Coolify VP
 
 ### Template (locked via /design-shotgun, 06/08/2026)
 
-Reference implementation: [`2026-08-06-monthly-client-report-template.html`](./2026-08-06-monthly-client-report-template.html) (approved "Variant B — Statement", real July 2026 KWN data). Key decisions from the shotgun session:
+Reference implementation: [`2026-08-06-monthly-client-report-template.html`](./2026-08-06-monthly-client-report-template.html) (approved "Variant B — Statement", revised 06/08 to single-page landscape with D&M logo; real July 2026 KWN data). Key decisions from the shotgun session:
 
-- Navy brand band header: client logo, "Monthly Collections Statement", `client.service_name` subtitle, month + ref (`<SLUG>-<YYYY-MM>`) + issue date right-aligned.
+- **A4 landscape, one page, both sections stacked** — no page 2.
+- Navy brand band header: **D&M all-white logo** (embedded asset — vault `design-system/logo/dm-logo-all-white.svg`; no per-tenant logo fetching in v1), "Monthly Collections Statement", `client.service_name` subtitle, month + ref (`<SLUG>-<YYYY-MM>`) + issue date right-aligned.
 - **No** summary tiles, **no** section sub-headings, **no** basis-of-preparation disclaimer, **no** web address in the footer.
 - Section pill labels only: navy "Section 1 — Chargeable Collections", green "Section 2 — Verge Valet Extra (Resident-Paid)".
 - Table: light header row, zebra rows, green-tinted Total column, navy "All Areas" total row (green-tinted grand total cell). Zeros rendered muted. `tabular-nums`.
 - Rows labelled plainly ("Area 1", sub-client name) — no codes. Total row = "All Areas" (WMRC: "All Sub-clients" — confirm label at plan time).
 - Fonts Poppins (headings) + DM Sans (body), registered TTFs in react-pdf.
 - Brand colours from `client.primary_colour` / `client.accent_colour` (KWN: `#0d295a` / `#69a24c`).
-- **Logo gotcha:** KWN's logo SVG is white-fill — logos must sit on the primary-colour band, never white. react-pdf renders SVG/PNG only from fetched bytes; plan must handle fetch + format.
-- Footer: "Prepared for the **{client}** by **D&M Waste Management**" + page numbers.
+- Footer: "Prepared for the **{client}** by **D&M Waste Management**" + "Page 1 of 1".
 
 ## Surface + gate
 
