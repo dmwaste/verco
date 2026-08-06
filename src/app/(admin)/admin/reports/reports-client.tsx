@@ -10,6 +10,7 @@ import {
 } from '@/lib/reports/periods'
 import { metricVisible } from '@/lib/reports/audience'
 import { countPoints, SERIES } from '@/lib/reports/monthly-series'
+import { ClientReportsCard } from './client-reports-card'
 import { PeriodSelector } from './period-selector'
 import { SlaCard } from './sla-card'
 import { CollectionsTrendCard, OpenNoticesCard, SlaDashboard } from './sla-dashboard'
@@ -141,6 +142,12 @@ export function ReportsClient({
       </div>
 
       <div className="px-7 py-6">
+        {/* Contractor-admin only (§21 — deliberately stricter than the
+            lib/reports/audience.ts contractor tier, which also includes
+            contractor-staff): an explicit role check, not the audience map.
+            Independent of the page's period/area scope — see
+            client-reports-card.tsx. */}
+        {viewerRole === 'contractor-admin' && <ClientReportsCard />}
         {period.unresolved && (
           <p className="mb-4 rounded-lg border border-blue-100 bg-blue-50 px-4 py-2 text-body-sm text-blue-800">
             {preset === 'custom'
