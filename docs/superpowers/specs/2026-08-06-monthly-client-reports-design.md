@@ -8,10 +8,11 @@
 
 A downloadable PDF per client per month, backing the monthly service invoice. Contractor-admin only. **Single A4 landscape page** carrying both sections; D&M-branded header with the client named in the subtitle and footer.
 
-- **Kwinana:** rows = collection areas ("Area 1"–"Area 4"), columns = services (Bulk Waste, Green Waste, E-Waste, Mattress, Whitegoods, Illegal Dumping).
-- **WMRC (Verge Valet):** rows = **sub-clients** (never individual areas), columns = services (Bulk Waste, Green Waste, Illegal Dumping, Mattress).
+- **Kwinana:** rows = collection areas ("Area 1"–"Area 4"), columns = services (Bulk Waste, Green Waste, E-Waste, Mattress, Whitegoods, Illegal Dumping). Row-header label "Collection Area", total row "All Areas".
+- **WMRC (Verge Valet):** rows = **sub-clients** (never individual areas), columns = services (Bulk Waste, Green Waste, Mattress, Illegal Dumping). Row-header label "Council", total row "All Councils" (decided 06/08 with the WMRC draft).
+- **Rows shown = groups with any activity in the month** (or all active groups if that's simpler — either way, not-yet-live sub-clients under the staged go-live must NOT appear as noise rows; July WMRC = 3 of 10 members).
 - **"Included Collections"** (top table): allocation/free units only. These quantities are the invoice basis.
-- **Extras** (bottom table, same page): `is_extra` units by service/stream, same table shape. Not chargeable to the council; excluded from the Included totals. Pill label is the tenant's extras product name: **"VERCO Extra"** (Kwinana) / **"Verge Valet Extra"** (WMRC) — derive from client branding, not hardcoded.
+- **Extras** (bottom table, same page): `is_extra` units by service/stream, same table shape. Not chargeable to the council; excluded from the Included totals. Pill label is the tenant's extras product name: **"VERCO Extra"** (Kwinana) / **"Verge Valet Extra"** (WMRC) — derive from client branding, not hardcoded. Columns = the tenant's bookable streams (VV: Bulk, Green, Mattress — no E-Waste/Whitegoods; a zero month still renders the full table).
 - Counts only — no dollar amounts, no rates (invoice itself stays in Xero/DM-Ops).
 - No comparisons or trend content in v1 (invoicing document; comparisons would be a separate, later section).
 
@@ -51,17 +52,22 @@ Rejected alternatives: headless Chromium (~300MB image + flaky on the Coolify VP
 
 ### Template (locked via /design-shotgun, 06/08/2026)
 
-Reference implementation: [`2026-08-06-monthly-client-report-template.html`](./2026-08-06-monthly-client-report-template.html) (approved "Variant B — Statement", revised 06/08 to single-page landscape with D&M logo; real July 2026 KWN data). Key decisions from the shotgun session:
+Reference implementations (both approved 06/08 with real July 2026 prod data):
+- [`2026-08-06-monthly-client-report-template.html`](./2026-08-06-monthly-client-report-template.html) — Kwinana (by-area)
+- [`2026-08-06-monthly-client-report-template-wmrc.html`](./2026-08-06-monthly-client-report-template-wmrc.html) — WMRC (by-sub-client, VV brand colours, mattress em-dash)
+
+Key decisions from the shotgun session:
 
 - **A4 landscape, one page, both sections stacked** — no page 2.
 - Navy brand band header: **D&M all-white logo** (embedded asset — vault `design-system/logo/dm-logo-all-white.svg`; no per-tenant logo fetching in v1), "Monthly Collections Statement", `client.service_name` subtitle, month + ref (`<SLUG>-<YYYY-MM>`) + issue date right-aligned.
 - **No** summary tiles, **no** section sub-headings, **no** basis-of-preparation disclaimer, **no** web address in the footer.
 - Section pill labels only: navy **"Included Collections"**, green extras pill named per tenant (**"VERCO Extra"** for Kwinana, **"Verge Valet Extra"** for WMRC).
 - Table: light header row, zebra rows, green-tinted Total column, navy "All Areas" total row (green-tinted grand total cell). Zeros rendered muted. `tabular-nums`.
-- Rows labelled plainly ("Area 1", sub-client name) — no codes. Total row = "All Areas" (WMRC: "All Sub-clients" — confirm label at plan time).
+- Rows labelled plainly ("Area 1", council name) — no codes. Total row = "All Areas" / "All Councils" per grouping.
 - Fonts Poppins (headings) + DM Sans (body), registered TTFs in react-pdf.
-- Brand colours from `client.primary_colour` / `client.accent_colour` (KWN: `#0d295a` / `#69a24c`).
-- Footer: "Prepared for the **{client}** by **D&M Waste Management**" + "Page 1 of 1".
+- Brand colours from `client.primary_colour` / `client.accent_colour` (KWN: `#0d295a`/`#69a24c`; VV: `#414042`/`#72b75c`).
+- Missing-data cells (e.g. VV mattress before 01/08/2026) render an em-dash, never a fake 0 — including in the total row.
+- Footer: "Prepared for the **{client legal name}** by **D&M Waste Management**" + "Page 1 of 1". **New nullable `client.legal_name` column** (falls back to `name`): VV's `name` is the brand "Verge Valet" but the invoice counterparty is "Western Metropolitan Regional Council". Backfill KWN → "City of Kwinana", VV → "Western Metropolitan Regional Council" in the same migration.
 
 ## Surface + gate
 
