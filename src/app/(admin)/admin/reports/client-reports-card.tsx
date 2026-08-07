@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { fetchAccessibleClientOptions, type ClientOption } from '@/lib/admin/accessible-clients'
-import { FieldLabel, Select } from '@/components/admin/form'
+import { FieldLabel, Input, Select } from '@/components/admin/form'
 
 /**
  * Last complete calendar month as YYYY-MM — a report for the running month
@@ -70,12 +70,11 @@ export function ClientReportsCard() {
           </div>
           <div>
             <FieldLabel htmlFor="client-report-month">Month</FieldLabel>
-            <input
+            <Input
               id="client-report-month"
               type="month"
               value={month}
               onChange={(e) => setMonth(e.target.value)}
-              className="w-full rounded-lg border-[1.5px] border-gray-100 bg-gray-50 px-3 py-2.5 text-body-sm text-gray-900 outline-none focus:border-[#293F52] focus:bg-white"
             />
           </div>
           <a
