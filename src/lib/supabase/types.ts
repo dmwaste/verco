@@ -996,6 +996,7 @@ export type Database = {
           is_active: boolean
           landing_headline: string | null
           landing_subheading: string | null
+          legal_name: string | null
           logo_dark_url: string | null
           logo_light_url: string | null
           mattress_closeout_stream:
@@ -1036,6 +1037,7 @@ export type Database = {
           is_active?: boolean
           landing_headline?: string | null
           landing_subheading?: string | null
+          legal_name?: string | null
           logo_dark_url?: string | null
           logo_light_url?: string | null
           mattress_closeout_stream?:
@@ -1076,6 +1078,7 @@ export type Database = {
           is_active?: boolean
           landing_headline?: string | null
           landing_subheading?: string | null
+          legal_name?: string | null
           logo_dark_url?: string | null
           logo_light_url?: string | null
           mattress_closeout_stream?:
@@ -2773,6 +2776,19 @@ export type Database = {
       }
       current_user_sub_client_id: { Args: never; Returns: string }
       generate_booking_ref: { Args: { p_area_code: string }; Returns: string }
+      get_client_monthly_report: {
+        Args: { p_client_id: string; p_month: string }
+        Returns: {
+          group_key: string
+          group_label: string
+          is_extra: boolean
+          is_mattress: boolean
+          service_name: string
+          source: string
+          units: number
+          waste_stream: Database["public"]["Enums"]["waste_stream"]
+        }[]
+      }
       get_collections_trend: {
         Args: {
           p_area_id?: string
