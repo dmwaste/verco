@@ -28,7 +28,7 @@ Free vs Extra split = `booking_item.is_extra`. Only free units appear in Section
 
 **Mattresses:**
 - KWN books Mattress as its own service → normal `booking_item` counting via `service.is_mattress` (never the display name — rename gotcha #228).
-- VV rolls regular mattresses into the bulk booking → the regular-mattress figure comes from summing `collection_stop.mattress_count` over stops of `client.mattress_closeout_stream` whose booking is Completed in the month. Crew-logged data exists **from 01/08/2026 only** — earlier months render an em-dash with a footnote, not a fake 0.
+- VV rolls regular mattresses into the bulk booking → the regular-mattress figure comes from summing `collection_stop.mattress_count` over stops of `client.mattress_closeout_stream` whose booking is Completed in the month. Crew-logged data exists **from 01/08/2026 only** — earlier months render an em-dash, not a fake 0.
 - Extra mattresses everywhere = `is_extra` items on an `is_mattress` service.
 
 ## Data — one RPC

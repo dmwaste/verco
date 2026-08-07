@@ -173,6 +173,20 @@ describe('buildClientMonthlyReport', () => {
     expect(r.included.groups.map((g) => g.label)).toEqual(['Area 1', 'Area 2'])
   })
 
+  it('groups a null group_key into a single Unassigned row without crashing', () => {
+    const rows: ReportRow[] = [
+      booked({ group_key: null as unknown as string, group_label: 'Unassigned', units: 3 }),
+      booked({ group_key: null as unknown as string, group_label: 'Unassigned', service_name: 'Green Waste', units: 2 }),
+    ]
+    const r = buildClientMonthlyReport({
+      rows, offered: KWN_OFFERED, grouping: 'sub_client', mattressCloseoutStream: null,
+    })
+    expect(r.included.groups).toHaveLength(1)
+    expect(r.included.groups[0]!.label).toBe('Unassigned')
+    expect(r.included.groups[0]!.total).toBe(5)
+    expect(r.included.totals.total).toBe(5)
+  })
+
   it('pins the ancillary-tier default for an unknown service not present in offered', () => {
     const rows: ReportRow[] = [
       booked({ service_name: 'Mystery Service', units: 1 }),

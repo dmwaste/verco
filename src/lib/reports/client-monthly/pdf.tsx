@@ -6,10 +6,7 @@ import type { ClientMonthlyReport, ReportGroupRow } from './report-model'
 const fontDir = path.join(process.cwd(), 'public', 'report-fonts')
 Font.register({
   family: 'Poppins',
-  fonts: [
-    { src: path.join(fontDir, 'Poppins-SemiBold.ttf'), fontWeight: 600 },
-    { src: path.join(fontDir, 'Poppins-Bold.ttf'), fontWeight: 700 },
-  ],
+  fonts: [{ src: path.join(fontDir, 'Poppins-SemiBold.ttf'), fontWeight: 600 }],
 })
 Font.register({
   family: 'DM Sans',

@@ -57,6 +57,8 @@ export async function GET(req: NextRequest) {
 
   if (clientRes.error || !clientRes.data) return new NextResponse('Not found', { status: 404 })
   if (rowsRes.error) return new NextResponse(rowsRes.error.message, { status: 500 })
+  if (subClientRes.error) return new NextResponse(subClientRes.error.message, { status: 500 })
+  if (rulesRes.error) return new NextResponse(rulesRes.error.message, { status: 500 })
   const client = clientRes.data
 
   const offeredByName = new Map<string, OfferedService>()
