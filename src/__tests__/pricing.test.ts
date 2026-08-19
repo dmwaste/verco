@@ -200,15 +200,18 @@ describe('computeLineItems', () => {
         empty(),
         empty(),
       )
-      // General: 2 free (5 - 0 = 5 remaining, min(2, 5, 5) = 2)
+      // Allocation runs most-expensive-first: Mattress ($60) then General ($50)
+      // then Green ($40) — the overage lands on the cheapest service.
+      // Mattress: 2 free (min(2, 5, 5) = 2)
+      expect(result.line_items[2]!.free_units).toBe(2)
+      expect(result.line_items[2]!.paid_units).toBe(0)
+      // General: 2 free (5 - 2 = 3 remaining, min(2, 3, 5) = 2)
       expect(result.line_items[0]!.free_units).toBe(2)
       expect(result.line_items[0]!.paid_units).toBe(0)
-      // Green: 2 free (5 - 2 = 3 remaining, min(2, 3, 5) = 2)
-      expect(result.line_items[1]!.free_units).toBe(2)
-      expect(result.line_items[1]!.paid_units).toBe(0)
-      // Mattress: 1 free (5 - 4 = 1 remaining, min(2, 1, 5) = 1)
-      expect(result.line_items[2]!.free_units).toBe(1)
-      expect(result.line_items[2]!.paid_units).toBe(1)
+      // Green: 1 free (5 - 4 = 1 remaining, min(2, 1, 5) = 1), 1 paid @ $40
+      expect(result.line_items[1]!.free_units).toBe(1)
+      expect(result.line_items[1]!.paid_units).toBe(1)
+      expect(result.total_cents).toBe(4000)
     })
 
     it('two different categories — independent budgets', () => {
@@ -272,6 +275,188 @@ describe('computeLineItems', () => {
       // Mattress: 2 free (independent category, min(2, 5, 5) = 2)
       expect(result.line_items[2]!.free_units).toBe(2)
       expect(result.line_items[2]!.paid_units).toBe(0)
+    })
+  })
+
+  // ── Cheapest-service overage allocation ────────────────
+
+  describe('cheapest-service overage allocation', () => {
+    // KWN-shaped scenario: shared ancillary budget of 3, mattress dearer than
+    // whitegoods. 2 + 2 requested → exactly one unit is paid, and it must be
+    // a whitegood regardless of which service comes first in the cart.
+    const ancRules = rules([
+      [SVC_MATTRESS, { max_collections: 5, extra_unit_price: 60 }],
+      [SVC_EWASTE, { max_collections: 5, extra_unit_price: 50 }],
+      ['svc-whitegoods', { max_collections: 5, extra_unit_price: 30 }],
+    ])
+    const ancCats = svcCat([
+      [SVC_MATTRESS, CAT_ANC],
+      [SVC_EWASTE, CAT_ANC],
+      ['svc-whitegoods', CAT_ANC],
+    ])
+
+    it('overage lands on the cheapest service when it is listed last', () => {
+      const result = computeLineItems(
+        [
+          { service_id: SVC_MATTRESS, quantity: 2 },
+          { service_id: 'svc-whitegoods', quantity: 2 },
+        ],
+        ancRules,
+        catMax([[CAT_ANC, 3]]),
+        ancCats,
+        empty(),
+        empty(),
+      )
+      expect(result.line_items[0]!.free_units).toBe(2)
+      expect(result.line_items[0]!.paid_units).toBe(0)
+      expect(result.line_items[1]!.free_units).toBe(1)
+      expect(result.line_items[1]!.paid_units).toBe(1)
+      expect(result.total_cents).toBe(3000)
+    })
+
+    it('overage lands on the cheapest service when it is listed first', () => {
+      const result = computeLineItems(
+        [
+          { service_id: 'svc-whitegoods', quantity: 2 },
+          { service_id: SVC_MATTRESS, quantity: 2 },
+        ],
+        ancRules,
+        catMax([[CAT_ANC, 3]]),
+        ancCats,
+        empty(),
+        empty(),
+      )
+      // Mattress still soaks the budget first despite being second in the cart
+      expect(result.line_items[0]!.free_units).toBe(1)
+      expect(result.line_items[0]!.paid_units).toBe(1)
+      expect(result.line_items[1]!.free_units).toBe(2)
+      expect(result.line_items[1]!.paid_units).toBe(0)
+      expect(result.total_cents).toBe(3000)
+    })
+
+    it('line_items keep the input order even though allocation is reordered', () => {
+      const items = [
+        { service_id: 'svc-whitegoods', quantity: 1 },
+        { service_id: SVC_MATTRESS, quantity: 1 },
+        { service_id: SVC_EWASTE, quantity: 1 },
+      ]
+      const result = computeLineItems(
+        items,
+        ancRules,
+        catMax([[CAT_ANC, 2]]),
+        ancCats,
+        empty(),
+        empty(),
+      )
+      expect(result.line_items.map((l) => l.service_id)).toEqual(
+        items.map((i) => i.service_id),
+      )
+      // Budget of 2 frees mattress ($60) and e-waste ($50); whitegoods paid
+      expect(result.line_items[0]!.paid_units).toBe(1)
+      expect(result.line_items[1]!.paid_units).toBe(0)
+      expect(result.line_items[2]!.paid_units).toBe(0)
+      expect(result.total_cents).toBe(3000)
+    })
+
+    it('service cap on the dearest service lets budget flow to the next dearest', () => {
+      const result = computeLineItems(
+        [
+          { service_id: SVC_MATTRESS, quantity: 1 },
+          { service_id: SVC_EWASTE, quantity: 1 },
+          { service_id: 'svc-whitegoods', quantity: 1 },
+        ],
+        rules([
+          [SVC_MATTRESS, { max_collections: 0, extra_unit_price: 60 }], // svc cap forces paid
+          [SVC_EWASTE, { max_collections: 5, extra_unit_price: 50 }],
+          ['svc-whitegoods', { max_collections: 5, extra_unit_price: 30 }],
+        ]),
+        catMax([[CAT_ANC, 2]]),
+        ancCats,
+        empty(),
+        empty(),
+      )
+      // Mattress can't take free units (own cap), so it doesn't waste category
+      // budget — e-waste and whitegoods both price free.
+      expect(result.line_items[0]!.paid_units).toBe(1)
+      expect(result.line_items[1]!.free_units).toBe(1)
+      expect(result.line_items[2]!.free_units).toBe(1)
+      expect(result.total_cents).toBe(6000)
+    })
+
+    it('equal prices fall back to input order', () => {
+      const result = computeLineItems(
+        [
+          { service_id: SVC_MATTRESS, quantity: 2 },
+          { service_id: SVC_EWASTE, quantity: 2 },
+        ],
+        rules([
+          [SVC_MATTRESS, { max_collections: 5, extra_unit_price: 50 }],
+          [SVC_EWASTE, { max_collections: 5, extra_unit_price: 50 }],
+        ]),
+        catMax([[CAT_ANC, 3]]),
+        ancCats,
+        empty(),
+        empty(),
+      )
+      expect(result.line_items[0]!.free_units).toBe(2)
+      expect(result.line_items[1]!.free_units).toBe(1)
+      expect(result.line_items[1]!.paid_units).toBe(1)
+    })
+
+    it('allocation in one category does not disturb another', () => {
+      const result = computeLineItems(
+        [
+          { service_id: SVC_GENERAL, quantity: 2 },
+          { service_id: 'svc-whitegoods', quantity: 2 },
+          { service_id: SVC_MATTRESS, quantity: 2 },
+        ],
+        rules([
+          [SVC_GENERAL, { max_collections: 5, extra_unit_price: 100 }],
+          [SVC_MATTRESS, { max_collections: 5, extra_unit_price: 60 }],
+          ['svc-whitegoods', { max_collections: 5, extra_unit_price: 30 }],
+        ]),
+        catMax([
+          [CAT_BULK, 1],
+          [CAT_ANC, 3],
+        ]),
+        svcCat([
+          [SVC_GENERAL, CAT_BULK],
+          [SVC_MATTRESS, CAT_ANC],
+          ['svc-whitegoods', CAT_ANC],
+        ]),
+        empty(),
+        empty(),
+      )
+      // Bulk: General 1 free 1 paid — its $100 price never borrows anc budget
+      expect(result.line_items[0]!.free_units).toBe(1)
+      expect(result.line_items[0]!.paid_units).toBe(1)
+      // Anc: mattress frees both, whitegoods pays the overage
+      expect(result.line_items[2]!.paid_units).toBe(0)
+      expect(result.line_items[1]!.free_units).toBe(1)
+      expect(result.line_items[1]!.paid_units).toBe(1)
+      expect(result.total_cents).toBe(10000 + 3000)
+    })
+
+    it('works alongside allocation overrides', () => {
+      const overrides: AllocationOverride[] = [
+        { service_id: 'svc-whitegoods', extra_allocations: 1, reason: 'Top-up' },
+      ]
+      const result = computeLineItems(
+        [
+          { service_id: 'svc-whitegoods', quantity: 2 },
+          { service_id: SVC_MATTRESS, quantity: 2 },
+        ],
+        ancRules,
+        catMax([[CAT_ANC, 3]]),
+        ancCats,
+        empty(),
+        empty(),
+        overrides,
+      )
+      // Category budget 3 + 1 override = 4 → everything free
+      expect(result.line_items[0]!.paid_units).toBe(0)
+      expect(result.line_items[1]!.paid_units).toBe(0)
+      expect(result.total_cents).toBe(0)
     })
   })
 
