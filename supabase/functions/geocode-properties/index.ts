@@ -2,6 +2,7 @@ import { serve } from 'https://deno.land/std@0.177.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.100.0'
 import type { Database } from '../_shared/database.types.ts'
 import { jsonResponse, optionsResponse, errorResponse } from '../_shared/cors.ts'
+import { streetNumbersDisagree } from '../_shared/geocode-verify.ts'
 
 type RequestBody = {
   // Cap the number of rows processed in one invocation. Default: all matching.
@@ -26,6 +27,7 @@ type GeocodeOutcome =
       latitude: number
       longitude: number
       googleFormattedAddress: string
+      snapped: boolean
       autocompletePlaceId: string | null
       autocompleteDescription: string | null
       autocompleteStatus: string
@@ -142,6 +144,10 @@ serve(async (req) => {
   let processed = 0
   let failed = 0
   const errors: Array<{ id: string; error: string }> = []
+  // Rows whose geocode came back with a DIFFERENT street number (parent-parcel
+  // snap): coordinates were written but identity columns were left untouched,
+  // so they remain in the null-place_id queue for a future run.
+  const snappedRows: Array<{ id: string; address: string; google: string }> = []
   const parity: Array<{
     id: string
     address: string
@@ -187,6 +193,17 @@ serve(async (req) => {
             result.formatted_address as string
           )
 
+          // Google snaps addresses it doesn't know (freshly subdivided lots,
+          // unlisted units) to the nearest parcel it does know — returning the
+          // PARENT's formatted_address and place_id for a "16A" input. Adopting
+          // that overwrites the child row's identity: every surface displays
+          // `formatted_address ?? address`, and siblings end up sharing the
+          // parent's place_id (16 Bolsover St, Wellard incident). On
+          // street-number disagreement, store the coordinates only — the row
+          // keeps its own address for display/matching, stays in this EF's
+          // null-place_id queue, and self-heals once Google learns the lot.
+          const snapped = streetNumbersDisagree(address, googleFormattedAddress)
+
           let autocompletePlaceId: string | null = null
           let autocompleteDescription: string | null = null
           let autocompleteStatus = 'SKIPPED'
@@ -212,13 +229,21 @@ serve(async (req) => {
             // when both sides are in the same canonical format.
             const { error: updateError } = await supabase
               .from('eligible_properties')
-              .update({
-                latitude: location.lat,
-                longitude: location.lng,
-                google_place_id: placeId,
-                formatted_address: googleFormattedAddress,
-                has_geocode: true,
-              })
+              .update(
+                snapped
+                  ? {
+                      latitude: location.lat,
+                      longitude: location.lng,
+                      has_geocode: true,
+                    }
+                  : {
+                      latitude: location.lat,
+                      longitude: location.lng,
+                      google_place_id: placeId,
+                      formatted_address: googleFormattedAddress,
+                      has_geocode: true,
+                    }
+              )
               .eq('id', prop.id)
             if (updateError) {
               return { id: prop.id, success: false, error: updateError.message }
@@ -232,6 +257,7 @@ serve(async (req) => {
             latitude: location.lat,
             longitude: location.lng,
             googleFormattedAddress,
+            snapped,
             autocompletePlaceId,
             autocompleteDescription,
             autocompleteStatus,
@@ -251,6 +277,13 @@ serve(async (req) => {
       const prop = batch[j]!
       if (r.success) {
         processed++
+        if (r.snapped) {
+          snappedRows.push({
+            id: r.id,
+            address: prop.formatted_address ?? prop.address,
+            google: r.googleFormattedAddress,
+          })
+        }
         if (compareAutocomplete) {
           parity.push({
             id: r.id,
@@ -285,6 +318,10 @@ serve(async (req) => {
     dry_run: dryRun,
   }
   if (errors.length > 0) response.errors = errors.slice(0, 20)
+  if (snappedRows.length > 0) {
+    response.snapped = snappedRows.length
+    response.snapped_samples = snappedRows.slice(0, 20)
+  }
   if (compareAutocomplete) {
     const matches = parity.filter((p) => p.match).length
     const bySource: Record<string, { total: number; matches: number }> = {}
