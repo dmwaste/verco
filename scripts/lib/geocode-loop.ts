@@ -13,6 +13,10 @@ export type GeocodeEfResponse = {
   failed: number
   dry_run: boolean
   errors?: Array<{ id: string; error: string }>
+  // Rows geocoded to a DIFFERENT street number (parent-parcel snap): the EF
+  // wrote coordinates only and left google_place_id NULL, so they remain in
+  // the queue for a future run. Absent on older EF builds.
+  snapped?: number
 }
 
 export type ParsedChunk =
@@ -63,6 +67,7 @@ export function parseEfResponse(raw: unknown): ParsedChunk {
       errors: Array.isArray(r.errors)
         ? (r.errors as Array<{ id: string; error: string }>)
         : undefined,
+      snapped: typeof r.snapped === 'number' ? r.snapped : undefined,
     },
   }
 }
@@ -98,7 +103,7 @@ export function formatEta(remainingRows: number, rowsPerSecond: number): string 
  */
 export type LoopDecision =
   | { kind: 'continue'; processed: number; failed: number; total: number }
-  | { kind: 'done'; reason: 'no-rows' }
+  | { kind: 'done'; reason: 'no-rows' | 'all-snapped' }
   | { kind: 'abort'; reason: string }
 
 export function decideNext(
@@ -117,6 +122,12 @@ export function decideNext(
   }
   if (parsed.data.total === 0) {
     return { kind: 'done', reason: 'no-rows' }
+  }
+  // Snapped rows stay in the EF's null-place_id queue by design (self-heal
+  // once Google ingests the lot). A 100%-snapped chunk means the next chunk
+  // re-fetches the exact same queue head — stop instead of looping forever.
+  if (parsed.data.snapped !== undefined && parsed.data.snapped >= parsed.data.total) {
+    return { kind: 'done', reason: 'all-snapped' }
   }
   return {
     kind: 'continue',

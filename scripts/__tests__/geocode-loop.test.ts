@@ -155,4 +155,19 @@ describe('decideNext', () => {
     expect(d.kind).toBe('abort')
     if (d.kind === 'abort') expect(d.reason).toMatch(/3 consecutive failures/)
   })
+
+  // Snapped rows (street-number mismatch, e.g. a subdivided lot Google hasn't
+  // ingested) keep google_place_id NULL by design, so they stay at the head of
+  // the EF's queue. A chunk that is 100% snapped means the next chunk would
+  // re-fetch the exact same rows — loop forever, re-billing Google each pass.
+  it("returns 'done' when every row in the chunk was snapped", () => {
+    const parsed = parseEfResponse({ total: 2, processed: 2, failed: 0, snapped: 2 })
+    expect(decideNext(parsed, 0, 3)).toEqual({ kind: 'done', reason: 'all-snapped' })
+  })
+
+  it("returns 'continue' on a mixed snapped/geocoded chunk (still progressing)", () => {
+    const parsed = parseEfResponse({ total: 10, processed: 10, failed: 0, snapped: 3 })
+    const d = decideNext(parsed, 0, 3)
+    expect(d.kind).toBe('continue')
+  })
 })
