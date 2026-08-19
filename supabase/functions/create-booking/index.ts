@@ -3,6 +3,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.100.0'
 import { z } from 'https://esm.sh/zod@3.23.8'
 import { calculatePrice, type ActiveConversion } from '../_shared/pricing.ts'
 import { isAreaBookableServer } from '../_shared/area-gate-server.ts'
+import { isPropertyEligibleServer } from '../_shared/property-gate-server.ts'
 import { type TermsAcceptanceChannel } from '../_shared/terms.ts'
 import { classifyCreator, CREATOR_STAFF_ROLES } from '../_shared/classify-creator.ts'
 import { evaluateEditGuard, mayKeepClosedHeldDate } from '../_shared/edit-guard.ts'
@@ -184,7 +185,7 @@ serve(withSentry('create-booking', async (req) => {
 
     const { data: property, error: propError } = await supabaseAnon
       .from('eligible_properties')
-      .select('id, collection_area_id, is_mud, unit_count')
+      .select('id, collection_area_id, is_mud, unit_count, is_eligible')
       .eq('id', property_id)
       .single()
 
@@ -194,6 +195,17 @@ serve(withSentry('create-booking', async (req) => {
 
     if (property.collection_area_id !== collection_area_id) {
       return jsonResponse({ error: 'Property does not belong to this collection area' }, 400)
+    }
+
+    // Eligibility gate: admin-retired parcels (e.g. a pre-subdivision parent
+    // lot) still resolve in the lookup but must not book. Early, friendly
+    // rejection here; the durable enforcement is the capacity RPC + the
+    // booking_resident_insert RLS policy (both fail closed).
+    if (!isPropertyEligibleServer(property)) {
+      return jsonResponse(
+        { error: 'This property is not eligible for collection bookings' },
+        403
+      )
     }
 
     // ── 4. Look up current financial year ────────────────────────────────────
