@@ -122,6 +122,7 @@ sync_one "$SHARED/quantity-edit-decision.ts" "src/lib/booking/quantity-edit-deci
 sync_one "$SHARED/edit-error-mapping.ts" "src/lib/booking/edit-error-mapping.ts" || drift=1
 sync_one "$SHARED/refund-auto-approve.ts" "src/lib/payments/refund-auto-approve.ts" || drift=1
 sync_one "$SHARED/phone.ts" "src/lib/phone.ts" || drift=1
+sync_one "$SHARED/geocode-verify.ts" "src/lib/booking/geocode-verify.ts" || drift=1
 
 if [ "$mode" = "check" ]; then
   if [ "$drift" -eq 1 ]; then
