@@ -201,7 +201,13 @@ serve(withSentry('create-booking', async (req) => {
     // lot) still resolve in the lookup but must not book. Early, friendly
     // rejection here; the durable enforcement is the capacity RPC + the
     // booking_resident_insert RLS policy (both fail closed).
-    if (!isPropertyEligibleServer(property)) {
+    //
+    // NEW bookings only: an edit (`replaces`) targets a booking made while the
+    // property was still eligible, cannot move the booking to another property
+    // (update_booking_items_in_place edits items on the existing row), and must
+    // stay processable after the parcel is retired — most critically the staff
+    // inline quantity reduction that owes the resident a refund.
+    if (!replaces && !isPropertyEligibleServer(property)) {
       return jsonResponse(
         { error: 'This property is not eligible for collection bookings' },
         403
@@ -860,6 +866,16 @@ serve(withSentry('create-booking', async (req) => {
 
       if (rpcError.message?.includes('Insufficient')) {
         return jsonResponse({ error: rpcError.message }, 409)
+      }
+
+      // The RPC's own eligibility gate (defence-in-depth behind the early check
+      // above — reachable if the flag flips mid-request or via a future direct
+      // caller). Policy rejection, not a server fault: map to 403, not 500.
+      if (rpcError.message?.includes('not eligible for collection bookings')) {
+        return jsonResponse(
+          { error: 'This property is not eligible for collection bookings' },
+          403
+        )
       }
 
       return jsonResponse({ error: `Failed to create booking: ${rpcError.message}` }, 500)
