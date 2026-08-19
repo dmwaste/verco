@@ -246,7 +246,22 @@ export async function calculatePrice(
     serviceMaxBonus.set(activeConversion.to_service_id, activeConversion.to_units)
   }
 
-  const lineItems: PricedLineItem[] = items.map((item) => {
+  // Free units are handed out most-expensive-service-first (stable on input
+  // order for price ties) so any overage always lands on the cheapest
+  // service(s) — never on whichever line happened to be listed last. Line
+  // items are still emitted in input order. Categories have independent
+  // budgets, so a single global sort is safe for mixed-category carts.
+  const results: PricedLineItem[] = new Array(items.length)
+  const allocationOrder = items
+    .map((item, idx) => ({ item, idx }))
+    .sort(
+      (a, b) =>
+        (rulesMap.get(b.item.service_id)?.extra_unit_price ?? 0) -
+          (rulesMap.get(a.item.service_id)?.extra_unit_price ?? 0) ||
+        a.idx - b.idx,
+    )
+
+  for (const { item, idx } of allocationOrder) {
     const rule = rulesMap.get(item.service_id)
     const catCode = serviceCategoryMap.get(item.service_id) ?? ''
 
@@ -271,7 +286,7 @@ export async function calculatePrice(
     const unitPriceCents = Math.round((rule?.extra_unit_price ?? 0) * 100)
     const lineChargeCents = paidUnits * unitPriceCents
 
-    return {
+    results[idx] = {
       service_id: item.service_id,
       quantity: item.quantity,
       free_units: freeUnits,
@@ -281,8 +296,9 @@ export async function calculatePrice(
       is_extra: paidUnits > 0,
       category_code: catCode,
     }
-  })
+  }
 
+  const lineItems = results
   const totalCents = lineItems.reduce((sum, l) => sum + l.line_charge_cents, 0)
 
   const overrideApplied = serviceExtraMap.size > 0
