@@ -1,7 +1,7 @@
 /**
  * Service-role bearer recognition for dual-auth Edge Functions (#480).
  *
- * The old gate was `bearer === Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')`.
+ * The old gate was an exact string compare against the env-injected service key.
  * That exact-string match breaks the moment the project has more than one
  * valid secret in play — the legacy service JWT and a new-format
  * `sb_secret_…` key are BOTH accepted by the Supabase gateway, but only one of
