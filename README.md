@@ -27,12 +27,12 @@ git clone <repo-url> && cd verco
 pnpm install
 ```
 
-Copy `.env.local.example` to `.env.local` and fill in:
+Copy `.env.example` to `.env.local` and fill in (Stripe is handled entirely by Edge Functions — no publishable key in the app):
 
 ```
 NEXT_PUBLIC_SUPABASE_URL=
 NEXT_PUBLIC_SUPABASE_ANON_KEY=
-NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=
+NEXT_PUBLIC_SENTRY_DSN=          # optional — Sentry is inert when unset
 ```
 
 Start the dev server:

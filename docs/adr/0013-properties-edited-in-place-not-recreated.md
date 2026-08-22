@@ -5,7 +5,7 @@
 
 ## Decision
 
-Admins edit an eligible property's address in place; the system re-geocodes it automatically. Moving a property to a different collection area is a D&M-only action and is refused while the property has any booking that hasn't finished (pending payment, confirmed or scheduled).
+Admins edit an eligible property's address in place; the system re-geocodes it automatically. Moving a property to a different collection area is a D&M-only action and is refused while the property has any booking that hasn't finished (pending payment, submitted, confirmed or scheduled).
 
 ## Why
 

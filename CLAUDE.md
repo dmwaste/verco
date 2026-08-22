@@ -229,7 +229,7 @@ All Edge Functions live in `supabase/functions/`. Each function is a single `ind
 
 ### Rules
 - **Public route functions** (e.g. `calculate-price`, `google-places-proxy`) must accept anon key only — do not require `auth.getUser()` to succeed
-- **Service role** only for: `nightly-sync-to-dm-ops`, `stripe-webhook`, `audit_log` writes, batch admin ops — document why with a comment
+- **Service role** only inside EFs that must bypass RLS — crons (`nightly-sync-to-dm-ops`, OptimoRoute push/pull/sync, reminders, expiry), `stripe-webhook`, `create-checkout`/`handle-expired-payments` (payment reconcile), `geocode-properties`, `audit_log` writes — document why with a comment; every such EF gates its CALLER (cron secret, service-role bearer, or a role-checked + tenant-pinned user JWT) before touching the service client
 - **Error handling** — catch blocks must return `err.message`, not generic strings. Include `rpcError.message` on RPC failures
 - **Calling from Next.js** — use direct `fetch()` with explicit URL/headers, not `supabase.functions.invoke()` (unreliable in SSR)
 - **Cron EFs** — return HTTP 500 when any per-row work fails (pg_cron only sees HTTP status; a 200 hides partial failures). Wrap `cron.schedule` migrations in `DO $$ IF EXISTS cron.unschedule $$ END` so they can be re-applied. Entry point is ALWAYS `serve(cronHandler('<name>', handler))` (`_shared/cron-handler.ts`): Sentry (incl. 5xx responses, #518) + the `X-Cron-Secret` gate (#517 — Vault `cron_ef_secret` ≡ EF secret `CRON_SECRET`, never in git; pg_cron reads Vault at run time, the migration `20260822090000` injects the header). A bare `serve(async …)` cron EF is callable by anyone and invisible when it fails
@@ -279,7 +279,7 @@ These are explicitly out of scope for v2. If a task seems to require one of thes
 ## 16. Environment Variables
 
 See `docs/VERCO_V2_TECH_SPEC.md` §16 for full list. Key rules:
-- **`NEXT_PUBLIC_*`** — safe for browser (`SUPABASE_URL`, `SUPABASE_ANON_KEY`, `STRIPE_PUBLISHABLE_KEY`)
+- **`NEXT_PUBLIC_*`** — safe for browser (`SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SENTRY_DSN`); Stripe runs entirely in EFs — no publishable key in the app. Baked at image build via `deploy.yml` build-args (`.env.example` lists them)
 - **`SUPABASE_SERVICE_ROLE_KEY`** — Edge Functions only. **If you need it in `app/` — stop. You are doing something wrong.**
 - **Edge Function secrets** — set in Supabase dashboard, never in `.env`
 
