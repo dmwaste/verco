@@ -167,6 +167,14 @@ export default async function AdminPropertyDetailPage({
   const { data: role } = await supabase.rpc('current_user_role')
   const canManage = canManageAllocations(role)
 
+  // Areas of the current client, for the contractor-only "move area" select
+  // (#502). collection_area is public-SELECT → tenant-scope explicitly.
+  const { data: areas } = await supabase
+    .from('collection_area')
+    .select('id, name, code')
+    .eq('client_id', clientId)
+    .order('code')
+
   return (
     <PropertyDetailClient
       property={property}
@@ -182,6 +190,8 @@ export default async function AdminPropertyDetailPage({
       authFormSignedUrl={authFormSignedUrl}
       auditLogs={auditLogs}
       canManageAllocations={canManage}
+      areas={areas ?? []}
+      role={role ?? null}
     />
   )
 }
