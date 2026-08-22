@@ -115,21 +115,28 @@ serve(withSentry('create-checkout', async (req) => {
         apiVersion: '2024-12-18.acacia',
       })
 
+      let session: Stripe.Checkout.Session | null = null
       try {
-        const session = await stripe.checkout.sessions.retrieve(existingPayment.stripe_session_id)
-        if (session.status === 'open' && session.url) {
-          return jsonResponse({ checkout_url: session.url })
-        }
-        // Paid during a webhook gap: the session completed but the booking is
-        // still Pending Payment. Reconcile (same sequence as the webhook) and
-        // STOP — minting a fresh session here would invite a double charge
-        // and shelve the paid row as 'expired' (VER-252).
-        if (session.payment_status === 'paid') {
-          await reconcileCheckoutSession(supabaseService, stripe, session)
-          return jsonResponse({ already_paid: true, booking_ref: booking.ref })
-        }
+        session = await stripe.checkout.sessions.retrieve(existingPayment.stripe_session_id)
       } catch {
-        // Session expired or invalid — fall through to create new one
+        // Session expired or invalid at Stripe — fall through to create new one
+      }
+      if (session?.status === 'open' && session.url) {
+        return jsonResponse({ checkout_url: session.url })
+      }
+      // Paid during a webhook gap: the session completed but the booking is
+      // still Pending Payment. Reconcile (same sequence as the webhook) and
+      // STOP — minting a fresh session here would invite a double charge
+      // and shelve the paid row as 'expired' (VER-252).
+      //
+      // Reconcile runs OUTSIDE the retrieve try/catch: a reconcile failure must
+      // surface as a 500, never fall through to "mark expired + new session".
+      // That fall-through is exactly what re-sent paid residents back to
+      // checkout during the receipt_url outage (#496) — money already taken,
+      // paid row shelved, fresh session minted.
+      if (session?.payment_status === 'paid') {
+        await reconcileCheckoutSession(supabaseService, stripe, session)
+        return jsonResponse({ already_paid: true, booking_ref: booking.ref })
       }
 
       // Mark old session as expired
