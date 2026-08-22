@@ -18,6 +18,7 @@ import { canEditCollectionDetails } from '@/lib/booking/collection-details-edit'
 import { isContractorStaff } from '@/lib/auth/roles'
 import { confirmBooking, cancelBooking, updateContact, updateCollectionDetails, updateNotes, updateBookingQuantities } from './actions'
 import { effectiveCapacity, indexPoolDates } from '@/lib/capacity/effective-capacity'
+import { capacityBlocksMove, unitsByCategory } from '@/lib/booking/collection-details-edit'
 import { cn } from '@/lib/utils'
 import type { Database } from '@/lib/supabase/types'
 import type { ResolvedAuditEntry } from '@/lib/audit/resolve'
@@ -46,7 +47,7 @@ interface BookingItem {
   actual_services: number | null
   is_extra: boolean
   unit_price_cents: number
-  service: { name: string }
+  service: { name: string; category?: { code: string } | null }
   collection_date: { date: string }
 }
 
@@ -191,6 +192,11 @@ export function BookingDetailClient({
   // server action re-validates this — the relaxed filter is a convenience, not
   // the security boundary.
   const isContractor = isContractorStaff(userRole)
+  // Units per capacity bucket, for the client-tier date-move capacity gate (#426).
+  const bookingUnits = unitsByCategory(
+    booking.booking_item.map((bi) => ({ no_services: bi.no_services, category_code: bi.service.category?.code ?? null })),
+  )
+  const currentDateId = booking.booking_item[0]?.collection_date_id ?? null
 
   // Inline quantity editing (issue #380) is offered only for Confirmed,
   // non-MUD, non-ID bookings. Pending Payment (unpaid / open Stripe session) and
@@ -731,15 +737,26 @@ export function BookingDetailClient({
                 {(availableDates ?? []).map((d) => {
                   const cap = effectiveCapacity(d, poolId, poolByDate)
                   const spots = Math.max(0, cap.bulk_capacity_limit - cap.bulk_units_booked)
+                  // Capacity gate for client-tier (#426): a date without room for
+                  // this booking's units is shown but not selectable; contractor
+                  // keeps the override. Mirrors updateCollectionDetails.
+                  const full =
+                    d.id !== currentDateId &&
+                    capacityBlocksMove(userRole, bookingUnits, {
+                      bulk: cap.bulk_capacity_limit - cap.bulk_units_booked,
+                      anc: cap.anc_capacity_limit - cap.anc_units_booked,
+                      id: cap.id_capacity_limit - cap.id_units_booked,
+                    })
                   // Flag the dates only contractor staff see, so a crew-error
                   // correction into a closed/past date is deliberate (#378).
                   const flags = [
                     d.is_open === false ? 'closed' : null,
                     d.date < today ? 'past' : null,
+                    full ? 'full' : null,
                   ].filter(Boolean)
                   const suffix = flags.length ? ` · ${flags.join(', ')}` : ''
                   return (
-                    <option key={d.id} value={d.id}>
+                    <option key={d.id} value={d.id} disabled={full}>
                       {format(new Date(d.date + 'T00:00:00'), 'EEE d MMM yyyy')} ({spots} spots){suffix}
                     </option>
                   )
