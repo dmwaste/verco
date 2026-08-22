@@ -8,8 +8,7 @@ import { invokeSendNotification } from '@/lib/notifications/invoke'
 import { isPastCancellationCutoff } from '@/lib/booking/cancellation-cutoff'
 import {
   canEditCollectionDetails,
-  canRescheduleToTargetDate,
-} from '@/lib/booking/collection-details-edit'
+  canRescheduleToTargetDate, capacityBlocksMove, unitsByCategory } from '@/lib/booking/collection-details-edit'
 import { STAFF_ROLES } from '@/lib/auth/roles'
 import { orchestrateRefund, type RefundOrchestrationState } from '@/lib/payments/orchestrate-refund'
 import { REFUND_REASONS } from '@/lib/refunds/auto-raised'
@@ -281,7 +280,7 @@ export async function updateCollectionDetails(
   // without changing anything.
   const { data: current } = await supabase
     .from('booking')
-    .select('status, location, collection_area_id, booking_item(id, collection_date_id)')
+    .select('status, location, collection_area_id, collection_area!inner(capacity_pool_id), booking_item(id, collection_date_id, no_services, service!inner(category!inner(code)))')
     .eq('id', bookingId)
     .single()
 
@@ -359,6 +358,45 @@ export async function updateCollectionDetails(
       return {
         ok: false,
         error: 'Only D&M staff can reschedule a booking into a closed or past collection date.',
+      }
+    }
+
+    // Capacity dimension (#426, 22/08): client-tier may only move onto a date
+    // with room for the booking's units; contractor keeps the override. Pool-
+    // aware — a pooled area's counters live on collection_date_pool (the
+    // collection_date row stays at 0, which would read as "full").
+    const units = unitsByCategory(
+      (current.booking_item ?? []).map((bi) => ({
+        no_services: bi.no_services,
+        category_code: (bi.service as unknown as { category: { code: string } | null } | null)?.category?.code ?? null,
+      })),
+    )
+    const poolId = (current.collection_area as unknown as { capacity_pool_id: string | null } | null)?.capacity_pool_id ?? null
+    let remaining: { bulk: number; anc: number; id: number } | null = null
+    if (poolId) {
+      const { data: pool } = await supabase
+        .from('collection_date_pool')
+        .select('bulk_capacity_limit, bulk_units_booked, anc_capacity_limit, anc_units_booked, id_capacity_limit, id_units_booked')
+        .eq('capacity_pool_id', poolId)
+        .eq('date', targetDate.date)
+        .maybeSingle()
+      remaining = pool
+        ? { bulk: pool.bulk_capacity_limit - pool.bulk_units_booked, anc: pool.anc_capacity_limit - pool.anc_units_booked, id: pool.id_capacity_limit - pool.id_units_booked }
+        : { bulk: 0, anc: 0, id: 0 } // no pool row = closed, same as the booking RPC
+    } else {
+      const { data: cap } = await supabase
+        .from('collection_date')
+        .select('bulk_capacity_limit, bulk_units_booked, anc_capacity_limit, anc_units_booked, id_capacity_limit, id_units_booked')
+        .eq('id', targetDate.id)
+        .single()
+      remaining = cap
+        ? { bulk: cap.bulk_capacity_limit - cap.bulk_units_booked, anc: cap.anc_capacity_limit - cap.anc_units_booked, id: cap.id_capacity_limit - cap.id_units_booked }
+        : { bulk: 0, anc: 0, id: 0 }
+    }
+    if (capacityBlocksMove(role, units, remaining)) {
+      return {
+        ok: false,
+        error: 'That collection date is full for this booking\'s services. Only D&M staff can move a booking onto a full date.',
       }
     }
 

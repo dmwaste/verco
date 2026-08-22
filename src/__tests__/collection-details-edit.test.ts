@@ -1,8 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   canEditCollectionDetails,
-  canRescheduleToTargetDate,
-} from '@/lib/booking/collection-details-edit'
+  canRescheduleToTargetDate, capacityBlocksMove, unitsByCategory } from '@/lib/booking/collection-details-edit'
 import type { Database } from '@/lib/supabase/types'
 
 type BookingStatus = Database['public']['Enums']['booking_status']
@@ -162,5 +161,47 @@ describe('canRescheduleToTargetDate (D1 — #378)', () => {
     expect(
       canRescheduleToTargetDate('client-admin', { is_open: false, date: PAST }, TODAY),
     ).toBe(false)
+  })
+})
+
+describe('capacityBlocksMove (#426 — client-tier date moves respect capacity)', () => {
+  const units = { bulk: 2, anc: 1, id: 0 }
+
+  it('contractor roles are never capacity-gated (the #378 override stands)', () => {
+    expect(capacityBlocksMove('contractor-admin', units, { bulk: 0, anc: 0, id: 0 })).toBe(false)
+    expect(capacityBlocksMove('contractor-staff', units, { bulk: -3, anc: 0, id: 0 })).toBe(false)
+  })
+
+  it('client-tier: allowed when every used bucket has room', () => {
+    expect(capacityBlocksMove('client-admin', units, { bulk: 2, anc: 1, id: 0 })).toBe(false)
+    expect(capacityBlocksMove('client-staff', units, { bulk: 10, anc: 5, id: 0 })).toBe(false)
+  })
+
+  it('client-tier: blocked when any used bucket lacks room (a full date or over-booked date)', () => {
+    expect(capacityBlocksMove('client-admin', units, { bulk: 1, anc: 1, id: 0 })).toBe(true)
+    expect(capacityBlocksMove('client-admin', units, { bulk: 2, anc: 0, id: 0 })).toBe(true)
+    expect(capacityBlocksMove('client-admin', units, { bulk: -1, anc: 9, id: 9 })).toBe(true)
+  })
+
+  it('buckets the booking does not use are ignored (a full ID bucket does not block a bulk-only booking)', () => {
+    expect(capacityBlocksMove('client-admin', { bulk: 1, anc: 0, id: 0 }, { bulk: 1, anc: -5, id: -5 })).toBe(false)
+  })
+
+  it('null role is treated as client-tier (fails closed)', () => {
+    expect(capacityBlocksMove(null, units, { bulk: 0, anc: 0, id: 0 })).toBe(true)
+  })
+})
+
+describe('unitsByCategory', () => {
+  it('sums no_services per bucket and ignores unknown codes', () => {
+    expect(
+      unitsByCategory([
+        { no_services: 2, category_code: 'bulk' },
+        { no_services: 1, category_code: 'bulk' },
+        { no_services: 1, category_code: 'anc' },
+        { no_services: 3, category_code: 'other' },
+        { no_services: 1, category_code: null },
+      ]),
+    ).toEqual({ bulk: 3, anc: 1, id: 0 })
   })
 })
