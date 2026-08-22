@@ -4,7 +4,8 @@ import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { format } from 'date-fns'
 import { createClient } from '@/lib/supabase/client'
-import { buildSearchOrFilter } from '@/lib/search/or-filter'
+import { buildSearchOrFilterWithEnum } from '@/lib/search/or-filter'
+import { NCN_REASONS } from '@/lib/ncn/reasons'
 import Link from 'next/link'
 import { SkeletonRow } from '@/components/ui/skeleton'
 import { StatusBadge } from '@/components/status-badge'
@@ -73,7 +74,8 @@ export function NonConformanceClient({ clientId }: NonConformanceClientProps) {
       else if (statusFilter !== 'all' && statusFilter) query = query.eq('status', statusFilter as never)
       if (reasonFilter) query = query.eq('reason', reasonFilter as NcnReason)
       if (search) {
-        query = query.or(buildSearchOrFilter(['notes', 'reason'], search))
+        // `reason` is an enum — ILIKE on it 400s (#497); match it by value instead.
+        query = query.or(buildSearchOrFilterWithEnum(['notes'], 'reason', NCN_REASONS, search))
       }
 
       const { data, count } = await query
