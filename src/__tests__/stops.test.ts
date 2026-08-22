@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  planStopChanges,
   buildOrderNo,
   buildOrderNotes,
   buildServicesSummary,
@@ -445,5 +446,67 @@ describe('partitionPushResults — positional match of OR results to stops', () 
 
   it('is empty-safe', () => {
     expect(partitionPushResults([], [])).toEqual({ okIds: [], failures: [] })
+  })
+})
+
+describe('planStopChanges — pass-1 diff (#486 reschedule revive)', () => {
+  const summary: ServiceSummaryEntry[] = [{ name: 'Bulk Waste', qty: 1 }]
+  const want = (over: Partial<StopDiffDesired> & { booking_id: string; stream: WasteStream }) => ({
+    collection_date_id: 'date-new',
+    address: '1 Test St',
+    latitude: -32.1,
+    longitude: 115.8,
+    waste_location: null,
+    driver_notes: null,
+    services_summary: summary,
+    ...over,
+  })
+  const have = (over: Partial<StopDiffExisting> & { id: string; booking_id: string; stream: WasteStream; status: string }) => ({
+    collection_date_id: 'date-new',
+    address: '1 Test St',
+    latitude: -32.1,
+    longitude: 115.8,
+    waste_location: null,
+    driver_notes: null,
+    services_summary: summary,
+    ...over,
+  })
+
+  it('revives a Cancelled stop whose date is OUTSIDE the lock window (rescheduled booking) instead of inserting', () => {
+    // COT-77COD9 shape: old stop Cancelled on 22/07 (now past), item moved to a newly-locked date.
+    const desired = [want({ booking_id: 'b1', stream: 'general' })]
+    const existing = [have({ id: 's1', booking_id: 'b1', stream: 'general', status: 'Cancelled', collection_date_id: 'date-old' })]
+    const plan = planStopChanges(desired, existing)
+    expect(plan.inserts).toEqual([])
+    expect(plan.revive.map((r) => r.id)).toEqual(['s1'])
+    expect(plan.revive[0]!.payload.collection_date_id).toBe('date-new')
+  })
+
+  it('inserts when no stop exists for the (booking, stream)', () => {
+    const plan = planStopChanges([want({ booking_id: 'b1', stream: 'general' })], [])
+    expect(plan.inserts).toHaveLength(1)
+    expect(plan.revive).toEqual([])
+  })
+
+  it('refreshes a Pending stop whose payload drifted, leaves an identical one alone', () => {
+    const desired = [want({ booking_id: 'b1', stream: 'general' }), want({ booking_id: 'b2', stream: 'green' })]
+    const existing = [
+      have({ id: 's1', booking_id: 'b1', stream: 'general', status: 'Pending', collection_date_id: 'date-old' }),
+      have({ id: 's2', booking_id: 'b2', stream: 'green', status: 'Pending' }),
+    ]
+    const plan = planStopChanges(desired, existing)
+    expect(plan.refresh.map((r) => r.id)).toEqual(['s1'])
+    expect(plan.inserts).toEqual([])
+    expect(plan.revive).toEqual([])
+  })
+
+  it('never touches a terminal stop (Completed/NCN/NP) even when visible — as-dispatched record is immutable', () => {
+    for (const status of ['Completed', 'Non-conformance', 'Nothing Presented']) {
+      const plan = planStopChanges(
+        [want({ booking_id: 'b1', stream: 'general' })],
+        [have({ id: 's1', booking_id: 'b1', stream: 'general', status, collection_date_id: 'date-old' })],
+      )
+      expect(plan).toEqual({ inserts: [], refresh: [], revive: [] })
+    }
   })
 })

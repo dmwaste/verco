@@ -9,7 +9,7 @@ import {
   groupItemsByStream,
   num,
   partitionPushResults,
-  payloadDiffers,
+  planStopChanges,
   shouldCancelOrphanStop,
   STOP_DURATION_MINUTES,
   STREAM_PRIORITY,
@@ -157,6 +157,7 @@ serve(async (_req) => {
     today_awst: today,
     locked_dates: 0,
     stops_created: 0,
+    stops_insert_skipped: 0,
     stops_refreshed: 0,
     stops_revived: 0,
     stops_cancelled: 0,
@@ -228,44 +229,56 @@ serve(async (_req) => {
         desired.set(booking.id, byStream)
       }
 
+      const STOP_COLUMNS =
+        'id, booking_id, stream, status, collection_date_id, address, latitude, longitude, services_summary, waste_location, driver_notes'
+
+      // Stops on the locked window — input to the orphan sweep below.
       const existing = await fetchAll<ExistingStopRow>(
         (from, to) =>
           supabase
             .from('collection_stop')
-            .select(
-              'id, booking_id, stream, status, collection_date_id, address, latitude, longitude, services_summary, waste_location, driver_notes',
-            )
+            .select(STOP_COLUMNS)
             .in('collection_date_id', lockedDateIds)
             .order('id')
             .range(from, to),
         'existing stops fetch',
       )
 
-      const existingByKey = new Map<string, ExistingStopRow>()
-      for (const stop of existing) {
-        existingByKey.set(`${stop.booking_id}:${stop.stream}`, stop)
+      // Stops for the DESIRED bookings regardless of date — input to the diff.
+      // A booking rescheduled beyond the lock window has its old stop
+      // Cancelled on a date that has since rolled out of the window; without
+      // this fetch the key looks absent, the insert upserts against the
+      // non-partial UNIQUE(booking_id, stream) and is silently ignored, and
+      // the booking never reaches OptimoRoute (#486). Chunked: PostgREST
+      // `.in()` lists live in the URL.
+      const desiredBookingIds = [...desired.keys()]
+      const byBooking: ExistingStopRow[] = []
+      for (let i = 0; i < desiredBookingIds.length; i += 200) {
+        const chunk = desiredBookingIds.slice(i, i + 200)
+        byBooking.push(
+          ...(await fetchAll<ExistingStopRow>(
+            (from, to) =>
+              supabase
+                .from('collection_stop')
+                .select(STOP_COLUMNS)
+                .in('booking_id', chunk)
+                .order('id')
+                .range(from, to),
+            'desired-booking stops fetch',
+          )),
+        )
       }
+      const diffInput = new Map<string, ExistingStopRow>()
+      for (const stop of [...existing, ...byBooking]) diffInput.set(stop.id, stop)
 
-      const inserts: DesiredStop[] = []
-      const refreshIds: Array<{ id: string; payload: DesiredStop }> = []
-      const reviveIds: Array<{ id: string; payload: DesiredStop }> = []
+      const plan = planStopChanges(
+        [...desired.values()].flatMap((byStream) => [...byStream.values()]),
+        [...diffInput.values()],
+      )
+      const inserts = plan.inserts
+      const refreshIds = plan.refresh
+      const reviveIds = plan.revive
       const cancelIds: string[] = []
-
-      for (const byStream of desired.values()) {
-        for (const want of byStream.values()) {
-          const have = existingByKey.get(`${want.booking_id}:${want.stream}`)
-          if (!have) {
-            inserts.push(want)
-          } else if (have.status === 'Pending' && payloadDiffers(have, want)) {
-            refreshIds.push({ id: have.id, payload: want })
-          } else if (have.status === 'Cancelled') {
-            // Stream reappeared after a post-push amendment — revive, or the
-            // UNIQUE(booking_id, stream) row blocks the stream forever and
-            // the booking rolls up Completed without it ever being collected.
-            reviveIds.push({ id: have.id, payload: want })
-          }
-        }
-      }
 
       // Orphans among existing Pending stops: stream gone from a live
       // booking, or the booking is no longer live at all. The booking-status
@@ -364,6 +377,13 @@ serve(async (_req) => {
           .select('id')
         if (insertError) throw new Error(`collection_stop insert: ${insertError.message}`)
         results.stops_created = (insertedRows ?? []).length
+        // A skipped insert means a (booking, stream) row we didn't see — the
+        // #486 class. Surface it in sync_log instead of hiding behind
+        // ignoreDuplicates.
+        results.stops_insert_skipped = inserts.length - results.stops_created
+        if (results.stops_insert_skipped > 0) {
+          console.warn(`${results.stops_insert_skipped} stop insert(s) skipped on conflict`)
+        }
       }
 
       for (const { id, payload } of refreshIds) {
