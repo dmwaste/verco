@@ -4,7 +4,10 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { invokeEfWithUserToken } from '@/lib/supabase/invoke-ef-client'
-import { canMoveArea } from '@/lib/properties/edit-rules'
+import { canMoveArea, moveAreaMessage } from '@/lib/properties/edit-rules'
+import type { Database } from '@/lib/supabase/types'
+
+type AppRole = Database['public']['Enums']['app_role']
 import { FieldLabel, Input, Select } from '@/components/admin/form'
 import { moveEligiblePropertyArea, updateEligiblePropertyAddress } from '../actions'
 
@@ -26,7 +29,7 @@ interface PropertyEditSectionProps {
   }
   areas: Array<{ id: string; name: string; code: string }>
   bookingStatuses: string[]
-  role: string | null
+  role: AppRole | null
 }
 
 export function PropertyEditSection({ property, areas, bookingStatuses, role }: PropertyEditSectionProps) {
@@ -149,12 +152,8 @@ export function PropertyEditSection({ property, areas, bookingStatuses, role }: 
                 <option key={a.id} value={a.id}>{a.code} — {a.name}</option>
               ))}
             </Select>
-            {!canMove && (
-              <p className="mt-1 text-xs text-gray-500">
-                {moveDecision.reason === 'contractor-only'
-                  ? 'Only D&M staff can move a property between collection areas.'
-                  : `Can't move while this property has ${moveDecision.liveCount} upcoming booking${moveDecision.liveCount === 1 ? '' : 's'} — complete or cancel them first.`}
-              </p>
+            {!moveDecision.ok && (
+              <p className="mt-1 text-xs text-gray-500">{moveAreaMessage(moveDecision)}</p>
             )}
           </div>
 

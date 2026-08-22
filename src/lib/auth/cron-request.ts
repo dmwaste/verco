@@ -21,18 +21,11 @@
  *
  * Pure decision mirrored to `src/lib/auth/cron-request.ts` for Vitest.
  */
-import { classifyServiceRoleBearer, isServiceRoleBearer } from './service-role-auth'
+import { classifyServiceRoleBearer, isServiceRoleBearer, safeEqual } from './service-role-auth'
 
 export type CronAuthDecision =
   | { ok: true; via: 'cron-secret' | 'service-role' }
   | { ok: false; reason: 'no-secret-configured' | 'bad-secret' | 'not-service-role'; looksLikeOurCron: boolean }
-
-function safeEqual(a: string, b: string): boolean {
-  if (a.length !== b.length) return false
-  let diff = 0
-  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i)
-  return diff === 0
-}
 
 /**
  * Pure decision. `bearerClass` is the result of classifyServiceRoleBearer for

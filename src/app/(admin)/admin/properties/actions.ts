@@ -9,7 +9,7 @@ import type { Database } from '@/lib/supabase/types'
 import type { Result } from '@/lib/result'
 import { validateStaffRole } from '@/lib/auth/server'
 import { getCurrentAdminClient } from '@/lib/admin/current-client'
-import { canMoveArea, normaliseAddress } from '@/lib/properties/edit-rules'
+import { canMoveArea, moveAreaMessage, normaliseAddress } from '@/lib/properties/edit-rules'
 
 type CollectionCadence = Database['public']['Enums']['collection_cadence']
 type MudOnboardingStatus = Database['public']['Enums']['mud_onboarding_status']
@@ -296,13 +296,7 @@ export async function moveEligiblePropertyArea(input: {
 
   const decision = canMoveArea(roleCheck.data, (bookings ?? []).map((b) => b.status))
   if (!decision.ok) {
-    return {
-      ok: false,
-      error:
-        decision.reason === 'contractor-only'
-          ? 'Only D&M staff can move a property between collection areas.'
-          : `This property has ${decision.liveCount} upcoming booking${decision.liveCount === 1 ? '' : 's'} in its current area — complete or cancel them before moving it.`,
-    }
+    return { ok: false, error: moveAreaMessage(decision) }
   }
 
   // Target area must belong to the same client (collection_area is public-SELECT).

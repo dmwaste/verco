@@ -13,6 +13,9 @@ import { AuditTimeline } from '@/components/audit-timeline'
 import { StatusBadge, Pill } from '@/components/status-badge'
 import { DetailHeader } from '@/components/admin/detail-header'
 import { Th } from '@/components/admin/th'
+import type { Database } from '@/lib/supabase/types'
+
+type AppRole = Database['public']['Enums']['app_role']
 
 /* ------------------------------------------------------------------ */
 /*  Props — shaped by what page.tsx actually passes                    */
@@ -104,7 +107,7 @@ interface PropertyDetailClientProps {
   /** Contractor tier + client-admin — gates the "Add Allocation" button. */
   canManageAllocations: boolean
   areas: Array<{ id: string; name: string; code: string }>
-  role: string | null
+  role: AppRole | null
 }
 
 /* ------------------------------------------------------------------ */

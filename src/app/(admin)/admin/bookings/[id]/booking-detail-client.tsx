@@ -18,7 +18,7 @@ import { canEditCollectionDetails } from '@/lib/booking/collection-details-edit'
 import { isContractorStaff } from '@/lib/auth/roles'
 import { confirmBooking, cancelBooking, updateContact, updateCollectionDetails, updateNotes, updateBookingQuantities } from './actions'
 import { effectiveCapacity, indexPoolDates } from '@/lib/capacity/effective-capacity'
-import { capacityBlocksMove, unitsByCategory } from '@/lib/booking/collection-details-edit'
+import { capacityBlocksMove, remainingByCategory, unitsByCategory } from '@/lib/booking/collection-details-edit'
 import { cn } from '@/lib/utils'
 import type { Database } from '@/lib/supabase/types'
 import type { ResolvedAuditEntry } from '@/lib/audit/resolve'
@@ -742,11 +742,7 @@ export function BookingDetailClient({
                   // keeps the override. Mirrors updateCollectionDetails.
                   const full =
                     d.id !== currentDateId &&
-                    capacityBlocksMove(userRole, bookingUnits, {
-                      bulk: cap.bulk_capacity_limit - cap.bulk_units_booked,
-                      anc: cap.anc_capacity_limit - cap.anc_units_booked,
-                      id: cap.id_capacity_limit - cap.id_units_booked,
-                    })
+                    capacityBlocksMove(userRole, bookingUnits, remainingByCategory(cap))
                   // Flag the dates only contractor staff see, so a crew-error
                   // correction into a closed/past date is deliberate (#378).
                   const flags = [
