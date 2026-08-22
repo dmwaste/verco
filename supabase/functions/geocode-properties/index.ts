@@ -1,6 +1,7 @@
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.100.0'
 import type { Database } from '../_shared/database.types.ts'
+import { isServiceRoleBearer } from '../_shared/service-role-auth.ts'
 import { jsonResponse, optionsResponse, errorResponse } from '../_shared/cors.ts'
 import { streetNumbersDisagree } from '../_shared/geocode-verify.ts'
 
@@ -64,9 +65,10 @@ serve(async (req) => {
   }
   const bearer = authHeader.replace(/^Bearer\s+/i, '')
 
-  // Service-role direct match: CLI / cron callers bypass user-role check.
+  // Service-role bearer (any valid secret for this project — not just the one
+  // injected in env, #480): CLI / cron callers bypass the user-role check.
   // Otherwise validate the user JWT and gate on admin roles.
-  if (bearer !== serviceRoleKey) {
+  if (!(await isServiceRoleBearer(bearer, { supabaseUrl, serviceRoleKey }))) {
     const supabaseUser = createClient<Database>(supabaseUrl, anonKey, {
       global: { headers: { Authorization: authHeader } },
     })
