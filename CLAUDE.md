@@ -232,7 +232,7 @@ All Edge Functions live in `supabase/functions/`. Each function is a single `ind
 - **Service role** only for: `nightly-sync-to-dm-ops`, `stripe-webhook`, `audit_log` writes, batch admin ops — document why with a comment
 - **Error handling** — catch blocks must return `err.message`, not generic strings. Include `rpcError.message` on RPC failures
 - **Calling from Next.js** — use direct `fetch()` with explicit URL/headers, not `supabase.functions.invoke()` (unreliable in SSR)
-- **Cron EFs** — return HTTP 500 when any per-row work fails (pg_cron only sees HTTP status; a 200 hides partial failures). Wrap `cron.schedule` migrations in `DO $$ IF EXISTS cron.unschedule $$ END` so they can be re-applied
+- **Cron EFs** — return HTTP 500 when any per-row work fails (pg_cron only sees HTTP status; a 200 hides partial failures). Wrap `cron.schedule` migrations in `DO $$ IF EXISTS cron.unschedule $$ END` so they can be re-applied. Entry point is ALWAYS `serve(cronHandler('<name>', handler))` (`_shared/cron-handler.ts`): Sentry (incl. 5xx responses, #518) + the `X-Cron-Secret` gate (#517 — Vault `cron_ef_secret` ≡ EF secret `CRON_SECRET`, never in git; pg_cron reads Vault at run time, the migration `20260822090000` injects the header). A bare `serve(async …)` cron EF is callable by anyone and invisible when it fails
 
 ## 12. RLS — What Claude Code Must Know
 

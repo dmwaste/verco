@@ -1,4 +1,5 @@
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts'
+import { cronHandler } from '../_shared/cron-handler.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.100.0'
 import type { Database } from '../_shared/database.types.ts'
 import { awstDateFromUtc } from '../_shared/schedule-transition.ts'
@@ -54,7 +55,7 @@ function earliestCollectionDate(booking: BookingRow): string | null {
   return dates.sort()[0] ?? null
 }
 
-serve(async (_req) => {
+serve(cronHandler('send-collection-reminders', async (_req) => {
   const supabaseUrl = Deno.env.get('SUPABASE_URL')!
   const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
   const supabase = createClient<Database>(supabaseUrl, serviceRoleKey)
@@ -157,4 +158,4 @@ serve(async (_req) => {
       { status: 500, headers: { 'Content-Type': 'application/json' } },
     )
   }
-})
+}))

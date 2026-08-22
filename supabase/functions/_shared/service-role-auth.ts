@@ -9,7 +9,7 @@
  * gets a 401 (29/07: geocoding the #460 MUD import; same class as the
  * OptimoRoute pull-cron 401s).
  *
- * Two layers, mirrored to `src/lib/auth/service-role-bearer.ts` for Vitest:
+ * Two layers, mirrored to `src/lib/auth/service-role-auth.ts` for Vitest:
  *
  *   classifyServiceRoleBearer — pure. Exact match → 'match' (no network).
  *     A bearer that merely CLAIMS service role (JWT with role=service_role, or
