@@ -79,8 +79,8 @@ export interface RescheduleTargetDate {
  * String comparison is chronological for zero-padded ISO dates.
  *
  * Capacity note: this is a gate on WHO may move the booking, not a capacity
- * check. A staff date-override is a correction — it keeps the booking's already
- * consumed allocation and is not re-gated by the target's capacity. The
+ * check — see capacityBlocksMove() for the capacity dimension (#426, 22/08/2026:
+ * client-tier gated, contractor keeps the override). The
  * recalculate_collection_date_units() trigger re-sums both the old and new dates
  * on the move, so no slot is double-counted or wrongly freed.
  */
@@ -92,4 +92,46 @@ export function canRescheduleToTargetDate(
   const isClosedOrPast = target.is_open === false || target.date < today
   if (!isClosedOrPast) return true
   return isContractorStaff(role)
+}
+
+/** Units a booking holds per capacity bucket (category.code). */
+export interface CategoryUnits {
+  bulk: number
+  anc: number
+  id: number
+}
+
+/** Sum a booking's items into per-bucket units; unknown codes are ignored. */
+export function unitsByCategory(
+  items: ReadonlyArray<{ no_services: number; category_code: string | null | undefined }>,
+): CategoryUnits {
+  const out: CategoryUnits = { bulk: 0, anc: 0, id: 0 }
+  for (const it of items) {
+    if (it.category_code === 'bulk' || it.category_code === 'anc' || it.category_code === 'id') {
+      out[it.category_code] += it.no_services
+    }
+  }
+  return out
+}
+
+/**
+ * Capacity dimension of a date move (#426, 22/08/2026). Contractor-tier keeps
+ * the documented override — a D&M date correction is never capacity-gated.
+ * Client-tier may only move a booking onto a date with room for EVERY bucket
+ * the booking uses (units ≤ remaining in that bucket). `remaining` is the
+ * target's `limit − booked` per bucket (pool-aware: callers resolve the
+ * collection_date_pool row for pooled areas). Moving onto the booking's
+ * current date is a no-op upstream and never reaches here.
+ */
+export function capacityBlocksMove(
+  role: AppRole | null,
+  units: CategoryUnits,
+  remaining: CategoryUnits,
+): boolean {
+  if (isContractorStaff(role)) return false
+  return (
+    (units.bulk > 0 && units.bulk > remaining.bulk) ||
+    (units.anc > 0 && units.anc > remaining.anc) ||
+    (units.id > 0 && units.id > remaining.id)
+  )
 }
