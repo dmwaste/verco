@@ -13,6 +13,7 @@ import type { BookingItem } from '@/lib/booking/schemas'
 import { computeLineItems, type ServiceRule } from '@/lib/pricing/calculate'
 import {
   isSwapEligible,
+  swapUnavailableReason,
   toActiveConversion,
   findExistingSwapRuleId,
   flattenConversionRule,
@@ -319,12 +320,14 @@ export function ServicesForm({ clientSlug }: { clientSlug: string }) {
       .reduce((n, r) => n + (quantities.get(r.service_id) ?? 0), 0)
   }, [serviceRules, quantities, fromCat])
 
-  const swapEligible = isSwapEligible({
+  const swapInput = {
     hasRule: !!conversionRule,
     ancillaryFyUsed: fromCat ? (fyUsageByCategory?.get(fromCat) ?? 0) : 0,
     hasExistingSwap,
     ancillaryInCart,
-  })
+  }
+  const swapEligible = isSwapEligible(swapInput)
+  const swapUnavailable = swapApplied ? null : swapUnavailableReason(swapInput)
 
   function toggleSwap(checked: boolean) {
     setSwapApplied(checked)
@@ -562,6 +565,27 @@ export function ServicesForm({ clientSlug }: { clientSlug: string }) {
                   Any e-waste, whitegoods or mattress collections added below will be charged.
                 </span>
               </div>
+            )}
+
+            {/* Swap exists for this area but isn't available — say why (#449).
+                The rule is all-or-nothing (design §2); without this line admins
+                file the hidden checkbox as a bug. */}
+            {swapUnavailable && conversionRule && (
+              <p className="rounded-xl border-[1.5px] border-gray-100 bg-gray-50 px-4 py-3 text-body-sm text-gray-600">
+                {swapUnavailable === 'used' ? (
+                  <>
+                    The {conversionRule.from_units}-for-{conversionRule.to_units} green waste swap is only
+                    available while all {conversionRule.from_units} ancillary collections are unused this
+                    financial year.
+                  </>
+                ) : (
+                  <>
+                    To swap your {conversionRule.from_units} ancillary collections for{' '}
+                    {conversionRule.to_units} extra green waste collection, remove the ancillary items from
+                    this booking first.
+                  </>
+                )}
+              </p>
             )}
 
             {/* Allocation swap — forfeit the ancillary allocation for an extra Green */}

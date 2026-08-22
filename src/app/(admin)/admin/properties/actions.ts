@@ -9,6 +9,7 @@ import type { Database } from '@/lib/supabase/types'
 import type { Result } from '@/lib/result'
 import { validateStaffRole } from '@/lib/auth/server'
 import { getCurrentAdminClient } from '@/lib/admin/current-client'
+import { canMoveArea, normaliseAddress } from '@/lib/properties/edit-rules'
 
 type CollectionCadence = Database['public']['Enums']['collection_cadence']
 type MudOnboardingStatus = Database['public']['Enums']['mud_onboarding_status']
@@ -169,6 +170,176 @@ export async function createEligibleProperty(
 
   revalidatePath('/admin/properties')
   return { ok: true, data: { property_id: inserted.id } }
+}
+
+// ----------------------------------------------------------------------------
+// In-place edits (#502 / BR-0034) — see lib/properties/edit-rules.ts for the
+// decisions. Both writes are RLS-gated by eligible_properties_staff_update
+// (staff role + area in an accessible client + sub-client scope).
+// ----------------------------------------------------------------------------
+
+const updateAddressSchema = z.object({
+  property_id: z.string().uuid(),
+  address: z.string().trim().min(3, 'Address is required').max(500),
+})
+
+/**
+ * Corrects a property's address in place. Derived geocode columns are cleared
+ * (formatted_address / google_place_id / has_geocode / lat / lng) so the row
+ * is re-geocoded — the caller invokes geocode-properties with this id
+ * afterwards, same EF the create path uses. Duplicate guard matches
+ * createEligibleProperty (same area, case-insensitive), excluding self.
+ */
+export async function updateEligiblePropertyAddress(input: {
+  property_id: string
+  address: string
+}): Promise<Result<{ property_id: string; changed: boolean }>> {
+  const roleCheck = await validateStaffRole()
+  if (!roleCheck.ok) return roleCheck
+
+  const parsed = updateAddressSchema.safeParse(input)
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0]?.message ?? 'Invalid input' }
+  }
+  const address = normaliseAddress(parsed.data.address)
+  const supabase = await createClient()
+
+  const { data: current, error: readError } = await supabase
+    .from('eligible_properties')
+    .select('id, address, collection_area_id, collection_area:collection_area_id!inner(code)')
+    .eq('id', parsed.data.property_id)
+    .maybeSingle()
+  if (readError) return { ok: false, error: readError.message }
+  if (!current || !current.collection_area_id) return { ok: false, error: 'Property not found.' }
+
+  if (current.address === address) {
+    return { ok: true, data: { property_id: current.id, changed: false } }
+  }
+
+  const { data: dup, error: dupError } = await supabase
+    .from('eligible_properties')
+    .select('id')
+    .eq('collection_area_id', current.collection_area_id)
+    .ilike('address', address)
+    .neq('id', current.id)
+    .limit(1)
+  if (dupError) return { ok: false, error: dupError.message }
+  if (dup && dup.length > 0) {
+    const area = current.collection_area as unknown as { code: string } | null
+    return { ok: false, error: `That address already exists in ${area?.code ?? 'this area'}.` }
+  }
+
+  const { data: updated, error } = await supabase
+    .from('eligible_properties')
+    .update({
+      address,
+      formatted_address: null,
+      google_place_id: null,
+      has_geocode: false,
+      latitude: null,
+      longitude: null,
+    })
+    .eq('id', current.id)
+    .select('id')
+  if (error) return { ok: false, error: error.message }
+  if (!updated || updated.length === 0) {
+    return { ok: false, error: 'Address was not saved — your role may not have permission for this property.' }
+  }
+
+  revalidatePath('/admin/properties')
+  revalidatePath(`/admin/properties/${current.id}`)
+  return { ok: true, data: { property_id: current.id, changed: true } }
+}
+
+const moveAreaSchema = z.object({
+  property_id: z.string().uuid(),
+  collection_area_id: z.string().uuid(),
+})
+
+/**
+ * Moves a property to another collection area of the SAME client. Contractor-
+ * only, and refused while the property has any non-terminal booking (its
+ * dates + capacity counters belong to the old area). Duplicate guard against
+ * the target area. The RLS UPDATE policy re-checks the target area is in the
+ * caller's accessible clients (WITH CHECK = USING).
+ */
+export async function moveEligiblePropertyArea(input: {
+  property_id: string
+  collection_area_id: string
+}): Promise<Result<{ property_id: string }>> {
+  const roleCheck = await validateStaffRole()
+  if (!roleCheck.ok) return roleCheck
+
+  const parsed = moveAreaSchema.safeParse(input)
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0]?.message ?? 'Invalid input' }
+  }
+  const supabase = await createClient()
+
+  const { data: current, error: readError } = await supabase
+    .from('eligible_properties')
+    .select('id, address, collection_area_id, collection_area:collection_area_id!inner(client_id)')
+    .eq('id', parsed.data.property_id)
+    .maybeSingle()
+  if (readError) return { ok: false, error: readError.message }
+  if (!current || !current.collection_area_id) return { ok: false, error: 'Property not found.' }
+  if (current.collection_area_id === parsed.data.collection_area_id) {
+    return { ok: true, data: { property_id: current.id } }
+  }
+  const currentClientId = (current.collection_area as unknown as { client_id: string }).client_id
+
+  const { data: bookings, error: bookingsError } = await supabase
+    .from('booking')
+    .select('status')
+    .eq('property_id', current.id)
+  if (bookingsError) return { ok: false, error: bookingsError.message }
+
+  const decision = canMoveArea(roleCheck.data, (bookings ?? []).map((b) => b.status))
+  if (!decision.ok) {
+    return {
+      ok: false,
+      error:
+        decision.reason === 'contractor-only'
+          ? 'Only D&M staff can move a property between collection areas.'
+          : `This property has ${decision.liveCount} upcoming booking${decision.liveCount === 1 ? '' : 's'} in its current area — complete or cancel them before moving it.`,
+    }
+  }
+
+  // Target area must belong to the same client (collection_area is public-SELECT).
+  const { data: target, error: targetError } = await supabase
+    .from('collection_area')
+    .select('id, code, client_id')
+    .eq('id', parsed.data.collection_area_id)
+    .maybeSingle()
+  if (targetError) return { ok: false, error: targetError.message }
+  if (!target || target.client_id !== currentClientId) {
+    return { ok: false, error: 'Target collection area must belong to the same client.' }
+  }
+
+  const { data: dup, error: dupError } = await supabase
+    .from('eligible_properties')
+    .select('id')
+    .eq('collection_area_id', target.id)
+    .ilike('address', current.address)
+    .limit(1)
+  if (dupError) return { ok: false, error: dupError.message }
+  if (dup && dup.length > 0) {
+    return { ok: false, error: `That address already exists in ${target.code}.` }
+  }
+
+  const { data: updated, error } = await supabase
+    .from('eligible_properties')
+    .update({ collection_area_id: target.id })
+    .eq('id', current.id)
+    .select('id')
+  if (error) return { ok: false, error: error.message }
+  if (!updated || updated.length === 0) {
+    return { ok: false, error: 'Area was not changed — your role may not have permission for this property.' }
+  }
+
+  revalidatePath('/admin/properties')
+  revalidatePath(`/admin/properties/${current.id}`)
+  return { ok: true, data: { property_id: current.id } }
 }
 
 // ----------------------------------------------------------------------------

@@ -2,6 +2,7 @@
 
 import { useState, useRef } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
 import { buildSearchOrFilter } from '@/lib/search/or-filter'
@@ -41,6 +42,7 @@ interface PropertiesClientProps {
 }
 
 export function PropertiesClient({ clientId, isContractorAdmin, canManageAllocations }: PropertiesClientProps) {
+  const router = useRouter()
   const supabase = createClient()
   const queryClient = useQueryClient()
 
@@ -632,6 +634,10 @@ export function PropertiesClient({ clientId, isContractorAdmin, canManageAllocat
                       <RowActionMenu
                         ariaLabel="Property actions"
                         actions={[
+                          {
+                            label: 'Edit details',
+                            onSelect: () => { router.push(`/admin/properties/${p.id}`) },
+                          },
                           ...(canManageAllocations ? [{
                             label: 'Add Allocations',
                             onSelect: () => {

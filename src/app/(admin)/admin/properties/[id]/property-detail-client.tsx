@@ -7,6 +7,7 @@ import { format } from 'date-fns'
 import { BookingStatusBadge } from '@/components/booking/booking-status-badge'
 import { AllocationFormModal } from '@/app/(admin)/admin/allocations/allocation-form-modal'
 import { MudDetailSection } from './mud-detail-section'
+import { PropertyEditSection } from './property-edit-section'
 import type { ResolvedAuditEntry } from '@/lib/audit/resolve'
 import { AuditTimeline } from '@/components/audit-timeline'
 import { StatusBadge, Pill } from '@/components/status-badge'
@@ -33,6 +34,7 @@ interface PropertyDetailClientProps {
     formatted_address: string | null
     is_mud: boolean
     is_eligible: boolean
+    has_geocode: boolean
     collection_area_id: string | null
     collection_area: { id: string; name: string; code: string }
     // MUD fields (nullable when is_mud=false)
@@ -101,6 +103,8 @@ interface PropertyDetailClientProps {
   auditLogs: ResolvedAuditEntry[]
   /** Contractor tier + client-admin — gates the "Add Allocation" button. */
   canManageAllocations: boolean
+  areas: Array<{ id: string; name: string; code: string }>
+  role: string | null
 }
 
 /* ------------------------------------------------------------------ */
@@ -206,6 +210,8 @@ export function PropertyDetailClient({
   authFormSignedUrl,
   auditLogs,
   canManageAllocations,
+  areas,
+  role,
 }: PropertyDetailClientProps) {
   const queryClient = useQueryClient()
   const [showAllocationModal, setShowAllocationModal] = useState(false)
@@ -258,6 +264,16 @@ export function PropertyDetailClient({
           <StatCard label="Open NPs" value={openNps} />
           <StatCard label="Open Tickets" value={openTickets} />
         </div>
+      </div>
+
+      {/* ── 2a. Property details — in-place edit (#502) ───────────── */}
+      <div className="px-7 pb-5">
+        <PropertyEditSection
+          property={property}
+          areas={areas}
+          bookingStatuses={bookings.map((b) => b.status)}
+          role={role}
+        />
       </div>
 
       {/* ── 2b. MUD section (only shown for MUD properties) ──────── */}
