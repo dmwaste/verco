@@ -34,6 +34,9 @@ export function RefundsClient() {
   // Reject forfeits owed money permanently (no re-raise, resident not notified),
   // so it is gated behind a confirm dialog. Holds the row awaiting confirmation.
   const [rejectTarget, setRejectTarget] = useState<{ id: string; amountCents: number; reason: string } | null>(null)
+  // #405 — rejecting OWED money (auto-raised) needs a written reason. Persisted
+  // to refund_request.review_notes so the audit trail says WHY, not just who.
+  const [rejectNotes, setRejectNotes] = useState('')
 
   const { data: refundData, isLoading } = useQuery({
     queryKey: ['admin-refunds', statusFilter, search, page],
@@ -41,7 +44,7 @@ export function RefundsClient() {
       let query = supabase
         .from('refund_request')
         .select(
-          `id, amount_cents, reason, status, stripe_refund_id, created_at, reviewed_at,
+          `id, amount_cents, reason, status, stripe_refund_id, created_at, reviewed_at, review_notes,
            booking:booking_id(id, ref),
            contact:contact_id(full_name),
            reviewer:reviewed_by(display_name)`,
@@ -63,7 +66,7 @@ export function RefundsClient() {
   const refunds = refundData?.refunds ?? []
   const total = refundData?.total ?? 0
 
-  async function handleAction(refundId: string, action: 'approve' | 'reject') {
+  async function handleAction(refundId: string, action: 'approve' | 'reject', reviewNotes: string | null = null) {
     setActionError(null)
     setProcessingId(refundId)
 
@@ -95,6 +98,7 @@ export function RefundsClient() {
             status: 'Rejected',
             reviewed_by: user.id,
             reviewed_at: new Date().toISOString(),
+            review_notes: reviewNotes,
           })
           .eq('id', refundId)
           .eq('status', 'Pending')
@@ -119,13 +123,19 @@ export function RefundsClient() {
   }
 
   async function confirmReject() {
-    if (!rejectTarget) return
+    if (!rejectTarget || !rejectAllowed) return
     const { id } = rejectTarget
+    const notes = rejectNotes.trim()
     setRejectTarget(null)
-    await handleAction(id, 'reject')
+    setRejectNotes('')
+    await handleAction(id, 'reject', notes.length > 0 ? notes : null)
   }
 
   const rejectContext = rejectTarget ? autoRaisedContext(rejectTarget.reason) : null
+  // Owed (auto-raised) rows: a non-blank justification is mandatory. Discretionary
+  // rows (none exist today): optional.
+  const rejectNeedsJustification = rejectTarget ? isAutoRaised(rejectTarget.reason) : false
+  const rejectAllowed = !rejectNeedsJustification || rejectNotes.trim().length > 0
 
   return (
     <>
@@ -227,6 +237,14 @@ export function RefundsClient() {
                     </td>
                     <td className="px-4 py-3 text-xs text-gray-500">
                       {reviewer?.display_name ?? '—'}
+                      {refund.review_notes && (
+                        <span
+                          className="mt-0.5 block max-w-[16rem] truncate italic text-gray-400"
+                          title={refund.review_notes}
+                        >
+                          “{refund.review_notes}”
+                        </span>
+                      )}
                     </td>
                     <td className="px-4 py-3">
                       {refund.status === 'Pending' && (
@@ -260,7 +278,7 @@ export function RefundsClient() {
       </div>
 
       {/* Reject confirmation — Reject permanently forfeits an owed refund. */}
-      <Dialog.Root open={rejectTarget !== null} onOpenChange={(open) => { if (!open) setRejectTarget(null) }}>
+      <Dialog.Root open={rejectTarget !== null} onOpenChange={(open) => { if (!open) { setRejectTarget(null); setRejectNotes('') } }}>
         <Dialog.Portal>
           <Dialog.Backdrop className="fixed inset-0 z-40 bg-black/40" />
           <Dialog.Popup className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -283,6 +301,24 @@ export function RefundsClient() {
                 )}{' '}
                 Rejecting is permanent — the refund can’t be re-raised and the resident won’t be notified.
               </p>
+              <label className="mt-4 block">
+                <span className="text-caption text-gray-500">
+                  Why are you rejecting this refund?{rejectNeedsJustification ? ' (required)' : ' (optional)'}
+                </span>
+                <textarea
+                  value={rejectNotes}
+                  onChange={(e) => setRejectNotes(e.target.value)}
+                  rows={3}
+                  maxLength={1000}
+                  placeholder="e.g. Resident confirmed by phone they no longer want the refund"
+                  className="mt-1.5 w-full rounded-xl border-[1.5px] border-gray-100 px-3 py-2.5 text-sm text-[#293F52] placeholder:text-gray-400"
+                />
+                {rejectNeedsJustification && (
+                  <span className="mt-1 block text-xs text-gray-500">
+                    This is owed money — the reason is kept on the audit trail.
+                  </span>
+                )}
+              </label>
               <div className="mt-5 flex gap-2.5">
                 <Dialog.Close className="flex-1 rounded-xl border-[1.5px] border-gray-100 bg-white px-3.5 py-3 font-[family-name:var(--font-heading)] text-sm font-semibold text-[#293F52]">
                   Keep Request
@@ -290,7 +326,8 @@ export function RefundsClient() {
                 <button
                   type="button"
                   onClick={confirmReject}
-                  className="flex-1 rounded-xl bg-status-error px-3.5 py-3 font-[family-name:var(--font-heading)] text-sm font-semibold text-white"
+                  disabled={!rejectAllowed}
+                  className="flex-1 rounded-xl bg-status-error px-3.5 py-3 font-[family-name:var(--font-heading)] text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   Reject Refund
                 </button>
