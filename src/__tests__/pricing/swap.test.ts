@@ -3,8 +3,7 @@ import {
   isSwapEligible,
   toActiveConversion,
   findExistingSwapRuleId,
-  type ConversionRuleRow,
-} from '@/lib/pricing/swap'
+  type ConversionRuleRow, swapUnavailableReason } from '@/lib/pricing/swap'
 
 describe('isSwapEligible', () => {
   it('eligible when a rule exists, 0 ancillary used, no existing swap, no ancillary in cart', () => {
@@ -70,5 +69,27 @@ describe('toActiveConversion', () => {
       from_units: 3,
       to_units: 1,
     })
+  })
+})
+
+describe('swapUnavailableReason (#449 — explain why the checkbox is hidden)', () => {
+  const base = { hasRule: true, ancillaryFyUsed: 0, hasExistingSwap: false, ancillaryInCart: 0 }
+
+  it('null when eligible, when no rule exists, or when a swap is already applied (those have their own UI)', () => {
+    expect(swapUnavailableReason(base)).toBeNull()
+    expect(swapUnavailableReason({ ...base, hasRule: false, ancillaryFyUsed: 2 })).toBeNull()
+    expect(swapUnavailableReason({ ...base, hasExistingSwap: true, ancillaryFyUsed: 3 })).toBeNull()
+  })
+
+  it('"used" once any ancillary has been used this FY — the all-or-nothing rule', () => {
+    expect(swapUnavailableReason({ ...base, ancillaryFyUsed: 1 })).toBe('used')
+  })
+
+  it('"in-cart" when the only blocker is ancillary items in the current booking', () => {
+    expect(swapUnavailableReason({ ...base, ancillaryInCart: 1 })).toBe('in-cart')
+  })
+
+  it('"used" wins over "in-cart" (removing cart items would not help)', () => {
+    expect(swapUnavailableReason({ ...base, ancillaryFyUsed: 1, ancillaryInCart: 1 })).toBe('used')
   })
 })

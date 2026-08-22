@@ -29,6 +29,22 @@ export function isSwapEligible(i: SwapEligibilityInput): boolean {
 }
 
 /**
+ * Why the swap checkbox is NOT being offered, for an explanatory line in the
+ * services step (#449 — admins kept filing the hidden checkbox as a bug).
+ *
+ *   'used'    — the property has used ancillary this FY; the all-or-nothing rule
+ *               (design §2) means the swap is gone for the year.
+ *   'in-cart' — the only blocker is ancillary items in the current booking;
+ *               removing them would re-enable the swap.
+ *   null      — eligible, no rule, or already swapped (each has its own UI).
+ */
+export function swapUnavailableReason(i: SwapEligibilityInput): 'used' | 'in-cart' | null {
+  if (!i.hasRule || i.hasExistingSwap || isSwapEligible(i)) return null
+  if (i.ancillaryFyUsed > 0) return 'used'
+  return 'in-cart'
+}
+
+/**
  * Row shape returned by `get_property_fy_usage`. The RPC emits per-service and
  * per-category usage counts plus — when the property has an applied allocation
  * swap this FY — a `('swap', <conversion_rule_id>, 1)` row.
