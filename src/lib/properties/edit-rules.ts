@@ -1,4 +1,7 @@
 import { isContractorStaff } from '@/lib/auth/roles'
+import type { Database } from '@/lib/supabase/types'
+
+type AppRole = Database['public']['Enums']['app_role']
 
 /**
  * Rules for editing an eligible property in place (#502 / BR-0034).
@@ -29,7 +32,7 @@ export type MoveAreaDecision =
   | { ok: false; reason: 'contractor-only' | 'live-bookings'; liveCount?: number }
 
 export function canMoveArea(
-  role: string | null | undefined,
+  role: AppRole | null | undefined,
   bookingStatuses: readonly string[],
 ): MoveAreaDecision {
   if (!isContractorStaff(role)) return { ok: false, reason: 'contractor-only' }
@@ -41,4 +44,13 @@ export function canMoveArea(
 /** Normalise an address for the duplicate guard / storage: trim + collapse spaces. */
 export function normaliseAddress(raw: string): string {
   return raw.trim().replace(/\s+/g, ' ')
+}
+
+/** Plain-English reason a move is refused — one copy for the UI hint and the server error. */
+export function moveAreaMessage(decision: Exclude<MoveAreaDecision, { ok: true }>): string {
+  if (decision.reason === 'contractor-only') {
+    return 'Only D&M staff can move a property between collection areas.'
+  }
+  const n = decision.liveCount ?? 0
+  return `This property has ${n} upcoming booking${n === 1 ? '' : 's'} in its current area — complete or cancel them before moving it.`
 }
