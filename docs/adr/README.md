@@ -15,3 +15,6 @@ An ADR — "architecture decision record" — is a short record of a decision we
 | [0009](0009-stop-is-dispatched-record-booking-is-corrected-intent.md) | The crew job sheet is frozen history; corrections live on the booking; on-time KPI uses the frozen record | 11/07/2026 | Accepted |
 | [0010](0010-releases-identified-by-git-sha.md) | Releases are identified by code snapshot (git SHA) and verified live, not version numbers | 02/07/2026 | Accepted |
 | [0011](0011-missing-mattress-count-never-blocks-a-closeout.md) | A missing mattress count never blocks a crew closing out a stop | 03/08/2026 | Accepted |
+| [0012](0012-booking-item-staff-rules-enforced-by-trigger.md) | Council-staff booking-item rules are enforced by a database trigger, not only in app code | 22/08/2026 | Accepted |
+| [0013](0013-properties-edited-in-place-not-recreated.md) | Properties are corrected in place, never "mark ineligible and recreate" | 22/08/2026 | Accepted |
+| [0014](0014-client-tier-date-moves-respect-capacity.md) | Council staff can't move a booking onto a full date; D&M staff still can | 22/08/2026 | Accepted |

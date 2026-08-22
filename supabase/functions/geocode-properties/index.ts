@@ -38,10 +38,13 @@ type GeocodeOutcome =
   | { id: string; success: false; error: string }
 
 // Dual auth: service-role bearer for CLI/cron callers (import scripts),
-// OR a valid user JWT with an admin role for any admin-UI caller.
+// OR a valid user JWT with a staff role for any admin-UI caller.
 // Presence-only auth would let any anon-key holder mutate eligible_properties
-// or burn Google Places spend.
-const ADMIN_ROLES = ['contractor-admin', 'client-admin'] as const
+// or burn Google Places spend. All four staff tiers: the in-place address edit
+// (#502) is open to every admin role and re-geocodes through this EF — with
+// only -admin roles admitted, a -staff edit saved the address, cleared the
+// geocode and was then 403'd here, leaving the row permanently ungeocoded.
+const ADMIN_ROLES = ['contractor-admin', 'contractor-staff', 'client-admin', 'client-staff'] as const
 
 serve(async (req) => {
   // Browser callers (the admin "Geocode All" button) send a CORS preflight
@@ -67,6 +70,13 @@ serve(async (req) => {
   }
   const bearer = authHeader.replace(/^Bearer\s+/i, '')
 
+  // Tenant scope for user-JWT callers: the client ids they may administer
+  // (accessible_client_ids). eligible_properties is public-SELECT, so an id in
+  // the body proves nothing — the query below is pinned to these clients so a
+  // council admin can't geocode (and spend Places quota on) another tenant's
+  // rows. Service-role/CLI callers stay unscoped (null).
+  let scopedClientIds: string[] | null = null
+
   // Service-role bearer (any valid secret for this project — not just the one
   // injected in env, #480): CLI / cron callers bypass the user-role check.
   // Otherwise validate the user JWT and gate on admin roles.
@@ -84,8 +94,13 @@ serve(async (req) => {
       return errorResponse(`Role lookup failed: ${roleError.message}`, 500)
     }
     if (!roleData || !ADMIN_ROLES.includes(roleData as (typeof ADMIN_ROLES)[number])) {
-      return errorResponse('Forbidden: contractor-admin or client-admin only', 403)
+      return errorResponse('Forbidden: staff role required', 403)
     }
+    const { data: clientIds, error: scopeError } = await supabaseUser.rpc('accessible_client_ids')
+    if (scopeError) {
+      return errorResponse(`Client scope lookup failed: ${scopeError.message}`, 500)
+    }
+    scopedClientIds = clientIds ?? []
   }
 
   const supabase = createClient<Database>(supabaseUrl, serviceRoleKey)
@@ -117,12 +132,18 @@ serve(async (req) => {
   // booking autocomplete primary-path lookup is keyed on google_place_id.
   let query = supabase
     .from('eligible_properties')
-    .select('id, address, formatted_address, external_source')
+    .select('id, address, formatted_address, external_source, collection_area!inner(client_id)')
     .is('google_place_id', null)
     .order('created_at', { ascending: true })
 
   if (externalSource) query = query.eq('external_source', externalSource)
   if (propertyIds && propertyIds.length > 0) query = query.in('id', propertyIds)
+  if (scopedClientIds) {
+    if (scopedClientIds.length === 0) {
+      return jsonResponse({ message: 'No accessible clients', processed: 0, total: 0, failed: 0 })
+    }
+    query = query.in('collection_area.client_id', scopedClientIds)
+  }
 
   // For smoke tests with compareAutocomplete: oversample then shuffle so the
   // 50-row sample spans Main/SUB/VIC by chance rather than all-from-oldest.
