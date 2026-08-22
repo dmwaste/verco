@@ -2782,6 +2782,10 @@ export type Database = {
         Returns: Database["public"]["Enums"]["app_role"]
       }
       current_user_sub_client_id: { Args: never; Returns: string }
+      eligible_property_is_bookable: {
+        Args: { p_property_id: string }
+        Returns: boolean
+      }
       generate_booking_ref: { Args: { p_area_code: string }; Returns: string }
       get_client_monthly_report: {
         Args: { p_client_id: string; p_month: string }
