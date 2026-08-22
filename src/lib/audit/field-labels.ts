@@ -174,6 +174,7 @@ export const FIELD_LABELS: Record<string, string> = {
   // Refund request
   amount_cents: 'Amount',
   stripe_refund_id: 'Stripe Refund ID',
+  review_notes: 'Review notes',
   reviewed_by: 'Reviewed By',
   reviewed_at: 'Reviewed At',
 }
