@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { classifyServiceRoleBearer } from '@/lib/auth/service-role-bearer'
+import { classifyServiceRoleBearer } from '@/lib/auth/service-role-auth'
 
 const b64 = (o: object) => Buffer.from(JSON.stringify(o)).toString('base64url')
 const jwt = (payload: object) => `${b64({ alg: 'HS256', typ: 'JWT' })}.${b64(payload)}.sig`

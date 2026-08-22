@@ -97,7 +97,9 @@ export function withSentry(name: string, handler: Handler): Handler {
       { name, op: "function.edge" },
       async () => {
         try {
-          return await handler(req);
+          const res = await handler(req);
+          if (res.status >= 500) await reportServerErrorResponse(name, res);
+          return res;
         } catch (e) {
           Sentry.captureException(e);
           throw e;
@@ -111,6 +113,39 @@ export function withSentry(name: string, handler: Handler): Handler {
       },
     );
   };
+}
+
+// ── 5xx RESPONSE capture (#518) ──
+// withSentry only saw THROWN errors. A handler that catches its own failure and
+// returns a 500 — every cron EF does, so pg_cron sees the status — produced no
+// Sentry event at all: handle-expired-payments 500'd hourly for 7 weeks (#496)
+// and nobody knew. Now any 5xx response is reported as an error event, with the
+// body (PII-scrubbed by beforeSend) as context. Rate-limited per function name
+// per hour so an hourly cron can't flood, and — like everything here — can
+// never throw or alter the response.
+const ALERT_INTERVAL_MS = 60 * 60 * 1000;
+const lastAlertAt = new Map<string, number>();
+
+async function reportServerErrorResponse(name: string, res: Response): Promise<void> {
+  try {
+    const now = Date.now();
+    const last = lastAlertAt.get(name) ?? 0;
+    if (now - last < ALERT_INTERVAL_MS) return;
+    lastAlertAt.set(name, now);
+    let body = "";
+    try {
+      body = (await res.clone().text()).slice(0, 2000);
+    } catch (_e) {
+      // body unreadable — still report the status
+    }
+    Sentry.captureMessage(`${name} returned HTTP ${res.status}`, {
+      level: "error",
+      tags: { edge_function: name, http_status: String(res.status) },
+      extra: { body },
+    });
+  } catch (_e) {
+    // Never let error reporting break an Edge Function.
+  }
 }
 
 /**

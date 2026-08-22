@@ -1,11 +1,12 @@
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts'
+import { cronHandler } from '../_shared/cron-handler.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.100.0'
 import type { Database } from '../_shared/database.types.ts'
 
 // Service-role only — triggered by pg_cron, no JWT validation.
 // Aggregates attended bookings from Verco and upserts into DM-Ops booked_collection table.
 
-serve(async (_req) => {
+serve(cronHandler('nightly-sync-to-dm-ops', async (_req) => {
   const verco = createClient<Database>(
     Deno.env.get('SUPABASE_URL')!,
     Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
@@ -169,4 +170,4 @@ serve(async (_req) => {
       { status: 500, headers: { 'Content-Type': 'application/json' } }
     )
   }
-})
+}))
