@@ -589,6 +589,7 @@ export type Database = {
           created_at: string
           currency: string
           id: string
+          receipt_url: string | null
           status: string
           stripe_charge_id: string | null
           stripe_payment_intent: string | null
@@ -603,6 +604,7 @@ export type Database = {
           created_at?: string
           currency?: string
           id?: string
+          receipt_url?: string | null
           status?: string
           stripe_charge_id?: string | null
           stripe_payment_intent?: string | null
@@ -617,6 +619,7 @@ export type Database = {
           created_at?: string
           currency?: string
           id?: string
+          receipt_url?: string | null
           status?: string
           stripe_charge_id?: string | null
           stripe_payment_intent?: string | null
