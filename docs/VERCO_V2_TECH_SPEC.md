@@ -614,6 +614,7 @@ CREATE TABLE refund_request (
   stripe_refund_id  text,
   reviewed_by       uuid REFERENCES profiles(id),
   reviewed_at       timestamptz,
+  review_notes      text,                      -- required justification when an auto-raised (owed) refund is Rejected (#405)
   created_at        timestamptz NOT NULL DEFAULT now(),
   updated_at        timestamptz NOT NULL DEFAULT now()
 );
@@ -975,7 +976,9 @@ RETURNS boolean AS $$
   );
 $$ LANGUAGE sql SECURITY DEFINER STABLE;
 
--- Is the current user a contractor-tier user?
+-- Is the current user a contractor-tier user? NOTE: INCLUDES `field`. Never use this
+-- to gate PII or money (refund_request_staff_select leaked refund rows to crews until
+-- 22/08/2026) — enumerate the four staff roles explicitly instead (CLAUDE.md §4).
 CREATE OR REPLACE FUNCTION is_contractor_user()
 RETURNS boolean AS $$
   SELECT current_user_role() IN ('contractor-admin', 'contractor-staff', 'field');
@@ -1124,6 +1127,10 @@ CREATE POLICY eligible_properties_select ON eligible_properties FOR SELECT
       SELECT id FROM collection_area WHERE client_id IN (SELECT accessible_client_ids())
     )
   );
+-- Staff INSERT/UPDATE (eligible_properties_staff_insert / _staff_update): the four staff
+-- roles, area in an accessible client + sub-client scope; WITH CHECK = USING so an area move
+-- must land in an accessible area too. Backs in-place address edit + contractor area move
+-- (ADR 0013). Note the table is ALSO public-SELECT (USING(true)) for the /book flow.
 
 -- BOOKING: Resident INSERT own bookings
 CREATE POLICY booking_resident_insert ON booking FOR INSERT
@@ -1359,7 +1366,7 @@ $$ LANGUAGE plpgsql;
 
 ### 8.3 Scheduled Transition (Daily Cron)
 
-A Supabase cron job fires daily at 07:25 UTC (3:25pm AWST) — 5 minutes before the cutoff:
+The `transition-scheduled` Edge Function runs daily at 07:25 UTC (3:25pm AWST) — 5 minutes before the cutoff — invoked by pg_cron via `net.http_post` like every other cron EF (see §10, cron EFs: `cronHandler` + `X-Cron-Secret`). It does the equivalent of the SQL below (the original in-database design, kept for the intent):
 
 ```sql
 SELECT cron.schedule(
@@ -1385,7 +1392,7 @@ SELECT cron.schedule(
 
 ### 9.1 Concurrency Control
 
-Capacity validation and booking insert are wrapped in a serialisable transaction using a Postgres advisory lock keyed on `collection_date_id`:
+Capacity validation and booking insert are wrapped in a serialisable transaction using a Postgres advisory lock. **Pool-aware (migration `20260513080000`):** when the area has a `capacity_pool_id` (Verge Valet), the counters and the lock key live on the `collection_date_pool` row for that date — `collection_date`'s own counters stay at 0 — and a missing pool row is treated as closed. Un-pooled areas (Kwinana) lock and count on `collection_date_id`. `update_booking_items_in_place` (edits) and the `enforce_booking_item_staff_write` trigger (client-tier date moves, ADR 0014) branch the same way. The sketch below shows the un-pooled branch:
 
 ```sql
 -- In the create-booking Edge Function, called via RPC
@@ -1508,19 +1515,17 @@ All Edge Functions are in `supabase/functions/`. Auth pattern: Bearer JWT unless
 - **Output (edit):** `{ booking_id, ref, edited: true, requires_payment: false, refund_owed_cents }` — `refund_owed_cents` (0 on the wizard path) is the amount the caller must refund via the `refund_request` + `process-refund` machinery on an `inline_edit` reduction
 - **Errors (edit):** `409 { error, code: 'concurrent_edit' }` when the `p_expected_items` guard detects the booking's items changed since this edit was priced (concurrent edit) — caller should reload and re-edit
 - **Side effects:** Inserts/updates `booking`, `booking_item`, `contacts` (upsert on create), triggers notifications
+- **Collection-details edits are NOT an EF:** location / notes / collection-date changes go through the `updateCollectionDetails` server action (`admin/bookings/[id]/actions.ts`, user JWT + RLS). Gates, mirrored by the date picker and by the `enforce_booking_item_staff_write` DB trigger: pre-dispatch (Pending Payment/Submitted/Confirmed) → any staff role; Scheduled/Completed → contractor only; a target date that is closed, past, **or full for the booking's units** → contractor only (`canRescheduleToTargetDate` + `capacityBlocksMove`, ADR 0012/0014); target must be in the booking's own area. Price/identity columns on `booking_item` are immutable under any user JWT.
 
 ### `create-checkout`
 - **Auth:** Bearer JWT
-- **Input:** `{ booking_id }`
+- **Input:** `{ booking_id, success_url, cancel_url }`
 - **Validates:** Booking belongs to calling user, status = `Pending Payment`
-- **Output:** `{ checkout_url }` (Stripe Checkout Session)
-- **Side effects:** Creates Stripe Checkout Session
+- **Output:** `{ checkout_url }` (Stripe Checkout Session) — or `{ already_paid: true, booking_ref }` when an existing session is found already paid (reconciled on the spot via `_shared/checkout-reconcile.ts`; a reconcile failure is a 500, never "expire + mint a new session", #496)
+- **Side effects:** Creates Stripe Checkout Session + a `pending` `booking_payment` row; reuses an open session rather than minting a duplicate
 
-### `verify-payment`
-- **Auth:** Bearer JWT
-- **Input:** `{ session_id }`
-- **Output:** `{ booking_id, status }`
-- **Side effects:** Updates `booking_payment.status`, transitions `booking.status` to `Submitted`
+### Payment reconcile (`_shared/checkout-reconcile.ts`)
+There is no `verify-payment` function. A paid session is reconciled by whichever path sees it first — `stripe-webhook` (`checkout.session.completed`), `handle-expired-payments` (hourly cron: reminders + expiry, re-checks Stripe before cancelling), or `create-checkout` session reuse — all through the same idempotent helper: `booking_payment` → `paid` (+ `stripe_charge_id`, `receipt_url`), `booking.status` Pending Payment → **Confirmed** (auto-confirm, 18/05; `Submitted` is a legacy value), then `booking_created` notifications.
 
 ### `stripe-webhook`
 - **Auth:** Stripe HMAC signature verification
@@ -1533,6 +1538,7 @@ All Edge Functions are in `supabase/functions/`. Auth pattern: Bearer JWT unless
 - **Output:** `{ stripe_refund_id, stripe_refund_ids }` — `stripe_refund_id` is the primary (newest-charge) id; `stripe_refund_ids` is the full set when a request spans more than one paid charge
 - **Concurrency & money-safety:** claims the request (`reviewed_at` guard) before touching Stripe so concurrent calls can't double-refund; spreads the amount newest-charge-first across all paid `booking_payment` rows (`allocateRefund`), each capped by that charge's Stripe-remaining, with a per-`(request, charge)` idempotency key; 409s on shortfall rather than under-refunding
 - **Side effects:** Initiates one Stripe refund per charge, sets `refund_request.status` → `Approved`
+- **Reject path (no EF):** the admin Refunds page rejects via a direct `refund_request` UPDATE guarded to `status = 'Pending'`. Every row is auto-raised owed money (`lib/refunds/auto-raised.ts`), so Reject is confirm-gated and **requires a typed justification** stored in `review_notes` (#405); the audit trigger records who/when/why. The resident is not notified of a rejection.
 
 ### `send-notification`
 - **Auth (dual):** **either** a service-role bearer (EF→EF callers — `create-booking`, `stripe-webhook`, `handle-expired-payments`) **or** a valid user JWT whose `current_user_role()` is in the permitted set (`contractor-admin`, `contractor-staff`, `client-admin`, `client-staff`, `field`, `ranger`, `resident`). Server-action→EF callers (admin/resident cancel, field NCN/NP raise) use the JWT path because the service-role key must never appear in `app/` code (Red Line #3). The service-role branch requires `SUPABASE_SERVICE_ROLE_KEY` to be set and non-empty — an empty bearer can never authenticate as service-role.
@@ -1556,11 +1562,14 @@ All Edge Functions are in `supabase/functions/`. Auth pattern: Bearer JWT unless
 - **Templates:** `booking_created`, `place_out_reminder`
 - **Side effects:** Sends SMS, inserts `notification_log`
 
-### `send-place-out-reminders`
-- **Auth:** Cron (daily)
-- **Trigger:** Supabase cron, daily at 06:00 UTC
-- **Logic:** Find all bookings where `collection_date = today + sms_reminder_days_before` AND no `place_out_reminder` in `notification_log`
-- **Side effects:** Calls `send-email` + `send-sms` for each eligible booking
+### Cron Edge Functions — shared contract
+Every pg_cron-invoked EF is entered via `serve(cronHandler('<name>', handler))` (`_shared/cron-handler.ts`): Sentry (exceptions **and** 5xx responses) + auth. pg_cron sends the public anon/publishable key as a routing bearer (it cannot reach the service key) **plus** `X-Cron-Secret`, read at run time from Supabase Vault (`cron_ef_secret`, injected into every job command by migration `20260822090000`); the EF compares it to its `CRON_SECRET` secret. A proven service-role bearer is also accepted (CLI). `pull-optimoroute-routes` additionally admits contractor staff JWTs for the admin "Refresh routes" button. Fail-closed; a rejected request carrying our own routing key raises a Sentry warning. Members: `auto-close-notices`, `generate-collection-dates`, `handle-expired-payments`, `nightly-sync-to-dm-ops`, `notification-health-check`, `push-orders-to-optimoroute`, `pull-optimoroute-routes`, `send-collection-reminders`, `sync-completions-to-optimoroute`, `sync-optimoroute-cancellations`, `transition-scheduled`.
+
+### `send-collection-reminders`
+- **Auth:** Cron (see shared contract)
+- **Trigger:** pg_cron, daily at 01:00 UTC
+- **Logic:** Find all bookings where `collection_date = today + place_out_hours_before` (per-client) AND no reminder yet in `notification_log`
+- **Side effects:** Dispatches the reminder template via `send-notification` (email + SMS, per-channel idempotency)
 
 ### `google-places-proxy`
 - **Auth:** Bearer JWT
@@ -1568,10 +1577,11 @@ All Edge Functions are in `supabase/functions/`. Auth pattern: Bearer JWT unless
 - **Output:** Google Places Autocomplete results (filtered to AJA bounds)
 - **Side effects:** None
 
-### `geocode-property`
-- **Auth:** Bearer JWT (admin only)
-- **Input:** `{ property_id }`
-- **Side effects:** Updates `eligible_properties.latitude`, `longitude`, `has_geocode`
+### `geocode-properties`
+- **Auth (dual):** service-role bearer (CLI / import scripts; any valid secret via `isServiceRoleBearer`) **or** a user JWT with any of the four staff roles — user callers are pinned to `accessible_client_ids()` so a council admin can't geocode another tenant's rows
+- **Input:** `{ property_ids?: uuid[], limit?, dry_run?, compare_autocomplete?, external_source? }` — all optional; default = every row with `google_place_id IS NULL` (chunk with `limit` for backfills; `property_ids` is what the in-place address edit uses to re-geocode one row, ADR 0013)
+- **Output:** `{ processed, failed, total, … }` — stable shape on every path (the admin "Geocode All" loop keys off `total === 0`)
+- **Side effects:** Updates `eligible_properties.formatted_address`, `google_place_id`, `latitude`, `longitude`, `has_geocode`
 
 ### `nightly-sync-to-dm-ops`
 - **Auth:** Service role (cron)
@@ -1770,7 +1780,7 @@ The public `submitSurvey` server action validates responses against `SURVEY_QUES
 # Supabase (Verco project)
 NEXT_PUBLIC_SUPABASE_URL=
 NEXT_PUBLIC_SUPABASE_ANON_KEY=
-SUPABASE_SERVICE_ROLE_KEY=          # server/edge only
+SUPABASE_SERVICE_ROLE_KEY=          # Edge Functions ONLY (Red Line #3) — never in the Next.js image or Coolify env
 
 # Stripe
 STRIPE_PUBLISHABLE_KEY=
@@ -1782,6 +1792,14 @@ ATTIO_API_KEY=                      # edge only
 
 # Google Places
 GOOGLE_PLACES_API_KEY=              # edge only
+
+# Cron → Edge Function auth (#517)
+CRON_SECRET=                        # edge only; twin lives in Supabase Vault as `cron_ef_secret`
+
+# Observability
+SENTRY_DSN=                         # edge only (EF secret)
+NEXT_PUBLIC_SENTRY_DSN=             # app; Docker build-arg
+SENTRY_ORG= SENTRY_PROJECT= SENTRY_AUTH_TOKEN=   # build-time only (source-map upload), GitHub Actions secrets
 
 # SMS Provider
 SMS_API_KEY=                        # edge only
