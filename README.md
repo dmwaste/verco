@@ -69,3 +69,5 @@ Secrets are caught in two places:
 - [Product Requirements (PRD)](docs/VERCO_V2_PRD.md)
 - [Technical Specification](docs/VERCO_V2_TECH_SPEC.md)
 - [Admin Design System](docs/admin-design-system.md) — tokens, shared components, status pills (read before touching an admin page)
+- [Decision log (ADRs)](docs/adr/README.md) — plain-English record of settled product/engineering calls
+- [Deploy runbook](docs/runbooks/deploy.md) — how a release reaches prod, secrets map, rollback

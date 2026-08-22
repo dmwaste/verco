@@ -1783,6 +1783,12 @@ ATTIO_API_KEY=                      # edge only
 # Google Places
 GOOGLE_PLACES_API_KEY=              # edge only
 
+# Cron → Edge Function auth (#517)
+CRON_SECRET=                        # edge only; twin lives in Supabase Vault as `cron_ef_secret`
+
+# Observability
+SENTRY_DSN=                         # edge only; NEXT_PUBLIC_SENTRY_DSN for the app
+
 # SMS Provider
 SMS_API_KEY=                        # edge only
 

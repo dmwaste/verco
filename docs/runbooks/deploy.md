@@ -51,6 +51,8 @@ Manual trigger (redeploy without a new commit): Actions → Deploy → Run workf
 | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` | `supabase secrets set` | `create-checkout`, `stripe-webhook` EFs |
 | `SENDGRID_API_KEY`, `SENDGRID_FROM_EMAIL` | `supabase secrets set` | `send-notification` EF |
 | `GOOGLE_PLACES_API_KEY` | `supabase secrets set` | `google-places-proxy` EF |
+| `CRON_SECRET` | `supabase secrets set` **and** Supabase Vault as `cron_ef_secret` (same value, never in git) | Every cron-invoked EF (`_shared/cron-handler.ts`, #517). pg_cron reads the Vault copy at run time and sends it as `X-Cron-Secret`; the EF compares it to its env copy. Rotate both together or every cron 401s — a mismatch raises a Sentry warning on the first run. |
+| `SENTRY_DSN` | `supabase secrets set` | All EFs (`withSentry`) — inert when unset |
 
 Coolify runtime env is intentionally thin: `NODE_ENV=production`, `PORT=3000`, `HOSTNAME=0.0.0.0`. Nothing else.
 
