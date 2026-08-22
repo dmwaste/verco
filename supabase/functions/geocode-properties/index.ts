@@ -6,6 +6,8 @@ import { jsonResponse, optionsResponse, errorResponse } from '../_shared/cors.ts
 import { streetNumbersDisagree } from '../_shared/geocode-verify.ts'
 
 type RequestBody = {
+  // Restrict to these property ids (admin address edit re-geocode, #502).
+  property_ids?: unknown
   // Cap the number of rows processed in one invocation. Default: all matching.
   // Useful for chunking large backfills under the 150s EF wall-clock limit.
   limit?: number
@@ -104,6 +106,10 @@ serve(async (req) => {
   const dryRun = body.dry_run === true
   const compareAutocomplete = body.compare_autocomplete === true
   const externalSource = typeof body.external_source === 'string' ? body.external_source : null
+  // #502: re-geocode specific rows (admin address edit clears their place_id).
+  const propertyIds = Array.isArray(body.property_ids)
+    ? body.property_ids.filter((v): v is string => typeof v === 'string').slice(0, 100)
+    : null
 
   // Catches rows missing place_id regardless of has_geocode state. The Main VV
   // import populated lat/long from Airtable without calling Geocoding, so
@@ -116,6 +122,7 @@ serve(async (req) => {
     .order('created_at', { ascending: true })
 
   if (externalSource) query = query.eq('external_source', externalSource)
+  if (propertyIds && propertyIds.length > 0) query = query.in('id', propertyIds)
 
   // For smoke tests with compareAutocomplete: oversample then shuffle so the
   // 50-row sample spans Main/SUB/VIC by chance rather than all-from-oldest.
