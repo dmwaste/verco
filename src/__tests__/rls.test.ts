@@ -734,6 +734,137 @@ if (!haveDb) {
   })
 
   // ---------------------------------------------------------------------------
+  // booking_item staff write gate (#383, migration 20260822050000). The staff
+  // UPDATE policy has no column/status/date/area condition, so a client-tier
+  // JWT could PATCH price columns, move items onto closed/past/other-area dates
+  // or edit post-dispatch bookings straight through PostgREST — bypassing the
+  // app gate in collection-details-edit.ts. A BEFORE UPDATE trigger now
+  // mirrors that gate at the DB layer.
+  // ---------------------------------------------------------------------------
+  describe('booking_item staff write gate (#383)', () => {
+    const GB_BOOKING = 'abababab-0011-4000-8000-000000000011'
+    const GB_ITEM = 'abababab-0012-4000-8000-000000000012'
+
+    let triggerLive = false
+    let otherAreaDate: string | null = null
+    let pastDate: string | null = null
+
+    beforeAll(async () => {
+      const r = await pg.query(
+        `SELECT 1 FROM pg_trigger WHERE tgname = 'enforce_booking_item_staff_write'`,
+      )
+      triggerLive = (r.rowCount ?? 0) > 0
+      if (!kwnAreaId) return
+      const o = await pg.query(
+        `SELECT id FROM collection_date WHERE collection_area_id <> $1 LIMIT 1`,
+        [kwnAreaId],
+      )
+      otherAreaDate = o.rows[0]?.id ?? null
+      const p = await pg.query(
+        `SELECT id FROM collection_date WHERE collection_area_id = $1 AND date < current_date LIMIT 1`,
+        [kwnAreaId],
+      )
+      pastDate = p.rows[0]?.id ?? null
+    })
+
+    async function withBooking(
+      userId: string,
+      sql: string,
+      bookingStatus: 'Confirmed' | 'Scheduled' = 'Confirmed',
+    ): Promise<number> {
+      await pg.query('BEGIN')
+      try {
+        await pg.query(
+          `INSERT INTO public.booking (id, ref, type, status, collection_area_id, client_id, contractor_id, fy_id)
+           VALUES ($1, 'RLS-BI-GATE', 'Residential', $2, $3, $4, $5,
+                   (SELECT id FROM financial_year WHERE is_current LIMIT 1))`,
+          [GB_BOOKING, bookingStatus, kwnAreaId, CLIENT_ID, CONTRACTOR_ID],
+        )
+        await pg.query(
+          `INSERT INTO public.booking_item (id, booking_id, service_id, collection_date_id, no_services, is_extra, unit_price_cents)
+           VALUES ($1, $2, (SELECT id FROM service LIMIT 1),
+                   (SELECT id FROM collection_date WHERE collection_area_id = $3 AND is_open AND date >= current_date ORDER BY date LIMIT 1),
+                   1, false, 0)`,
+          [GB_ITEM, GB_BOOKING, kwnAreaId],
+        )
+        await pg.query(`SET LOCAL ROLE authenticated`)
+        await pg.query(`SELECT set_config('request.jwt.claims', $1, true)`, [
+          JSON.stringify({ sub: userId, role: 'authenticated' }),
+        ])
+        const r = await pg.query(sql)
+        return r.rowCount ?? 0
+      } finally {
+        await pg.query('ROLLBACK')
+      }
+    }
+
+    it('client-admin CANNOT set unit_price_cents (Red Line #1 at the DB layer)', async (ctx) => {
+      if (!triggerLive || !kwnAreaId) return ctx.skip()
+      await expect(
+        withBooking(USERS['client-admin'], `UPDATE booking_item SET unit_price_cents = 999 WHERE id = '${GB_ITEM}'`),
+      ).rejects.toThrow(/identity and price columns/)
+    })
+
+    it('contractor-admin CANNOT set is_extra either — the pin is for every user role', async (ctx) => {
+      if (!triggerLive || !kwnAreaId) return ctx.skip()
+      await expect(
+        withBooking(USERS['contractor-admin'], `UPDATE booking_item SET is_extra = true WHERE id = '${GB_ITEM}'`),
+      ).rejects.toThrow(/identity and price columns/)
+    })
+
+    it('client-admin CANNOT move an item onto a past date', async (ctx) => {
+      if (!triggerLive || !kwnAreaId || !pastDate) return ctx.skip()
+      await expect(
+        withBooking(USERS['client-admin'], `UPDATE booking_item SET collection_date_id = '${pastDate}' WHERE id = '${GB_ITEM}'`),
+      ).rejects.toThrow(/closed or past collection date/)
+    })
+
+    it('contractor-admin CAN move an item onto a past date (the #378 override)', async (ctx) => {
+      if (!triggerLive || !kwnAreaId || !pastDate) return ctx.skip()
+      expect(
+        await withBooking(USERS['contractor-admin'], `UPDATE booking_item SET collection_date_id = '${pastDate}' WHERE id = '${GB_ITEM}'`),
+      ).toBe(1)
+    })
+
+    it('nobody can repoint an item to another area\'s date (cross-tenant counter hole)', async (ctx) => {
+      if (!triggerLive || !kwnAreaId || !otherAreaDate) return ctx.skip()
+      await expect(
+        withBooking(USERS['contractor-admin'], `UPDATE booking_item SET collection_date_id = '${otherAreaDate}' WHERE id = '${GB_ITEM}'`),
+      ).rejects.toThrow(/not in this booking's collection area/)
+    })
+
+    it('client-admin CANNOT edit items on a Scheduled booking', async (ctx) => {
+      if (!triggerLive || !kwnAreaId) return ctx.skip()
+      await expect(
+        withBooking(USERS['client-admin'], `UPDATE booking_item SET no_services = 2 WHERE id = '${GB_ITEM}'`, 'Scheduled'),
+      ).rejects.toThrow(/Only contractor staff may edit items/)
+    })
+
+    it('client-admin CAN change quantity on a Confirmed booking (in-place editor path)', async (ctx) => {
+      if (!triggerLive || !kwnAreaId) return ctx.skip()
+      expect(
+        await withBooking(USERS['client-admin'], `UPDATE booking_item SET no_services = 2 WHERE id = '${GB_ITEM}'`),
+      ).toBe(1)
+    })
+  })
+
+  // ---------------------------------------------------------------------------
+  // refund_request SELECT (#387.c, migration 20260822050000): the policy gated
+  // on is_contractor_user(), which includes field — crews could read refund
+  // amounts + the resident contact FK. Now explicit four-role.
+  // ---------------------------------------------------------------------------
+  describe('refund_request SELECT excludes field (#387)', () => {
+    it('field sees zero refund_request rows', async (ctx) => {
+      const r = await pg.query(
+        `SELECT qual FROM pg_policies WHERE tablename = 'refund_request' AND policyname = 'refund_request_staff_select'`,
+      )
+      const qual: string = r.rows[0]?.qual ?? ''
+      if (!qual || qual.includes('is_contractor_user')) return ctx.skip()
+      expect(await countAs(USERS.field, 'SELECT id FROM refund_request')).toBe(0)
+    })
+  })
+
+  // ---------------------------------------------------------------------------
   // TC-F5 (VER-247): residents can cancel their OWN booking. The bug was an
   // implicit WITH CHECK on booking_resident_update that rejected status
   // 'Cancelled' (0 rows, no error). These assert the policy now lets a resident

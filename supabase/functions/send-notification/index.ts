@@ -1,6 +1,7 @@
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.100.0'
 import type { Database } from '../_shared/database.types.ts'
+import { isServiceRoleBearer } from '../_shared/service-role-auth.ts'
 import { dispatch } from '../_shared/dispatch.ts'
 import type {
   BookingForDispatch,
@@ -101,11 +102,12 @@ serve(async (req) => {
     return jsonResponse({ error: 'Unauthorized — missing bearer token' }, 401)
   }
   const token = authHeader.slice('Bearer '.length)
-  const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
-  // Guard the key length: if SUPABASE_SERVICE_ROLE_KEY is ever unset, an empty
-  // bearer ('Authorization: Bearer ') would otherwise satisfy `'' === ''` and
-  // authenticate as service-role, bypassing the tenant gate entirely.
-  const isServiceRole = serviceRoleKey.length > 0 && token === serviceRoleKey
+  // Any valid service-role secret for this project (legacy JWT or sb_secret_),
+  // not only the one injected in env (#480). An empty bearer never matches.
+  const isServiceRole = await isServiceRoleBearer(token, {
+    supabaseUrl: Deno.env.get('SUPABASE_URL'),
+    serviceRoleKey: Deno.env.get('SUPABASE_SERVICE_ROLE_KEY'),
+  })
 
   const PERMITTED_USER_ROLES = new Set([
     'contractor-admin',

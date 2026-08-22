@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { buildSearchOrFilter } from '@/lib/search/or-filter'
+import { buildSearchOrFilter, buildSearchOrFilterWithEnum } from '@/lib/search/or-filter'
 
 describe('buildSearchOrFilter', () => {
   it('builds a quoted contains filter across multiple columns', () => {
@@ -38,5 +38,33 @@ describe('buildSearchOrFilter', () => {
 
   it('leaves LIKE wildcards in the term as wildcards (unchanged contains behaviour)', () => {
     expect(buildSearchOrFilter(['ref'], '50%')).toBe('ref.ilike."%50%%"')
+  })
+})
+
+describe('buildSearchOrFilterWithEnum (#497 — enum columns cannot be ILIKEd)', () => {
+  const REASONS = ['Building Waste', 'Asbestos / Fibre Fence', 'Tyres', 'Other'] as const
+
+  it('text columns get ilike; matching enum values become a quoted .in. list', () => {
+    expect(buildSearchOrFilterWithEnum(['notes'], 'reason', REASONS, 'asbes')).toBe(
+      'notes.ilike."%asbes%",reason.in.("Asbestos / Fibre Fence")',
+    )
+  })
+
+  it('matches are case-insensitive substring and may be several', () => {
+    expect(buildSearchOrFilterWithEnum(['notes'], 'reason', REASONS, 'e')).toBe(
+      'notes.ilike."%e%",reason.in.("Building Waste","Asbestos / Fibre Fence","Tyres","Other")',
+    )
+  })
+
+  it('no enum match → plain text filter only (never an ilike on the enum)', () => {
+    const f = buildSearchOrFilterWithEnum(['notes'], 'reason', REASONS, 'zzz')
+    expect(f).toBe('notes.ilike."%zzz%"')
+    expect(f).not.toContain('reason')
+  })
+
+  it('commas/quotes in the term stay literal in the ilike and cannot break the .in. list', () => {
+    expect(buildSearchOrFilterWithEnum(['notes'], 'reason', REASONS, 'a, "b"')).toBe(
+      'notes.ilike."%a, \\"b\\"%"',
+    )
   })
 })
