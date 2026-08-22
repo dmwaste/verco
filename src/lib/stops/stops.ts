@@ -213,6 +213,70 @@ export function payloadDiffers(existing: StopDiffExisting, desired: StopDiffDesi
   )
 }
 
+/** A stored stop as seen by pass-1 planning (any status). */
+export interface PlanExistingStop extends StopDiffExisting {
+  id: string
+  booking_id: string
+  stream: WasteStream
+  status: string
+}
+
+/** A desired stop as seen by pass-1 planning. */
+export interface PlanDesiredStop extends StopDiffDesired {
+  booking_id: string
+  stream: WasteStream
+}
+
+export interface StopPlan<D extends PlanDesiredStop> {
+  inserts: D[]
+  refresh: Array<{ id: string; payload: D }>
+  revive: Array<{ id: string; payload: D }>
+}
+
+/**
+ * Pass-1 planning: diff the desired stops (live bookings on locked dates)
+ * against the stored rows for those same (booking, stream) keys.
+ *
+ *   no row                → insert
+ *   Pending + drifted     → refresh (payload + pushed_at reset)
+ *   Cancelled             → revive (Pending, date repointed, pushed_at reset)
+ *   terminal (Completed / NCN / NP) → untouched — the as-dispatched record is
+ *                           immutable (#390.2 D2); never "fix" it into a revive.
+ *
+ * `existing` MUST include the booking's stops regardless of their date, not
+ * just stops on the locked window: a dispatched booking rescheduled beyond the
+ * window gets its old stop Cancelled (orphan sweep); when the new date locks
+ * the Cancelled row's date is already in the past. If it isn't in `existing`
+ * the key looks absent, the insert upserts against the non-partial
+ * UNIQUE(booking_id, stream) with ignoreDuplicates and silently does nothing —
+ * no stop, no OptimoRoute order, collection missed (#486, 17 bookings Jul–Aug
+ * 2026). Pure so the windowing regression stays tested.
+ */
+export function planStopChanges<D extends PlanDesiredStop>(
+  desired: readonly D[],
+  existing: readonly PlanExistingStop[],
+): StopPlan<D> {
+  const byKey = new Map<string, PlanExistingStop>()
+  for (const stop of existing) byKey.set(`${stop.booking_id}:${stop.stream}`, stop)
+
+  const plan: StopPlan<D> = { inserts: [], refresh: [], revive: [] }
+  for (const want of desired) {
+    const have = byKey.get(`${want.booking_id}:${want.stream}`)
+    if (!have) {
+      plan.inserts.push(want)
+    } else if (have.status === 'Pending') {
+      if (payloadDiffers(have, want)) plan.refresh.push({ id: have.id, payload: want })
+    } else if (have.status === 'Cancelled') {
+      // Stream reappeared (post-push amendment, or reschedule past the lock
+      // window) — revive, or the UNIQUE(booking_id, stream) row blocks the
+      // stream forever and the booking is never collected.
+      plan.revive.push({ id: have.id, payload: want })
+    }
+    // else: terminal — leave the dispatched record alone.
+  }
+  return plan
+}
+
 /**
  * Structured OptimoRoute order notes — a labelled block the crew reads in the
  * driver app / order detail, e.g.
