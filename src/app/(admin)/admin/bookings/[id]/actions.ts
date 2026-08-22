@@ -8,7 +8,7 @@ import { invokeSendNotification } from '@/lib/notifications/invoke'
 import { isPastCancellationCutoff } from '@/lib/booking/cancellation-cutoff'
 import {
   canEditCollectionDetails,
-  canRescheduleToTargetDate, capacityBlocksMove, unitsByCategory } from '@/lib/booking/collection-details-edit'
+  canRescheduleToTargetDate, capacityBlocksMove, remainingByCategory, unitsByCategory } from '@/lib/booking/collection-details-edit'
 import { STAFF_ROLES } from '@/lib/auth/roles'
 import { orchestrateRefund, type RefundOrchestrationState } from '@/lib/payments/orchestrate-refund'
 import { REFUND_REASONS } from '@/lib/refunds/auto-raised'
@@ -380,18 +380,14 @@ export async function updateCollectionDetails(
         .eq('capacity_pool_id', poolId)
         .eq('date', targetDate.date)
         .maybeSingle()
-      remaining = pool
-        ? { bulk: pool.bulk_capacity_limit - pool.bulk_units_booked, anc: pool.anc_capacity_limit - pool.anc_units_booked, id: pool.id_capacity_limit - pool.id_units_booked }
-        : { bulk: 0, anc: 0, id: 0 } // no pool row = closed, same as the booking RPC
+      remaining = pool ? remainingByCategory(pool) : { bulk: 0, anc: 0, id: 0 } // no pool row = closed, same as the booking RPC
     } else {
       const { data: cap } = await supabase
         .from('collection_date')
         .select('bulk_capacity_limit, bulk_units_booked, anc_capacity_limit, anc_units_booked, id_capacity_limit, id_units_booked')
         .eq('id', targetDate.id)
         .single()
-      remaining = cap
-        ? { bulk: cap.bulk_capacity_limit - cap.bulk_units_booked, anc: cap.anc_capacity_limit - cap.anc_units_booked, id: cap.id_capacity_limit - cap.id_units_booked }
-        : { bulk: 0, anc: 0, id: 0 }
+      remaining = cap ? remainingByCategory(cap) : { bulk: 0, anc: 0, id: 0 }
     }
     if (capacityBlocksMove(role, units, remaining)) {
       return {

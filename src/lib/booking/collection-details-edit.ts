@@ -135,3 +135,19 @@ export function capacityBlocksMove(
     (units.id > 0 && units.id > remaining.id)
   )
 }
+
+/** `limit − booked` per bucket from any row carrying the capacity counters (date or pool). */
+export function remainingByCategory(cap: {
+  bulk_capacity_limit: number
+  bulk_units_booked: number
+  anc_capacity_limit: number
+  anc_units_booked: number
+  id_capacity_limit: number
+  id_units_booked: number
+}): CategoryUnits {
+  return {
+    bulk: cap.bulk_capacity_limit - cap.bulk_units_booked,
+    anc: cap.anc_capacity_limit - cap.anc_units_booked,
+    id: cap.id_capacity_limit - cap.id_units_booked,
+  }
+}

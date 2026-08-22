@@ -1,6 +1,7 @@
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.100.0'
 import type { Database } from '../_shared/database.types.ts'
+import { withSentry } from '../_shared/sentry.ts'
 import { isServiceRoleBearer } from '../_shared/service-role-auth.ts'
 import { jsonResponse, optionsResponse, errorResponse } from '../_shared/cors.ts'
 import { streetNumbersDisagree } from '../_shared/geocode-verify.ts'
@@ -46,7 +47,7 @@ type GeocodeOutcome =
 // geocode and was then 403'd here, leaving the row permanently ungeocoded.
 const ADMIN_ROLES = ['contractor-admin', 'contractor-staff', 'client-admin', 'client-staff'] as const
 
-serve(async (req) => {
+serve(withSentry('geocode-properties', async (req) => {
   // Browser callers (the admin "Geocode All" button) send a CORS preflight
   // first. Without this short-circuit the OPTIONS request falls through to the
   // no-auth-header branch below and 401s with no Access-Control-Allow-Origin,
@@ -379,7 +380,7 @@ serve(async (req) => {
   // Dry runs and clean completions stay on 200.
   const status = !dryRun && failed > 0 ? 500 : 200
   return jsonResponse(response, status)
-})
+}))
 
 function stripPremisePrefix(s: string): string {
   return s.replace(/^(Unit|Flat|Townhouse|Apartment|Suite|Apt) +/i, '')

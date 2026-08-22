@@ -1,6 +1,7 @@
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.100.0'
 import type { Database } from '../_shared/database.types.ts'
+import { withSentry } from '../_shared/sentry.ts'
 import { isServiceRoleBearer } from '../_shared/service-role-auth.ts'
 import { dispatch } from '../_shared/dispatch.ts'
 import type {
@@ -87,7 +88,7 @@ function jsonResponse(body: unknown, status = 200) {
   })
 }
 
-serve(async (req) => {
+serve(withSentry('send-notification', async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
   }
@@ -475,4 +476,4 @@ serve(async (req) => {
       500
     )
   }
-})
+}))

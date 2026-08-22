@@ -771,6 +771,8 @@ if (!haveDb) {
       userId: string,
       sql: string,
       bookingStatus: 'Confirmed' | 'Scheduled' = 'Confirmed',
+      /** Extra setup run as the privileged role, before impersonation. */
+      seedSql: string | null = null,
     ): Promise<number> {
       await pg.query('BEGIN')
       try {
@@ -787,6 +789,7 @@ if (!haveDb) {
                    1, false, 0)`,
           [GB_ITEM, GB_BOOKING, kwnAreaId],
         )
+        if (seedSql) await pg.query(seedSql)
         await pg.query(`SET LOCAL ROLE authenticated`)
         await pg.query(`SELECT set_config('request.jwt.claims', $1, true)`, [
           JSON.stringify({ sub: userId, role: 'authenticated' }),
@@ -844,6 +847,48 @@ if (!haveDb) {
       if (!triggerLive || !kwnAreaId) return ctx.skip()
       expect(
         await withBooking(USERS['client-admin'], `UPDATE booking_item SET no_services = 2 WHERE id = '${GB_ITEM}'`),
+      ).toBe(1)
+    })
+
+    // #426 (migration 20260822120000): capacity dimension of a date move.
+    // A second open future date is forced full inside the rolled-back txn
+    // (counters are only recalculated by booking_item triggers, so a direct
+    // UPDATE of bulk_units_booked stands for the test's lifetime).
+    async function fullFutureDateSql(): Promise<string | null> {
+      const r = await pg.query(
+        `SELECT id FROM collection_date
+          WHERE collection_area_id = $1 AND is_open AND date > current_date + 3
+          ORDER BY date OFFSET 1 LIMIT 1`,
+        [kwnAreaId],
+      )
+      return r.rows[0]?.id ?? null
+    }
+
+    it('client-admin CANNOT move an item onto a FULL date (#426)', async (ctx) => {
+      if (!triggerLive || !kwnAreaId) return ctx.skip()
+      const target = await fullFutureDateSql()
+      if (!target) return ctx.skip()
+      await expect(
+        withBooking(
+          USERS['client-admin'],
+          `UPDATE booking_item SET collection_date_id = '${target}' WHERE id = '${GB_ITEM}'`,
+          'Confirmed',
+          `UPDATE collection_date SET bulk_units_booked = bulk_capacity_limit WHERE id = '${target}'`,
+        ),
+      ).rejects.toThrow(/full collection date/)
+    })
+
+    it('contractor-admin CAN move an item onto a FULL date (override kept, #426)', async (ctx) => {
+      if (!triggerLive || !kwnAreaId) return ctx.skip()
+      const target = await fullFutureDateSql()
+      if (!target) return ctx.skip()
+      expect(
+        await withBooking(
+          USERS['contractor-admin'],
+          `UPDATE booking_item SET collection_date_id = '${target}' WHERE id = '${GB_ITEM}'`,
+          'Confirmed',
+          `UPDATE collection_date SET bulk_units_booked = bulk_capacity_limit WHERE id = '${target}'`,
+        ),
       ).toBe(1)
     })
   })
