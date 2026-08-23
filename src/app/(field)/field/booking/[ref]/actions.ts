@@ -119,7 +119,7 @@ export async function completeBooking(bookingId: string): Promise<Result<void>> 
 
   const { data: booking } = await supabase
     .from('booking')
-    .select('id, status, client_id')
+    .select('id, status, client_id, collection_area_id')
     .eq('id', bookingId)
     .single()
 
@@ -152,6 +152,7 @@ export async function completeBooking(bookingId: string): Promise<Result<void>> 
     .insert({
       booking_id: bookingId,
       client_id: booking.client_id,
+      collection_area_id: booking.collection_area_id,
       token: surveyToken,
     })
 

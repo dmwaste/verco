@@ -762,20 +762,13 @@ function CustomerSatisfactionCards({ clientId, area, period }: CardScope) {
     queryKey: ['sla-csat', clientId, area, ...periodKey(period)],
     enabled: !!clientId && !period.unresolved,
     queryFn: async () => {
-      // For "All Areas" drop the embed (avoids multi-FK fragility); booking_survey
-      // has a single booking FK so the inner embed is safe when an area is set.
-      let q = area
-        ? supabase
-            .from('booking_survey')
-            .select('responses, booking!inner(collection_area_id)')
-            .not('submitted_at', 'is', null)
-            .eq('client_id', clientId)
-            .eq('booking.collection_area_id', area)
-        : supabase
-            .from('booking_survey')
-            .select('responses')
-            .not('submitted_at', 'is', null)
-            .eq('client_id', clientId)
+      // Area lives on the survey row (legacy Airtable rows have no booking).
+      let q = supabase
+        .from('booking_survey')
+        .select('responses')
+        .not('submitted_at', 'is', null)
+        .eq('client_id', clientId)
+      if (area) q = q.eq('collection_area_id', area)
       if (bounds.gte) q = q.gte('submitted_at', bounds.gte)
       if (bounds.lt) q = q.lt('submitted_at', bounds.lt)
       const rows = orThrow(await q)

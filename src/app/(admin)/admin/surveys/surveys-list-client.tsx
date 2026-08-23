@@ -44,14 +44,23 @@ function MiniStars({ value }: { value: number | null }) {
   )
 }
 
+/** Legacy external_ref is `<Airtable Booking_Ref>|<Create Date>`; show the ref part. */
+export function legacyRef(externalRef: string | null): string | null {
+  const ref = externalRef?.split('|')[0]?.trim()
+  return ref ? ref : null
+}
+
 interface SurveyRow {
   id: string
   submitted_at: string | null
   responses: unknown
   created_at: string
+  source: string
+  external_ref: string | null
+  /** Area lives on the survey row (legacy Airtable rows have no booking). */
+  collection_area: { code: string } | null
   booking: {
     ref: string
-    collection_area: { code: string } | null
     eligible_properties: { formatted_address: string | null } | null
   } | null
 }
@@ -116,8 +125,9 @@ export function SurveysListClient({ clientId }: SurveysListClientProps) {
       let query = supabase
         .from('booking_survey')
         .select(
-          `id, submitted_at, responses, created_at,
-           booking!inner(ref, collection_area!inner(code), eligible_properties:property_id(formatted_address))`,
+          `id, submitted_at, responses, created_at, source, external_ref,
+           collection_area!inner(code),
+           booking(ref, eligible_properties:property_id(formatted_address))`,
           { count: 'exact' }
         )
         .order('created_at', { ascending: false })
@@ -126,9 +136,11 @@ export function SurveysListClient({ clientId }: SurveysListClientProps) {
       if (clientId) query = query.eq('client_id', clientId)
       // Surveys list shows submitted surveys only.
       query = query.not('submitted_at', 'is', null)
-      if (areaFilter) query = query.eq('booking.collection_area_id', areaFilter)
+      if (areaFilter) query = query.eq('collection_area_id', areaFilter)
       if (matchingBookingIds) {
-        query = query.in('booking_id', matchingBookingIds.length ? matchingBookingIds : ['00000000-0000-0000-0000-000000000000'])
+        // Legacy (Airtable) rows have no booking — match their external_ref too.
+        const ids = matchingBookingIds.length ? matchingBookingIds : ['00000000-0000-0000-0000-000000000000']
+        query = query.or(`booking_id.in.(${ids.join(',')}),external_ref.ilike."%${search.replace(/"/g, '')}%"`)
       }
 
       const { data, count } = await query
@@ -215,11 +227,14 @@ export function SurveysListClient({ clientId }: SurveysListClientProps) {
                         href={`/admin/surveys/${row.id}`}
                         className="font-[family-name:var(--font-heading)] text-body-sm font-semibold text-[#293F52] hover:underline"
                       >
-                        {row.booking?.ref ?? '—'}
+                        {row.booking?.ref ?? legacyRef(row.external_ref) ?? '—'}
                       </Link>
+                      {row.source === 'airtable' && (
+                        <span className="ml-2 rounded bg-gray-100 px-1.5 py-0.5 text-caption text-gray-500">Airtable</span>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-xs text-gray-500">
-                      {row.booking?.collection_area?.code ?? '—'}
+                      {row.collection_area?.code ?? '—'}
                     </td>
                     <td className="px-4 py-3 text-body-sm text-gray-900">
                       {row.submitted_at ? format(new Date(row.submitted_at), 'd MMM yyyy') : '—'}

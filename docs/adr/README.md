@@ -18,3 +18,5 @@ An ADR — "architecture decision record" — is a short record of a decision we
 | [0012](0012-booking-item-staff-rules-enforced-by-trigger.md) | Council-staff booking-item rules are enforced by a database trigger, not only in app code | 22/08/2026 | Accepted |
 | [0013](0013-properties-edited-in-place-not-recreated.md) | Properties are corrected in place, never "mark ineligible and recreate" | 22/08/2026 | Accepted |
 | [0014](0014-client-tier-date-moves-respect-capacity.md) | Council staff can't move a booking onto a full date; D&M staff still can | 22/08/2026 | Accepted |
+| [0015](0015-nightly-dm-ops-sync-retired.md) | The nightly DM-Ops sync is retired, not fixed | 23/08/2026 | Accepted |
+| [0016](0016-legacy-surveys-without-bookings.md) | Imported Airtable surveys live in Verco without a booking | 23/08/2026 | Accepted |

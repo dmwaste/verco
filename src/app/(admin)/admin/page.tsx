@@ -142,7 +142,7 @@ export default async function AdminDashboardPage() {
   // on the switcher tenant.
   const recentSurveysQuery = supabase
     .from('booking_survey')
-    .select('id, submitted_at, responses, booking!inner(ref)')
+    .select('id, submitted_at, responses, external_ref, booking(ref)')
     .not('submitted_at', 'is', null)
     .order('submitted_at', { ascending: false })
     .limit(20)
@@ -556,7 +556,9 @@ export default async function AdminDashboardPage() {
                 </thead>
                 <tbody>
                   {recentSurveys.map((s) => {
-                    const booking = s.booking as unknown as { ref: string }
+                    const booking = s.booking as unknown as { ref: string } | null
+                    // Legacy Airtable rows have no booking; external_ref is `<ref>|<created>`.
+                    const ref = booking?.ref ?? s.external_ref?.split('|')[0]?.trim() ?? '—'
                     return (
                       <tr key={s.id} className="border-b border-gray-100 last:border-b-0 hover:bg-gray-50">
                         <td className="py-2 pr-2">
@@ -564,7 +566,7 @@ export default async function AdminDashboardPage() {
                             href={`/admin/surveys/${s.id}`}
                             className="text-body-sm font-medium text-[#293F52] hover:underline"
                           >
-                            {booking.ref}
+                            {ref}
                           </Link>
                         </td>
                         <td className="px-1 py-2 text-center">
