@@ -645,29 +645,38 @@ export type Database = {
       }
       booking_survey: {
         Row: {
-          booking_id: string
+          booking_id: string | null
           client_id: string
+          collection_area_id: string
           created_at: string
+          external_ref: string | null
           id: string
           responses: Json | null
+          source: string
           submitted_at: string | null
           token: string
         }
         Insert: {
-          booking_id: string
+          booking_id?: string | null
           client_id: string
+          collection_area_id: string
           created_at?: string
+          external_ref?: string | null
           id?: string
           responses?: Json | null
+          source?: string
           submitted_at?: string | null
           token: string
         }
         Update: {
-          booking_id?: string
+          booking_id?: string | null
           client_id?: string
+          collection_area_id?: string
           created_at?: string
+          external_ref?: string | null
           id?: string
           responses?: Json | null
+          source?: string
           submitted_at?: string | null
           token?: string
         }
@@ -684,6 +693,13 @@ export type Database = {
             columns: ["client_id"]
             isOneToOne: false
             referencedRelation: "client"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "booking_survey_collection_area_id_fkey"
+            columns: ["collection_area_id"]
+            isOneToOne: false
+            referencedRelation: "collection_area"
             referencedColumns: ["id"]
           },
         ]

@@ -285,7 +285,7 @@ async function maybeCreateCompletionSurvey(
 
   const { data: booking } = await supabase
     .from('booking')
-    .select('status')
+    .select('status, collection_area_id')
     .eq('id', bookingId)
     .single()
   if (booking?.status !== 'Completed') return
@@ -301,6 +301,7 @@ async function maybeCreateCompletionSurvey(
   const { error: surveyError } = await supabase.from('booking_survey').insert({
     booking_id: bookingId,
     client_id: clientId,
+    collection_area_id: booking.collection_area_id,
     token: surveyToken,
   })
   if (surveyError) {

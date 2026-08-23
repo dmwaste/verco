@@ -19,10 +19,10 @@ export default async function SurveyDetailPage({ params }: SurveyDetailPageProps
   const { data: survey } = await supabase
     .from('booking_survey')
     .select(
-      `id, submitted_at, responses, created_at,
-       booking!inner(
+      `id, submitted_at, responses, created_at, source, external_ref,
+       collection_area!inner(name, code),
+       booking(
          id, ref, status,
-         collection_area!inner(name, code),
          eligible_properties:property_id(formatted_address, address),
          booking_item(no_services, is_extra, service!inner(name), collection_date!inner(date))
        )`
