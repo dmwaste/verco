@@ -30,13 +30,15 @@
  *   npx tsx scripts/import-vv-bookings-csv.ts --file="path.csv" --area=VIN --apply    # write
  *   optional: --since=2026-07-01 (default)  --refs=VIN-B-1,VIN-B-2 (subset)
  */
-import { createClient, type SupabaseClient } from '@supabase/supabase-js'
+import { createClient } from '@supabase/supabase-js'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { parseFlags, requireEnv } from './lib/cli'
 import { normaliseWasteLocation } from './lib/reconcile'
 import { pagedIn } from './lib/db'
 import { timestamp } from './lib/report'
 import { parseCsv } from './lib/csv'
+import { upsertContact } from './lib/contact-upsert'
+import { canonicaliseAuMobile, normalisePhone } from '../src/lib/phone'
 
 const SERVICE = {
   bulk: '756932e9-f6da-40e4-bda3-cd63feba0bd0',
@@ -98,6 +100,18 @@ export function looseKey(a: string): string | null {
   return `${number} ${street} ${rest.join(' ')}`
 }
 
+/**
+ * Store rule (src/lib/phone.ts, CLAUDE.md §21 "one brain"): AU mobiles → E.164
+ * so SMS sends work; landlines/other → formatting-stripped as entered. Never
+ * write the Airtable cell verbatim — the 23/08 VIN run did, and 991/1,001
+ * contacts were un-SMS-able until scripts/fix-legacy-contact-phones.ts.
+ */
+export function storePhone(raw: string): string {
+  const t = raw.trim()
+  if (!t) return ''
+  return canonicaliseAuMobile(t) ?? normalisePhone(t)
+}
+
 function n(s: string | undefined): number {
   const v = Number(s ?? 0)
   return Number.isFinite(v) ? v : 0
@@ -127,7 +141,7 @@ export function parseRow(r: Row): Parsed {
     notes: r['Waste_Notes'] ?? '',
     contactName: r['Contact_Name'] ?? '',
     contactEmail: (r['Contact_Email'] ?? '').trim().toLowerCase(),
-    contactPhone: (r['Contact_Phone'] ?? '').trim(),
+    contactPhone: storePhone(r['Contact_Phone'] ?? ''),
     services,
   }
 }
@@ -276,7 +290,7 @@ async function main() {
   const fail: { ref: string; error: string }[] = []
   for (const pl of plans) {
     try {
-      const contactId = await upsertContact(verco, pl.p)
+      const contactId = await resolveContact(pl.p)
       const { data: bk, error: bErr } = await verco
         .from('booking')
         .insert({
@@ -303,18 +317,19 @@ async function main() {
   console.log(`\nCreated ${created}/${plans.length} bookings.`)
   for (const f of fail) console.error(`  ✗ ${f.ref}: ${f.error}`)
   if (fail.length) process.exit(1)
-}
 
-async function upsertContact(verco: SupabaseClient, p: Parsed): Promise<string> {
-  const { data: existing } = await verco.from('contacts').select('id').eq('email', p.contactEmail).limit(1).maybeSingle()
-  if (existing) return existing.id as string
-  const name = p.contactName.trim()
-  const sp = name.indexOf(' ')
-  const first = sp > 0 ? name.slice(0, sp) : name || 'Resident'
-  const last = sp > 0 ? name.slice(sp + 1) : '—'
-  const { data, error } = await verco.from('contacts').insert({ first_name: first, last_name: last, email: p.contactEmail, mobile_e164: p.contactPhone || null }).select('id').single()
-  if (error) throw new Error(`contact: ${error.message}`)
-  return data!.id as string
+  async function resolveContact(p: Parsed): Promise<string> {
+    const name = p.contactName.trim()
+    const sp = name.indexOf(' ')
+    const r = await upsertContact(verco, {
+      email: p.contactEmail,
+      firstName: sp > 0 ? name.slice(0, sp) : name || 'Resident',
+      lastName: sp > 0 ? name.slice(sp + 1) : '—',
+      mobileE164: p.contactPhone,
+    }, false)
+    if (r.error || !r.contactId) throw new Error(`contact: ${r.error ?? 'no id'}`)
+    return r.contactId
+  }
 }
 
 if (process.argv[1]?.endsWith('import-vv-bookings-csv.ts')) {

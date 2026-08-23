@@ -8,6 +8,8 @@ import { StatusBadge } from '@/components/status-badge'
 import { AuditTimeline } from '@/components/audit-timeline'
 import { SURVEY_QUESTIONS, surveySections } from '@/lib/survey/questions'
 import type { ResolvedAuditEntry } from '@/lib/audit/resolve'
+import { SURVEY_SOURCE_AIRTABLE, legacySurveyRef } from '@/lib/survey/legacy'
+import { SurveySourceBadge } from '../source-badge'
 
 export interface SurveyDetail {
   id: string
@@ -76,8 +78,8 @@ export function SurveyDetailClient({
   const responses = (survey.responses ?? {}) as Record<string, unknown>
   const collectionDate = booking?.booking_item?.[0]?.collection_date?.date ?? null
 
-  const isLegacy = survey.source === 'airtable'
-  const legacyRef = survey.external_ref?.split('|')[0]?.trim() || null
+  const isLegacy = survey.source === SURVEY_SOURCE_AIRTABLE
+  const legacyRef = legacySurveyRef(survey.external_ref)
   const knownIds = new Set(SURVEY_QUESTIONS.map((q) => q.id))
   const legacyKeys = Object.keys(responses).filter((k) => !knownIds.has(k))
 
@@ -89,9 +91,7 @@ export function SurveyDetailClient({
         title={booking?.ref ?? legacyRef ?? 'Survey'}
         subtitle={isLegacy && !booking ? 'Imported from Airtable — no Verco booking' : address}
       >
-        {isLegacy && (
-          <span className="rounded bg-gray-100 px-1.5 py-0.5 text-caption text-gray-500">Airtable</span>
-        )}
+        <SurveySourceBadge source={survey.source} />
         <StatusBadge entity="survey" status={submitted ? 'Submitted' : 'Pending'} />
       </DetailHeader>
 

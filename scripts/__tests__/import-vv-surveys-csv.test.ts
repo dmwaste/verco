@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { mapAttemptedSell, parseAirtableDateTime, parseRating, parseSurveyRow } from '../import-vv-surveys-csv'
+import { dedupeByExternalRef, mapAttemptedSell, parseAirtableDateTime, parseRating, parseSurveyRow } from '../import-vv-surveys-csv'
 
 describe('parseAirtableDateTime', () => {
   it('reads m/d/yyyy h:mmam as Perth local and returns UTC', () => {
@@ -57,5 +57,14 @@ describe('parseSurveyRow', () => {
     const p = parseSurveyRow({ ...row, Booking_Ref: '', 'Booking Rating': '', 'Collection Rating': '', 'Overall Rating': '' })
     expect(p.hasRating).toBe(false)
     expect(p.externalRef).toBe('|8/22/2026 8:33pm')
+  })
+})
+
+describe('dedupeByExternalRef', () => {
+  it('keeps the first of an Airtable double-submit (same ref + minute)', () => {
+    const a = { externalRef: 'COT-54300|6/7/2026 3:41pm', n: 1 }
+    const b = { externalRef: 'COT-54300|6/7/2026 3:41pm', n: 2 }
+    const c = { externalRef: 'COT-54301|6/7/2026 3:41pm', n: 3 }
+    expect(dedupeByExternalRef([a, b, c]).map((x) => x.n)).toEqual([1, 3])
   })
 })
