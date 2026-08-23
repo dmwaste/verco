@@ -53,7 +53,7 @@ export function DonutChart({
     .join('; ')}`
 
   return (
-    <div className="flex items-center gap-6">
+    <div className="flex w-full min-w-0 flex-wrap items-center gap-x-6 gap-y-3">
       <svg
         viewBox="0 0 100 100"
         className={`${svgClassName} shrink-0`}
@@ -78,7 +78,7 @@ export function DonutChart({
           />
         ))}
       </svg>
-      <ul className="min-w-0 flex-1 space-y-1.5">
+      <ul className="min-w-[10rem] flex-1 space-y-1.5">
         {visible.map((s, i) => (
           <li key={`${s.label}-${i}`} className="flex items-center gap-2 text-body-sm">
             <span
