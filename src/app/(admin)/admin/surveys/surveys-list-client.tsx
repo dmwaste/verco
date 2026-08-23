@@ -12,6 +12,9 @@ import { Th } from '@/components/admin/th'
 import { Pagination } from '@/components/admin/pagination'
 import { SkeletonRow } from '@/components/ui/skeleton'
 import { SurveySummary } from './survey-summary'
+import { buildSearchOrFilter } from '@/lib/search/or-filter'
+import { surveyDisplayRef } from '@/lib/survey/legacy'
+import { SurveySourceBadge } from './source-badge'
 
 const PAGE_SIZE = 20
 
@@ -42,12 +45,6 @@ function MiniStars({ value }: { value: number | null }) {
       ))}
     </span>
   )
-}
-
-/** Legacy external_ref is `<Airtable Booking_Ref>|<Create Date>`; show the ref part. */
-export function legacyRef(externalRef: string | null): string | null {
-  const ref = externalRef?.split('|')[0]?.trim()
-  return ref ? ref : null
 }
 
 interface SurveyRow {
@@ -140,7 +137,7 @@ export function SurveysListClient({ clientId }: SurveysListClientProps) {
       if (matchingBookingIds) {
         // Legacy (Airtable) rows have no booking — match their external_ref too.
         const ids = matchingBookingIds.length ? matchingBookingIds : ['00000000-0000-0000-0000-000000000000']
-        query = query.or(`booking_id.in.(${ids.join(',')}),external_ref.ilike."%${search.replace(/"/g, '')}%"`)
+        query = query.or(`booking_id.in.(${ids.join(',')}),${buildSearchOrFilter(['external_ref'], search)}`)
       }
 
       const { data, count } = await query
@@ -227,11 +224,9 @@ export function SurveysListClient({ clientId }: SurveysListClientProps) {
                         href={`/admin/surveys/${row.id}`}
                         className="font-[family-name:var(--font-heading)] text-body-sm font-semibold text-[#293F52] hover:underline"
                       >
-                        {row.booking?.ref ?? legacyRef(row.external_ref) ?? '—'}
+                        {surveyDisplayRef(row.booking?.ref, row.external_ref) ?? '—'}
                       </Link>
-                      {row.source === 'airtable' && (
-                        <span className="ml-2 rounded bg-gray-100 px-1.5 py-0.5 text-caption text-gray-500">Airtable</span>
-                      )}
+                      <span className="ml-2"><SurveySourceBadge source={row.source} /></span>
                     </td>
                     <td className="px-4 py-3 text-xs text-gray-500">
                       {row.collection_area?.code ?? '—'}

@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { getCurrentAdminClient } from '@/lib/admin/current-client'
 import { SURVEY_QUESTIONS } from '@/lib/survey/questions'
+import { surveyDisplayRef } from '@/lib/survey/legacy'
 
 /** Quote a CSV cell when it contains a comma, quote, or newline. */
 function csvCell(value: unknown): string {
@@ -49,8 +50,7 @@ export async function GET() {
   for (const row of (data ?? []) as unknown as ExportRow[]) {
     const resp = row.responses ?? {}
     const cells = [
-      // Legacy rows carry the Airtable ref in external_ref (`<ref>|<created>`).
-      row.booking?.ref ?? row.external_ref?.split('|')[0]?.trim() ?? '',
+      surveyDisplayRef(row.booking?.ref, row.external_ref) ?? '',
       row.collection_area?.code ?? '',
       row.booking?.eligible_properties?.formatted_address ?? '',
       row.submitted_at ?? '',

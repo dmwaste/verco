@@ -910,6 +910,28 @@ if (!haveDb) {
   })
 
   // ---------------------------------------------------------------------------
+  // booking_survey (ADR 0016): legacy Airtable surveys have no booking, so the
+  // staff policies must key sub-client scope off collection_area_id — the
+  // booking helper returns NULL for an unlinked row and would hide it. Field /
+  // ranger never see surveys (no policy grants them SELECT).
+  // ---------------------------------------------------------------------------
+  describe('booking_survey staff policies keyed off the survey area (ADR 0016)', () => {
+    it('SELECT + DELETE use user_sub_client_allows_area(collection_area_id), not the booking helper', async () => {
+      const r = await pg.query(
+        `SELECT policyname, qual FROM pg_policies WHERE tablename = 'booking_survey' AND policyname IN ('booking_survey_staff_select','booking_survey_staff_delete')`,
+      )
+      expect(r.rows).toHaveLength(2)
+      for (const row of r.rows as { qual: string }[]) {
+        expect(row.qual).toContain('user_sub_client_allows_area(collection_area_id)')
+        expect(row.qual).not.toContain('user_sub_client_allows_booking')
+      }
+    })
+    it('field sees zero booking_survey rows', async () => {
+      expect(await countAs(USERS.field, 'SELECT id FROM booking_survey')).toBe(0)
+    })
+  })
+
+  // ---------------------------------------------------------------------------
   // TC-F5 (VER-247): residents can cancel their OWN booking. The bug was an
   // implicit WITH CHECK on booking_resident_update that rejected status
   // 'Cancelled' (0 rows, no error). These assert the policy now lets a resident

@@ -55,6 +55,8 @@ export const FIELD_LABELS: Record<string, string> = {
   responses: 'Survey Responses',
   submitted_at: 'Submitted',
   token: 'Survey Token',
+  source: 'Survey Source',
+  external_ref: 'Legacy Reference',
 
   // Contact
   full_name: 'Name', // generated column — kept for legacy audit_log entries

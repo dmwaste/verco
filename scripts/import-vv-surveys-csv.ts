@@ -101,6 +101,12 @@ export function parseSurveyRow(r: CsvRow): ParsedSurvey {
   }
 }
 
+/** Airtable double-submits (same ref, same minute) share an external_ref — keep the first. */
+export function dedupeByExternalRef<T extends { externalRef: string }>(rows: T[]): T[] {
+  const seen = new Set<string>()
+  return rows.filter((r) => (seen.has(r.externalRef) ? false : (seen.add(r.externalRef), true)))
+}
+
 async function main() {
   const flags = parseFlags(process.argv)
   const apply = !!flags.apply
@@ -122,10 +128,10 @@ async function main() {
 
   const all = parseCsv(readFileSync(file, 'utf8')).map(parseSurveyRow)
   const inScope = all.filter((p) => councils.includes(p.council))
+  const unknownCouncil = all.filter((p) => !councils.includes(p.council)).reduce<Record<string, number>>((m, p) => ((m[p.council || '(blank)'] = (m[p.council || '(blank)'] ?? 0) + 1), m), {})
   // Airtable double-submits (same ref, same minute) share an external_ref —
   // keep the first so the plan count matches what the partial UNIQUE admits.
-  const seenRef = new Set<string>()
-  const rows = inScope.filter((p) => (seenRef.has(p.externalRef) ? false : (seenRef.add(p.externalRef), true)))
+  const rows = dedupeByExternalRef(inScope)
   console.log(`CSV rows: ${all.length}; in ${councils.join('/')}: ${inScope.length} (${inScope.length - rows.length} exact duplicate submissions dropped)`)
 
   // Existing state: legacy refs already imported, bookings by ref, surveys by booking.
@@ -142,6 +148,9 @@ async function main() {
 
   type Plan = { p: ParsedSurvey; areaId: string; bookingId: string | null; fillSurveyId: string | null }
   const plans: Plan[] = []
+  // Spec: a booking that already has a submitted Verco survey, or whose area
+  // disagrees with the CSV council, is SKIPPED and reported — never imported
+  // unlinked (that would be a second survey for the same collection).
   const skip = { already_imported: 0, no_rating: 0, bad_date: 0, booking_has_submitted_survey: [] as string[], booking_area_mismatch: [] as string[] }
   const usedBookings = new Set<string>()
   for (const p of rows) {
@@ -152,12 +161,10 @@ async function main() {
     let bookingId: string | null = null, fillSurveyId: string | null = null
     const b = p.bookingRef ? bookingByRef.get(p.bookingRef) : undefined
     if (b && !usedBookings.has(b.id)) {
-      if (b.collection_area_id !== areaId) { skip.booking_area_mismatch.push(p.bookingRef!) }
-      else {
-        const ex = surveyByBooking.get(b.id)
-        if (ex?.submitted_at) { skip.booking_has_submitted_survey.push(p.bookingRef!); }
-        else { bookingId = b.id; fillSurveyId = ex?.id ?? null; usedBookings.add(b.id) }
-      }
+      if (b.collection_area_id !== areaId) { skip.booking_area_mismatch.push(p.bookingRef!); continue }
+      const ex = surveyByBooking.get(b.id)
+      if (ex?.submitted_at) { skip.booking_has_submitted_survey.push(p.bookingRef!); continue }
+      bookingId = b.id; fillSurveyId = ex?.id ?? null; usedBookings.add(b.id)
     }
     plans.push({ p, areaId, bookingId, fillSurveyId })
   }
@@ -169,11 +176,12 @@ async function main() {
   console.log('\n═════════ Import plan ═════════')
   console.log(`  would import:                   ${plans.length}   ${JSON.stringify(byCouncil)}`)
   console.log(`    linked to a Verco booking:    ${plans.filter((x) => x.bookingId).length} (${plans.filter((x) => x.fillSurveyId).length} fill an unsubmitted invite)`)
+  console.log(`  not in --councils (ignored):    ${JSON.stringify(unknownCouncil)}`)
   console.log(`  skip · already imported         ${skip.already_imported}`)
   console.log(`  skip · no valid rating          ${skip.no_rating}`)
   console.log(`  skip · unparseable date         ${skip.bad_date}`)
-  console.log(`  unlinked · booking already has a submitted survey: ${skip.booking_has_submitted_survey.length}`)
-  console.log(`  unlinked · booking in a different area:            ${skip.booking_area_mismatch.length}`)
+  console.log(`  skip · booking already has a submitted survey: ${skip.booking_has_submitted_survey.length}`)
+  console.log(`  skip · booking in a different area:            ${skip.booking_area_mismatch.length}`)
   console.log(`  report: ${reportPath}`)
   if (!apply) { console.log(`\nDRY RUN — re-run with --apply to import ${plans.length} surveys.`); return }
 
@@ -183,7 +191,7 @@ async function main() {
     try {
       if (pl.fillSurveyId) {
         const { error } = await verco.from('booking_survey')
-          .update({ responses: pl.p.responses, submitted_at: pl.p.submittedAt, source: 'airtable', external_ref: pl.p.externalRef })
+          .update({ responses: pl.p.responses, submitted_at: pl.p.submittedAt, created_at: pl.p.submittedAt, source: 'airtable', external_ref: pl.p.externalRef })
           .eq('id', pl.fillSurveyId)
         if (error) throw new Error(error.message)
       } else {
