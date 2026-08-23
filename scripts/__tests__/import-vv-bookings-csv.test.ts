@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { looseKey, normAddr, parseDate, parseRow, targetStatus } from '../import-vv-bookings-csv'
+import { looseKey, normAddr, parseDate, parseRow, storePhone, targetStatus } from '../import-vv-bookings-csv'
 import { parseCsv } from '../lib/csv'
 
 describe('parseDate', () => {
@@ -57,5 +57,15 @@ describe('parseCsv', () => {
   it('handles quoted fields with commas, quotes and newlines, and a BOM', () => {
     const rows = parseCsv('﻿a,b\n1,"x, ""y""\nz"\n2,\n')
     expect(rows).toEqual([{ a: '1', b: 'x, "y"\nz' }, { a: '2', b: '' }])
+  })
+})
+
+describe('storePhone', () => {
+  it('applies the one-brain store rule: mobiles → E.164, others stripped', () => {
+    expect(storePhone('+61 402 439 879')).toBe('+61402439879')
+    expect(storePhone('+61 0449 897 773')).toBe('+61449897773')
+    expect(storePhone('0412 345 678')).toBe('+61412345678')
+    expect(storePhone('08 9384 6711')).toBe('0893846711')
+    expect(storePhone('')).toBe('')
   })
 })

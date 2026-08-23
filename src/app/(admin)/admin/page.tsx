@@ -7,6 +7,7 @@ import { getTenantMudPropertyIds } from '@/lib/admin/mud-tenant-scope'
 import { awstWeekRange } from '@/lib/date/awst-week'
 import { OPEN_INVESTIGATION_STATUSES } from '@/lib/exceptions/status'
 import { StatusBadge } from '@/components/status-badge'
+import { surveyDisplayRef } from '@/lib/survey/legacy'
 
 /** Shared height for every half-width dashboard tile so all rows line up. */
 const HALF_CARD = 'flex h-96 flex-col rounded-xl bg-white p-5 shadow-sm'
@@ -557,8 +558,7 @@ export default async function AdminDashboardPage() {
                 <tbody>
                   {recentSurveys.map((s) => {
                     const booking = s.booking as unknown as { ref: string } | null
-                    // Legacy Airtable rows have no booking; external_ref is `<ref>|<created>`.
-                    const ref = booking?.ref ?? s.external_ref?.split('|')[0]?.trim() ?? '—'
+                    const ref = surveyDisplayRef(booking?.ref, s.external_ref) ?? '—'
                     return (
                       <tr key={s.id} className="border-b border-gray-100 last:border-b-0 hover:bg-gray-50">
                         <td className="py-2 pr-2">
