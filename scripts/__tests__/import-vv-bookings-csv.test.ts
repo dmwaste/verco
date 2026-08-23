@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { looseKey, normAddr, parseCsv, parseDate, parseRow, targetStatus } from '../import-vv-bookings-csv'
+import { looseKey, normAddr, parseDate, parseRow, targetStatus } from '../import-vv-bookings-csv'
+import { parseCsv } from '../lib/csv'
 
 describe('parseDate', () => {
   it('reads the Airtable lookup format', () => {

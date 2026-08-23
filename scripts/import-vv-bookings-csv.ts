@@ -36,6 +36,7 @@ import { parseFlags, requireEnv } from './lib/cli'
 import { normaliseWasteLocation } from './lib/reconcile'
 import { pagedIn } from './lib/db'
 import { timestamp } from './lib/report'
+import { parseCsv } from './lib/csv'
 
 const SERVICE = {
   bulk: '756932e9-f6da-40e4-bda3-cd63feba0bd0',
@@ -45,7 +46,7 @@ const SERVICE = {
 
 const TODAY = new Date().toISOString().slice(0, 10)
 
-type Row = Record<string, string>
+import type { CsvRow as Row } from './lib/csv'
 export type Parsed = {
   ref: string
   address: string
@@ -57,32 +58,6 @@ export type Parsed = {
   contactEmail: string
   contactPhone: string
   services: { service_id: string; qty: number; is_extra: boolean }[]
-}
-
-// ── CSV ──────────────────────────────────────────────────────────────────────
-export function parseCsv(text: string): Row[] {
-  const rows: string[][] = []
-  let cur: string[] = []
-  let field = ''
-  let q = false
-  for (let i = 0; i < text.length; i++) {
-    const c = text[i]!
-    if (q) {
-      if (c === '"') {
-        if (text[i + 1] === '"') { field += '"'; i++ } else q = false
-      } else field += c
-    } else if (c === '"') q = true
-    else if (c === ',') { cur.push(field); field = '' }
-    else if (c === '\n' || c === '\r') {
-      if (c === '\r' && text[i + 1] === '\n') i++
-      cur.push(field); field = ''
-      if (cur.some((x) => x !== '')) rows.push(cur)
-      cur = []
-    } else field += c
-  }
-  if (field !== '' || cur.length) { cur.push(field); if (cur.some((x) => x !== '')) rows.push(cur) }
-  const header = rows[0]!.map((h) => h.replace(/^﻿/, '').trim())
-  return rows.slice(1).map((r) => Object.fromEntries(header.map((h, i) => [h, (r[i] ?? '').trim()])))
 }
 
 const MONTHS: Record<string, number> = { january: 1, february: 2, march: 3, april: 4, may: 5, june: 6, july: 7, august: 8, september: 9, october: 10, november: 11, december: 12 }
