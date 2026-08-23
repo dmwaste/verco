@@ -121,8 +121,12 @@ async function main() {
   if (missingArea.length) throw new Error(`No collection_area for: ${missingArea.join(', ')}`)
 
   const all = parseCsv(readFileSync(file, 'utf8')).map(parseSurveyRow)
-  const rows = all.filter((p) => councils.includes(p.council))
-  console.log(`CSV rows: ${all.length}; in ${councils.join('/')}: ${rows.length}`)
+  const inScope = all.filter((p) => councils.includes(p.council))
+  // Airtable double-submits (same ref, same minute) share an external_ref —
+  // keep the first so the plan count matches what the partial UNIQUE admits.
+  const seenRef = new Set<string>()
+  const rows = inScope.filter((p) => (seenRef.has(p.externalRef) ? false : (seenRef.add(p.externalRef), true)))
+  console.log(`CSV rows: ${all.length}; in ${councils.join('/')}: ${inScope.length} (${inScope.length - rows.length} exact duplicate submissions dropped)`)
 
   // Existing state: legacy refs already imported, bookings by ref, surveys by booking.
   const existing = await pagedIn<{ id: string; external_ref: string | null; booking_id: string | null; submitted_at: string | null }>(

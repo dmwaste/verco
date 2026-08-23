@@ -32,10 +32,14 @@ export function SurveySummary({ clientId }: SurveySummaryProps) {
   const { data } = useQuery({
     queryKey: ['survey-summary', clientId],
     queryFn: async () => {
-      let createdQ = supabase.from('booking_survey').select('id', { count: 'exact', head: true })
+      // Response-rate counts are Verco-native only: imported Airtable rows are
+      // 100% submitted and their bookings aren't in Verco, so they'd inflate the
+      // rate. Ratings below include every source.
+      let createdQ = supabase.from('booking_survey').select('id', { count: 'exact', head: true }).eq('source', 'verco')
       let submittedQ = supabase
         .from('booking_survey')
         .select('id', { count: 'exact', head: true })
+        .eq('source', 'verco')
         .not('submitted_at', 'is', null)
       let completedQ = supabase
         .from('booking')
