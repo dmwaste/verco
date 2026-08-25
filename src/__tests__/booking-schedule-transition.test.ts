@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   addOneDay,
   awstDateFromUtc,
+  fetchAllConfirmedBookings,
   filterBookingsReadyToSchedule,
   type BookingWithItemDates,
 } from '@/lib/booking/schedule-transition'
@@ -140,5 +141,112 @@ describe('filterBookingsReadyToSchedule', () => {
       { id: 'b3', booking_item: [{ collection_date: { date: '2026-04-16' } }] },
     ]
     expect(filterBookingsReadyToSchedule(bookings, tomorrow)).toEqual(['b1', 'b3'])
+  })
+})
+
+describe('fetchAllConfirmedBookings', () => {
+  /**
+   * Builds a fake page fetcher over a fixed row set that emulates PostgREST:
+   * it honours the requested range BUT never returns more than `maxRows` rows
+   * in one response (Supabase's db-max-rows, 1000 on this project).
+   *
+   * This is the exact shape that broke KWN-2-B2IX82 / KWN-2-XZSK8X: an
+   * unpaginated fetch of 1,172 Confirmed bookings silently returned 1,000,
+   * so 172 bookings were invisible to the cron and never left Confirmed.
+   */
+  function fakeFetcher(rows: BookingWithItemDates[], maxRows = 1000) {
+    const calls: Array<[number, number]> = []
+    const fetchPage = async (from: number, to: number) => {
+      calls.push([from, to])
+      const capped = Math.min(to, from + maxRows - 1)
+      return { rows: rows.slice(from, capped + 1) }
+    }
+    return { fetchPage, calls }
+  }
+
+  function makeRows(n: number, date = '2026-04-16'): BookingWithItemDates[] {
+    return Array.from({ length: n }, (_, i) => ({
+      // zero-padded so lexical id order is stable and predictable
+      id: `b${String(i).padStart(5, '0')}`,
+      booking_item: [{ collection_date: { date } }],
+    }))
+  }
+
+  it('returns every row when the set exceeds the 1000-row API cap', async () => {
+    const rows = makeRows(1172)
+    const { fetchPage } = fakeFetcher(rows)
+
+    const result = await fetchAllConfirmedBookings(fetchPage)
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.rows).toHaveLength(1172)
+    expect(result.rows.map((r) => r.id)).toEqual(rows.map((r) => r.id))
+  })
+
+  it('requests pages no larger than the API cap', async () => {
+    const { fetchPage, calls } = fakeFetcher(makeRows(1172))
+
+    await fetchAllConfirmedBookings(fetchPage)
+
+    for (const [from, to] of calls) {
+      expect(to - from + 1).toBeLessThanOrEqual(1000)
+    }
+  })
+
+  it('stops after a single page when the set fits in one page', async () => {
+    const { fetchPage, calls } = fakeFetcher(makeRows(10))
+
+    const result = await fetchAllConfirmedBookings(fetchPage)
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.rows).toHaveLength(10)
+    expect(calls).toHaveLength(1)
+  })
+
+  it('handles an exact page-size boundary without dropping or duplicating rows', async () => {
+    const rows = makeRows(1000)
+    const { fetchPage } = fakeFetcher(rows)
+
+    const result = await fetchAllConfirmedBookings(fetchPage, 500)
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.rows.map((r) => r.id)).toEqual(rows.map((r) => r.id))
+  })
+
+  it('returns empty rows for an empty set', async () => {
+    const { fetchPage } = fakeFetcher([])
+
+    const result = await fetchAllConfirmedBookings(fetchPage)
+
+    expect(result).toEqual({ ok: true, rows: [] })
+  })
+
+  it('propagates a page error instead of returning a partial set', async () => {
+    const fetchPage = async (from: number) =>
+      from === 0 ? { rows: makeRows(500) } : { rows: [], error: 'connection reset' }
+
+    const result = await fetchAllConfirmedBookings(fetchPage, 500)
+
+    expect(result).toEqual({ ok: false, error: 'connection reset' })
+  })
+
+  it('feeds the full set through to the date filter', async () => {
+    // End-to-end guard: the booking that sat past the cap must still be picked
+    // up by filterBookingsReadyToSchedule.
+    const rows = makeRows(1171)
+    rows.push({
+      id: 'stranded',
+      booking_item: [{ collection_date: { date: '2026-04-16' } }],
+    })
+    const { fetchPage } = fakeFetcher(rows)
+
+    const result = await fetchAllConfirmedBookings(fetchPage)
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+
+    expect(filterBookingsReadyToSchedule(result.rows, '2026-04-16')).toContain('stranded')
   })
 })
