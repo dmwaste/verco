@@ -4,6 +4,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.100.0'
 import type { Database } from '../_shared/database.types.ts'
 import {
   awstDateFromUtc,
+  fetchAllConfirmedBookings,
   filterBookingsReadyToSchedule,
   type BookingWithItemDates,
 } from '../_shared/schedule-transition.ts'
@@ -34,26 +35,39 @@ serve(cronHandler('transition-scheduled', async (_req) => {
 
   const results = {
     tomorrow_awst: tomorrow,
+    fetched: 0,
     transitioned: 0,
     failed: 0,
     skipped_no_date: 0,
   }
 
   try {
-    const { data: bookings, error: fetchError } = await supabase
-      .from('booking')
-      .select('id, booking_item(collection_date(date))')
-      .eq('status', 'Confirmed')
+    // Paged, stably ordered. A single unpaginated fetch is silently truncated
+    // at db-max-rows (1000) once the Confirmed set grows past it — see
+    // fetchAllConfirmedBookings. .order('id') is required: unordered .range()
+    // paging overlaps and skips rows.
+    const fetched = await fetchAllConfirmedBookings(async (from, to) => {
+      const { data, error } = await supabase
+        .from('booking')
+        .select('id, booking_item(collection_date(date))')
+        .eq('status', 'Confirmed')
+        .order('id', { ascending: true })
+        .range(from, to)
 
-    if (fetchError) {
-      console.error('Booking fetch error:', fetchError.message)
+      if (error) return { rows: [], error: error.message }
+      return { rows: (data ?? []) as BookingWithItemDates[] }
+    })
+
+    if (!fetched.ok) {
+      console.error('Booking fetch error:', fetched.error)
       return new Response(
-        JSON.stringify({ ok: false, error: fetchError.message }),
+        JSON.stringify({ ok: false, error: fetched.error }),
         { status: 500, headers: { 'Content-Type': 'application/json' } },
       )
     }
 
-    const bookingRows = (bookings ?? []) as BookingWithItemDates[]
+    const bookingRows = fetched.rows
+    results.fetched = bookingRows.length
 
     // Data-integrity check: a Confirmed booking with no collection_date is an
     // invariant violation (how did it confirm?). Log loudly so it surfaces.
