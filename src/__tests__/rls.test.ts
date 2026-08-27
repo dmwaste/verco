@@ -2966,6 +2966,13 @@ if (!haveDb) {
       ),
       'utf-8',
     )
+    const ROLLUP_MIGRATION_SQL = readFileSync(
+      resolve(
+        __dirname,
+        '../../supabase/migrations/20260827030000_rollup_guard_outstanding_streams.sql',
+      ),
+      'utf-8',
+    )
 
     const BK = 'ffffffff-0827-4000-8000-000000000001'
     const OTHER_BK = 'ffffffff-0827-4000-8000-000000000002'
@@ -2976,7 +2983,10 @@ if (!haveDb) {
      * plus a second, untouched booking on the same date to prove the trigger
      * only cancels stops belonging to the moved booking.
      */
-    async function seed(streamStatuses: { general: string; ancillary: string }) {
+    async function seed(
+      streamStatuses: { general: string; ancillary: string },
+      bookingStatus: 'Confirmed' | 'Scheduled' = 'Confirmed',
+    ) {
       const dates = await pg.query<{ id: string }>(
         `SELECT id FROM collection_date WHERE collection_area_id = $1 ORDER BY date LIMIT 2`,
         [kwnAreaId],
@@ -3000,8 +3010,8 @@ if (!haveDb) {
       ] as const) {
         await pg.query(
           `INSERT INTO public.booking (id, ref, type, status, collection_area_id, client_id, contractor_id, fy_id)
-           VALUES ($1, $2, 'Residential', 'Confirmed', $3, $4, $5, $6)`,
-          [id, ref, kwnAreaId, CLIENT_ID, CONTRACTOR_ID, fy.rows[0].id],
+           VALUES ($1, $2, 'Residential', $7, $3, $4, $5, $6)`,
+          [id, ref, kwnAreaId, CLIENT_ID, CONTRACTOR_ID, fy.rows[0].id, bookingStatus],
         )
         await pg.query(
           `INSERT INTO public.booking_item (booking_id, service_id, collection_date_id, no_services, unit_price_cents)
@@ -3024,8 +3034,10 @@ if (!haveDb) {
     /** `stream=status` pairs for a booking, stream-sorted for stable compare. */
     async function stopsOf(bookingId: string): Promise<string[]> {
       const r = await pg.query<{ pair: string }>(
-        `SELECT stream || '=' || status AS pair FROM collection_stop
-          WHERE booking_id = $1 ORDER BY stream`,
+        // stream::text, NOT stream: the bare enum sorts by declaration order
+        // (general before ancillary), which silently inverts these expectations.
+        `SELECT stream::text || '=' || status AS pair FROM collection_stop
+          WHERE booking_id = $1 ORDER BY stream::text`,
         [bookingId],
       )
       return r.rows.map((row) => row.pair)
@@ -3036,6 +3048,7 @@ if (!haveDb) {
       await pg.query('BEGIN')
       try {
         await pg.query(STOP_MIGRATION_SQL)
+        await pg.query(ROLLUP_MIGRATION_SQL)
         const f = await seed({ general: 'Pending', ancillary: 'Pending' })
         expect(f, 'fixture missing: two KWN collection_dates + both streams').toBeTruthy()
         if (!f) return
@@ -3065,6 +3078,7 @@ if (!haveDb) {
       await pg.query('BEGIN')
       try {
         await pg.query(STOP_MIGRATION_SQL)
+        await pg.query(ROLLUP_MIGRATION_SQL)
         const f = await seed({ general: 'Pending', ancillary: 'Pending' })
         expect(f).toBeTruthy()
         if (!f) return
@@ -3082,11 +3096,55 @@ if (!haveDb) {
       }
     }, 20_000)
 
+    it('a Scheduled mixed booking moved post-closeout stays Scheduled, not Completed', async (ctx) => {
+      if (!kwnAreaId) return ctx.skip()
+      await pg.query('BEGIN')
+      try {
+        await pg.query(STOP_MIGRATION_SQL)
+        await pg.query(ROLLUP_MIGRATION_SQL)
+        // Collection day: crew closed general, ancillary still open, and a
+        // contractor #378 correction moves the date. Without the
+        // outstanding-stream guard the rollup flips the booking to Completed
+        // and the moved ancillary collection is never dispatched again.
+        const f = await seed({ general: 'Completed', ancillary: 'Pending' }, 'Scheduled')
+        expect(f).toBeTruthy()
+        if (!f) return
+
+        await pg.query(`UPDATE public.booking_item SET collection_date_id = $1 WHERE booking_id = $2`, [
+          f.dateB,
+          BK,
+        ])
+
+        expect(await stopsOf(BK)).toEqual(['ancillary=Cancelled', 'general=Completed'])
+        const b = await pg.query<{ status: string }>(`SELECT status FROM booking WHERE id = $1`, [BK])
+        expect(b.rows[0]!.status).toBe('Scheduled')
+
+        // Regression guard on the guard: once the revived stop closes out, the
+        // rollup must complete normally. Simulate revival + closeout as the
+        // privileged setup role (Cancelled → Pending is the push-EF carve-out).
+        await pg.query(
+          `UPDATE public.collection_stop SET status = 'Pending', collection_date_id = $1
+            WHERE booking_id = $2 AND stream = 'ancillary'`,
+          [f.dateB, BK],
+        )
+        await pg.query(
+          `UPDATE public.collection_stop SET status = 'Completed', completed_at = now()
+            WHERE booking_id = $1 AND stream = 'ancillary'`,
+          [BK],
+        )
+        const b2 = await pg.query<{ status: string }>(`SELECT status FROM booking WHERE id = $1`, [BK])
+        expect(b2.rows[0]!.status).toBe('Completed')
+      } finally {
+        await pg.query('ROLLBACK')
+      }
+    }, 20_000)
+
     it('a completed stop survives a post-dispatch date correction (ADR 0009)', async (ctx) => {
       if (!kwnAreaId) return ctx.skip()
       await pg.query('BEGIN')
       try {
         await pg.query(STOP_MIGRATION_SQL)
+        await pg.query(ROLLUP_MIGRATION_SQL)
         const f = await seed({ general: 'Completed', ancillary: 'Pending' })
         expect(f).toBeTruthy()
         if (!f) return

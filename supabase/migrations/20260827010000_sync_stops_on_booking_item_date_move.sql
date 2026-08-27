@@ -33,6 +33,23 @@
 -- SECURITY DEFINER: collection_stop has no staff UPDATE policy (only the field
 -- closeout one), so an admin's booking_item write could not otherwise cancel
 -- the stop.
+--
+-- Sibling migration 20260827030000 guards the rollup this trigger can fire:
+-- cancelling the last Pending stop of a Scheduled mixed booking whose other
+-- stream is already terminal must not flip the booking to Completed.
+--
+-- Two residuals accepted in review (both heal at the next hourly push run,
+-- so exposure is <=1h either way):
+--   1. Undo is not instant: A->B then B->A leaves the stop Cancelled — this
+--      trigger cannot revive (enforce_stop_state_transition reserves
+--      Cancelled->Pending for privileged callers, and relaxing that would let
+--      any staff writer un-cancel dispatched history). Pass-1 revives it.
+--   2. update_booking_items_in_place's date changes DO fire this trigger (its
+--      kept-item UPDATE sets collection_date_id), but a DROPPED service line
+--      is a DELETE and doesn't; the vacated stream's stop waits for pass-1.
+--      Deliberate: an AFTER DELETE trigger sees the RPC's transient mid-edit
+--      state (delete-then-reinsert on re-price) and would cancel stops that
+--      are about to come back.
 
 CREATE OR REPLACE FUNCTION sync_stops_on_booking_item_date()
 RETURNS trigger
