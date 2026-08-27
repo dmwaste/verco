@@ -21,3 +21,4 @@ An ADR — "architecture decision record" — is a short record of a decision we
 | [0015](0015-nightly-dm-ops-sync-retired.md) | The nightly DM-Ops sync is retired, not fixed | 23/08/2026 | Accepted |
 | [0016](0016-legacy-surveys-without-bookings.md) | Imported Airtable surveys live in Verco without a booking | 23/08/2026 | Accepted |
 | [0017](0017-monthly-client-report-bills-attended-collections.md) | The monthly client report bills attended collections, not just clean ones | 25/08/2026 | Accepted |
+| [0018](0018-rescheduling-cancels-the-old-days-job-immediately.md) | Rescheduling a booking cancels the old day's job straight away, not overnight | 27/08/2026 | Accepted |

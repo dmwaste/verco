@@ -2944,4 +2944,164 @@ if (!haveDb) {
       }
     }, 20_000)
   })
+
+  // ---------------------------------------------------------------------------
+  // Rescheduling a booking cancels its dispatched stop immediately
+  // (migration 20260827010000)
+  //
+  // KWN-4-X96WUS was moved off 27/08 at 07:57 AWST; its already-pushed stop
+  // stayed Pending, so the OptimoRoute order stayed live, got planned into the
+  // 27/08 route (driver KWNA, seq 6, ETA 08:13) and was only cancelled at 03:10
+  // the next morning by push-orders-to-optimoroute. The trigger applies
+  // shouldCancelOrphanStop's rule at write time instead of once a day.
+  //
+  // The migration is applied INSIDE each transaction (same pattern as VER-298
+  // above), so this suite passes before and after the migration reaches prod.
+  // ---------------------------------------------------------------------------
+  describe('stop cancellation on booking reschedule', () => {
+    const STOP_MIGRATION_SQL = readFileSync(
+      resolve(
+        __dirname,
+        '../../supabase/migrations/20260827010000_sync_stops_on_booking_item_date_move.sql',
+      ),
+      'utf-8',
+    )
+
+    const BK = 'ffffffff-0827-4000-8000-000000000001'
+    const OTHER_BK = 'ffffffff-0827-4000-8000-000000000002'
+
+    /**
+     * Two collection dates in KWN, one service per stream, a booking with one
+     * item per stream on date A, and a dispatched (pushed) stop per stream —
+     * plus a second, untouched booking on the same date to prove the trigger
+     * only cancels stops belonging to the moved booking.
+     */
+    async function seed(streamStatuses: { general: string; ancillary: string }) {
+      const dates = await pg.query<{ id: string }>(
+        `SELECT id FROM collection_date WHERE collection_area_id = $1 ORDER BY date LIMIT 2`,
+        [kwnAreaId],
+      )
+      const svc = await pg.query<{ id: string; waste_stream: string }>(
+        `SELECT DISTINCT ON (waste_stream) id, waste_stream FROM service
+          WHERE waste_stream IN ('general', 'ancillary') ORDER BY waste_stream, id`,
+      )
+      const fy = await pg.query<{ id: string }>(
+        `SELECT id FROM financial_year WHERE is_current LIMIT 1`,
+      )
+      const dateA = dates.rows[0]?.id
+      const dateB = dates.rows[1]?.id
+      const general = svc.rows.find((s) => s.waste_stream === 'general')?.id
+      const ancillary = svc.rows.find((s) => s.waste_stream === 'ancillary')?.id
+      if (!dateA || !dateB || !general || !ancillary || !fy.rows[0]) return null
+
+      for (const [id, ref] of [
+        [BK, 'STOP-MOVE-1'],
+        [OTHER_BK, 'STOP-MOVE-2'],
+      ] as const) {
+        await pg.query(
+          `INSERT INTO public.booking (id, ref, type, status, collection_area_id, client_id, contractor_id, fy_id)
+           VALUES ($1, $2, 'Residential', 'Confirmed', $3, $4, $5, $6)`,
+          [id, ref, kwnAreaId, CLIENT_ID, CONTRACTOR_ID, fy.rows[0].id],
+        )
+        await pg.query(
+          `INSERT INTO public.booking_item (booking_id, service_id, collection_date_id, no_services, unit_price_cents)
+           VALUES ($1, $2, $3, 1, 0), ($1, $4, $3, 1, 0)`,
+          [id, general, dateA, ancillary],
+        )
+      }
+      // pushed_at set: these stops exist as orders in the routing engine.
+      await pg.query(
+        `INSERT INTO public.collection_stop
+           (booking_id, client_id, stream, collection_date_id, status, external_order_ref, pushed_at)
+         VALUES ($1, $2, 'general', $3, $4::stop_status, 'STOP-MOVE-1-B', now()),
+                ($1, $2, 'ancillary', $3, $5::stop_status, 'STOP-MOVE-1-A', now()),
+                ($6, $2, 'general', $3, 'Pending', 'STOP-MOVE-2-B', now())`,
+        [BK, CLIENT_ID, dateA, streamStatuses.general, streamStatuses.ancillary, OTHER_BK],
+      )
+      return { dateA, dateB, general, ancillary }
+    }
+
+    /** `stream=status` pairs for a booking, stream-sorted for stable compare. */
+    async function stopsOf(bookingId: string): Promise<string[]> {
+      const r = await pg.query<{ pair: string }>(
+        `SELECT stream || '=' || status AS pair FROM collection_stop
+          WHERE booking_id = $1 ORDER BY stream`,
+        [bookingId],
+      )
+      return r.rows.map((row) => row.pair)
+    }
+
+    it('moving every item off the date cancels that booking\'s dispatched stops', async (ctx) => {
+      if (!kwnAreaId) return ctx.skip()
+      await pg.query('BEGIN')
+      try {
+        await pg.query(STOP_MIGRATION_SQL)
+        const f = await seed({ general: 'Pending', ancillary: 'Pending' })
+        expect(f, 'fixture missing: two KWN collection_dates + both streams').toBeTruthy()
+        if (!f) return
+
+        expect(await stopsOf(BK)).toEqual(['ancillary=Pending', 'general=Pending'])
+
+        await pg.query(`UPDATE public.booking_item SET collection_date_id = $1 WHERE booking_id = $2`, [
+          f.dateB,
+          BK,
+        ])
+
+        expect(await stopsOf(BK)).toEqual(['ancillary=Cancelled', 'general=Cancelled'])
+        // Sibling booking on the same date is untouched — the trigger scopes
+        // to NEW.booking_id, never the whole date.
+        expect(await stopsOf(OTHER_BK)).toEqual(['general=Pending'])
+        // Cancelling every stop must not roll the booking up to a terminal
+        // status — the push EF revives the stops when the new date locks.
+        const b = await pg.query<{ status: string }>(`SELECT status FROM booking WHERE id = $1`, [BK])
+        expect(b.rows[0]!.status).toBe('Confirmed')
+      } finally {
+        await pg.query('ROLLBACK')
+      }
+    }, 20_000)
+
+    it('moving one stream only cancels that stream\'s stop', async (ctx) => {
+      if (!kwnAreaId) return ctx.skip()
+      await pg.query('BEGIN')
+      try {
+        await pg.query(STOP_MIGRATION_SQL)
+        const f = await seed({ general: 'Pending', ancillary: 'Pending' })
+        expect(f).toBeTruthy()
+        if (!f) return
+
+        await pg.query(
+          `UPDATE public.booking_item SET collection_date_id = $1
+            WHERE booking_id = $2 AND service_id = $3`,
+          [f.dateB, BK, f.ancillary],
+        )
+
+        // General items stay on date A, so the general stop is still wanted.
+        expect(await stopsOf(BK)).toEqual(['ancillary=Cancelled', 'general=Pending'])
+      } finally {
+        await pg.query('ROLLBACK')
+      }
+    }, 20_000)
+
+    it('a completed stop survives a post-dispatch date correction (ADR 0009)', async (ctx) => {
+      if (!kwnAreaId) return ctx.skip()
+      await pg.query('BEGIN')
+      try {
+        await pg.query(STOP_MIGRATION_SQL)
+        const f = await seed({ general: 'Completed', ancillary: 'Pending' })
+        expect(f).toBeTruthy()
+        if (!f) return
+
+        await pg.query(`UPDATE public.booking_item SET collection_date_id = $1 WHERE booking_id = $2`, [
+          f.dateB,
+          BK,
+        ])
+
+        // The crew's frozen record stays Completed — a #378 back-date can never
+        // launder a wrong-day miss into an on-time success.
+        expect(await stopsOf(BK)).toEqual(['ancillary=Cancelled', 'general=Completed'])
+      } finally {
+        await pg.query('ROLLBACK')
+      }
+    }, 20_000)
+  })
 })
