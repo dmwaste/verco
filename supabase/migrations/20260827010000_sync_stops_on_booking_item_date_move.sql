@@ -16,7 +16,10 @@
 -- current item on that stop's (date, stream); it just runs once a day, at
 -- 03:10 AWST. This trigger applies the identical rule at write time, so the
 -- hourly cancellation sweep (xx:20 UTC) removes the OptimoRoute order within
--- the hour instead of up to a day later. It mirrors sync_stops_on_booking_status,
+-- the hour instead of up to a day later. That matters because crews get their
+-- routes at 8pm the night before: a 03:10 cancellation landed after dispatch,
+-- so the crew went out with the phantom stop still on the route. The sibling
+-- migration 20260827020000 closes the same hole in the other direction. It mirrors sync_stops_on_booking_status,
 -- which already does exactly this for booking CANCELLATION — a date move simply
 -- had no equivalent.
 --
