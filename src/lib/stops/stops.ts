@@ -364,8 +364,12 @@ export function shouldCancelOrphanStop(args: {
 
 /**
  * Booking-status rollup over a booking's stop statuses — exception wins.
- * Mirrors rollup_booking_status_from_stops exactly; the DB trigger is
- * authoritative, this exists for tests and UI display.
+ * Mirrors rollup_booking_status_from_stops' status arithmetic; the DB trigger
+ * is authoritative, this exists for tests and UI display. Since migration
+ * 20260827030000 the DB trigger ALSO holds the rollup while a booked stream
+ * has no live stop (a date move cancelled it, awaiting revival at the new
+ * date's lock) — that guard needs booking_item and can't be derived from
+ * statuses alone, so this mirror deliberately doesn't model it.
  *
  * Returns null while any stop is Pending, or when every stop is Cancelled
  * (the booking-cancel path owns that case).
