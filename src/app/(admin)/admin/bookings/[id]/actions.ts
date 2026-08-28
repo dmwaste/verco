@@ -7,9 +7,13 @@ import { createClient } from '@/lib/supabase/server'
 import { invokeSendNotification } from '@/lib/notifications/invoke'
 import { isPastCancellationCutoff } from '@/lib/booking/cancellation-cutoff'
 import {
-  canEditCollectionDetails,
+  canEditCollectionDetails, canEditIdDetails,
   canRescheduleToTargetDate, capacityBlocksMove, remainingByCategory, unitsByCategory } from '@/lib/booking/collection-details-edit'
-import { STAFF_ROLES } from '@/lib/auth/roles'
+import {
+  dedupePhotos, parseIdEdit, photosArePreserved, wasteTypesEqual,
+  type IdEditSubmission } from '@/lib/booking/id-edit'
+import { ID_WASTE_TYPES } from '@/lib/booking/id-options'
+import { STAFF_ROLES, isContractorStaff } from '@/lib/auth/roles'
 import { orchestrateRefund, type RefundOrchestrationState } from '@/lib/payments/orchestrate-refund'
 import { REFUND_REASONS } from '@/lib/refunds/auto-raised'
 import { refundStateToNotificationStatus } from '@/lib/refunds/notification-status'
@@ -675,4 +679,107 @@ export async function updateBookingQuantities(
   })
 
   return { ok: true, data: { refundOwedCents, refundState } }
+}
+
+/**
+ * Edit an Illegal Dumping booking's ID-specific fields (issue: ID booking
+ * edit, design docs/superpowers/specs/2026-08-28-id-booking-edit-design.md).
+ *
+ * Contractor-tier only at every editable status (canEditIdDetails — client
+ * admins view but never restate the evidence record); photos are append-only
+ * (evidence integrity); writes are guarded by an optimistic-concurrency check
+ * on updated_at and, defence-in-depth, by the enforce_booking_id_fields_write
+ * DB trigger. No notification: ID bookings are contact-less by design.
+ *
+ * Dispatch: no push here — the hourly push-orders-to-optimoroute reconciler
+ * detects the address/pin change via payloadDiffers() and refreshes any
+ * Pending stop on its next run.
+ */
+export async function updateIdDetails(
+  bookingId: string,
+  input: IdEditSubmission,
+): Promise<Result<{ updated_at: string }>> {
+  const supabase = await createClient()
+
+  const { data: role } = await supabase.rpc('current_user_role')
+  if (!isContractorStaff(role ?? null)) {
+    return { ok: false, error: 'Only D&M staff can edit illegal dumping details.' }
+  }
+
+  // Fetch under the caller's RLS — doubles as the tenancy check (a booking
+  // outside accessible_client_ids() is invisible here).
+  const { data: booking } = await supabase
+    .from('booking')
+    .select('id, type, status, geo_address, latitude, longitude, id_waste_types, id_volume, photos, updated_at')
+    .eq('id', bookingId)
+    .single()
+
+  if (!booking) return { ok: false, error: 'Booking not found.' }
+  if (booking.type !== 'Illegal Dumping') {
+    return { ok: false, error: 'Not an illegal dumping booking.' }
+  }
+  if (!canEditIdDetails(booking.status, role ?? null)) {
+    return {
+      ok: false,
+      error: `Illegal dumping details cannot be edited on a "${booking.status}" booking.`,
+    }
+  }
+
+  const parsed = parseIdEdit(input, booking.id_waste_types, ID_WASTE_TYPES)
+  if (!parsed.ok) return { ok: false, error: parsed.error }
+
+  // Append-only evidence: dedupe, then every stored URL must survive. Same
+  // set-semantics definition as the trigger's NEW.photos @> OLD.photos.
+  const nextPhotos = dedupePhotos(parsed.data.photo_urls)
+  if (!photosArePreserved(booking.photos, nextPhotos)) {
+    return { ok: false, error: 'Evidence photos cannot be removed — corrections happen by adding.' }
+  }
+
+  // No-op skip across all six columns so the audit log never accrues empty
+  // "Updated booking" entries. id_waste_types compares order-insensitively.
+  const unchanged =
+    (booking.geo_address ?? null) === parsed.data.geo_address &&
+    numOrNull(booking.latitude) === parsed.data.latitude &&
+    numOrNull(booking.longitude) === parsed.data.longitude &&
+    wasteTypesEqual(booking.id_waste_types, parsed.data.waste_types) &&
+    (booking.id_volume ?? null) === parsed.data.volume &&
+    photosArePreserved(nextPhotos, booking.photos) // supersets both ways = same set
+  if (unchanged) {
+    return { ok: true, data: { updated_at: booking.updated_at } }
+  }
+
+  // Optimistic concurrency: the token is the page-rendered updated_at string,
+  // matched VERBATIM (never re-parsed — Postgres keeps microseconds, JS
+  // truncates; a reformatted token would zero-row-match on every save).
+  const { data: updated, error } = await supabase
+    .from('booking')
+    .update({
+      geo_address: parsed.data.geo_address,
+      latitude: parsed.data.latitude,
+      longitude: parsed.data.longitude,
+      id_waste_types: parsed.data.waste_types,
+      id_volume: parsed.data.volume,
+      photos: nextPhotos,
+    })
+    .eq('id', bookingId)
+    .eq('updated_at', parsed.data.expected_updated_at)
+    .select('id, updated_at')
+    .maybeSingle()
+
+  if (error) return { ok: false, error: error.message }
+  if (!updated) {
+    return {
+      ok: false,
+      error:
+        'This booking changed while you were editing — reload the page and re-apply your changes.',
+    }
+  }
+
+  return { ok: true, data: { updated_at: updated.updated_at } }
+}
+
+/** Postgres numeric arrives as string via PostgREST; coerce for comparison. */
+function numOrNull(v: number | string | null): number | null {
+  if (v === null) return null
+  return typeof v === 'number' ? v : Number(v)
 }

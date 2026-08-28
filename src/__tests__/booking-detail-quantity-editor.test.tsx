@@ -41,6 +41,7 @@ function makeBooking(overrides: Partial<Booking> = {}): Booking {
     property_id: 'prop-uuid',
     collection_area_id: 'area-uuid',
     contact_id: 'contact-uuid',
+    client_id: 'client-uuid',
     latitude: null,
     longitude: null,
     geo_address: null,

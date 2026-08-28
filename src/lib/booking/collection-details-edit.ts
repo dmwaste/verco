@@ -55,6 +55,30 @@ export function canEditCollectionDetails(
   return false
 }
 
+/**
+ * Whether `role` may edit an Illegal Dumping booking's ID-specific fields
+ * (`geo_address`/pin, `id_waste_types`, `id_volume`, evidence `photos`) from
+ * the admin booking-detail panel.
+ *
+ * Contractor-tier ONLY, at every status `canEditCollectionDetails` allows —
+ * client-tier admins keep Location/Date/Notes editing pre-dispatch but the ID
+ * fields stay read-only for them: a council views the illegal-dumping record,
+ * it never restates what was dumped or where (design decision 28/08/2026,
+ * docs/superpowers/specs/2026-08-28-id-booking-edit-design.md). Completed
+ * bookings remain editable without a time bound (UC1 — reaffirmed by Dan);
+ * terminal/exception statuses (Cancelled, NCN, NP, Rebooked) are excluded —
+ * those records own their lifecycle via the rebook flow.
+ *
+ * Shared by the edit UI, the updateIdDetails server action, and mirrored by
+ * the enforce_booking_id_fields_write DB trigger, so the layers can't drift.
+ */
+export function canEditIdDetails(
+  status: BookingStatus,
+  role: AppRole | null,
+): boolean {
+  return isContractorStaff(role) && canEditCollectionDetails(status, role)
+}
+
 /** Minimal target-date shape needed by the reschedule date-dimension gate. */
 export interface RescheduleTargetDate {
   /** `collection_date.is_open`. A closed date is `false`. */
