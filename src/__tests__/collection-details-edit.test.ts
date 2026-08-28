@@ -205,3 +205,62 @@ describe('unitsByCategory', () => {
     ).toEqual({ bulk: 3, anc: 1, id: 0 })
   })
 })
+
+// ── canEditIdDetails (ID booking edit, design 2026-08-28) ────────────────
+import { canEditIdDetails } from '@/lib/booking/collection-details-edit'
+
+const ALL_ROLES: AppRole[] = [
+  'contractor-admin',
+  'contractor-staff',
+  'field',
+  'client-admin',
+  'client-staff',
+  'ranger',
+  'resident',
+  'strata',
+]
+const EDITABLE_STATUSES: BookingStatus[] = [
+  'Pending Payment',
+  'Submitted',
+  'Confirmed',
+  'Scheduled',
+  'Completed',
+]
+const NON_EDITABLE_STATUSES: BookingStatus[] = [
+  'Cancelled',
+  'Non-conformance',
+  'Nothing Presented',
+  'Rebooked',
+  'Missed Collection',
+]
+
+describe('canEditIdDetails (contractor-only ID field editing)', () => {
+  it('allows ONLY contractor roles, at every editable status — including Completed (UC1: unbounded)', () => {
+    for (const status of EDITABLE_STATUSES) {
+      for (const role of ALL_ROLES) {
+        expect(canEditIdDetails(status, role)).toBe(
+          role === 'contractor-admin' || role === 'contractor-staff',
+        )
+      }
+    }
+  })
+
+  it('rejects every role on terminal/exception statuses (NCN/NP own their lifecycle)', () => {
+    for (const status of NON_EDITABLE_STATUSES) {
+      for (const role of ALL_ROLES) {
+        expect(canEditIdDetails(status, role)).toBe(false)
+      }
+    }
+  })
+
+  it('null role fails closed everywhere', () => {
+    for (const status of [...EDITABLE_STATUSES, ...NON_EDITABLE_STATUSES]) {
+      expect(canEditIdDetails(status, null)).toBe(false)
+    }
+  })
+
+  it('client-tier passes the generic gate pre-dispatch but never the ID gate (the two differ by design)', () => {
+    expect(canEditCollectionDetails('Confirmed', 'client-admin')).toBe(true)
+    expect(canEditIdDetails('Confirmed', 'client-admin')).toBe(false)
+  })
+})
