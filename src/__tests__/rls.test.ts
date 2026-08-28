@@ -3162,4 +3162,171 @@ if (!haveDb) {
       }
     }, 20_000)
   })
+  // ---------------------------------------------------------------------------
+  // enforce_booking_id_fields_write — ID booking edit guards (2026-08-28)
+  // Design: docs/superpowers/specs/2026-08-28-id-booking-edit-design.md
+  // Highest-blast-radius regression class: the trigger must NEVER break field
+  // closeouts or staff status writes on ID bookings (short-circuit ordering),
+  // while rejecting non-contractor writes to the six guarded columns.
+  // ---------------------------------------------------------------------------
+
+  describe('enforce_booking_id_fields_write trigger (ID edit guards)', () => {
+    const IDE_BOOKING = 'dddddddd-0001-4000-8000-000000000001'
+
+    // Applied inside each rolled-back tx so the suite passes BEFORE the
+    // migration reaches prod and keeps guarding the exact file content after.
+    const IDE_MIGRATION_SQL = readFileSync(
+      resolve(__dirname, '../../supabase/migrations/20260828100000_id_booking_edit_guards.sql'),
+      'utf-8',
+    )
+
+    /** Seed one ID booking (fixed uuid) with the given status/photos, inside
+     *  the CURRENT transaction (privileged role; rolled back by the caller). */
+    async function seedIdBooking(status: string, photos: string[] = []): Promise<boolean> {
+      const r = await pg.query(
+        `INSERT INTO public.booking (id, ref, type, status, collection_area_id, client_id, contractor_id, fy_id, geo_address, latitude, longitude, id_waste_types, id_volume, photos)
+         SELECT $1, 'RLS-IDE-1', 'Illegal Dumping', $2::booking_status, a.id, $3, $4, f.id,
+                'Front gate (works depot)', -31.9, 115.8, ARRAY['Whitegoods'], '1 allocation (3m³)', $5::text[]
+         FROM (SELECT id FROM public.collection_area WHERE client_id = $3 LIMIT 1) a,
+              (SELECT id FROM public.financial_year WHERE is_current LIMIT 1) f
+         RETURNING id`,
+        [IDE_BOOKING, status, CLIENT_ID, CONTRACTOR_ID, photos],
+      )
+      return (r.rowCount ?? 0) === 1
+    }
+
+    /** Run `sql` impersonating `userId` after seeding; returns rowCount.
+     *  Throws the Postgres error on trigger rejection. Always rolls back. */
+    async function writeSeeded(
+      userId: string | null,
+      status: string,
+      sql: string,
+      photos: string[] = [],
+    ): Promise<number> {
+      await pg.query('BEGIN')
+      try {
+        await pg.query(IDE_MIGRATION_SQL)
+        // Fixture user_roles can be parked is_active=false between runs —
+        // activate in-tx (rolled back) so current_user_role() resolves.
+        await pg.query(`UPDATE public.user_roles SET is_active = true WHERE user_id::text LIKE 'aaaaaaaa-%'`)
+        const seeded = await seedIdBooking(status, photos)
+        if (!seeded) throw new Error('seed failed (no area/fy fixture)')
+        if (userId) {
+          await pg.query(`SET LOCAL ROLE authenticated`)
+          await pg.query(`SELECT set_config('request.jwt.claims', $1, true)`, [
+            JSON.stringify({ sub: userId, role: 'authenticated' }),
+          ])
+        }
+        const r = await pg.query(sql)
+        return r.rowCount ?? 0
+      } finally {
+        await pg.query('ROLLBACK')
+      }
+    }
+
+    const SET_ADDR = `UPDATE public.booking SET geo_address = '1 Linwood Court, Osborne Park' WHERE ref = 'RLS-IDE-1'`
+
+    it('contractor-admin can correct the address on a Scheduled ID booking', async () => {
+      expect(await writeSeeded(USERS['contractor-admin'], 'Scheduled', SET_ADDR)).toBe(1)
+    })
+
+    it('contractor-admin can correct a Completed ID booking (UC1: unbounded)', async () => {
+      expect(await writeSeeded(USERS['contractor-admin'], 'Completed', SET_ADDR)).toBe(1)
+    })
+
+    it('client-admin is rejected by the trigger (not a silent RLS no-op)', async () => {
+      await expect(writeSeeded(USERS['client-admin'], 'Confirmed', SET_ADDR)).rejects.toThrow(
+        /D&M staff/,
+      )
+    })
+
+    it('field closeout of an ID booking still works (2am-Friday regression, E3)', async () => {
+      expect(
+        await writeSeeded(
+          USERS.field,
+          'Scheduled',
+          `UPDATE public.booking SET status = 'Completed' WHERE ref = 'RLS-IDE-1'`,
+        ),
+      ).toBe(1)
+    })
+
+    it('client-admin notes write on an ID booking still works (short-circuit lets non-ID columns through)', async () => {
+      expect(
+        await writeSeeded(
+          USERS['client-admin'],
+          'Confirmed',
+          `UPDATE public.booking SET notes = 'staff note' WHERE ref = 'RLS-IDE-1'`,
+        ),
+      ).toBe(1)
+    })
+
+    it('field writing an ID column alongside closeout is rejected', async () => {
+      await expect(
+        writeSeeded(
+          USERS.field,
+          'Scheduled',
+          `UPDATE public.booking SET status = 'Completed', id_volume = '3+ allocations (9m³+)' WHERE ref = 'RLS-IDE-1'`,
+        ),
+      ).rejects.toThrow(/D&M staff/)
+    })
+
+    it('contractor cannot remove an evidence photo (append-only @>)', async () => {
+      await expect(
+        writeSeeded(
+          USERS['contractor-admin'],
+          'Scheduled',
+          `UPDATE public.booking SET photos = ARRAY['https://x/storage/a.jpg'] WHERE ref = 'RLS-IDE-1'`,
+          ['https://x/storage/a.jpg', 'https://x/storage/b.jpg'],
+        ),
+      ).rejects.toThrow(/photos cannot be removed/)
+    })
+
+    it('contractor CAN append an evidence photo', async () => {
+      expect(
+        await writeSeeded(
+          USERS['contractor-admin'],
+          'Scheduled',
+          `UPDATE public.booking SET photos = ARRAY['https://x/storage/a.jpg','https://x/storage/b.jpg'] WHERE ref = 'RLS-IDE-1'`,
+          ['https://x/storage/a.jpg'],
+        ),
+      ).toBe(1)
+    })
+
+    it('contractor edit on a Cancelled ID booking is rejected (status predicate, E5)', async () => {
+      await expect(writeSeeded(USERS['contractor-admin'], 'Cancelled', SET_ADDR)).rejects.toThrow(
+        /cannot be changed on a/,
+      )
+    })
+
+    it('claims-NULL direct-SQL session passes (manual-repair escape hatch, E2)', async () => {
+      // userId null = privileged pg role, request.jwt.claims unset — the exact
+      // context of `supabase db query --linked` repair sessions.
+      expect(await writeSeeded(null, 'Scheduled', SET_ADDR)).toBe(1)
+    })
+
+    it('updated_at CAS round-trips as an opaque text token (E6 — real Postgres, no Date truncation)', async () => {
+      await pg.query('BEGIN')
+      try {
+        await pg.query(IDE_MIGRATION_SQL)
+        expect(await seedIdBooking('Scheduled')).toBe(true)
+        const tok = await pg.query<{ t: string }>(
+          `SELECT updated_at::text AS t FROM public.booking WHERE ref = 'RLS-IDE-1'`,
+        )
+        const r = await pg.query(
+          `UPDATE public.booking SET geo_address = 'CAS ok' WHERE ref = 'RLS-IDE-1' AND updated_at = $1::timestamptz`,
+          [tok.rows[0]!.t],
+        )
+        expect(r.rowCount).toBe(1)
+        // And a stale token matches zero rows (booking_updated_at bumped it).
+        const r2 = await pg.query(
+          `UPDATE public.booking SET geo_address = 'CAS stale' WHERE ref = 'RLS-IDE-1' AND updated_at = $1::timestamptz`,
+          [tok.rows[0]!.t],
+        )
+        expect(r2.rowCount).toBe(0)
+      } finally {
+        await pg.query('ROLLBACK')
+      }
+    })
+  })
+
 })

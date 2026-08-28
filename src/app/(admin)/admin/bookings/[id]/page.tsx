@@ -23,7 +23,7 @@ export default async function AdminBookingDetailPage({
     .from('booking')
     .select(
       `id, ref, status, type, location, notes, created_at, updated_at, fy_id,
-       property_id, collection_area_id, contact_id,
+       property_id, collection_area_id, contact_id, client_id,
        latitude, longitude, geo_address, photos, id_waste_types, id_volume,
        collection_area!inner(name, code),
        eligible_properties:property_id(formatted_address, address),

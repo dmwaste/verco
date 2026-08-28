@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Dialog } from '@base-ui/react/dialog'
@@ -8,15 +8,19 @@ import { useQuery } from '@tanstack/react-query'
 import { format } from 'date-fns'
 import { createClient } from '@/lib/supabase/client'
 import { invokeEfWithUserToken } from '@/lib/supabase/invoke-ef-client'
+import { invokeEdgeFunction } from '@/lib/supabase/invoke-ef'
 import { BookingStatusBadge } from '@/components/booking/booking-status-badge'
-import { idWasteTypeLabel } from '@/lib/booking/id-options'
+import { AddressAutocomplete } from '@/components/booking/address-autocomplete'
+import { idWasteTypeLabel, ID_WASTE_TYPES, ID_VOLUMES, ID_PHOTOS_BUCKET, ID_PHOTOS_PREFIX } from '@/lib/booking/id-options'
+import { addressMateriallyChanged } from '@/lib/booking/id-edit'
+import { matchAddressToArea } from '@/lib/booking/id-area-suggestion'
 import { DetailHeader } from '@/components/admin/detail-header'
 import { FieldLabel, Input, Select, Textarea } from '@/components/admin/form'
 import { LOCATION_OPTIONS, MAX_SERVICE_QTY, type LocationOption } from '@/lib/booking/schemas'
 import { buildQuantityEditItems } from '@/lib/booking/quantity-edit-payload'
-import { canEditCollectionDetails } from '@/lib/booking/collection-details-edit'
+import { canEditCollectionDetails, canEditIdDetails } from '@/lib/booking/collection-details-edit'
 import { isContractorStaff } from '@/lib/auth/roles'
-import { confirmBooking, cancelBooking, updateContact, updateCollectionDetails, updateNotes, updateBookingQuantities } from './actions'
+import { confirmBooking, cancelBooking, updateContact, updateCollectionDetails, updateIdDetails, updateNotes, updateBookingQuantities } from './actions'
 import { effectiveCapacity, indexPoolDates } from '@/lib/capacity/effective-capacity'
 import { capacityBlocksMove, remainingByCategory, unitsByCategory } from '@/lib/booking/collection-details-edit'
 import { cn } from '@/lib/utils'
@@ -63,6 +67,7 @@ interface Booking {
   property_id: string | null
   collection_area_id: string | null
   contact_id: string | null
+  client_id: string
   latitude: number | null
   longitude: number | null
   geo_address: string | null
@@ -134,6 +139,33 @@ export function BookingDetailClient({
   // Notes edit form
   const [editNotesText, setEditNotesText] = useState(booking.notes ?? '')
 
+  // ── Illegal Dumping details edit (contractor-only; design 2026-08-28) ──
+  // Postgres numeric arrives as a string through PostgREST — coerce once so
+  // pin-moved comparisons are number-vs-number.
+  const origLat = booking.latitude != null ? Number(booking.latitude) : null
+  const origLng = booking.longitude != null ? Number(booking.longitude) : null
+  const [editGeoAddress, setEditGeoAddress] = useState(booking.geo_address ?? '')
+  const [editLat, setEditLat] = useState<number | null>(origLat)
+  const [editLng, setEditLng] = useState<number | null>(origLng)
+  const [editWasteTypes, setEditWasteTypes] = useState<string[]>(booking.id_waste_types)
+  const [editVolume, setEditVolume] = useState(booking.id_volume ?? '')
+  const [editPhotos, setEditPhotos] = useState<string[]>(booking.photos)
+  const [isUploadingPhotos, setIsUploadingPhotos] = useState(false)
+  const [photoUploadError, setPhotoUploadError] = useState<string | null>(null)
+  const [isGeocodingEdit, setIsGeocodingEdit] = useState(false)
+  const [editPinError, setEditPinError] = useState<string | null>(null)
+  // Code of the area the repinned address resolved to, when it disagrees with
+  // the booking's area — inline warn, never a block (ID sites are legitimately
+  // non-property spots; cross-area corrections go through cancel + re-log).
+  const [areaMismatchCode, setAreaMismatchCode] = useState<string | null>(null)
+  const [showPinStaleConfirm, setShowPinStaleConfirm] = useState(false)
+  // Status-conditional save confirmation (inline role=status banner — the
+  // card's idiom; there is no toast primitive on this page).
+  const [detailsSaveResult, setDetailsSaveResult] = useState<string | null>(null)
+  // Discards stale geocode responses on re-select (intake's geocodeSeqRef pattern).
+  const editGeocodeSeqRef = useRef(0)
+  const editFileInputRef = useRef<HTMLInputElement>(null)
+
   // Inline quantity editor (issue #380). Aggregate current per-service quantity
   // (a service can span a free + a paid booking_item row).
   const originalQty = new Map<string, number>()
@@ -185,6 +217,12 @@ export function BookingDetailClient({
   // (VER-285 / #378). The updateCollectionDetails server action + RLS
   // re-enforce this.
   const canEditDetails = canEditCollectionDetails(booking.status, userRole)
+
+  // ID-specific fields are contractor-only at every editable status — a
+  // client-tier admin editing pre-dispatch sees them as read-only rows.
+  const canEditId = isId && canEditIdDetails(booking.status, userRole)
+  const editPinExists = editLat !== null && editLng !== null
+  const editPinMoved = editLat !== origLat || editLng !== origLng
 
   // Contractor (D&M) staff may reschedule into a closed or past/earlier date to
   // correct a crew collection error (D1, #378). Client-tier admins keep the
@@ -405,9 +443,176 @@ export function BookingDetailClient({
     router.refresh()
   }
 
+  // Address search selection → re-geocode (place_id → lat/lng) and move the
+  // pin; free-typing the label input never touches the pin. Mirrors the admin
+  // ID intake form's handleAddressSelect (id-request-form.tsx).
+  async function handleEditAddressSelect(placeId: string, description: string) {
+    const seq = ++editGeocodeSeqRef.current
+    setEditGeoAddress(description)
+    setEditPinError(null)
+    setAreaMismatchCode(null)
+    setIsGeocodingEdit(true)
+    try {
+      const data = await invokeEdgeFunction<{
+        address: string | null
+        latitude: number | null
+        longitude: number | null
+        error?: string
+      }>('google-places-proxy', { place_id: placeId, type: 'geocode' })
+      if (seq !== editGeocodeSeqRef.current) return
+      if (data.error || typeof data.latitude !== 'number' || typeof data.longitude !== 'number') {
+        setEditPinError('Could not pin coordinates for that address — the existing pin is unchanged.')
+      } else {
+        setEditLat(data.latitude)
+        setEditLng(data.longitude)
+        // Soft area consistency (warn, never block): does the new address
+        // resolve to a DIFFERENT area than the booking's? Scoped to the
+        // booking's client (collection_area is public-SELECT — CLAUDE.md §21).
+        try {
+          const { data: areas } = await supabase
+            .from('collection_area')
+            .select('id, code')
+            .eq('client_id', booking.client_id)
+          const areaIds = (areas ?? []).map((a) => a.id)
+          const matched = await matchAddressToArea(supabase, {
+            placeId,
+            address: description,
+            areaIds,
+          })
+          if (seq !== editGeocodeSeqRef.current) return
+          if (matched && matched !== booking.collection_area_id) {
+            setAreaMismatchCode(areas?.find((a) => a.id === matched)?.code ?? 'another area')
+          }
+        } catch {
+          // Advisory only — swallow lookup failures.
+        }
+      }
+    } catch {
+      if (seq !== editGeocodeSeqRef.current) return
+      setEditPinError('Address lookup failed — the existing pin is unchanged.')
+    } finally {
+      if (seq === editGeocodeSeqRef.current) setIsGeocodingEdit(false)
+    }
+  }
+
+  function toggleEditWasteType(type: string) {
+    setEditWasteTypes((prev) =>
+      prev.includes(type) ? prev.filter((t) => t !== type) : [...prev, type]
+    )
+  }
+
+  async function handleEditPhotoUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = e.target.files
+    if (!files || files.length === 0) return
+    setIsUploadingPhotos(true)
+    setPhotoUploadError(null)
+    const results = await Promise.all(
+      Array.from(files).map(async (file) => {
+        const ext = file.name.split('.').pop() ?? 'jpg'
+        const path = `${ID_PHOTOS_PREFIX}/${crypto.randomUUID()}.${ext}`
+        try {
+          const { data, error: uploadError } = await supabase.storage
+            .from(ID_PHOTOS_BUCKET)
+            .upload(path, file)
+          if (uploadError || !data) return { ok: false as const }
+          const { data: urlData } = supabase.storage
+            .from(ID_PHOTOS_BUCKET)
+            .getPublicUrl(data.path)
+          return { ok: true as const, url: urlData.publicUrl }
+        } catch {
+          return { ok: false as const }
+        }
+      })
+    )
+    const newUrls = results.filter((r) => r.ok).map((r) => r.url)
+    const failedCount = results.length - newUrls.length
+    if (newUrls.length > 0) setEditPhotos((prev) => [...prev, ...newUrls])
+    if (failedCount > 0) {
+      // Per-file failure surfacing — a failed upload never silently drops the
+      // photo or blocks the ones that succeeded.
+      setPhotoUploadError(
+        `Couldn't upload ${failedCount} photo${failedCount > 1 ? 's' : ''}. Check your connection and try again.`
+      )
+    }
+    if (editFileInputRef.current) editFileInputRef.current.value = ''
+    setIsUploadingPhotos(false)
+  }
+
+  /** Only photos added THIS session are removable — persisted evidence is
+   *  append-only (server action + DB trigger both enforce it). */
+  function removeSessionPhoto(url: string) {
+    if (booking.photos.includes(url)) return
+    setEditPhotos((prev) => prev.filter((u) => u !== url))
+  }
+
+  function resetIdEditState() {
+    setEditGeoAddress(booking.geo_address ?? '')
+    setEditLat(origLat)
+    setEditLng(origLng)
+    setEditWasteTypes(booking.id_waste_types)
+    setEditVolume(booking.id_volume ?? '')
+    setEditPhotos(booking.photos)
+    setEditPinError(null)
+    setPhotoUploadError(null)
+    setAreaMismatchCode(null)
+  }
+
   async function handleSaveDetails() {
+    if (canEditId) {
+      if (editWasteTypes.length === 0) {
+        setError('Select at least one waste type.')
+        return
+      }
+      if (!editVolume) {
+        setError('Select an estimated volume.')
+        return
+      }
+      if (!editGeoAddress.trim()) {
+        setError('Address is required.')
+        return
+      }
+      // Pin-stale guard (the VIN-YVMSIN class): the label changed materially
+      // but the pin didn't move — crews are routed by the pin, so saving a
+      // corrected label over a stale pin needs an explicit decision.
+      // Suppressed for pinless bookings (nothing to be stale).
+      if (
+        editPinExists &&
+        !editPinMoved &&
+        addressMateriallyChanged(booking.geo_address, editGeoAddress)
+      ) {
+        setShowPinStaleConfirm(true)
+        return
+      }
+    }
+    await doSaveDetails()
+  }
+
+  async function doSaveDetails() {
+    setShowPinStaleConfirm(false)
     setIsPending(true)
     setError(null)
+    setDetailsSaveResult(null)
+
+    // ID fields save FIRST: its optimistic-concurrency token is the
+    // page-rendered updated_at, and the booking_updated_at trigger bumps
+    // updated_at on EVERY write — so any sibling save before this one would
+    // make the token stale and every ID save false-conflict.
+    if (canEditId) {
+      const idResult = await updateIdDetails(booking.id, {
+        geo_address: editGeoAddress.trim(),
+        latitude: editLat,
+        longitude: editLng,
+        waste_types: editWasteTypes,
+        volume: editVolume,
+        photo_urls: editPhotos,
+        expected_updated_at: booking.updated_at,
+      })
+      if (!idResult.ok) {
+        setError(idResult.error)
+        setIsPending(false)
+        return
+      }
+    }
 
     // Save notes alongside collection details
     const notesResult = await updateNotes(booking.id, editNotesText)
@@ -425,6 +630,22 @@ export function BookingDetailClient({
       setError(result.error)
       setIsPending(false)
       return
+    }
+    if (canEditId) {
+      // Status-conditional: "the crew's stop updates" is only true while
+      // Pending stops exist (Scheduled). Confirmed pre-T-3 has no stops yet;
+      // Completed stops are terminal and deliberately never touched.
+      const today = new Date().toISOString().split('T')[0]!
+      const isCollectionToday = collectionDateStr === today
+      setDetailsSaveResult(
+        booking.status === 'Scheduled'
+          ? isCollectionToday
+            ? "Saved. The crew's stop updates on the next hourly sync — today's route is already dispatched, phone ops for same-day corrections."
+            : "Saved. The crew's stop updates on the next hourly sync."
+          : booking.status === 'Completed'
+            ? 'Saved — record updated.'
+            : 'Saved.'
+      )
     }
     setEditingDetails(false)
     setIsPending(false)
@@ -630,6 +851,12 @@ export function BookingDetailClient({
           )}
         </div>
 
+        {detailsSaveResult && (
+          <div role="status" className="mb-3 rounded-lg border border-status-success bg-status-success-bg px-3 py-2 text-body-sm text-status-success">
+            {detailsSaveResult}
+          </div>
+        )}
+
         {!editingDetails ? (
           <div className="flex flex-col gap-2.5">
             <div className="flex gap-3">
@@ -705,6 +932,206 @@ export function BookingDetailClient({
           </div>
         ) : (
           <div className="flex flex-col gap-3">
+            {/* Illegal Dumping details — contractor-only edit; client-tier
+                sees read-only rows (never disabled controls, never omission).
+                Rendered ABOVE the generic fields: the address is what this
+                edit affordance exists to correct (design 2026-08-28). */}
+            {isId && canEditId && (
+              <div className="flex flex-col gap-3 rounded-lg border-[1.5px] border-gray-100 bg-gray-50/60 p-3">
+                <span className="text-caption font-semibold uppercase tracking-wide text-gray-500">
+                  Illegal Dumping Details
+                </span>
+                <div className="flex flex-col gap-1.5">
+                  <FieldLabel htmlFor="bd-id-address-search" className="mb-0">
+                    Search an address to move the pin
+                  </FieldLabel>
+                  <AddressAutocomplete
+                    inputId="bd-id-address-search"
+                    onSelect={handleEditAddressSelect}
+                    placeholder="Start typing the street address..."
+                  />
+                </div>
+                <div
+                  role="status"
+                  className={cn(
+                    'flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-medium',
+                    editPinError
+                      ? 'bg-status-error-bg text-status-error'
+                      : editPinExists
+                        ? 'bg-status-success-bg text-status-success'
+                        : 'bg-status-warn-bg text-status-warn'
+                  )}
+                >
+                  <div
+                    className={cn(
+                      'size-2 shrink-0 rounded-full',
+                      editPinError ? 'bg-status-error' : editPinExists ? 'bg-status-success' : 'bg-status-warn'
+                    )}
+                  />
+                  {isGeocodingEdit
+                    ? 'Pinning location...'
+                    : editPinError
+                      ? editPinError
+                      : editPinExists
+                        ? `Pin: ${editLat?.toFixed(5)}, ${editLng?.toFixed(5)} · ${editPinMoved ? 'updated' : 'unchanged'}`
+                        : 'No pin set — crews rely on the description'}
+                </div>
+                {areaMismatchCode && (
+                  <div className="rounded-lg bg-status-warn-bg px-3 py-2 text-xs font-medium text-status-warn">
+                    This address looks like it belongs to {areaMismatchCode}. Cross-area
+                    corrections need cancel + re-log.
+                  </div>
+                )}
+                <div className="flex flex-col gap-1.5">
+                  <FieldLabel htmlFor="bd-id-geo-address" className="mb-0">
+                    Location description shown to the crew
+                  </FieldLabel>
+                  <Input
+                    id="bd-id-geo-address"
+                    type="text"
+                    value={editGeoAddress}
+                    onChange={(e) => setEditGeoAddress(e.target.value)}
+                    className="bg-white py-2 text-sm"
+                  />
+                  <p className="text-caption text-gray-500">
+                    Edit freely — the pin only moves when you pick a searched address above.
+                  </p>
+                </div>
+                <fieldset>
+                  <legend className="text-xs font-medium text-gray-700">Type of waste</legend>
+                  <div className="mt-1.5 grid grid-cols-2 gap-1.5 sm:grid-cols-3">
+                    {ID_WASTE_TYPES.map((type) => (
+                      <button
+                        key={type}
+                        type="button"
+                        aria-pressed={editWasteTypes.includes(type)}
+                        onClick={() => toggleEditWasteType(type)}
+                        className={cn(
+                          'rounded-lg border-[1.5px] px-3 py-2 text-center text-xs font-medium transition-colors',
+                          editWasteTypes.includes(type)
+                            ? 'border-[#293F52] bg-[#E8EEF2] text-[#293F52]'
+                            : 'border-gray-100 bg-white text-gray-700 hover:bg-gray-50'
+                        )}
+                      >
+                        {idWasteTypeLabel(type)}
+                      </button>
+                    ))}
+                    {/* Legacy tags not in the current offering stay saveable if untouched */}
+                    {editWasteTypes
+                      .filter((t) => !(ID_WASTE_TYPES as readonly string[]).includes(t))
+                      .map((type) => (
+                        <button
+                          key={type}
+                          type="button"
+                          aria-pressed
+                          onClick={() => toggleEditWasteType(type)}
+                          className="rounded-lg border-[1.5px] border-[#293F52] bg-[#E8EEF2] px-3 py-2 text-center text-xs font-medium text-[#293F52]"
+                        >
+                          {idWasteTypeLabel(type)}
+                        </button>
+                      ))}
+                  </div>
+                </fieldset>
+                <fieldset>
+                  <legend className="text-xs font-medium text-gray-700">Estimated volume</legend>
+                  <div className="mt-1.5 flex max-w-sm gap-1.5">
+                    {ID_VOLUMES.map((v) => (
+                      <button
+                        key={v.label}
+                        type="button"
+                        aria-pressed={editVolume.startsWith(v.label)}
+                        onClick={() => setEditVolume(`${v.label} (${v.sub})`)}
+                        className={cn(
+                          'flex flex-1 flex-col items-center rounded-lg border-[1.5px] px-2 py-2 text-center text-xs font-medium transition-colors',
+                          editVolume.startsWith(v.label)
+                            ? 'border-[#293F52] bg-[#E8EEF2] text-[#293F52]'
+                            : 'border-gray-100 bg-white text-gray-700 hover:bg-gray-50'
+                        )}
+                      >
+                        {v.label}
+                        <span className="text-2xs font-normal text-gray-500">{v.sub}</span>
+                      </button>
+                    ))}
+                  </div>
+                </fieldset>
+                <div className="flex flex-col gap-1.5">
+                  <span className="text-xs font-medium text-gray-700">Evidence photos</span>
+                  {editPhotos.length > 0 && (
+                    <div className="flex flex-wrap gap-2">
+                      {editPhotos.map((url) => {
+                        const isPersisted = booking.photos.includes(url)
+                        return (
+                          <div key={url} className="relative">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img
+                              src={url}
+                              alt={isPersisted ? 'Evidence photo (locked)' : 'New photo (removable until save)'}
+                              title={
+                                isPersisted
+                                  ? 'Evidence is append-only — corrections happen by adding, never removing.'
+                                  : undefined
+                              }
+                              className="size-16 rounded-lg object-cover"
+                            />
+                            {!isPersisted && (
+                              <button
+                                type="button"
+                                aria-label="Remove photo added this session"
+                                onClick={() => removeSessionPhoto(url)}
+                                className="absolute -right-1.5 -top-1.5 flex size-5 items-center justify-center rounded-full bg-[#293F52] text-xs font-semibold text-white"
+                              >
+                                ×
+                              </button>
+                            )}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+                  <input
+                    ref={editFileInputRef}
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    onChange={handleEditPhotoUpload}
+                    className="text-xs text-gray-700 file:mr-2 file:rounded-lg file:border-0 file:bg-[#E8EEF2] file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-[#293F52]"
+                  />
+                  {isUploadingPhotos && (
+                    <p role="status" className="text-caption text-gray-500">Uploading…</p>
+                  )}
+                  {photoUploadError && (
+                    <p role="alert" className="rounded-lg bg-status-error-bg px-3 py-2 text-xs font-medium text-status-error">
+                      {photoUploadError}
+                    </p>
+                  )}
+                  <p className="text-caption text-gray-500">
+                    Existing photos are evidence and can&apos;t be removed. Photos added now are
+                    removable until you save.
+                  </p>
+                </div>
+              </div>
+            )}
+            {isId && !canEditId && (
+              <div className="flex flex-col gap-2.5 rounded-lg border-[1.5px] border-gray-100 bg-gray-50/60 p-3">
+                <span className="text-caption font-semibold uppercase tracking-wide text-gray-500">
+                  Illegal Dumping Details
+                </span>
+                <div className="flex gap-3">
+                  <span className="w-[120px] shrink-0 text-xs font-medium text-gray-500">Address</span>
+                  <span className="min-w-0 flex-1 break-words text-body-sm text-gray-900">{booking.geo_address ?? '—'}</span>
+                </div>
+                <div className="flex gap-3">
+                  <span className="w-[120px] shrink-0 text-xs font-medium text-gray-500">Waste</span>
+                  <span className="min-w-0 flex-1 break-words text-body-sm text-gray-900">
+                    {booking.id_waste_types.map(idWasteTypeLabel).join(', ') || '—'}
+                    {booking.id_volume ? ` · ${booking.id_volume}` : ''}
+                  </span>
+                </div>
+                <p className="text-caption text-gray-500">
+                  Illegal dumping details can only be changed by D&amp;M.
+                </p>
+              </div>
+            )}
             <div>
               <label className="mb-1 block text-xs font-medium text-gray-500">Location</label>
               <div className="flex flex-wrap gap-1.5">
@@ -774,7 +1201,7 @@ export function BookingDetailClient({
               <button
                 type="button"
                 onClick={handleSaveDetails}
-                disabled={isPending}
+                disabled={isPending || (canEditId && (isUploadingPhotos || isGeocodingEdit))}
                 className="flex-1 rounded-lg bg-[#293F52] px-3 py-2 text-body-sm font-semibold text-white disabled:opacity-50"
               >
                 {isPending ? 'Saving...' : 'Save'}
@@ -786,6 +1213,7 @@ export function BookingDetailClient({
                   setEditLocation((booking.location as LocationOption) ?? 'Front Verge')
                   setEditDateId(booking.booking_item[0]?.collection_date_id ?? '')
                   setEditNotesText(booking.notes ?? '')
+                  resetIdEditState()
                 }}
                 className="flex-1 rounded-lg border-[1.5px] border-gray-100 bg-white px-3 py-2 text-body-sm font-semibold text-gray-700"
               >
@@ -1071,6 +1499,42 @@ export function BookingDetailClient({
       </div>
 
       {/* Cancel confirmation dialog */}
+      {/* Pin-stale confirm (VIN-YVMSIN class): label changed materially, pin
+          didn't move. Blocking dialog — Base UI traps focus and closes on
+          Escape. For non-addressable sites (no prediction exists) the copy
+          states the accepted limitation honestly. */}
+      <Dialog.Root open={showPinStaleConfirm} onOpenChange={setShowPinStaleConfirm}>
+        <Dialog.Portal>
+          <Dialog.Backdrop className="fixed inset-0 z-40 bg-black/40" />
+          <Dialog.Popup className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl">
+              <Dialog.Title className="font-[family-name:var(--font-heading)] text-lg font-bold text-[#293F52]">
+                Keep the existing map pin?
+              </Dialog.Title>
+              <p className="mt-1.5 text-body-sm leading-relaxed text-gray-500">
+                You changed the address but kept the existing map pin
+                {editPinExists ? ` (${editLat?.toFixed(5)}, ${editLng?.toFixed(5)})` : ''}.
+                Crews are routed by the pin, not the text. To move the pin, pick an address
+                from the search suggestions — if the site has no street address, the pin can
+                only be corrected by ops.
+              </p>
+              <div className="mt-5 flex gap-2.5">
+                <Dialog.Close className="flex-1 rounded-xl border-[1.5px] border-gray-100 bg-white px-3.5 py-3 font-[family-name:var(--font-heading)] text-sm font-semibold text-[#293F52]">
+                  Back — pick an address
+                </Dialog.Close>
+                <button
+                  type="button"
+                  onClick={() => void doSaveDetails()}
+                  className="flex-1 rounded-xl bg-[#293F52] px-3.5 py-3 font-[family-name:var(--font-heading)] text-sm font-semibold text-white"
+                >
+                  Keep pin &amp; save
+                </button>
+              </div>
+            </div>
+          </Dialog.Popup>
+        </Dialog.Portal>
+      </Dialog.Root>
+
       <Dialog.Root open={showCancelDialog} onOpenChange={setShowCancelDialog}>
         <Dialog.Portal>
           <Dialog.Backdrop className="fixed inset-0 z-40 bg-black/40" />
