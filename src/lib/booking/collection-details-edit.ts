@@ -79,6 +79,43 @@ export function canEditIdDetails(
   return isContractorStaff(role) && canEditCollectionDetails(status, role)
 }
 
+// Terminal collection outcomes on which contractor staff may correct the
+// per-service collected counts a crew entered at MUD closeout (Allocation
+// Entry → booking_item.actual_services). Scheduled is deliberately EXCLUDED:
+// pre-filling actual_services would suppress the crew's mandatory Allocation
+// Entry closeout form, which triggers on actual_services == null.
+// Non-conformance / Nothing Presented ARE included — crews enter counts before
+// raising either, and both are billable statuses in the monthly client report
+// (ADR 0017), so a mis-allocation there needs correcting too. Rebooked and
+// Cancelled excluded — those records own their lifecycle elsewhere.
+const MUD_ALLOCATION_EDITABLE: BookingStatus[] = [
+  'Completed',
+  'Non-conformance',
+  'Nothing Presented',
+]
+
+/**
+ * Whether `role` may edit a MUD booking's collected counts
+ * (`booking_item.actual_services`) from the admin booking-detail panel.
+ *
+ * Contractor-tier ONLY, post-collection ONLY. Deliberately NOT composed with
+ * canEditCollectionDetails — its contractor post-dispatch set is
+ * Scheduled/Completed, which is wrong on both edges here (see
+ * MUD_ALLOCATION_EDITABLE). Collected counts drive council invoicing via
+ * get_client_monthly_report's coalesce(actual_services, no_services), so this
+ * follows the #555 trust model: unbounded post-completion edits, contractor
+ * only, with the booking_item audit trail as the control.
+ *
+ * Shared by the edit UI and the updateMudAllocations server action, so the
+ * two guards can never drift.
+ */
+export function canEditMudAllocations(
+  status: BookingStatus,
+  role: AppRole | null,
+): boolean {
+  return isContractorStaff(role) && MUD_ALLOCATION_EDITABLE.includes(status)
+}
+
 /** Minimal target-date shape needed by the reschedule date-dimension gate. */
 export interface RescheduleTargetDate {
   /** `collection_date.is_open`. A closed date is `false`. */

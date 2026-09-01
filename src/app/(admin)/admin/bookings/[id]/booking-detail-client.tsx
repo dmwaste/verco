@@ -18,9 +18,9 @@ import { DetailHeader } from '@/components/admin/detail-header'
 import { FieldLabel, Input, Select, Textarea } from '@/components/admin/form'
 import { LOCATION_OPTIONS, MAX_SERVICE_QTY, type LocationOption } from '@/lib/booking/schemas'
 import { buildQuantityEditItems } from '@/lib/booking/quantity-edit-payload'
-import { canEditCollectionDetails, canEditIdDetails } from '@/lib/booking/collection-details-edit'
+import { canEditCollectionDetails, canEditIdDetails, canEditMudAllocations } from '@/lib/booking/collection-details-edit'
 import { isContractorStaff } from '@/lib/auth/roles'
-import { confirmBooking, cancelBooking, updateContact, updateCollectionDetails, updateIdDetails, updateNotes, updateBookingQuantities } from './actions'
+import { confirmBooking, cancelBooking, updateContact, updateCollectionDetails, updateIdDetails, updateMudAllocations, updateNotes, updateBookingQuantities } from './actions'
 import { effectiveCapacity, indexPoolDates } from '@/lib/capacity/effective-capacity'
 import { capacityBlocksMove, remainingByCategory, unitsByCategory } from '@/lib/booking/collection-details-edit'
 import { cn } from '@/lib/utils'
@@ -51,6 +51,7 @@ interface BookingItem {
   actual_services: number | null
   is_extra: boolean
   unit_price_cents: number
+  updated_at: string
   service: { name: string; category?: { code: string } | null }
   collection_date: { date: string }
 }
@@ -183,6 +184,14 @@ export function BookingDetailClient({
   const [editQty, setEditQty] = useState<Map<string, number>>(() => new Map(originalQty))
   const [quantityResult, setQuantityResult] = useState<string | null>(null)
 
+  // MUD collected-count correction (post-collection, contractor-only). Drafts
+  // are keyed by booking_item id; a NULL count renders as 0 but only enters
+  // the save payload once TOUCHED, so a Save never coerces NULL→0 silently.
+  const [editingAllocations, setEditingAllocations] = useState(false)
+  const [editActuals, setEditActuals] = useState<Map<string, number>>(() => new Map())
+  const [touchedAllocations, setTouchedAllocations] = useState<Set<string>>(() => new Set())
+  const [allocationResult, setAllocationResult] = useState<string | null>(null)
+
   const area = booking.collection_area as { name: string; code: string }
   const property = booking.eligible_properties as { formatted_address: string | null; address: string } | null
   const contact = booking.contact as { first_name: string; last_name: string; full_name: string; mobile_e164: string | null; email: string } | null
@@ -245,6 +254,19 @@ export function BookingDetailClient({
   const quantitiesChanged = serviceLines.some(
     (l) => (editQty.get(l.service_id) ?? l.qty) !== l.qty,
   )
+
+  // MUD collected-count correction — contractor-only, post-collection statuses
+  // only (Completed/NCN/NP). Mutually exclusive with the quantity editor
+  // (Confirmed-only) and the "Cancel & rebook" hint (pre-dispatch `canEdit`),
+  // so the Services card only ever offers one mode. The updateMudAllocations
+  // server action re-enforces this gate.
+  const canEditMudCounts = isMud && canEditMudAllocations(booking.status, userRole)
+  const changedAllocations = canEditMudCounts
+    ? booking.booking_item.filter((item) => {
+        if (!touchedAllocations.has(item.id)) return false
+        return (editActuals.get(item.id) ?? 0) !== item.actual_services
+      })
+    : []
 
   // Services edit URL — wizard handles pricing/capacity.
   //
@@ -654,6 +676,46 @@ export function BookingDetailClient({
 
   function setQty(serviceId: string, next: number) {
     setEditQty((prev) => new Map(prev).set(serviceId, Math.min(MAX_SERVICE_QTY, Math.max(1, next))))
+  }
+
+  // 999 mirrors the server action's defensive cap — deliberately NOT
+  // MAX_SERVICE_QTY (a SUD bound; a large MUD complex can exceed it).
+  function setActual(itemId: string, next: number) {
+    setEditActuals((prev) => new Map(prev).set(itemId, Math.min(999, Math.max(0, next))))
+    setTouchedAllocations((prev) => new Set(prev).add(itemId))
+  }
+
+  function openAllocationsEditor() {
+    setAllocationResult(null)
+    setEditActuals(
+      new Map(booking.booking_item.map((item) => [item.id, item.actual_services ?? 0])),
+    )
+    setTouchedAllocations(new Set())
+    setEditingAllocations(true)
+  }
+
+  async function handleSaveAllocations() {
+    setIsPending(true)
+    setError(null)
+    setAllocationResult(null)
+    // Each item carries the page-rendered updated_at VERBATIM as its
+    // concurrency token (see updateMudAllocations).
+    const result = await updateMudAllocations(
+      booking.id,
+      changedAllocations.map((item) => ({
+        booking_item_id: item.id,
+        actual_services: editActuals.get(item.id) ?? 0,
+        expected_updated_at: item.updated_at,
+      })),
+    )
+    setIsPending(false)
+    if (!result.ok) {
+      setError(result.error)
+      return
+    }
+    setEditingAllocations(false)
+    setAllocationResult('Collected counts updated.')
+    router.refresh()
   }
 
   async function handleSaveQuantities() {
@@ -1352,6 +1414,16 @@ export function BookingDetailClient({
               <PencilIcon />
             </button>
           )}
+          {canEditMudCounts && !editingAllocations && (
+            <button
+              type="button"
+              onClick={openAllocationsEditor}
+              className="text-gray-400 hover:text-[#293F52]"
+              aria-label="Edit collected counts"
+            >
+              <PencilIcon />
+            </button>
+          )}
           {isMud && canEdit && (
             <span
               className="text-2xs text-gray-500"
@@ -1434,11 +1506,77 @@ export function BookingDetailClient({
               </Link>
             )}
           </div>
+        ) : editingAllocations ? (
+          <div className="flex flex-col gap-2.5">
+            {includedItems.map((item) => {
+              const actual = editActuals.get(item.id) ?? 0
+              const name = (item.service as { name: string }).name
+              return (
+                <div
+                  key={item.id}
+                  className="flex items-center justify-between rounded-lg bg-gray-50 px-2.5 py-2 text-body-sm"
+                >
+                  <span className="text-gray-900">
+                    {name} &times; {item.no_services}
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      aria-label={`Decrease ${name} collected count`}
+                      onClick={() => setActual(item.id, actual - 1)}
+                      disabled={actual <= 0}
+                      className="flex size-7 items-center justify-center rounded-md border-[1.5px] border-gray-200 bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                    >
+                      &minus;
+                    </button>
+                    <span className="w-6 text-center font-semibold tabular-nums text-gray-900">
+                      {touchedAllocations.has(item.id) || item.actual_services != null ? actual : '—'}
+                    </span>
+                    <button
+                      type="button"
+                      aria-label={`Increase ${name} collected count`}
+                      onClick={() => setActual(item.id, actual + 1)}
+                      disabled={actual >= 999}
+                      className="flex size-7 items-center justify-center rounded-md border-[1.5px] border-gray-200 bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                    >
+                      +
+                    </button>
+                  </div>
+                </div>
+              )
+            })}
+            <p className="text-xs leading-relaxed text-gray-500">
+              Collected counts drive the council monthly report &mdash; correct them here if the
+              crew mis-allocated at closeout.
+            </p>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={handleSaveAllocations}
+                disabled={isPending || changedAllocations.length === 0}
+                className="flex-1 rounded-lg bg-[#293F52] px-3 py-2 text-body-sm font-semibold text-white disabled:opacity-50"
+              >
+                {isPending ? 'Saving...' : 'Save'}
+              </button>
+              <button
+                type="button"
+                onClick={() => setEditingAllocations(false)}
+                className="flex-1 rounded-lg border-[1.5px] border-gray-200 bg-white px-3 py-2 text-body-sm font-semibold text-gray-700 hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
         ) : (
         <div className="flex flex-col gap-1.5">
           {quantityResult && (
             <div role="status" className="mb-1 rounded-lg border border-status-success bg-status-success-bg px-3 py-2 text-body-sm text-status-success">
               {quantityResult}
+            </div>
+          )}
+          {allocationResult && (
+            <div role="status" className="mb-1 rounded-lg border border-status-success bg-status-success-bg px-3 py-2 text-body-sm text-status-success">
+              {allocationResult}
             </div>
           )}
           {includedItems.map((item) => (
