@@ -7,7 +7,7 @@ import { createClient } from '@/lib/supabase/server'
 import { invokeSendNotification } from '@/lib/notifications/invoke'
 import { isPastCancellationCutoff } from '@/lib/booking/cancellation-cutoff'
 import {
-  canEditCollectionDetails, canEditIdDetails,
+  canEditCollectionDetails, canEditIdDetails, canEditMudAllocations,
   canRescheduleToTargetDate, capacityBlocksMove, remainingByCategory, unitsByCategory } from '@/lib/booking/collection-details-edit'
 import {
   dedupePhotos, parseIdEdit, photosArePreserved, wasteTypesEqual,
@@ -782,4 +782,108 @@ export async function updateIdDetails(
 function numOrNull(v: number | string | null): number | null {
   if (v === null) return null
   return typeof v === 'number' ? v : Number(v)
+}
+
+// 999 is a defensive fat-finger cap, NOT MAX_SERVICE_QTY (10) — that constant
+// is a SUD booking bound; a large MUD complex can legitimately exceed it.
+const mudAllocationItemSchema = z.object({
+  booking_item_id: z.string().uuid(),
+  actual_services: z.number().int().min(0).max(999),
+  // Page-rendered booking_item.updated_at, matched VERBATIM (see below).
+  expected_updated_at: z.string().min(1).max(64),
+})
+const updateMudAllocationsInput = z.array(mudAllocationItemSchema).min(1).max(20)
+
+export type MudAllocationEditItem = z.infer<typeof mudAllocationItemSchema>
+
+/**
+ * Correct a MUD booking's per-service collected counts
+ * (booking_item.actual_services) after the collection.
+ *
+ * Crews enter these on the closeout "Allocation Entry" screen and sometimes
+ * mis-allocate across service lines; the counts drive council invoicing via
+ * get_client_monthly_report's coalesce(actual_services, no_services), so
+ * contractor staff need a correction path once the booking is terminal.
+ *
+ * Contractor-tier only, post-collection statuses only (canEditMudAllocations —
+ * Scheduled stays crew-owned: the closeout form triggers on NULL counts).
+ * The DB layer already enforces the same boundary: booking_item staff RLS +
+ * enforce_booking_item_staff_write status-gate CLIENT tier writes while
+ * leaving actual_services open to contractor tier, and field RLS is
+ * Scheduled-only — so admin and crew edit windows are disjoint by state
+ * machine. Writes are guarded per item by an optimistic-concurrency check on
+ * booking_item.updated_at and fail fast on the first conflict; any partial
+ * save is fully audit-logged and visible on reload (MUD bookings carry 1–3
+ * items). No notification: this is a back-office billing correction.
+ */
+export async function updateMudAllocations(
+  bookingId: string,
+  items: MudAllocationEditItem[],
+): Promise<Result<void>> {
+  const supabase = await createClient()
+
+  const { data: role } = await supabase.rpc('current_user_role')
+  if (!isContractorStaff(role ?? null)) {
+    return { ok: false, error: 'Only D&M staff can edit collected counts.' }
+  }
+
+  const parsed = updateMudAllocationsInput.safeParse(items)
+  if (!parsed.success) {
+    return { ok: false, error: 'Invalid collected-count input.' }
+  }
+
+  // Fetch under the caller's RLS — doubles as the tenancy check (a booking
+  // outside accessible_client_ids() is invisible here).
+  const { data: booking } = await supabase
+    .from('booking')
+    .select('id, type, status, booking_item(id, actual_services)')
+    .eq('id', bookingId)
+    .single()
+
+  if (!booking) return { ok: false, error: 'Booking not found.' }
+  if (booking.type !== 'MUD') {
+    return { ok: false, error: 'Not a MUD booking.' }
+  }
+  if (!canEditMudAllocations(booking.status, role ?? null)) {
+    return {
+      ok: false,
+      error: `Collected counts cannot be edited on a "${booking.status}" booking.`,
+    }
+  }
+
+  const ownItems = new Map(booking.booking_item.map((bi) => [bi.id, bi]))
+  if (parsed.data.some((item) => !ownItems.has(item.booking_item_id))) {
+    return { ok: false, error: 'One or more items do not belong to this booking.' }
+  }
+
+  // No-op skip so the audit log never accrues empty entries. NULL current
+  // values always count as changed (setting a missing count is a primary use).
+  const changed = parsed.data.filter(
+    (item) => ownItems.get(item.booking_item_id)!.actual_services !== item.actual_services,
+  )
+  if (changed.length === 0) return { ok: true, data: undefined }
+
+  for (const item of changed) {
+    // Optimistic concurrency: the token is the page-rendered updated_at
+    // string, matched VERBATIM (never re-parsed — Postgres keeps
+    // microseconds, JS truncates; a reformatted token zero-row-matches).
+    const { data: updated, error } = await supabase
+      .from('booking_item')
+      .update({ actual_services: item.actual_services })
+      .eq('id', item.booking_item_id)
+      .eq('updated_at', item.expected_updated_at)
+      .select('id')
+      .maybeSingle()
+
+    if (error) return { ok: false, error: error.message }
+    if (!updated) {
+      return {
+        ok: false,
+        error:
+          'This booking changed while you were editing — reload the page and re-apply your changes.',
+      }
+    }
+  }
+
+  return { ok: true, data: undefined }
 }
