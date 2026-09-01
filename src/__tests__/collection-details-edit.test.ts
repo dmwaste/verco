@@ -264,3 +264,54 @@ describe('canEditIdDetails (contractor-only ID field editing)', () => {
     expect(canEditIdDetails('Confirmed', 'client-admin')).toBe(false)
   })
 })
+
+// ── canEditMudAllocations (MUD collected-count correction, 2026-09-01) ────
+import { canEditMudAllocations } from '@/lib/booking/collection-details-edit'
+
+const MUD_EDITABLE_STATUSES: BookingStatus[] = [
+  'Completed',
+  'Non-conformance',
+  'Nothing Presented',
+]
+const MUD_NON_EDITABLE_STATUSES: BookingStatus[] = [
+  'Pending Payment',
+  'Submitted',
+  'Confirmed',
+  'Scheduled',
+  'Cancelled',
+  'Rebooked',
+  'Missed Collection',
+]
+
+describe('canEditMudAllocations (contractor-only post-collection count correction)', () => {
+  it('allows ONLY contractor roles, on post-collection statuses (incl. NCN/NP — billable per ADR 0017)', () => {
+    for (const status of MUD_EDITABLE_STATUSES) {
+      for (const role of ALL_ROLES) {
+        expect(canEditMudAllocations(status, role)).toBe(
+          role === 'contractor-admin' || role === 'contractor-staff',
+        )
+      }
+    }
+  })
+
+  it('rejects every role on every other status — Scheduled stays crew-owned (closeout form triggers on NULL)', () => {
+    for (const status of MUD_NON_EDITABLE_STATUSES) {
+      for (const role of ALL_ROLES) {
+        expect(canEditMudAllocations(status, role)).toBe(false)
+      }
+    }
+  })
+
+  it('null role fails closed everywhere', () => {
+    for (const status of [...MUD_EDITABLE_STATUSES, ...MUD_NON_EDITABLE_STATUSES]) {
+      expect(canEditMudAllocations(status, null)).toBe(false)
+    }
+  })
+
+  it('differs from canEditIdDetails on both edges (Scheduled out, NCN/NP in)', () => {
+    expect(canEditIdDetails('Scheduled', 'contractor-admin')).toBe(true)
+    expect(canEditMudAllocations('Scheduled', 'contractor-admin')).toBe(false)
+    expect(canEditIdDetails('Non-conformance', 'contractor-admin')).toBe(false)
+    expect(canEditMudAllocations('Non-conformance', 'contractor-admin')).toBe(true)
+  })
+})

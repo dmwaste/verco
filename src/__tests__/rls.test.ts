@@ -734,6 +734,91 @@ if (!haveDb) {
   })
 
   // ---------------------------------------------------------------------------
+  // MUD collected-count correction (updateMudAllocations, 2026-09-01). The
+  // admin action lets contractor tier fix actual_services AFTER collection
+  // (Completed/NCN/NP). No new DB objects — these assert the EXISTING layers
+  // already produce the permit/deny matrix the action relies on: staff RLS +
+  // enforce_booking_item_staff_write leave actual_services open to contractor
+  // tier at terminal statuses, status-gate client tier, and field RLS stays
+  // Scheduled-only — so the crew and admin edit windows are disjoint.
+  // ---------------------------------------------------------------------------
+  describe('booking_item contractor actuals correction post-collection (MUD)', () => {
+    const MA_BOOKING = 'abababab-0021-4000-8000-000000000021'
+    const MA_ITEM = 'abababab-0022-4000-8000-000000000022'
+
+    /** Seed a MUD booking + item at `status`, then run `sql` impersonated as
+     *  `userId` — all inside one rolled-back transaction. */
+    async function withMudBooking(
+      userId: string,
+      sql: string,
+      status: 'Completed' | 'Non-conformance' | 'Scheduled' = 'Completed',
+    ): Promise<number> {
+      await pg.query('BEGIN')
+      try {
+        // Fixture user_roles can be parked is_active=false between runs —
+        // activate in-tx (rolled back) so current_user_role() resolves.
+        await pg.query(`UPDATE public.user_roles SET is_active = true WHERE user_id::text LIKE 'aaaaaaaa-%'`)
+        await pg.query(
+          `INSERT INTO public.booking (id, ref, type, status, collection_area_id, client_id, contractor_id, fy_id)
+           VALUES ($1, 'RLS-MA-1', 'MUD', $2::booking_status, $3, $4, $5,
+                   (SELECT id FROM financial_year WHERE is_current LIMIT 1))`,
+          [MA_BOOKING, status, kwnAreaId, CLIENT_ID, CONTRACTOR_ID],
+        )
+        await pg.query(
+          `INSERT INTO public.booking_item (id, booking_id, service_id, collection_date_id, no_services, actual_services, is_extra, unit_price_cents)
+           VALUES ($1, $2, (SELECT id FROM service LIMIT 1),
+                   (SELECT id FROM collection_date WHERE collection_area_id = $3 LIMIT 1),
+                   2, 6, false, 0)`,
+          [MA_ITEM, MA_BOOKING, kwnAreaId],
+        )
+        await pg.query(`SET LOCAL ROLE authenticated`)
+        await pg.query(`SELECT set_config('request.jwt.claims', $1, true)`, [
+          JSON.stringify({ sub: userId, role: 'authenticated' }),
+        ])
+        const r = await pg.query(sql)
+        return r.rowCount ?? 0
+      } finally {
+        await pg.query('ROLLBACK')
+      }
+    }
+
+    const FIX_COUNT = `UPDATE public.booking_item SET actual_services = 5 WHERE id = '${MA_ITEM}'`
+
+    it('contractor-staff CAN correct actual_services on a Completed MUD booking', async (ctx) => {
+      if (!kwnAreaId) return ctx.skip()
+      expect(await withMudBooking(USERS['contractor-staff'], FIX_COUNT, 'Completed')).toBe(1)
+    })
+
+    it('contractor-admin CAN correct actual_services on a Non-conformance booking', async (ctx) => {
+      if (!kwnAreaId) return ctx.skip()
+      expect(await withMudBooking(USERS['contractor-admin'], FIX_COUNT, 'Non-conformance')).toBe(1)
+    })
+
+    it('client-admin is rejected by the staff-write trigger on a Completed booking (not a silent no-op)', async (ctx) => {
+      if (!kwnAreaId) return ctx.skip()
+      await expect(withMudBooking(USERS['client-admin'], FIX_COUNT, 'Completed')).rejects.toThrow(
+        /Only contractor staff may edit items/,
+      )
+    })
+
+    it('field CANNOT write actuals post-Scheduled (0 rows — crew window closed at closeout)', async (ctx) => {
+      if (!kwnAreaId) return ctx.skip()
+      expect(await withMudBooking(USERS.field, FIX_COUNT, 'Completed')).toBe(0)
+    })
+
+    it('contractor touching unit_price_cents alongside still hits the identity/price pin (Red Line #1)', async (ctx) => {
+      if (!kwnAreaId) return ctx.skip()
+      await expect(
+        withMudBooking(
+          USERS['contractor-admin'],
+          `UPDATE public.booking_item SET actual_services = 5, unit_price_cents = 99900 WHERE id = '${MA_ITEM}'`,
+          'Completed',
+        ),
+      ).rejects.toThrow(/identity and price columns cannot be changed/)
+    })
+  })
+
+  // ---------------------------------------------------------------------------
   // booking_item staff write gate (#383, migration 20260822050000). The staff
   // UPDATE policy has no column/status/date/area condition, so a client-tier
   // JWT could PATCH price columns, move items onto closed/past/other-area dates
