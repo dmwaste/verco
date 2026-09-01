@@ -59,11 +59,19 @@ export function checkBucketCapacity(
 }
 
 /**
- * Returns whether a collection_date is bookable for MUD usage at all
- * (i.e. for_mud=true). Use as the first filter in the date picker query.
+ * Returns whether a collection_date is bookable for MUD usage.
+ *
+ * Pooled areas (#558 option 2): MUD bookings ride the same pooled capacity as
+ * ordinary bookings, so EVERY date qualifies — the `for_mud` flag is inert
+ * there. Unpooled areas keep the dedicated-MUD-day model: only dates curated
+ * with for_mud=true qualify. The create_mud_booking_with_capacity_check RPC
+ * enforces the same rule; keep the two in sync.
  */
-export function isMudCollectionDate(date: { for_mud: boolean }): boolean {
-  return date.for_mud === true
+export function isMudCollectionDate(
+  date: { for_mud: boolean },
+  area: { capacity_pool_id: string | null }
+): boolean {
+  return area.capacity_pool_id !== null || date.for_mud === true
 }
 
 /**

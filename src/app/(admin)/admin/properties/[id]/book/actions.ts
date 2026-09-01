@@ -3,7 +3,7 @@
 import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { checkMudAllowance } from '@/lib/mud/allowance'
-import { MUD_UNITS_PER_SERVICE } from '@/lib/mud/capacity'
+import { MUD_UNITS_PER_SERVICE, isMudCollectionDate } from '@/lib/mud/capacity'
 import { invokeSendNotification } from '@/lib/notifications/invoke'
 import type { Result } from '@/lib/result'
 import { validateStaffRole } from '@/lib/auth/server'
@@ -43,7 +43,7 @@ export async function createMudBooking(
     .select(
       `id, is_mud, unit_count, mud_onboarding_status, strata_contact_id,
        waste_location_notes, collection_area_id,
-       collection_area:collection_area_id!inner(id, code, client_id, contractor_id, is_active)`
+       collection_area:collection_area_id!inner(id, code, client_id, contractor_id, is_active, capacity_pool_id)`
     )
     .eq('id', input.property_id)
     .eq('collection_area.client_id', clientId)
@@ -94,7 +94,9 @@ export async function createMudBooking(
     return { ok: false, error: 'No active financial year found.' }
   }
 
-  // ── 3. Verify collection date is for_mud + open ─────────────────────────
+  // ── 3. Verify collection date is MUD-bookable + open. Pooled areas accept
+  //       MUDs on any open date; unpooled require the curated for_mud flag
+  //       (#558 option 2 — mirrors isMudCollectionDate + the RPC gate). ──────
   const { data: collDate, error: collDateError } = await supabase
     .from('collection_date')
     .select('id, date, for_mud, is_open, collection_area_id')
@@ -104,7 +106,7 @@ export async function createMudBooking(
   if (collDateError || !collDate) {
     return { ok: false, error: 'Collection date not found.' }
   }
-  if (!collDate.for_mud) {
+  if (!isMudCollectionDate(collDate, area)) {
     return { ok: false, error: 'Selected date is not enabled for MUD bookings.' }
   }
   if (!collDate.is_open) {

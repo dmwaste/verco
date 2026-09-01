@@ -4,7 +4,7 @@ import type { Database } from '../_shared/database.types.ts'
 import { withSentry } from '../_shared/sentry.ts'
 import { isServiceRoleBearer } from '../_shared/service-role-auth.ts'
 import { jsonResponse, optionsResponse, errorResponse } from '../_shared/cors.ts'
-import { streetNumbersDisagree } from '../_shared/geocode-verify.ts'
+import { streetNumbersDisagree, stripPremisePrefix } from '../_shared/geocode-verify.ts'
 
 type RequestBody = {
   // Restrict to these property ids (admin address edit re-geocode, #502).
@@ -381,10 +381,6 @@ serve(withSentry('geocode-properties', async (req) => {
   const status = !dryRun && failed > 0 ? 500 : 200
   return jsonResponse(response, status)
 }))
-
-function stripPremisePrefix(s: string): string {
-  return s.replace(/^(Unit|Flat|Townhouse|Apartment|Suite|Apt) +/i, '')
-}
 
 function shuffle<T>(arr: T[]): T[] {
   const out = [...arr]

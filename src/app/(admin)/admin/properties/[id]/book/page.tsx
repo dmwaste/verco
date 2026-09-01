@@ -142,28 +142,33 @@ export default async function MudBookingPage({ params }: MudBookingPageProps) {
     })),
   })
 
-  // ── 6. Available collection dates: for_mud=true, is_open, ≤12mo ahead ──
+  // ── 6. Available collection dates: is_open, ≤12mo ahead. Unpooled councils
+  //       additionally require the curated for_mud flag (dedicated MUD days);
+  //       pooled areas accept MUDs on any open date (#558 option 2) — mirrors
+  //       isMudCollectionDate and the create_mud_booking RPC gate.
   const today = new Date()
   const todayIso = today.toISOString().slice(0, 10)
   const horizonIso = new Date(today.getTime() + TWELVE_MONTHS_MS).toISOString().slice(0, 10)
 
   const poolId = (area as { capacity_pool_id: string | null }).capacity_pool_id ?? null
 
+  let datesQuery = supabase
+    .from('collection_date')
+    .select(
+      `id, date, for_mud, is_open,
+       bulk_capacity_limit, bulk_units_booked, bulk_is_closed,
+       anc_capacity_limit, anc_units_booked, anc_is_closed,
+       id_capacity_limit, id_units_booked, id_is_closed`
+    )
+    .eq('collection_area_id', area.id)
+    .eq('is_open', true)
+    .gte('date', todayIso)
+    .lte('date', horizonIso)
+    .order('date', { ascending: true })
+  if (poolId === null) datesQuery = datesQuery.eq('for_mud', true)
+
   const [{ data: dates }, { data: poolDates }] = await Promise.all([
-    supabase
-      .from('collection_date')
-      .select(
-        `id, date, for_mud, is_open,
-         bulk_capacity_limit, bulk_units_booked, bulk_is_closed,
-         anc_capacity_limit, anc_units_booked, anc_is_closed,
-         id_capacity_limit, id_units_booked, id_is_closed`
-      )
-      .eq('collection_area_id', area.id)
-      .eq('for_mud', true)
-      .eq('is_open', true)
-      .gte('date', todayIso)
-      .lte('date', horizonIso)
-      .order('date', { ascending: true }),
+    datesQuery,
     poolId
       ? supabase
           .from('collection_date_pool')
