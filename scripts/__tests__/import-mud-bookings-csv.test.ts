@@ -12,6 +12,11 @@ describe('targetStatus', () => {
     expect(targetStatus('Booked', '2026-08-03', '2026-09-01')).toBeNull()
     expect(targetStatus('Cancelled', '2026-09-02', '2026-09-01')).toBeNull()
   })
+  it('past-booked=completed imports past Booked as Completed (Dan confirmed all attended, 01/09/2026)', () => {
+    expect(targetStatus('Booked', '2026-08-03', '2026-09-01', 'completed')).toBe('Completed')
+    expect(targetStatus('Booked', '2026-09-02', '2026-09-01', 'completed')).toBe('Confirmed')
+    expect(targetStatus('Cancelled', '2026-08-03', '2026-09-01', 'completed')).toBeNull()
+  })
 })
 
 describe('parseRow', () => {

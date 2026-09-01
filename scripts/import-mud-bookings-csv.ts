@@ -10,8 +10,13 @@
  *   - Booked, date >= today     → Confirmed — the 15:25 cron advances them and
  *                                 the hourly push EF creates stops. Red Line
  *                                 #5: never set Scheduled here.
- *   - Booked, past-dated        → skipped + reported (outcome unknown; the MUD
- *                                 table stopped being closed out from Jul 2026).
+ *   - Booked, past-dated        → skipped + reported by default (the MUD table
+ *                                 stopped being closed out from Jul 2026, so the
+ *                                 outcome is unrecorded). With
+ *                                 --past-booked=completed they import as
+ *                                 Completed — Dan confirmed 01/09/2026 that all
+ *                                 Jul–Aug MUD collections were attended, and FY
+ *                                 usage/reporting needs the rows.
  *
  * Match: `MUD Ref (from Address)` → `eligible_properties.mud_code` (exact,
  * unique). The property supplies the area, the strata contact (the CSV has no
@@ -28,6 +33,7 @@
  *   npx tsx scripts/import-mud-bookings-csv.ts --file="path.csv" --areas=CAM-A,CAM-B,MOS,COT,PEP,VIN           # dry run
  *   npx tsx scripts/import-mud-bookings-csv.ts --file="path.csv" --areas=... --apply                            # write
  *   optional: --since=2026-07-01 (default)  --refs=CAM-MUD-11-2271,... (subset)
+ *             --past-booked=completed (past-dated Booked rows → Completed)
  */
 import { createClient } from '@supabase/supabase-js'
 import { readFileSync, writeFileSync } from 'node:fs'
@@ -75,9 +81,12 @@ export function parseRow(r: Row): Parsed {
   }
 }
 
-export function targetStatus(status: string, date: string, today = TODAY): 'Completed' | 'Confirmed' | null {
+export function targetStatus(status: string, date: string, today = TODAY, pastBooked: 'skip' | 'completed' = 'skip'): 'Completed' | 'Confirmed' | null {
   if (status === 'Completed') return 'Completed'
-  if (status === 'Booked') return date >= today ? 'Confirmed' : null
+  if (status === 'Booked') {
+    if (date >= today) return 'Confirmed'
+    return pastBooked === 'completed' ? 'Completed' : null
+  }
   return null
 }
 
@@ -89,12 +98,14 @@ async function main() {
   const areaCodes = typeof flags.areas === 'string' ? flags.areas.split(',').map((s) => s.trim()).filter(Boolean) : []
   const since = typeof flags.since === 'string' ? flags.since : '2026-07-01'
   const onlyRefs = typeof flags.refs === 'string' ? new Set(flags.refs.split(',').map((s) => s.trim()).filter(Boolean)) : null
-  if (!file || areaCodes.length === 0) { console.error('Usage: --file=<csv> --areas=CODE,CODE [--since=YYYY-MM-DD] [--refs=a,b] [--apply]'); process.exit(1) }
-  const unknown = Object.keys(flags).filter((k) => !['apply', 'file', 'areas', 'since', 'refs'].includes(k))
+  const pastBooked = flags['past-booked'] === 'completed' ? 'completed' as const : 'skip' as const
+  if (flags['past-booked'] && flags['past-booked'] !== 'completed') { console.error('--past-booked only accepts "completed"'); process.exit(1) }
+  if (!file || areaCodes.length === 0) { console.error('Usage: --file=<csv> --areas=CODE,CODE [--since=YYYY-MM-DD] [--refs=a,b] [--past-booked=completed] [--apply]'); process.exit(1) }
+  const unknown = Object.keys(flags).filter((k) => !['apply', 'file', 'areas', 'since', 'refs', 'past-booked'].includes(k))
   if (unknown.length) { console.error(`Unknown flag(s): ${unknown.join(', ')}`); process.exit(1) }
 
   const verco = createClient(requireEnv('NEXT_PUBLIC_SUPABASE_URL'), requireEnv('SUPABASE_SERVICE_ROLE_KEY'))
-  console.log(`Import MUD bookings CSV → ${areaCodes.join(',')}  (${apply ? 'APPLY' : 'DRY RUN'})  today=${TODAY}  since=${since}`)
+  console.log(`Import MUD bookings CSV → ${areaCodes.join(',')}  (${apply ? 'APPLY' : 'DRY RUN'})  today=${TODAY}  since=${since}  past-booked=${pastBooked}`)
 
   const { data: areas, error: aErr } = await verco.from('collection_area').select('id, client_id, contractor_id, code').in('code', areaCodes)
   if (aErr) throw new Error(aErr.message)
@@ -182,7 +193,7 @@ async function main() {
     const area = prop.collection_area_id ? areaById.get(prop.collection_area_id) : undefined
     if (!area) { skip.inactive_area.push({ ref: p.ref, mudRef: p.mudRef }); continue }
     if (p.status !== 'Booked' && p.status !== 'Completed') { skip.unknown_status.push({ ref: p.ref, status: p.status }); continue }
-    const status = targetStatus(p.status, date)
+    const status = targetStatus(p.status, date, TODAY, pastBooked)
     if (!status) { skip.past_unresolved.push({ ref: p.ref, status: p.status, date }); continue }
     if (existingRefs.has(p.ref)) { skip.already_in_verco.push(p.ref); continue }
     if (!prop.strata_contact_id) { skip.no_contact.push({ ref: p.ref, mudRef: p.mudRef }); continue }
@@ -204,7 +215,7 @@ async function main() {
   const stamp = timestamp()
   const reportPath = `import-mud-report-${stamp}.json`
   writeFileSync(reportPath, JSON.stringify({
-    areas: areaCodes, since, today: TODAY, apply,
+    areas: areaCodes, since, today: TODAY, apply, pastBooked,
     plans: plans.map((x) => ({ ref: x.p.ref, status: x.status, date: x.p.date, area: x.areaCode, mudRef: x.p.mudRef, address: x.prop.address, services: x.p.services })),
     csvDupPairs, nonStandardQty, notRegistered, skip,
   }, null, 2))
