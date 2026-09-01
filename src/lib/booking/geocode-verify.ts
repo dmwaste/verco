@@ -49,3 +49,40 @@ export function streetNumbersDisagree(
   if (!a || !b) return false
   return a !== b
 }
+
+// A unit word only counts as a street segment when a unit number follows it —
+// "Unit 1/504 Stirling Hwy" and "Unit B/41 Harvest Rd" are street addresses;
+// "Villa Roma" is a premise name.
+const UNIT_WORD_THEN_NUMBER =
+  /^(Unit|Flat|Townhouse|Apartment|Suite|Apt|Villa)\s+(?=\d|[A-Za-z]{1,2}\/)/i
+
+/**
+ * Normalises Google's formatted_address so it starts with the house number —
+ * the invariant the booking flow's start-anchored ILIKE lookup depends on
+ * (see address-match-key.ts).
+ *
+ * Google returns two premise-prefixed shapes for strata properties:
+ *   "Unit 1/504 Stirling Hwy, …"                    — bare unit word
+ *   "Peppermint Close, Unit 1/504 Stirling Hwy, …"  — named premise (BR-0035)
+ *
+ * For the named-premise form, the leading segment is dropped only when it
+ * carries no leading street number AND the next segment is recognisably the
+ * street address (starts with a unit word or a number) — so "Lot 12 …" and
+ * rural named properties, whose following segment is the suburb, are never
+ * touched.
+ */
+export function stripPremisePrefix(s: string): string {
+  const segments = s.split(',')
+  const first = (segments[0] ?? '').trim()
+  const second = (segments[1] ?? '').trim()
+  if (
+    segments.length > 1 &&
+    first !== '' &&
+    !/^\d/.test(first) &&
+    !UNIT_WORD_THEN_NUMBER.test(first) &&
+    (/^\d/.test(second) || UNIT_WORD_THEN_NUMBER.test(second))
+  ) {
+    s = segments.slice(1).join(',').trimStart()
+  }
+  return s.replace(UNIT_WORD_THEN_NUMBER, '')
+}
