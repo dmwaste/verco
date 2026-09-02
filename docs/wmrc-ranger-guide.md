@@ -163,7 +163,7 @@ Either way you land on the **New ID Collection** form (*"Illegal dumping — log
 
 ### 3.2 Location
 
-![The New ID form, opened from a lookup so the location is already pinned on the property. The address is editable, and the Waste Description section unlocks once a location is set.](screenshots/ranger/R06-id-form-top.png)
+![The New ID form, opened from a lookup so the location is already pinned on the property. The address is editable, and the Waste Description section unlocks once a location is set. (Captured before the waste-type relabel — the first button now reads **Bulk Waste**.)](screenshots/ranger/R06-id-form-top.png)
 
 - If you started from **New ID**, the app requests your location. You'll see **"Acquiring GPS location…"** with a spinner, then **"GPS locked · ±Nm accuracy"** and a pin on a small map once it has a fix.
 - If you started from a **lookup**, it's already **locked** on the property's pin ("Location pinned from property lookup").
@@ -179,7 +179,7 @@ Once location is set, the **Waste Description** section unlocks.
 
   | Waste type |
   |---|
-  | General / Mixed |
+  | Bulk Waste |
   | Green Waste |
   | Whitegoods |
   | Mattress |
@@ -326,12 +326,13 @@ For anything urgent (the app is down, or you can't sign in at all), contact D&M 
 
 ---
 
-**Document version:** 1.2
-**Last updated:** 2026-07-05
+**Document version:** 1.3
+**Last updated:** 2026-09-02
 **Next review:** after the first round of live ranger use
 
 ### Revision log
 
+- **1.3 — 2026-09-02**: Waste-type table updated to the current app label — **Bulk Waste** replaces "General / Mixed" (app relabel #461, July 2026; the stored value is unchanged, only what rangers see on the button). The R06 form screenshot predates the relabel; its caption says so. No other content changes.
 - **1.2 — 2026-07-05**: Restyled to the **D&M Waste Management design system** (v1.0, April 2026) — Poppins display / DM Sans body, the navy `#293F52` + green `#00E47C` palette, a navy gradient cover with the D&M logo, brand callout cards (green top bar, not a left border), navy table headers, and a D&M running footer. Replaced the traffic-light emoji with brand status dots (design-system rule: no emoji).
 - **1.1 — 2026-07-05**: Added live screenshots captured on `field.verco.au` (sign-in, verify, app frame, address lookup, all three verdict banners — green/amber/red, the New ID form top + bottom, and the My IDs tab). Corrected example values against live data — area codes are bare (`COT`, `MOS`, `PEP`…), ID references are `{AREA}-{code}` e.g. `MOS-9ET76E`. The post-submit confirmation (R09) was captured via a controlled test ID (`PEP-AHMUY5`) that was cancelled immediately — cropped to the success + summary card so it doesn't show the pre-#305 button label. §3.7 documents the confirmation's primary CTA as **View My IDs** to match fix #305 (routes rangers to their My IDs list rather than a crew-only run sheet).
 - **1.0 — 2026-07-05**: Initial release. Full ranger field-app walkthrough — sign-in, orientation, the lookup/verdict flow (place-out window), raising illegal-dumping reports, tracking via My IDs, worked scenarios, and FAQs. Written from a live read of the ranger surfaces in the Verco codebase (`app/(field)/field/lookup`, `.../illegal-dumping/new`, `.../my-ids`).
