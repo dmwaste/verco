@@ -162,7 +162,26 @@ describe('decideNext', () => {
   // re-fetch the exact same rows — loop forever, re-billing Google each pass.
   it("returns 'done' when every row in the chunk was snapped", () => {
     const parsed = parseEfResponse({ total: 2, processed: 2, failed: 0, snapped: 2 })
-    expect(decideNext(parsed, 0, 3)).toEqual({ kind: 'done', reason: 'all-snapped' })
+    expect(decideNext(parsed, 0, 3)).toEqual({ kind: 'done', reason: 'all-unresolved' })
+  })
+
+  it('parses the rejected count (wrong-suburb / interstate / locality-only results)', () => {
+    const r = parseEfResponse({ total: 5, processed: 3, failed: 0, rejected: 2 })
+    expect(r.ok).toBe(true)
+    if (r.ok) expect(r.data.rejected).toBe(2)
+  })
+
+  // Rejected rows (12 Smith St Perth → Beaconsfield class) get NO write and
+  // stay in the null-place_id queue exactly like snapped rows — a chunk that
+  // is entirely snapped+rejected would re-fetch the same queue head forever.
+  it("returns 'done' when every row in the chunk was rejected", () => {
+    const parsed = parseEfResponse({ total: 2, processed: 0, failed: 0, rejected: 2 })
+    expect(decideNext(parsed, 0, 3)).toEqual({ kind: 'done', reason: 'all-unresolved' })
+  })
+
+  it("returns 'done' when snapped + rejected covers the whole chunk", () => {
+    const parsed = parseEfResponse({ total: 3, processed: 1, failed: 0, snapped: 1, rejected: 2 })
+    expect(decideNext(parsed, 0, 3)).toEqual({ kind: 'done', reason: 'all-unresolved' })
   })
 
   it("returns 'continue' on a mixed snapped/geocoded chunk (still progressing)", () => {

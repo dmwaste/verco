@@ -197,7 +197,10 @@ async function main() {
       console.log(
         `[chunk ${chunkNum}${maxChunks ? `/${maxChunks}` : ''}] ` +
           `total=${parsed.data.total} processed=${parsed.data.processed} ` +
-          `failed=${parsed.data.failed}  elapsed=${(elapsedMs / 1000).toFixed(1)}s  ` +
+          `failed=${parsed.data.failed}` +
+          `${parsed.data.snapped ? ` snapped=${parsed.data.snapped}` : ''}` +
+          `${parsed.data.rejected ? ` rejected=${parsed.data.rejected}` : ''}` +
+          `  elapsed=${(elapsedMs / 1000).toFixed(1)}s  ` +
           `cum=${cumulativeRows.toLocaleString()} rate=${ratePerSec.toFixed(1)}/s  ` +
           `ETA=${eta}${parsed.data.dry_run ? '  (dry-run)' : ''}`,
       )
@@ -205,6 +208,14 @@ async function main() {
       if (parsed.data.errors && parsed.data.errors.length > 0) {
         const sample = parsed.data.errors.slice(0, 3)
         for (const e of sample) console.log(`   ↳ ${e.id}: ${e.error}`)
+      }
+      // Rejected = Google's result was a different premise (wrong suburb /
+      // interstate / locality-only); nothing was written. These need a human
+      // to fix the council address, so surface them rather than bury them.
+      if (parsed.data.rejected_samples && parsed.data.rejected_samples.length > 0) {
+        for (const r of parsed.data.rejected_samples.slice(0, 5)) {
+          console.log(`   ↳ rejected (${r.reason}) ${r.id}: "${r.address}" → "${r.google}"`)
+        }
       }
 
       chunkLog.push({
