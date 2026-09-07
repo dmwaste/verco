@@ -2,11 +2,13 @@ import { createClient } from '@/lib/supabase/server'
 import { format, formatDistanceToNow } from 'date-fns'
 import Link from 'next/link'
 import { effectiveCapacity, indexPoolDates } from '@/lib/capacity/effective-capacity'
+import { closureReason, CLOSURE_REASON } from '@/lib/collection-dates/closure-status'
 import { getCurrentAdminClient } from '@/lib/admin/current-client'
 import { getTenantMudPropertyIds } from '@/lib/admin/mud-tenant-scope'
 import { awstWeekRange } from '@/lib/date/awst-week'
 import { OPEN_INVESTIGATION_STATUSES } from '@/lib/exceptions/status'
 import { StatusBadge } from '@/components/status-badge'
+import { surveyDisplayRef } from '@/lib/survey/legacy'
 
 /** Shared height for every half-width dashboard tile so all rows line up. */
 const HALF_CARD = 'flex h-96 flex-col rounded-xl bg-white p-5 shadow-sm'
@@ -142,7 +144,7 @@ export default async function AdminDashboardPage() {
   // on the switcher tenant.
   const recentSurveysQuery = supabase
     .from('booking_survey')
-    .select('id, submitted_at, responses, booking!inner(ref)')
+    .select('id, submitted_at, responses, external_ref, booking(ref)')
     .not('submitted_at', 'is', null)
     .order('submitted_at', { ascending: false })
     .limit(20)
@@ -171,7 +173,7 @@ export default async function AdminDashboardPage() {
     supabase
       .from('collection_date')
       .select(
-        `id, date, is_open,
+        `id, date, is_open, locked_closed,
          bulk_capacity_limit, bulk_units_booked, bulk_is_closed,
          anc_capacity_limit, anc_units_booked, anc_is_closed,
          id_capacity_limit, id_units_booked, id_is_closed,
@@ -420,6 +422,16 @@ export default async function AdminDashboardPage() {
                 : null
               const cap = effectiveCapacity(d, area.capacity_pool_id, pool ? indexPoolDates([pool]) : new Map())
               const pctBulk = cap.bulk_capacity_limit > 0 ? (cap.bulk_units_booked / cap.bulk_capacity_limit) * 100 : 0
+              // Same closure decision as the collection-dates page (VER-259) —
+              // is_open alone misses T-3-locked and capacity-closed dates. The
+              // query starts at today, so isPast is always false here.
+              const reason = closureReason({
+                isOpen: d.is_open,
+                lockedClosed: d.locked_closed,
+                isPast: false,
+                allBucketsClosed: cap.bulk_is_closed && cap.anc_is_closed && cap.id_is_closed,
+                date: d.date,
+              })
               return (
                 <div key={d.id} className="flex items-center justify-between gap-3 rounded-md px-2 py-1.5 hover:bg-gray-50">
                   <div className="flex min-w-0 items-baseline gap-2">
@@ -428,23 +440,25 @@ export default async function AdminDashboardPage() {
                     </span>
                     <span className="truncate text-caption text-gray-500">{area.name}</span>
                   </div>
-                  {d.is_open ? (
-                    <div className="flex shrink-0 items-center gap-1.5">
-                      <div className="h-1.5 w-12 overflow-hidden rounded-full bg-gray-100">
-                        <div
-                          className={`h-full rounded-full ${getCapacityColor(cap.bulk_units_booked, cap.bulk_capacity_limit)}`}
-                          style={{ width: `${Math.min(pctBulk, 100)}%` }}
-                        />
-                      </div>
-                      <span className="w-10 text-right text-caption tabular-nums text-gray-500">
-                        {cap.bulk_units_booked}/{cap.bulk_capacity_limit}
+                  <div className="flex shrink-0 items-center gap-1.5">
+                    {reason !== null && (
+                      <span
+                        className="whitespace-nowrap rounded bg-gray-100 px-1.5 py-0.5 text-2xs font-semibold text-gray-500"
+                        title={CLOSURE_REASON[reason].title}
+                      >
+                        {CLOSURE_REASON[reason].pill}
                       </span>
+                    )}
+                    <div className="h-1.5 w-12 overflow-hidden rounded-full bg-gray-100">
+                      <div
+                        className={`h-full rounded-full ${getCapacityColor(cap.bulk_units_booked, cap.bulk_capacity_limit)}`}
+                        style={{ width: `${Math.min(pctBulk, 100)}%` }}
+                      />
                     </div>
-                  ) : (
-                    <span className="shrink-0 rounded bg-status-error-bg px-1.5 py-0.5 text-2xs font-semibold uppercase tracking-wide text-status-error">
-                      Closed
+                    <span className="w-10 text-right text-caption tabular-nums text-gray-500">
+                      {cap.bulk_units_booked}/{cap.bulk_capacity_limit}
                     </span>
-                  )}
+                  </div>
                 </div>
               )
             })}
@@ -556,7 +570,8 @@ export default async function AdminDashboardPage() {
                 </thead>
                 <tbody>
                   {recentSurveys.map((s) => {
-                    const booking = s.booking as unknown as { ref: string }
+                    const booking = s.booking as unknown as { ref: string } | null
+                    const ref = surveyDisplayRef(booking?.ref, s.external_ref) ?? '—'
                     return (
                       <tr key={s.id} className="border-b border-gray-100 last:border-b-0 hover:bg-gray-50">
                         <td className="py-2 pr-2">
@@ -564,7 +579,7 @@ export default async function AdminDashboardPage() {
                             href={`/admin/surveys/${s.id}`}
                             className="text-body-sm font-medium text-[#293F52] hover:underline"
                           >
-                            {booking.ref}
+                            {ref}
                           </Link>
                         </td>
                         <td className="px-1 py-2 text-center">

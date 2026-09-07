@@ -108,11 +108,13 @@ done
 
 sync_one "$SHARED/dispatch.ts" "$MIRROR/dispatch.ts" || drift=1
 sync_one "$SHARED/notification-authz.ts" "$MIRROR/authz.ts" || drift=1
+sync_one "$SHARED/welcome-login-url.ts" "$MIRROR/welcome-login-url.ts" || drift=1
 sync_one "$SHARED/notification-health.ts" "$MIRROR/health.ts" || drift=1
 sync_one "$SHARED/schedule-transition.ts" "src/lib/booking/schedule-transition.ts" || drift=1
 sync_one "$SHARED/stops.ts" "src/lib/stops/stops.ts" || drift=1
 sync_one "$SHARED/expiry-decision.ts" "src/lib/payments/expiry-decision.ts" || drift=1
 sync_one "$SHARED/area-gate-server.ts" "src/lib/booking/area-gate-server.ts" || drift=1
+sync_one "$SHARED/property-gate-server.ts" "src/lib/booking/property-gate-server.ts" || drift=1
 sync_one "$SHARED/terms.ts" "src/lib/booking/terms.ts" || drift=1
 sync_one "$SHARED/classify-creator.ts" "src/lib/bookings/classify-creator.ts" || drift=1
 sync_one "$SHARED/cancellation-cutoff.ts" "src/lib/booking/cancellation-cutoff.ts" || drift=1
@@ -122,6 +124,9 @@ sync_one "$SHARED/quantity-edit-decision.ts" "src/lib/booking/quantity-edit-deci
 sync_one "$SHARED/edit-error-mapping.ts" "src/lib/booking/edit-error-mapping.ts" || drift=1
 sync_one "$SHARED/refund-auto-approve.ts" "src/lib/payments/refund-auto-approve.ts" || drift=1
 sync_one "$SHARED/phone.ts" "src/lib/phone.ts" || drift=1
+sync_one "$SHARED/geocode-verify.ts" "src/lib/booking/geocode-verify.ts" || drift=1
+sync_one "$SHARED/service-role-auth.ts" "src/lib/auth/service-role-auth.ts" || drift=1
+sync_one "$SHARED/cron-auth.ts" "src/lib/auth/cron-request.ts" || drift=1
 
 if [ "$mode" = "check" ]; then
   if [ "$drift" -eq 1 ]; then

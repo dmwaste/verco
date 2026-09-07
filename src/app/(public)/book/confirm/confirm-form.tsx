@@ -1027,12 +1027,10 @@ export function ConfirmForm() {
             <div className="text-center text-body-sm text-gray-500">
               {resendCooldown > 0 ? (
                 <>
-                  Code expires in{' '}
+                  You can request a new code in{' '}
                   <strong className="text-[var(--brand)]">
                     {Math.floor(resendCooldown / 60)}:{(resendCooldown % 60).toString().padStart(2, '0')}
                   </strong>
-                  {' · '}
-                  <span className="text-gray-300">Resend code</span>
                 </>
               ) : (
                 <button

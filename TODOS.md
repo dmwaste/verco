@@ -76,3 +76,12 @@
 - **Notice-tables-authoritative model (Codex #18, deferred):** longer-term, make notice records the single source and *derive* `booking.status` from them, collapsing the two state machines. Large rewrite touching `rollup_booking_status_from_stops`. **Trigger:** if booking.status↔notice drift causes recurring bugs. **Priority:** P3.
 - **Crew-level fault tagging on ancillary NCNs (from autoplan 2026-07-08):** an ancillary-stop NCN currently (and after the service-type change) names every service in the pass, including compliant ones — e.g. a compliant e-waste pile is "blamed" alongside a non-conforming mattress. **What:** let the crew tag the offending service(s) at closeout (the stop closeout UI already lists `services_summary` items) and thread only those into the notice + email. **Why:** dispute accuracy; avoids false precision. **Pros:** durable design for service-level fault; **Cons:** field UX addition + notice schema column; only matters for multi-service ancillary NCNs. **Trigger:** first resident dispute arguing "my X was fine, it was the Y". **Priority:** P3.
 
+
+## Field ID intake — label-vs-pin capture guard (deferred from ID booking edit review, 2026-08-28)
+
+- **What:** Bring the admin-intake pin-visibility discipline to the field ranger ID form: show the GPS-derived address, and when a ranger overwrites it with a free-text label, surface a "pin stays at GPS location" status line (the field form already keeps coordinates; the label overwrite is silent).
+- **Why:** VIN-YVMSIN was born at capture — the field form let "Front gate (Vincent works depot)" silently replace the real address. The 28/08 edit feature fixes records after the fact; this fixes the source. Both review models rated capture-side prevention the higher-leverage fix.
+- **Pros:** Stops the error class at origin; reuses the intake status-strip pattern; keeps the edit feature for the residual tail.
+- **Cons:** Field-surface contract change class (see ADR 0011 / 03/08 mattress-gate outage) — needs its own carefully staged PR with one-release tolerance; never bundle.
+- **Context:** `src/app/(field)/field/illegal-dumping/new/id-booking-form.tsx` prefills geoAddress from GPS reverse-geocode and allows silent overwrite. The admin intake (`id-request-form.tsx:390-411`) already renders `Location pinned · lat, lng` + "The pinned coordinates stay unchanged". Design spec for the edit-side twin: docs/superpowers/specs/2026-08-28-id-booking-edit-design.md.
+- **Effort:** S (CC). **Priority:** P2. **Depends on:** nothing; ship any time as its own PR.

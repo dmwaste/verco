@@ -20,24 +20,45 @@ export function stopLogsMattresses(
 }
 
 /**
- * Fail-closed count validation for the closeout actions. When the stop does
- * NOT log mattresses, any submitted count is DISCARDED (returns null) — a
+ * Count validation for the closeout actions. When the stop does NOT log
+ * mattresses, any submitted count is DISCARDED (returns null) — a
  * non-logging tenant's stops must stay NULL ("never logged"), never collect
  * stray zeros that would read as real observations in the report.
+ *
+ * A MISSING count on a logging stop is accepted as NULL ("uncounted"), not
+ * rejected: a crew phone still running a pre-#487 bundle can never send a
+ * count, and hard-failing stranded every VV bulk closeout on 03/08/2026
+ * (ADR 0011 — resident service beats report completeness). The current UI
+ * always sends a number when the counter is shown, so NULL here means a
+ * stale client — the action logs it to Sentry via isMissingRequiredCount.
+ * Invalid VALUES (negative, fractional, absurd) are still rejected.
  */
 export function validateMattressCount(
   required: boolean,
   count: number | null | undefined,
 ): Result<number | null> {
-  if (!required) return { ok: true, data: null }
-  if (count == null || !Number.isInteger(count) || count < 0) {
+  if (!required || count == null) return { ok: true, data: null }
+  if (!Number.isInteger(count) || count < 0) {
     return {
       ok: false,
-      error: 'Enter the mattress count (0 if none) before closing this stop.',
+      error: 'Mattress count must be a whole number — check and re-enter.',
     }
   }
   if (count > MATTRESS_COUNT_MAX) {
     return { ok: false, error: 'Mattress count looks too high — check and re-enter.' }
   }
   return { ok: true, data: count }
+}
+
+/**
+ * True when a logging stop is closing WITHOUT a count — i.e. the caller is a
+ * client build that predates the counter. The closeout proceeds (count stays
+ * NULL = "uncounted"), but the action reports it so stale phones surface in
+ * Sentry instead of silently thinning the mattress report.
+ */
+export function isMissingRequiredCount(
+  required: boolean,
+  count: number | null | undefined,
+): boolean {
+  return required && count == null
 }

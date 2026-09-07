@@ -1,0 +1,12 @@
+-- Repair: booking_payment.receipt_url never landed on prod.
+--
+-- Migration 20260401100000 is recorded as applied in schema_migrations but the
+-- column does not exist on prod (version stamped without the DDL running — the
+-- ghost-migration class, ADR 0007). Because _shared/checkout-reconcile.ts writes
+-- receipt_url when marking a payment paid, every paid-booking confirmation path
+-- (stripe-webhook, handle-expired-payments, create-checkout reuse) has thrown
+-- "column booking_payment.receipt_url does not exist" since 02/04/2026, leaving
+-- residents who paid in Stripe stuck in Pending Payment.
+--
+-- IF NOT EXISTS so a fresh `db reset` (where 20260401100000 DOES run) is a no-op.
+ALTER TABLE booking_payment ADD COLUMN IF NOT EXISTS receipt_url text;

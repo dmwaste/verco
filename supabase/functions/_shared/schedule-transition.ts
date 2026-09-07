@@ -59,3 +59,66 @@ export function filterBookingsReadyToSchedule(
   }
   return ids
 }
+
+/**
+ * Page size for the Confirmed-booking fetch.
+ *
+ * Deliberately BELOW Supabase's db-max-rows (1000 on this project). PostgREST
+ * silently truncates any response above that cap, and a truncated page is
+ * indistinguishable from an exhausted one — so a page size AT the cap would
+ * make "short page" ambiguous and could stop paging early. Staying under it
+ * keeps "fewer rows than asked for" an unambiguous end-of-set signal.
+ */
+export const CONFIRMED_PAGE_SIZE = 500
+
+export interface BookingPage<T = BookingWithItemDates> {
+  rows: T[]
+  error?: string
+}
+
+/** Fetches one inclusive [from, to] slice of Confirmed bookings, stably ordered. */
+export type FetchBookingPage<T = BookingWithItemDates> = (
+  from: number,
+  to: number,
+) => Promise<BookingPage<T>>
+
+export type FetchAllResult<T = BookingWithItemDates> =
+  | { ok: true; rows: T[] }
+  | { ok: false; error: string }
+
+/**
+ * Pages through every Confirmed booking.
+ *
+ * Why this exists: the cron used to fetch all Confirmed bookings in ONE
+ * unpaginated call. Once the Confirmed set passed 1,000 rows, PostgREST
+ * capped the response and the surplus bookings became invisible — they never
+ * transitioned to Scheduled, so the field crew could not close them out
+ * (Completed/NCN/NP are only reachable FROM Scheduled). It failed silently:
+ * the cron still reported failed:0 and HTTP 200, because nothing counts rows
+ * it never received. On 24/08/2026 that stranded KWN-2-B2IX82 and
+ * KWN-2-XZSK8X out of 1,172 Confirmed bookings. send-collection-reminders
+ * shared the same fetch shape, silently skipping reminders for the same slice.
+ *
+ * The caller MUST apply a stable `.order()` inside fetchPage — unordered
+ * `.range()` paging overlaps and skips rows while still returning a
+ * plausible-looking total.
+ *
+ * Returns an error rather than a partial set: a short read here would
+ * reproduce the exact bug this function exists to prevent.
+ */
+export async function fetchAllConfirmedBookings<T = BookingWithItemDates>(
+  fetchPage: FetchBookingPage<T>,
+  pageSize: number = CONFIRMED_PAGE_SIZE,
+): Promise<FetchAllResult<T>> {
+  const rows: T[] = []
+
+  for (let from = 0; ; from += pageSize) {
+    const page = await fetchPage(from, from + pageSize - 1)
+    if (page.error) return { ok: false, error: page.error }
+
+    rows.push(...page.rows)
+    if (page.rows.length < pageSize) break
+  }
+
+  return { ok: true, rows }
+}

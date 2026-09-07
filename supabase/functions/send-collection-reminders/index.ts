@@ -1,7 +1,8 @@
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts'
+import { cronHandler } from '../_shared/cron-handler.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.100.0'
 import type { Database } from '../_shared/database.types.ts'
-import { awstDateFromUtc } from '../_shared/schedule-transition.ts'
+import { awstDateFromUtc, fetchAllConfirmedBookings } from '../_shared/schedule-transition.ts'
 
 /**
  * send-collection-reminders cron Edge Function
@@ -54,7 +55,7 @@ function earliestCollectionDate(booking: BookingRow): string | null {
   return dates.sort()[0] ?? null
 }
 
-serve(async (_req) => {
+serve(cronHandler('send-collection-reminders', async (_req) => {
   const supabaseUrl = Deno.env.get('SUPABASE_URL')!
   const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
   const supabase = createClient<Database>(supabaseUrl, serviceRoleKey)
@@ -63,6 +64,7 @@ serve(async (_req) => {
 
   const results = {
     today_awst: today,
+    fetched: 0,
     candidates: 0,
     invoked: 0,
     failed: 0,
@@ -72,24 +74,35 @@ serve(async (_req) => {
   }
 
   try {
-    const { data: bookings, error: fetchError } = await supabase
-      .from('booking')
-      .select(`
-        id,
-        client:client_id (id, sms_reminder_days_before),
-        booking_item (collection_date (date))
-      `)
-      .eq('status', 'Confirmed')
+    // Paged, stably ordered. A single unpaginated fetch is silently truncated
+    // at db-max-rows (1000) once the Confirmed set grows past it, which would
+    // drop reminders for every booking beyond the cap without any error.
+    const fetched = await fetchAllConfirmedBookings<BookingRow>(async (from, to) => {
+      const { data, error } = await supabase
+        .from('booking')
+        .select(`
+          id,
+          client:client_id (id, sms_reminder_days_before),
+          booking_item (collection_date (date))
+        `)
+        .eq('status', 'Confirmed')
+        .order('id', { ascending: true })
+        .range(from, to)
 
-    if (fetchError) {
-      console.error('Booking fetch error:', fetchError.message)
+      if (error) return { rows: [], error: error.message }
+      return { rows: (data ?? []) as BookingRow[] }
+    })
+
+    if (!fetched.ok) {
+      console.error('Booking fetch error:', fetched.error)
       return new Response(
-        JSON.stringify({ ok: false, error: fetchError.message }),
+        JSON.stringify({ ok: false, error: fetched.error }),
         { status: 500, headers: { 'Content-Type': 'application/json' } },
       )
     }
 
-    const rows = (bookings ?? []) as BookingRow[]
+    const rows = fetched.rows
+    results.fetched = rows.length
     const candidates: string[] = []
 
     for (const booking of rows) {
@@ -157,4 +170,4 @@ serve(async (_req) => {
       { status: 500, headers: { 'Content-Type': 'application/json' } },
     )
   }
-})
+}))

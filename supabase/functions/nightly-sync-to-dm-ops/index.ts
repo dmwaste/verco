@@ -1,25 +1,53 @@
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts'
+import { cronHandler } from '../_shared/cron-handler.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.100.0'
 import type { Database } from '../_shared/database.types.ts'
 
 // Service-role only — triggered by pg_cron, no JWT validation.
 // Aggregates attended bookings from Verco and upserts into DM-Ops booked_collection table.
 
-serve(async (_req) => {
+serve(cronHandler('nightly-sync-to-dm-ops', async (_req) => {
   const verco = createClient<Database>(
     Deno.env.get('SUPABASE_URL')!,
     Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
   )
 
+  const startedAt = new Date().toISOString()
+
+  // DM_OPS_* are manually-set EF secrets, NOT platform-injected like
+  // SUPABASE_URL. When unset, createClient throws before the try block — no
+  // sync_log row, and a bare "supabaseUrl is required" in Sentry (this hid
+  // every nightly run from 27/03 until #518 made cron EFs observable). Guard
+  // explicitly so a config gap is a recorded, named failure.
+  const dmOpsUrl = Deno.env.get('DM_OPS_SUPABASE_URL')
+  const dmOpsServiceRoleKey = Deno.env.get('DM_OPS_SUPABASE_SERVICE_ROLE_KEY')
+  if (!dmOpsUrl || !dmOpsServiceRoleKey) {
+    const missing = [
+      !dmOpsUrl ? 'DM_OPS_SUPABASE_URL' : null,
+      !dmOpsServiceRoleKey ? 'DM_OPS_SUPABASE_SERVICE_ROLE_KEY' : null,
+    ].filter(Boolean).join(', ')
+    const errorMessage = `DM-Ops sync not configured — missing EF secrets: ${missing}`
+    console.error('nightly-sync-to-dm-ops error:', errorMessage)
+
+    await verco.from('sync_log').insert({
+      entity_type: 'nightly-sync-to-dm-ops',
+      entity_id: '00000000-0000-0000-0000-000000000000',
+      direction: 'outbound',
+      status: 'failed',
+      error_message: errorMessage,
+      payload: { started_at: startedAt },
+    })
+
+    return new Response(
+      JSON.stringify({ ok: false, error: errorMessage }),
+      { status: 500, headers: { 'Content-Type': 'application/json' } }
+    )
+  }
+
   // NOTE: DM-Ops is a SEPARATE Supabase project with a different schema
   // (booked_collection etc.). Verco's `Database` type does not describe it, so
   // this client stays untyped — do not add <Database> here.
-  const dmOps = createClient(
-    Deno.env.get('DM_OPS_SUPABASE_URL')!,
-    Deno.env.get('DM_OPS_SUPABASE_SERVICE_ROLE_KEY')!,
-  )
-
-  const startedAt = new Date().toISOString()
+  const dmOps = createClient(dmOpsUrl, dmOpsServiceRoleKey)
 
   try {
     // ── 1. Query attended bookings with aggregation context ──────────────────
@@ -169,4 +197,4 @@ serve(async (_req) => {
       { status: 500, headers: { 'Content-Type': 'application/json' } }
     )
   }
-})
+}))

@@ -21,3 +21,30 @@ export function buildSearchOrFilter(columns: string[], term: string): string {
   const value = `"%${term.replace(/[\\"]/g, (c) => `\\${c}`)}%"`
   return columns.map((col) => `${col}.ilike.${value}`).join(',')
 }
+
+/**
+ * Free-text search across text columns PLUS an enum column (#497).
+ *
+ * Postgres has no `~~*` (ILIKE) operator for enum types, so putting an enum
+ * column into `buildSearchOrFilter` 400s the whole request with
+ * `operator does not exist: ncn_reason ~~* unknown` — and, per the `.or()`
+ * gotcha, the Supabase client swallows that into `data: null`, so the admin
+ * sees an empty list instead of an error (NCN list search, 03/08 prod logs).
+ *
+ * Instead the term is matched client-side against the enum's known values
+ * (case-insensitive substring) and any hits are added as a quoted
+ * `col.in.("A","B")` condition. No hit → the enum column is simply omitted.
+ */
+export function buildSearchOrFilterWithEnum(
+  textColumns: string[],
+  enumColumn: string,
+  enumValues: readonly string[],
+  term: string,
+): string {
+  const needle = term.toLowerCase()
+  const hits = enumValues.filter((v) => v.toLowerCase().includes(needle))
+  const text = buildSearchOrFilter(textColumns, term)
+  if (hits.length === 0) return text
+  const list = hits.map((v) => `"${v.replace(/[\\"]/g, (c) => `\\${c}`)}"`).join(',')
+  return `${text},${enumColumn}.in.(${list})`
+}

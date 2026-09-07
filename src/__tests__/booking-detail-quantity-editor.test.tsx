@@ -41,6 +41,7 @@ function makeBooking(overrides: Partial<Booking> = {}): Booking {
     property_id: 'prop-uuid',
     collection_area_id: 'area-uuid',
     contact_id: 'contact-uuid',
+    client_id: 'client-uuid',
     latitude: null,
     longitude: null,
     geo_address: null,
@@ -59,6 +60,7 @@ function makeBooking(overrides: Partial<Booking> = {}): Booking {
         actual_services: null,
         is_extra: false,
         unit_price_cents: 0,
+        updated_at: '2026-07-19T02:03:04.123456+00:00',
         service: { name: 'General' },
         collection_date: { date: '2026-07-20' },
       },
@@ -146,7 +148,7 @@ describe('inline quantity editor — interaction', () => {
     renderDetail({
       booking: makeBooking({
         booking_item: [
-          { id: 'bi-1', service_id: 'svc-general', collection_date_id: 'cd-1', no_services: 1, actual_services: null, is_extra: false, unit_price_cents: 0, service: { name: 'General' }, collection_date: { date: '2026-07-20' } },
+          { id: 'bi-1', service_id: 'svc-general', collection_date_id: 'cd-1', no_services: 1, actual_services: null, is_extra: false, unit_price_cents: 0, updated_at: '2026-07-19T02:03:04.123456+00:00', service: { name: 'General' }, collection_date: { date: '2026-07-20' } },
         ],
       }),
     })

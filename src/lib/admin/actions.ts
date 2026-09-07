@@ -3,7 +3,7 @@
 import { cookies } from 'next/headers'
 import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
-import { CURRENT_ADMIN_CLIENT_COOKIE } from './current-client'
+import { CURRENT_ADMIN_CLIENT_COOKIE, getAccessibleClientIds } from './current-client'
 import type { Result } from '@/lib/result'
 
 /**
@@ -15,6 +15,12 @@ import type { Result } from '@/lib/result'
  * Validates the user has access to the chosen client BEFORE writing the
  * cookie; a tampered request that POSTs an arbitrary UUID gets a clean
  * `client not accessible` response, not a silent successful write.
+ *
+ * "Access" means `accessible_client_ids()` — NOT an `is_active` lookup on
+ * the public-SELECT `client` table, which validates any active tenant id
+ * (#485, third occurrence of the class fixed in #275 / #481). Both cookie
+ * readers re-validate, so a forged cookie was inert; this makes the write
+ * path honour the guarantee its own docstring claims.
  */
 export async function setCurrentAdminClient(
   clientId: string
@@ -24,6 +30,10 @@ export async function setCurrentAdminClient(
   }
 
   const supabase = await createClient()
+  const accessibleIds = await getAccessibleClientIds(supabase)
+  if (!accessibleIds.includes(clientId)) {
+    return { ok: false, error: 'Client not accessible.' }
+  }
   const { data: client } = await supabase
     .from('client')
     .select('id')

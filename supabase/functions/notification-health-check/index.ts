@@ -1,4 +1,5 @@
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts'
+import { cronHandler } from '../_shared/cron-handler.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.100.0'
 import type { Database } from '../_shared/database.types.ts'
 import {
@@ -63,7 +64,7 @@ function intFromEnv(name: string, fallback: number): number {
   return Number.isFinite(n) && n > 0 ? n : fallback
 }
 
-serve(async (_req) => {
+serve(cronHandler('notification-health-check', async (_req) => {
   const supabase = createClient<Database>(
     Deno.env.get('SUPABASE_URL')!,
     Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
@@ -205,7 +206,7 @@ serve(async (_req) => {
     console.error('notification-health-check: uncaught', error)
     return jsonResponse({ ok: false, error: `uncaught: ${error}` }, 500)
   }
-})
+}))
 
 function jsonResponse(body: unknown, status: number): Response {
   return new Response(JSON.stringify(body), {

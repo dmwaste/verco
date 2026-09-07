@@ -13,6 +13,15 @@ export type GeocodeEfResponse = {
   failed: number
   dry_run: boolean
   errors?: Array<{ id: string; error: string }>
+  // Rows geocoded to a DIFFERENT street number (parent-parcel snap): the EF
+  // wrote coordinates only and left google_place_id NULL, so they remain in
+  // the queue for a future run. Absent on older EF builds.
+  snapped?: number
+  // Rows whose result was a DIFFERENT premise (wrong suburb, interstate,
+  // locality-only): the EF wrote nothing, so like snapped rows they stay in
+  // the queue. Absent on older EF builds.
+  rejected?: number
+  rejected_samples?: Array<{ id: string; address: string; google: string; reason: string }>
 }
 
 export type ParsedChunk =
@@ -63,6 +72,11 @@ export function parseEfResponse(raw: unknown): ParsedChunk {
       errors: Array.isArray(r.errors)
         ? (r.errors as Array<{ id: string; error: string }>)
         : undefined,
+      snapped: typeof r.snapped === 'number' ? r.snapped : undefined,
+      rejected: typeof r.rejected === 'number' ? r.rejected : undefined,
+      rejected_samples: Array.isArray(r.rejected_samples)
+        ? (r.rejected_samples as GeocodeEfResponse['rejected_samples'])
+        : undefined,
     },
   }
 }
@@ -98,7 +112,7 @@ export function formatEta(remainingRows: number, rowsPerSecond: number): string 
  */
 export type LoopDecision =
   | { kind: 'continue'; processed: number; failed: number; total: number }
-  | { kind: 'done'; reason: 'no-rows' }
+  | { kind: 'done'; reason: 'no-rows' | 'all-unresolved' }
   | { kind: 'abort'; reason: string }
 
 export function decideNext(
@@ -117,6 +131,15 @@ export function decideNext(
   }
   if (parsed.data.total === 0) {
     return { kind: 'done', reason: 'no-rows' }
+  }
+  // Snapped rows (coords-only) and rejected rows (no write) stay in the EF's
+  // null-place_id queue by design — snapped ones self-heal once Google ingests
+  // the lot, rejected ones need a human to fix the address. A chunk made up
+  // entirely of them means the next chunk re-fetches the exact same queue
+  // head — stop instead of looping forever.
+  const unresolved = (parsed.data.snapped ?? 0) + (parsed.data.rejected ?? 0)
+  if (unresolved > 0 && unresolved >= parsed.data.total) {
+    return { kind: 'done', reason: 'all-unresolved' }
   }
   return {
     kind: 'continue',

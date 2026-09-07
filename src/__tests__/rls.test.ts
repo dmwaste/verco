@@ -617,6 +617,406 @@ if (!haveDb) {
   })
 
   // ---------------------------------------------------------------------------
+  // booking_item field UPDATE — MUD actuals (#494, migration 20260803013000).
+  // Until that migration, booking_item had NO field UPDATE policy, so the crew
+  // MUD-counts save (bulk_update_booking_item_actuals, SECURITY INVOKER)
+  // updated 0 rows silently. These assert: field can save actual_services on a
+  // Scheduled booking; ranger cannot; nothing saves once the booking leaves
+  // Scheduled; the column-pin trigger stops a field JWT touching any other
+  // column (unit_price_cents = Red Line #1); and the RPC now RAISES on a
+  // row-count shortfall instead of returning silent success.
+  //
+  // Fixtures are seeded INSIDE the rolled-back transaction (never upserted
+  // durably like the stop fixtures) — booking_item rows move real capacity
+  // counters via recalculate_collection_date_units, so they must not persist.
+  // Self-skips until the migration reaches the remote project.
+  // ---------------------------------------------------------------------------
+  describe('booking_item field UPDATE — MUD actuals (#494)', () => {
+    const BI_BOOKING = 'abababab-0001-4000-8000-000000000001'
+    const BI_ITEM_A = 'abababab-0002-4000-8000-000000000002'
+    const BI_ITEM_B = 'abababab-0003-4000-8000-000000000003'
+
+    let policyLive = false
+
+    beforeAll(async () => {
+      const r = await pg.query(
+        `SELECT 1 FROM pg_policies
+          WHERE tablename = 'booking_item' AND policyname = 'booking_item_field_update'`,
+      )
+      policyLive = (r.rowCount ?? 0) > 0
+    })
+
+    /** Seed a booking + two items as the privileged role, then run `sql`
+     *  impersonated as `userId` — all inside one rolled-back transaction. */
+    async function withSeededBooking(
+      userId: string,
+      sql: string,
+      bookingStatus: 'Scheduled' | 'Confirmed' = 'Scheduled',
+    ): Promise<number> {
+      await pg.query('BEGIN')
+      try {
+        await pg.query(
+          `INSERT INTO public.booking (id, ref, type, status, collection_area_id, client_id, contractor_id, fy_id)
+           VALUES ($1, 'RLS-BI-FIELD', 'Residential', $2, $3, $4, $5,
+                   (SELECT id FROM financial_year WHERE is_current LIMIT 1))`,
+          [BI_BOOKING, bookingStatus, kwnAreaId, CLIENT_ID, CONTRACTOR_ID],
+        )
+        await pg.query(
+          `INSERT INTO public.booking_item (id, booking_id, service_id, collection_date_id, no_services, is_extra, unit_price_cents)
+           SELECT x.id, $1, (SELECT id FROM service LIMIT 1),
+                  (SELECT id FROM collection_date WHERE collection_area_id = $4 LIMIT 1),
+                  1, false, 0
+             FROM (VALUES ($2::uuid), ($3::uuid)) AS x(id)`,
+          [BI_BOOKING, BI_ITEM_A, BI_ITEM_B, kwnAreaId],
+        )
+        await pg.query(`SET LOCAL ROLE authenticated`)
+        await pg.query(`SELECT set_config('request.jwt.claims', $1, true)`, [
+          JSON.stringify({ sub: userId, role: 'authenticated' }),
+        ])
+        const r = await pg.query(sql)
+        return r.rowCount ?? 0
+      } finally {
+        await pg.query('ROLLBACK')
+      }
+    }
+
+    const setCountsSql = `UPDATE booking_item SET actual_services = 2 WHERE booking_id = '${BI_BOOKING}'`
+    const rpcSql = `SELECT bulk_update_booking_item_actuals('${BI_BOOKING}',
+      '[{"id":"${BI_ITEM_A}","actual_count":2},{"id":"${BI_ITEM_B}","actual_count":0}]'::jsonb)`
+
+    it('field CAN save actual_services on a Scheduled booking (2 rows)', async (ctx) => {
+      if (!policyLive || !kwnAreaId) return ctx.skip()
+      expect(await withSeededBooking(USERS.field, setCountsSql)).toBe(2)
+    })
+
+    it('ranger CANNOT save actuals (0 rows — write is field-only, like collection_stop)', async (ctx) => {
+      if (!policyLive || !kwnAreaId) return ctx.skip()
+      expect(await withSeededBooking(USERS.ranger, setCountsSql)).toBe(0)
+    })
+
+    it('field CANNOT save once the booking leaves Scheduled (0 rows)', async (ctx) => {
+      if (!policyLive || !kwnAreaId) return ctx.skip()
+      expect(await withSeededBooking(USERS.field, setCountsSql, 'Confirmed')).toBe(0)
+    })
+
+    it('field CANNOT touch unit_price_cents — column pin (Red Line #1)', async (ctx) => {
+      if (!policyLive || !kwnAreaId) return ctx.skip()
+      await expect(
+        withSeededBooking(
+          USERS.field,
+          `UPDATE booking_item SET actual_services = 2, unit_price_cents = 99900
+            WHERE booking_id = '${BI_BOOKING}'`,
+        ),
+      ).rejects.toThrow(/only change actual_services/)
+    })
+
+    it('staff can still edit other columns — the pin is field-only', async (ctx) => {
+      if (!policyLive || !kwnAreaId) return ctx.skip()
+      expect(
+        await withSeededBooking(
+          USERS['contractor-admin'],
+          `UPDATE booking_item SET no_services = 2 WHERE booking_id = '${BI_BOOKING}'`,
+        ),
+      ).toBe(2)
+    })
+
+    it('bulk_update_booking_item_actuals succeeds for field (raises on any shortfall)', async (ctx) => {
+      if (!policyLive || !kwnAreaId) return ctx.skip()
+      await expect(withSeededBooking(USERS.field, rpcSql)).resolves.toBeDefined()
+    })
+
+    it('bulk_update_booking_item_actuals RAISES for a role RLS filters out — never silent success', async (ctx) => {
+      if (!policyLive || !kwnAreaId) return ctx.skip()
+      await expect(withSeededBooking(USERS.ranger, rpcSql)).rejects.toThrow(
+        /Counts were not saved/,
+      )
+    })
+  })
+
+  // ---------------------------------------------------------------------------
+  // MUD collected-count correction (updateMudAllocations, 2026-09-01). The
+  // admin action lets contractor tier fix actual_services AFTER collection
+  // (Completed/NCN/NP). No new DB objects — these assert the EXISTING layers
+  // already produce the permit/deny matrix the action relies on: staff RLS +
+  // enforce_booking_item_staff_write leave actual_services open to contractor
+  // tier at terminal statuses, status-gate client tier, and field RLS stays
+  // Scheduled-only — so the crew and admin edit windows are disjoint.
+  // ---------------------------------------------------------------------------
+  describe('booking_item contractor actuals correction post-collection (MUD)', () => {
+    const MA_BOOKING = 'abababab-0021-4000-8000-000000000021'
+    const MA_ITEM = 'abababab-0022-4000-8000-000000000022'
+
+    /** Seed a MUD booking + item at `status`, then run `sql` impersonated as
+     *  `userId` — all inside one rolled-back transaction. */
+    async function withMudBooking(
+      userId: string,
+      sql: string,
+      status: 'Completed' | 'Non-conformance' | 'Scheduled' = 'Completed',
+    ): Promise<number> {
+      await pg.query('BEGIN')
+      try {
+        // Fixture user_roles can be parked is_active=false between runs —
+        // activate in-tx (rolled back) so current_user_role() resolves.
+        await pg.query(`UPDATE public.user_roles SET is_active = true WHERE user_id::text LIKE 'aaaaaaaa-%'`)
+        await pg.query(
+          `INSERT INTO public.booking (id, ref, type, status, collection_area_id, client_id, contractor_id, fy_id)
+           VALUES ($1, 'RLS-MA-1', 'MUD', $2::booking_status, $3, $4, $5,
+                   (SELECT id FROM financial_year WHERE is_current LIMIT 1))`,
+          [MA_BOOKING, status, kwnAreaId, CLIENT_ID, CONTRACTOR_ID],
+        )
+        await pg.query(
+          `INSERT INTO public.booking_item (id, booking_id, service_id, collection_date_id, no_services, actual_services, is_extra, unit_price_cents)
+           VALUES ($1, $2, (SELECT id FROM service LIMIT 1),
+                   (SELECT id FROM collection_date WHERE collection_area_id = $3 LIMIT 1),
+                   2, 6, false, 0)`,
+          [MA_ITEM, MA_BOOKING, kwnAreaId],
+        )
+        await pg.query(`SET LOCAL ROLE authenticated`)
+        await pg.query(`SELECT set_config('request.jwt.claims', $1, true)`, [
+          JSON.stringify({ sub: userId, role: 'authenticated' }),
+        ])
+        const r = await pg.query(sql)
+        return r.rowCount ?? 0
+      } finally {
+        await pg.query('ROLLBACK')
+      }
+    }
+
+    const FIX_COUNT = `UPDATE public.booking_item SET actual_services = 5 WHERE id = '${MA_ITEM}'`
+
+    it('contractor-staff CAN correct actual_services on a Completed MUD booking', async (ctx) => {
+      if (!kwnAreaId) return ctx.skip()
+      expect(await withMudBooking(USERS['contractor-staff'], FIX_COUNT, 'Completed')).toBe(1)
+    })
+
+    it('contractor-admin CAN correct actual_services on a Non-conformance booking', async (ctx) => {
+      if (!kwnAreaId) return ctx.skip()
+      expect(await withMudBooking(USERS['contractor-admin'], FIX_COUNT, 'Non-conformance')).toBe(1)
+    })
+
+    it('client-admin is rejected by the staff-write trigger on a Completed booking (not a silent no-op)', async (ctx) => {
+      if (!kwnAreaId) return ctx.skip()
+      await expect(withMudBooking(USERS['client-admin'], FIX_COUNT, 'Completed')).rejects.toThrow(
+        /Only contractor staff may edit items/,
+      )
+    })
+
+    it('field CANNOT write actuals post-Scheduled (0 rows — crew window closed at closeout)', async (ctx) => {
+      if (!kwnAreaId) return ctx.skip()
+      expect(await withMudBooking(USERS.field, FIX_COUNT, 'Completed')).toBe(0)
+    })
+
+    it('contractor touching unit_price_cents alongside still hits the identity/price pin (Red Line #1)', async (ctx) => {
+      if (!kwnAreaId) return ctx.skip()
+      await expect(
+        withMudBooking(
+          USERS['contractor-admin'],
+          `UPDATE public.booking_item SET actual_services = 5, unit_price_cents = 99900 WHERE id = '${MA_ITEM}'`,
+          'Completed',
+        ),
+      ).rejects.toThrow(/identity and price columns cannot be changed/)
+    })
+  })
+
+  // ---------------------------------------------------------------------------
+  // booking_item staff write gate (#383, migration 20260822050000). The staff
+  // UPDATE policy has no column/status/date/area condition, so a client-tier
+  // JWT could PATCH price columns, move items onto closed/past/other-area dates
+  // or edit post-dispatch bookings straight through PostgREST — bypassing the
+  // app gate in collection-details-edit.ts. A BEFORE UPDATE trigger now
+  // mirrors that gate at the DB layer.
+  // ---------------------------------------------------------------------------
+  describe('booking_item staff write gate (#383)', () => {
+    const GB_BOOKING = 'abababab-0011-4000-8000-000000000011'
+    const GB_ITEM = 'abababab-0012-4000-8000-000000000012'
+
+    let triggerLive = false
+    let otherAreaDate: string | null = null
+    let pastDate: string | null = null
+
+    beforeAll(async () => {
+      const r = await pg.query(
+        `SELECT 1 FROM pg_trigger WHERE tgname = 'enforce_booking_item_staff_write'`,
+      )
+      triggerLive = (r.rowCount ?? 0) > 0
+      if (!kwnAreaId) return
+      const o = await pg.query(
+        `SELECT id FROM collection_date WHERE collection_area_id <> $1 LIMIT 1`,
+        [kwnAreaId],
+      )
+      otherAreaDate = o.rows[0]?.id ?? null
+      const p = await pg.query(
+        `SELECT id FROM collection_date WHERE collection_area_id = $1 AND date < current_date LIMIT 1`,
+        [kwnAreaId],
+      )
+      pastDate = p.rows[0]?.id ?? null
+    })
+
+    async function withBooking(
+      userId: string,
+      sql: string,
+      bookingStatus: 'Confirmed' | 'Scheduled' = 'Confirmed',
+      /** Extra setup run as the privileged role, before impersonation. */
+      seedSql: string | null = null,
+    ): Promise<number> {
+      await pg.query('BEGIN')
+      try {
+        await pg.query(
+          `INSERT INTO public.booking (id, ref, type, status, collection_area_id, client_id, contractor_id, fy_id)
+           VALUES ($1, 'RLS-BI-GATE', 'Residential', $2, $3, $4, $5,
+                   (SELECT id FROM financial_year WHERE is_current LIMIT 1))`,
+          [GB_BOOKING, bookingStatus, kwnAreaId, CLIENT_ID, CONTRACTOR_ID],
+        )
+        await pg.query(
+          `INSERT INTO public.booking_item (id, booking_id, service_id, collection_date_id, no_services, is_extra, unit_price_cents)
+           VALUES ($1, $2, (SELECT id FROM service LIMIT 1),
+                   (SELECT id FROM collection_date WHERE collection_area_id = $3 AND is_open AND date >= current_date ORDER BY date LIMIT 1),
+                   1, false, 0)`,
+          [GB_ITEM, GB_BOOKING, kwnAreaId],
+        )
+        if (seedSql) await pg.query(seedSql)
+        await pg.query(`SET LOCAL ROLE authenticated`)
+        await pg.query(`SELECT set_config('request.jwt.claims', $1, true)`, [
+          JSON.stringify({ sub: userId, role: 'authenticated' }),
+        ])
+        const r = await pg.query(sql)
+        return r.rowCount ?? 0
+      } finally {
+        await pg.query('ROLLBACK')
+      }
+    }
+
+    it('client-admin CANNOT set unit_price_cents (Red Line #1 at the DB layer)', async (ctx) => {
+      if (!triggerLive || !kwnAreaId) return ctx.skip()
+      await expect(
+        withBooking(USERS['client-admin'], `UPDATE booking_item SET unit_price_cents = 999 WHERE id = '${GB_ITEM}'`),
+      ).rejects.toThrow(/identity and price columns/)
+    })
+
+    it('contractor-admin CANNOT set is_extra either — the pin is for every user role', async (ctx) => {
+      if (!triggerLive || !kwnAreaId) return ctx.skip()
+      await expect(
+        withBooking(USERS['contractor-admin'], `UPDATE booking_item SET is_extra = true WHERE id = '${GB_ITEM}'`),
+      ).rejects.toThrow(/identity and price columns/)
+    })
+
+    it('client-admin CANNOT move an item onto a past date', async (ctx) => {
+      if (!triggerLive || !kwnAreaId || !pastDate) return ctx.skip()
+      await expect(
+        withBooking(USERS['client-admin'], `UPDATE booking_item SET collection_date_id = '${pastDate}' WHERE id = '${GB_ITEM}'`),
+      ).rejects.toThrow(/closed or past collection date/)
+    })
+
+    it('contractor-admin CAN move an item onto a past date (the #378 override)', async (ctx) => {
+      if (!triggerLive || !kwnAreaId || !pastDate) return ctx.skip()
+      expect(
+        await withBooking(USERS['contractor-admin'], `UPDATE booking_item SET collection_date_id = '${pastDate}' WHERE id = '${GB_ITEM}'`),
+      ).toBe(1)
+    })
+
+    it('nobody can repoint an item to another area\'s date (cross-tenant counter hole)', async (ctx) => {
+      if (!triggerLive || !kwnAreaId || !otherAreaDate) return ctx.skip()
+      await expect(
+        withBooking(USERS['contractor-admin'], `UPDATE booking_item SET collection_date_id = '${otherAreaDate}' WHERE id = '${GB_ITEM}'`),
+      ).rejects.toThrow(/not in this booking's collection area/)
+    })
+
+    it('client-admin CANNOT edit items on a Scheduled booking', async (ctx) => {
+      if (!triggerLive || !kwnAreaId) return ctx.skip()
+      await expect(
+        withBooking(USERS['client-admin'], `UPDATE booking_item SET no_services = 2 WHERE id = '${GB_ITEM}'`, 'Scheduled'),
+      ).rejects.toThrow(/Only contractor staff may edit items/)
+    })
+
+    it('client-admin CAN change quantity on a Confirmed booking (in-place editor path)', async (ctx) => {
+      if (!triggerLive || !kwnAreaId) return ctx.skip()
+      expect(
+        await withBooking(USERS['client-admin'], `UPDATE booking_item SET no_services = 2 WHERE id = '${GB_ITEM}'`),
+      ).toBe(1)
+    })
+
+    // #426 (migration 20260822120000): capacity dimension of a date move.
+    // A second open future date is forced full inside the rolled-back txn
+    // (counters are only recalculated by booking_item triggers, so a direct
+    // UPDATE of bulk_units_booked stands for the test's lifetime).
+    async function fullFutureDateSql(): Promise<string | null> {
+      const r = await pg.query(
+        `SELECT id FROM collection_date
+          WHERE collection_area_id = $1 AND is_open AND date > current_date + 3
+          ORDER BY date OFFSET 1 LIMIT 1`,
+        [kwnAreaId],
+      )
+      return r.rows[0]?.id ?? null
+    }
+
+    it('client-admin CANNOT move an item onto a FULL date (#426)', async (ctx) => {
+      if (!triggerLive || !kwnAreaId) return ctx.skip()
+      const target = await fullFutureDateSql()
+      if (!target) return ctx.skip()
+      await expect(
+        withBooking(
+          USERS['client-admin'],
+          `UPDATE booking_item SET collection_date_id = '${target}' WHERE id = '${GB_ITEM}'`,
+          'Confirmed',
+          `UPDATE collection_date SET bulk_units_booked = bulk_capacity_limit WHERE id = '${target}'`,
+        ),
+      ).rejects.toThrow(/full collection date/)
+    })
+
+    it('contractor-admin CAN move an item onto a FULL date (override kept, #426)', async (ctx) => {
+      if (!triggerLive || !kwnAreaId) return ctx.skip()
+      const target = await fullFutureDateSql()
+      if (!target) return ctx.skip()
+      expect(
+        await withBooking(
+          USERS['contractor-admin'],
+          `UPDATE booking_item SET collection_date_id = '${target}' WHERE id = '${GB_ITEM}'`,
+          'Confirmed',
+          `UPDATE collection_date SET bulk_units_booked = bulk_capacity_limit WHERE id = '${target}'`,
+        ),
+      ).toBe(1)
+    })
+  })
+
+  // ---------------------------------------------------------------------------
+  // refund_request SELECT (#387.c, migration 20260822050000): the policy gated
+  // on is_contractor_user(), which includes field — crews could read refund
+  // amounts + the resident contact FK. Now explicit four-role.
+  // ---------------------------------------------------------------------------
+  describe('refund_request SELECT excludes field (#387)', () => {
+    it('field sees zero refund_request rows', async (ctx) => {
+      const r = await pg.query(
+        `SELECT qual FROM pg_policies WHERE tablename = 'refund_request' AND policyname = 'refund_request_staff_select'`,
+      )
+      const qual: string = r.rows[0]?.qual ?? ''
+      if (!qual || qual.includes('is_contractor_user')) return ctx.skip()
+      expect(await countAs(USERS.field, 'SELECT id FROM refund_request')).toBe(0)
+    })
+  })
+
+  // ---------------------------------------------------------------------------
+  // booking_survey (ADR 0016): legacy Airtable surveys have no booking, so the
+  // staff policies must key sub-client scope off collection_area_id — the
+  // booking helper returns NULL for an unlinked row and would hide it. Field /
+  // ranger never see surveys (no policy grants them SELECT).
+  // ---------------------------------------------------------------------------
+  describe('booking_survey staff policies keyed off the survey area (ADR 0016)', () => {
+    it('SELECT + DELETE use user_sub_client_allows_area(collection_area_id), not the booking helper', async () => {
+      const r = await pg.query(
+        `SELECT policyname, qual FROM pg_policies WHERE tablename = 'booking_survey' AND policyname IN ('booking_survey_staff_select','booking_survey_staff_delete')`,
+      )
+      expect(r.rows).toHaveLength(2)
+      for (const row of r.rows as { qual: string }[]) {
+        expect(row.qual).toContain('user_sub_client_allows_area(collection_area_id)')
+        expect(row.qual).not.toContain('user_sub_client_allows_booking')
+      }
+    })
+    it('field sees zero booking_survey rows', async () => {
+      expect(await countAs(USERS.field, 'SELECT id FROM booking_survey')).toBe(0)
+    })
+  })
+
+  // ---------------------------------------------------------------------------
   // TC-F5 (VER-247): residents can cancel their OWN booking. The bug was an
   // implicit WITH CHECK on booking_resident_update that rejected status
   // 'Cancelled' (0 rows, no error). These assert the policy now lets a resident
@@ -2629,4 +3029,389 @@ if (!haveDb) {
       }
     }, 20_000)
   })
+
+  // ---------------------------------------------------------------------------
+  // Rescheduling a booking cancels its dispatched stop immediately
+  // (migration 20260827010000)
+  //
+  // KWN-4-X96WUS was moved off 27/08 at 07:57 AWST; its already-pushed stop
+  // stayed Pending, so the OptimoRoute order stayed live, got planned into the
+  // 27/08 route (driver KWNA, seq 6, ETA 08:13) and was only cancelled at 03:10
+  // the next morning by push-orders-to-optimoroute. The trigger applies
+  // shouldCancelOrphanStop's rule at write time instead of once a day.
+  //
+  // The migration is applied INSIDE each transaction (same pattern as VER-298
+  // above), so this suite passes before and after the migration reaches prod.
+  // ---------------------------------------------------------------------------
+  describe('stop cancellation on booking reschedule', () => {
+    const STOP_MIGRATION_SQL = readFileSync(
+      resolve(
+        __dirname,
+        '../../supabase/migrations/20260827010000_sync_stops_on_booking_item_date_move.sql',
+      ),
+      'utf-8',
+    )
+    const ROLLUP_MIGRATION_SQL = readFileSync(
+      resolve(
+        __dirname,
+        '../../supabase/migrations/20260827030000_rollup_guard_outstanding_streams.sql',
+      ),
+      'utf-8',
+    )
+
+    const BK = 'ffffffff-0827-4000-8000-000000000001'
+    const OTHER_BK = 'ffffffff-0827-4000-8000-000000000002'
+
+    /**
+     * Two collection dates in KWN, one service per stream, a booking with one
+     * item per stream on date A, and a dispatched (pushed) stop per stream —
+     * plus a second, untouched booking on the same date to prove the trigger
+     * only cancels stops belonging to the moved booking.
+     */
+    async function seed(
+      streamStatuses: { general: string; ancillary: string },
+      bookingStatus: 'Confirmed' | 'Scheduled' = 'Confirmed',
+    ) {
+      const dates = await pg.query<{ id: string }>(
+        `SELECT id FROM collection_date WHERE collection_area_id = $1 ORDER BY date LIMIT 2`,
+        [kwnAreaId],
+      )
+      const svc = await pg.query<{ id: string; waste_stream: string }>(
+        `SELECT DISTINCT ON (waste_stream) id, waste_stream FROM service
+          WHERE waste_stream IN ('general', 'ancillary') ORDER BY waste_stream, id`,
+      )
+      const fy = await pg.query<{ id: string }>(
+        `SELECT id FROM financial_year WHERE is_current LIMIT 1`,
+      )
+      const dateA = dates.rows[0]?.id
+      const dateB = dates.rows[1]?.id
+      const general = svc.rows.find((s) => s.waste_stream === 'general')?.id
+      const ancillary = svc.rows.find((s) => s.waste_stream === 'ancillary')?.id
+      if (!dateA || !dateB || !general || !ancillary || !fy.rows[0]) return null
+
+      for (const [id, ref] of [
+        [BK, 'STOP-MOVE-1'],
+        [OTHER_BK, 'STOP-MOVE-2'],
+      ] as const) {
+        await pg.query(
+          `INSERT INTO public.booking (id, ref, type, status, collection_area_id, client_id, contractor_id, fy_id)
+           VALUES ($1, $2, 'Residential', $7, $3, $4, $5, $6)`,
+          [id, ref, kwnAreaId, CLIENT_ID, CONTRACTOR_ID, fy.rows[0].id, bookingStatus],
+        )
+        await pg.query(
+          `INSERT INTO public.booking_item (booking_id, service_id, collection_date_id, no_services, unit_price_cents)
+           VALUES ($1, $2, $3, 1, 0), ($1, $4, $3, 1, 0)`,
+          [id, general, dateA, ancillary],
+        )
+      }
+      // pushed_at set: these stops exist as orders in the routing engine.
+      await pg.query(
+        `INSERT INTO public.collection_stop
+           (booking_id, client_id, stream, collection_date_id, status, external_order_ref, pushed_at)
+         VALUES ($1, $2, 'general', $3, $4::stop_status, 'STOP-MOVE-1-B', now()),
+                ($1, $2, 'ancillary', $3, $5::stop_status, 'STOP-MOVE-1-A', now()),
+                ($6, $2, 'general', $3, 'Pending', 'STOP-MOVE-2-B', now())`,
+        [BK, CLIENT_ID, dateA, streamStatuses.general, streamStatuses.ancillary, OTHER_BK],
+      )
+      return { dateA, dateB, general, ancillary }
+    }
+
+    /** `stream=status` pairs for a booking, stream-sorted for stable compare. */
+    async function stopsOf(bookingId: string): Promise<string[]> {
+      const r = await pg.query<{ pair: string }>(
+        // stream::text, NOT stream: the bare enum sorts by declaration order
+        // (general before ancillary), which silently inverts these expectations.
+        `SELECT stream::text || '=' || status AS pair FROM collection_stop
+          WHERE booking_id = $1 ORDER BY stream::text`,
+        [bookingId],
+      )
+      return r.rows.map((row) => row.pair)
+    }
+
+    it('moving every item off the date cancels that booking\'s dispatched stops', async (ctx) => {
+      if (!kwnAreaId) return ctx.skip()
+      await pg.query('BEGIN')
+      try {
+        await pg.query(STOP_MIGRATION_SQL)
+        await pg.query(ROLLUP_MIGRATION_SQL)
+        const f = await seed({ general: 'Pending', ancillary: 'Pending' })
+        expect(f, 'fixture missing: two KWN collection_dates + both streams').toBeTruthy()
+        if (!f) return
+
+        expect(await stopsOf(BK)).toEqual(['ancillary=Pending', 'general=Pending'])
+
+        await pg.query(`UPDATE public.booking_item SET collection_date_id = $1 WHERE booking_id = $2`, [
+          f.dateB,
+          BK,
+        ])
+
+        expect(await stopsOf(BK)).toEqual(['ancillary=Cancelled', 'general=Cancelled'])
+        // Sibling booking on the same date is untouched — the trigger scopes
+        // to NEW.booking_id, never the whole date.
+        expect(await stopsOf(OTHER_BK)).toEqual(['general=Pending'])
+        // Cancelling every stop must not roll the booking up to a terminal
+        // status — the push EF revives the stops when the new date locks.
+        const b = await pg.query<{ status: string }>(`SELECT status FROM booking WHERE id = $1`, [BK])
+        expect(b.rows[0]!.status).toBe('Confirmed')
+      } finally {
+        await pg.query('ROLLBACK')
+      }
+    }, 20_000)
+
+    it('moving one stream only cancels that stream\'s stop', async (ctx) => {
+      if (!kwnAreaId) return ctx.skip()
+      await pg.query('BEGIN')
+      try {
+        await pg.query(STOP_MIGRATION_SQL)
+        await pg.query(ROLLUP_MIGRATION_SQL)
+        const f = await seed({ general: 'Pending', ancillary: 'Pending' })
+        expect(f).toBeTruthy()
+        if (!f) return
+
+        await pg.query(
+          `UPDATE public.booking_item SET collection_date_id = $1
+            WHERE booking_id = $2 AND service_id = $3`,
+          [f.dateB, BK, f.ancillary],
+        )
+
+        // General items stay on date A, so the general stop is still wanted.
+        expect(await stopsOf(BK)).toEqual(['ancillary=Cancelled', 'general=Pending'])
+      } finally {
+        await pg.query('ROLLBACK')
+      }
+    }, 20_000)
+
+    it('a Scheduled mixed booking moved post-closeout stays Scheduled, not Completed', async (ctx) => {
+      if (!kwnAreaId) return ctx.skip()
+      await pg.query('BEGIN')
+      try {
+        await pg.query(STOP_MIGRATION_SQL)
+        await pg.query(ROLLUP_MIGRATION_SQL)
+        // Collection day: crew closed general, ancillary still open, and a
+        // contractor #378 correction moves the date. Without the
+        // outstanding-stream guard the rollup flips the booking to Completed
+        // and the moved ancillary collection is never dispatched again.
+        const f = await seed({ general: 'Completed', ancillary: 'Pending' }, 'Scheduled')
+        expect(f).toBeTruthy()
+        if (!f) return
+
+        await pg.query(`UPDATE public.booking_item SET collection_date_id = $1 WHERE booking_id = $2`, [
+          f.dateB,
+          BK,
+        ])
+
+        expect(await stopsOf(BK)).toEqual(['ancillary=Cancelled', 'general=Completed'])
+        const b = await pg.query<{ status: string }>(`SELECT status FROM booking WHERE id = $1`, [BK])
+        expect(b.rows[0]!.status).toBe('Scheduled')
+
+        // Regression guard on the guard: once the revived stop closes out, the
+        // rollup must complete normally. Simulate revival + closeout as the
+        // privileged setup role (Cancelled → Pending is the push-EF carve-out).
+        await pg.query(
+          `UPDATE public.collection_stop SET status = 'Pending', collection_date_id = $1
+            WHERE booking_id = $2 AND stream = 'ancillary'`,
+          [f.dateB, BK],
+        )
+        await pg.query(
+          `UPDATE public.collection_stop SET status = 'Completed', completed_at = now()
+            WHERE booking_id = $1 AND stream = 'ancillary'`,
+          [BK],
+        )
+        const b2 = await pg.query<{ status: string }>(`SELECT status FROM booking WHERE id = $1`, [BK])
+        expect(b2.rows[0]!.status).toBe('Completed')
+      } finally {
+        await pg.query('ROLLBACK')
+      }
+    }, 20_000)
+
+    it('a completed stop survives a post-dispatch date correction (ADR 0009)', async (ctx) => {
+      if (!kwnAreaId) return ctx.skip()
+      await pg.query('BEGIN')
+      try {
+        await pg.query(STOP_MIGRATION_SQL)
+        await pg.query(ROLLUP_MIGRATION_SQL)
+        const f = await seed({ general: 'Completed', ancillary: 'Pending' })
+        expect(f).toBeTruthy()
+        if (!f) return
+
+        await pg.query(`UPDATE public.booking_item SET collection_date_id = $1 WHERE booking_id = $2`, [
+          f.dateB,
+          BK,
+        ])
+
+        // The crew's frozen record stays Completed — a #378 back-date can never
+        // launder a wrong-day miss into an on-time success.
+        expect(await stopsOf(BK)).toEqual(['ancillary=Cancelled', 'general=Completed'])
+      } finally {
+        await pg.query('ROLLBACK')
+      }
+    }, 20_000)
+  })
+  // ---------------------------------------------------------------------------
+  // enforce_booking_id_fields_write — ID booking edit guards (2026-08-28)
+  // Design: docs/superpowers/specs/2026-08-28-id-booking-edit-design.md
+  // Highest-blast-radius regression class: the trigger must NEVER break field
+  // closeouts or staff status writes on ID bookings (short-circuit ordering),
+  // while rejecting non-contractor writes to the six guarded columns.
+  // ---------------------------------------------------------------------------
+
+  describe('enforce_booking_id_fields_write trigger (ID edit guards)', () => {
+    const IDE_BOOKING = 'dddddddd-0001-4000-8000-000000000001'
+
+    // Applied inside each rolled-back tx so the suite passes BEFORE the
+    // migration reaches prod and keeps guarding the exact file content after.
+    const IDE_MIGRATION_SQL = readFileSync(
+      resolve(__dirname, '../../supabase/migrations/20260828100000_id_booking_edit_guards.sql'),
+      'utf-8',
+    )
+
+    /** Seed one ID booking (fixed uuid) with the given status/photos, inside
+     *  the CURRENT transaction (privileged role; rolled back by the caller). */
+    async function seedIdBooking(status: string, photos: string[] = []): Promise<boolean> {
+      const r = await pg.query(
+        `INSERT INTO public.booking (id, ref, type, status, collection_area_id, client_id, contractor_id, fy_id, geo_address, latitude, longitude, id_waste_types, id_volume, photos)
+         SELECT $1, 'RLS-IDE-1', 'Illegal Dumping', $2::booking_status, a.id, $3, $4, f.id,
+                'Front gate (works depot)', -31.9, 115.8, ARRAY['Whitegoods'], '1 allocation (3m³)', $5::text[]
+         FROM (SELECT id FROM public.collection_area WHERE client_id = $3 LIMIT 1) a,
+              (SELECT id FROM public.financial_year WHERE is_current LIMIT 1) f
+         RETURNING id`,
+        [IDE_BOOKING, status, CLIENT_ID, CONTRACTOR_ID, photos],
+      )
+      return (r.rowCount ?? 0) === 1
+    }
+
+    /** Run `sql` impersonating `userId` after seeding; returns rowCount.
+     *  Throws the Postgres error on trigger rejection. Always rolls back. */
+    async function writeSeeded(
+      userId: string | null,
+      status: string,
+      sql: string,
+      photos: string[] = [],
+    ): Promise<number> {
+      await pg.query('BEGIN')
+      try {
+        await pg.query(IDE_MIGRATION_SQL)
+        // Fixture user_roles can be parked is_active=false between runs —
+        // activate in-tx (rolled back) so current_user_role() resolves.
+        await pg.query(`UPDATE public.user_roles SET is_active = true WHERE user_id::text LIKE 'aaaaaaaa-%'`)
+        const seeded = await seedIdBooking(status, photos)
+        if (!seeded) throw new Error('seed failed (no area/fy fixture)')
+        if (userId) {
+          await pg.query(`SET LOCAL ROLE authenticated`)
+          await pg.query(`SELECT set_config('request.jwt.claims', $1, true)`, [
+            JSON.stringify({ sub: userId, role: 'authenticated' }),
+          ])
+        }
+        const r = await pg.query(sql)
+        return r.rowCount ?? 0
+      } finally {
+        await pg.query('ROLLBACK')
+      }
+    }
+
+    const SET_ADDR = `UPDATE public.booking SET geo_address = '1 Linwood Court, Osborne Park' WHERE ref = 'RLS-IDE-1'`
+
+    it('contractor-admin can correct the address on a Scheduled ID booking', async () => {
+      expect(await writeSeeded(USERS['contractor-admin'], 'Scheduled', SET_ADDR)).toBe(1)
+    })
+
+    it('contractor-admin can correct a Completed ID booking (UC1: unbounded)', async () => {
+      expect(await writeSeeded(USERS['contractor-admin'], 'Completed', SET_ADDR)).toBe(1)
+    })
+
+    it('client-admin is rejected by the trigger (not a silent RLS no-op)', async () => {
+      await expect(writeSeeded(USERS['client-admin'], 'Confirmed', SET_ADDR)).rejects.toThrow(
+        /D&M staff/,
+      )
+    })
+
+    it('field closeout of an ID booking still works (2am-Friday regression, E3)', async () => {
+      expect(
+        await writeSeeded(
+          USERS.field,
+          'Scheduled',
+          `UPDATE public.booking SET status = 'Completed' WHERE ref = 'RLS-IDE-1'`,
+        ),
+      ).toBe(1)
+    })
+
+    it('client-admin notes write on an ID booking still works (short-circuit lets non-ID columns through)', async () => {
+      expect(
+        await writeSeeded(
+          USERS['client-admin'],
+          'Confirmed',
+          `UPDATE public.booking SET notes = 'staff note' WHERE ref = 'RLS-IDE-1'`,
+        ),
+      ).toBe(1)
+    })
+
+    it('field writing an ID column alongside closeout is rejected', async () => {
+      await expect(
+        writeSeeded(
+          USERS.field,
+          'Scheduled',
+          `UPDATE public.booking SET status = 'Completed', id_volume = '3+ allocations (9m³+)' WHERE ref = 'RLS-IDE-1'`,
+        ),
+      ).rejects.toThrow(/D&M staff/)
+    })
+
+    it('contractor cannot remove an evidence photo (append-only @>)', async () => {
+      await expect(
+        writeSeeded(
+          USERS['contractor-admin'],
+          'Scheduled',
+          `UPDATE public.booking SET photos = ARRAY['https://x/storage/a.jpg'] WHERE ref = 'RLS-IDE-1'`,
+          ['https://x/storage/a.jpg', 'https://x/storage/b.jpg'],
+        ),
+      ).rejects.toThrow(/photos cannot be removed/)
+    })
+
+    it('contractor CAN append an evidence photo', async () => {
+      expect(
+        await writeSeeded(
+          USERS['contractor-admin'],
+          'Scheduled',
+          `UPDATE public.booking SET photos = ARRAY['https://x/storage/a.jpg','https://x/storage/b.jpg'] WHERE ref = 'RLS-IDE-1'`,
+          ['https://x/storage/a.jpg'],
+        ),
+      ).toBe(1)
+    })
+
+    it('contractor edit on a Cancelled ID booking is rejected (status predicate, E5)', async () => {
+      await expect(writeSeeded(USERS['contractor-admin'], 'Cancelled', SET_ADDR)).rejects.toThrow(
+        /cannot be changed on a/,
+      )
+    })
+
+    it('claims-NULL direct-SQL session passes (manual-repair escape hatch, E2)', async () => {
+      // userId null = privileged pg role, request.jwt.claims unset — the exact
+      // context of `supabase db query --linked` repair sessions.
+      expect(await writeSeeded(null, 'Scheduled', SET_ADDR)).toBe(1)
+    })
+
+    it('updated_at CAS round-trips as an opaque text token (E6 — real Postgres, no Date truncation)', async () => {
+      await pg.query('BEGIN')
+      try {
+        await pg.query(IDE_MIGRATION_SQL)
+        expect(await seedIdBooking('Scheduled')).toBe(true)
+        const tok = await pg.query<{ t: string }>(
+          `SELECT updated_at::text AS t FROM public.booking WHERE ref = 'RLS-IDE-1'`,
+        )
+        const r = await pg.query(
+          `UPDATE public.booking SET geo_address = 'CAS ok' WHERE ref = 'RLS-IDE-1' AND updated_at = $1::timestamptz`,
+          [tok.rows[0]!.t],
+        )
+        expect(r.rowCount).toBe(1)
+        // And a stale token matches zero rows (booking_updated_at bumped it).
+        const r2 = await pg.query(
+          `UPDATE public.booking SET geo_address = 'CAS stale' WHERE ref = 'RLS-IDE-1' AND updated_at = $1::timestamptz`,
+          [tok.rows[0]!.t],
+        )
+        expect(r2.rowCount).toBe(0)
+      } finally {
+        await pg.query('ROLLBACK')
+      }
+    })
+  })
+
 })

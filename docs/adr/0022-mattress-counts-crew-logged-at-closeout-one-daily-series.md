@@ -1,7 +1,7 @@
-# 0011 — Mattress counts: crews log at bulk closeout; one daily series feeds every report
+# 0022 — Mattress counts: crews log at bulk closeout; one daily series feeds every report
 
 - **Date:** 01/08/2026
-- **Status:** Accepted
+- **Status:** Accepted — the "count required on every closeout" clause was superseded two days later by [ADR 0011](0011-missing-mattress-count-never-blocks-a-closeout.md)
 
 ## Decision
 

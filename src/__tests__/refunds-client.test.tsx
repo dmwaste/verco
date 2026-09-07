@@ -27,6 +27,7 @@ interface RefundRow {
   stripe_refund_id: string | null
   created_at: string
   reviewed_at: string | null
+  review_notes: string | null
   booking: { id: string; ref: string } | null
   contact: { full_name: string } | null
   reviewer: { display_name: string | null } | null
@@ -41,6 +42,7 @@ function pendingAutoRaisedRow(overrides: Partial<RefundRow> = {}): RefundRow {
     stripe_refund_id: null,
     created_at: '2026-07-11T00:00:00.000Z',
     reviewed_at: null,
+    review_notes: null,
     booking: { id: 'b-1', ref: 'KWN-2026-000123' },
     contact: { full_name: 'Jo Bloggs' },
     reviewer: null,
@@ -153,10 +155,60 @@ describe('RefundsClient — reject confirm gate', () => {
     renderRefunds()
 
     await openRejectMenu()
+    fireEvent.change(await screen.findByLabelText(/Why are you rejecting/), {
+      target: { value: 'Resident confirmed by phone they no longer want the refund' },
+    })
     fireEvent.click(await screen.findByRole('button', { name: 'Reject Refund' }))
 
     await waitFor(() => expect(updateSpy).toHaveBeenCalledTimes(1))
     expect(updateSpy).toHaveBeenCalledWith(expect.objectContaining({ status: 'Rejected' }))
+  })
+
+  // #405 — rejecting OWED money needs a written reason for the audit trail.
+  it('auto-raised: Reject Refund is disabled until a justification is typed, then persists it as review_notes', async () => {
+    const { supabase, updateSpy } = makeSupabase({
+      refunds: [pendingAutoRaisedRow()],
+      rejectRows: [{ id: 'refund-1' }],
+    })
+    supabaseMock = supabase
+    renderRefunds()
+
+    await openRejectMenu()
+    const reject = await screen.findByRole('button', { name: 'Reject Refund' })
+    expect(reject).toBeDisabled()
+
+    fireEvent.change(screen.getByLabelText(/Why are you rejecting/), { target: { value: '   ' } })
+    expect(reject).toBeDisabled() // whitespace is not a justification
+
+    fireEvent.change(screen.getByLabelText(/Why are you rejecting/), {
+      target: { value: 'Duplicate of refund already paid manually' },
+    })
+    expect(reject).toBeEnabled()
+    fireEvent.click(reject)
+
+    await waitFor(() => expect(updateSpy).toHaveBeenCalledTimes(1))
+    expect(updateSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ status: 'Rejected', review_notes: 'Duplicate of refund already paid manually' }),
+    )
+  })
+
+  it('discretionary (unknown reason): justification is optional — Reject Refund enabled immediately', async () => {
+    const { supabase, updateSpy } = makeSupabase({
+      refunds: [pendingAutoRaisedRow({ reason: 'Goodwill gesture' })],
+      rejectRows: [{ id: 'refund-1' }],
+    })
+    supabaseMock = supabase
+    renderRefunds()
+
+    await screen.findByText('Goodwill gesture')
+    fireEvent.click(screen.getByLabelText('Open actions menu'))
+    fireEvent.click(await screen.findByText('Reject'))
+    const reject = await screen.findByRole('button', { name: 'Reject Refund' })
+    expect(reject).toBeEnabled()
+    fireEvent.click(reject)
+
+    await waitFor(() => expect(updateSpy).toHaveBeenCalledTimes(1))
+    expect(updateSpy).toHaveBeenCalledWith(expect.objectContaining({ status: 'Rejected', review_notes: null }))
   })
 
   it('Keep Request closes the dialog without rejecting', async () => {
@@ -186,6 +238,9 @@ describe('RefundsClient — reject confirm gate', () => {
     renderRefunds()
 
     await openRejectMenu()
+    fireEvent.change(await screen.findByLabelText(/Why are you rejecting/), {
+      target: { value: 'Already refunded manually' },
+    })
     fireEvent.click(await screen.findByRole('button', { name: 'Reject Refund' }))
 
     expect(await screen.findByText(/already actioned/)).toBeInTheDocument()

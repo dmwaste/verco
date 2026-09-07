@@ -10,7 +10,7 @@ export type Database = {
   // Allows to automatically instantiate createClient with right options
   // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
-    PostgrestVersion: "14.4"
+    PostgrestVersion: "14.5"
   }
   public: {
     Tables: {
@@ -582,6 +582,7 @@ export type Database = {
           created_at: string
           currency: string
           id: string
+          receipt_url: string | null
           status: string
           stripe_charge_id: string | null
           stripe_payment_intent: string | null
@@ -596,6 +597,7 @@ export type Database = {
           created_at?: string
           currency?: string
           id?: string
+          receipt_url?: string | null
           status?: string
           stripe_charge_id?: string | null
           stripe_payment_intent?: string | null
@@ -610,6 +612,7 @@ export type Database = {
           created_at?: string
           currency?: string
           id?: string
+          receipt_url?: string | null
           status?: string
           stripe_charge_id?: string | null
           stripe_payment_intent?: string | null
@@ -642,29 +645,38 @@ export type Database = {
       }
       booking_survey: {
         Row: {
-          booking_id: string
+          booking_id: string | null
           client_id: string
+          collection_area_id: string
           created_at: string
+          external_ref: string | null
           id: string
           responses: Json | null
+          source: string
           submitted_at: string | null
           token: string
         }
         Insert: {
-          booking_id: string
+          booking_id?: string | null
           client_id: string
+          collection_area_id: string
           created_at?: string
+          external_ref?: string | null
           id?: string
           responses?: Json | null
+          source?: string
           submitted_at?: string | null
           token: string
         }
         Update: {
-          booking_id?: string
+          booking_id?: string | null
           client_id?: string
+          collection_area_id?: string
           created_at?: string
+          external_ref?: string | null
           id?: string
           responses?: Json | null
+          source?: string
           submitted_at?: string | null
           token?: string
         }
@@ -681,6 +693,13 @@ export type Database = {
             columns: ["client_id"]
             isOneToOne: false
             referencedRelation: "client"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "booking_survey_collection_area_id_fkey"
+            columns: ["collection_area_id"]
+            isOneToOne: false
+            referencedRelation: "collection_area"
             referencedColumns: ["id"]
           },
         ]
@@ -996,6 +1015,7 @@ export type Database = {
           is_active: boolean
           landing_headline: string | null
           landing_subheading: string | null
+          legal_name: string | null
           logo_dark_url: string | null
           logo_light_url: string | null
           mattress_closeout_stream:
@@ -1036,6 +1056,7 @@ export type Database = {
           is_active?: boolean
           landing_headline?: string | null
           landing_subheading?: string | null
+          legal_name?: string | null
           logo_dark_url?: string | null
           logo_light_url?: string | null
           mattress_closeout_stream?:
@@ -1076,6 +1097,7 @@ export type Database = {
           is_active?: boolean
           landing_headline?: string | null
           landing_subheading?: string | null
+          legal_name?: string | null
           logo_dark_url?: string | null
           logo_light_url?: string | null
           mattress_closeout_stream?:
@@ -2772,7 +2794,24 @@ export type Database = {
         Returns: Database["public"]["Enums"]["app_role"]
       }
       current_user_sub_client_id: { Args: never; Returns: string }
+      eligible_property_is_bookable: {
+        Args: { p_property_id: string }
+        Returns: boolean
+      }
       generate_booking_ref: { Args: { p_area_code: string }; Returns: string }
+      get_client_monthly_report: {
+        Args: { p_client_id: string; p_month: string }
+        Returns: {
+          group_key: string
+          group_label: string
+          is_extra: boolean
+          is_mattress: boolean
+          service_name: string
+          source: string
+          units: number
+          waste_stream: Database["public"]["Enums"]["waste_stream"]
+        }[]
+      }
       get_collections_trend: {
         Args: {
           p_area_id?: string

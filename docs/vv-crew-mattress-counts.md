@@ -8,8 +8,8 @@
 
 WMRC needs to know how many mattresses we collect. Mattresses ride the bulk pile
 with no booking line of their own, so from now on **the bulk crew counts them at
-every stop closeout**. The app makes this required — you can't close a bulk stop
-without answering.
+every stop closeout**. The app asks every time — the counter sits on the stop
+screen and starts at 0, so answering is one tap.
 
 ## What you'll see
 
@@ -24,8 +24,8 @@ without answering.
 2. **Set the count** — tap **+** for every mattress or bed base you put on the
    truck at that stop. Nothing there? Leave it at **0** — zero is a real answer
    and it's one tap.
-3. **Close out as normal** — Complete, NCN or Nothing Presented. The count is
-   required on **all three** paths (for Nothing Presented it's almost always 0).
+3. **Close out as normal** — Complete, NCN or Nothing Presented. The counter is
+   on **all three** paths (for Nothing Presented it's almost always 0).
 
 ## Rules that matter
 
@@ -34,8 +34,8 @@ without answering.
 - **0 is the answer at most stops.** Don't skip it, don't guess it up.
 - **Check the number before you tap.** Once the stop is closed the count is
   locked — you can't edit it afterwards.
-- **Got it wrong?** Tell your supervisor the same day. The office can correct it,
-  but only if they know.
+- **Got it wrong?** Tell your supervisor the same day. The count itself can't be
+  changed once the stop is closed, so the office needs to know to note it.
 - **Switching between Complete and NCN forms keeps your count** — you won't lose
   it moving around the screens.
 

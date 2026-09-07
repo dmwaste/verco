@@ -48,7 +48,7 @@ export interface AccessibleAdminClient {
  * Fails closed (empty array) on error or no active role — callers must treat
  * an empty set as "no accessible clients", never as "unfiltered".
  */
-async function getAccessibleClientIds(
+export async function getAccessibleClientIds(
   supabase: SupabaseClient<Database>,
 ): Promise<string[]> {
   const { data, error } = await supabase.rpc('accessible_client_ids')

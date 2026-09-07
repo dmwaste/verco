@@ -1,4 +1,5 @@
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts'
+import { cronHandler } from '../_shared/cron-handler.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.100.0'
 import type { Database } from '../_shared/database.types.ts'
 import { awstDateFromUtc } from '../_shared/schedule-transition.ts'
@@ -25,7 +26,7 @@ import { deleteOrders, getRoutingApiKey } from '../_shared/optimoroute.ts'
  * external_deleted_at keeps handled stops out of the next run.
  */
 
-serve(async (_req) => {
+serve(cronHandler('sync-optimoroute-cancellations', async (_req) => {
   const supabase = createClient<Database>(
     Deno.env.get('SUPABASE_URL')!,
     Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
@@ -100,4 +101,4 @@ serve(async (_req) => {
       { status: 500, headers: { 'Content-Type': 'application/json' } },
     )
   }
-})
+}))

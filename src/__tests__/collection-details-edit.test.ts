@@ -1,8 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   canEditCollectionDetails,
-  canRescheduleToTargetDate,
-} from '@/lib/booking/collection-details-edit'
+  canRescheduleToTargetDate, capacityBlocksMove, unitsByCategory } from '@/lib/booking/collection-details-edit'
 import type { Database } from '@/lib/supabase/types'
 
 type BookingStatus = Database['public']['Enums']['booking_status']
@@ -162,5 +161,157 @@ describe('canRescheduleToTargetDate (D1 — #378)', () => {
     expect(
       canRescheduleToTargetDate('client-admin', { is_open: false, date: PAST }, TODAY),
     ).toBe(false)
+  })
+})
+
+describe('capacityBlocksMove (#426 — client-tier date moves respect capacity)', () => {
+  const units = { bulk: 2, anc: 1, id: 0 }
+
+  it('contractor roles are never capacity-gated (the #378 override stands)', () => {
+    expect(capacityBlocksMove('contractor-admin', units, { bulk: 0, anc: 0, id: 0 })).toBe(false)
+    expect(capacityBlocksMove('contractor-staff', units, { bulk: -3, anc: 0, id: 0 })).toBe(false)
+  })
+
+  it('client-tier: allowed when every used bucket has room', () => {
+    expect(capacityBlocksMove('client-admin', units, { bulk: 2, anc: 1, id: 0 })).toBe(false)
+    expect(capacityBlocksMove('client-staff', units, { bulk: 10, anc: 5, id: 0 })).toBe(false)
+  })
+
+  it('client-tier: blocked when any used bucket lacks room (a full date or over-booked date)', () => {
+    expect(capacityBlocksMove('client-admin', units, { bulk: 1, anc: 1, id: 0 })).toBe(true)
+    expect(capacityBlocksMove('client-admin', units, { bulk: 2, anc: 0, id: 0 })).toBe(true)
+    expect(capacityBlocksMove('client-admin', units, { bulk: -1, anc: 9, id: 9 })).toBe(true)
+  })
+
+  it('buckets the booking does not use are ignored (a full ID bucket does not block a bulk-only booking)', () => {
+    expect(capacityBlocksMove('client-admin', { bulk: 1, anc: 0, id: 0 }, { bulk: 1, anc: -5, id: -5 })).toBe(false)
+  })
+
+  it('null role is treated as client-tier (fails closed)', () => {
+    expect(capacityBlocksMove(null, units, { bulk: 0, anc: 0, id: 0 })).toBe(true)
+  })
+})
+
+describe('unitsByCategory', () => {
+  it('sums no_services per bucket and ignores unknown codes', () => {
+    expect(
+      unitsByCategory([
+        { no_services: 2, category_code: 'bulk' },
+        { no_services: 1, category_code: 'bulk' },
+        { no_services: 1, category_code: 'anc' },
+        { no_services: 3, category_code: 'other' },
+        { no_services: 1, category_code: null },
+      ]),
+    ).toEqual({ bulk: 3, anc: 1, id: 0 })
+  })
+})
+
+// ── canEditIdDetails (ID booking edit, design 2026-08-28) ────────────────
+import { canEditIdDetails } from '@/lib/booking/collection-details-edit'
+
+const ALL_ROLES: AppRole[] = [
+  'contractor-admin',
+  'contractor-staff',
+  'field',
+  'client-admin',
+  'client-staff',
+  'ranger',
+  'resident',
+  'strata',
+]
+const EDITABLE_STATUSES: BookingStatus[] = [
+  'Pending Payment',
+  'Submitted',
+  'Confirmed',
+  'Scheduled',
+  'Completed',
+]
+const NON_EDITABLE_STATUSES: BookingStatus[] = [
+  'Cancelled',
+  'Non-conformance',
+  'Nothing Presented',
+  'Rebooked',
+  'Missed Collection',
+]
+
+describe('canEditIdDetails (contractor-only ID field editing)', () => {
+  it('allows ONLY contractor roles, at every editable status — including Completed (UC1: unbounded)', () => {
+    for (const status of EDITABLE_STATUSES) {
+      for (const role of ALL_ROLES) {
+        expect(canEditIdDetails(status, role)).toBe(
+          role === 'contractor-admin' || role === 'contractor-staff',
+        )
+      }
+    }
+  })
+
+  it('rejects every role on terminal/exception statuses (NCN/NP own their lifecycle)', () => {
+    for (const status of NON_EDITABLE_STATUSES) {
+      for (const role of ALL_ROLES) {
+        expect(canEditIdDetails(status, role)).toBe(false)
+      }
+    }
+  })
+
+  it('null role fails closed everywhere', () => {
+    for (const status of [...EDITABLE_STATUSES, ...NON_EDITABLE_STATUSES]) {
+      expect(canEditIdDetails(status, null)).toBe(false)
+    }
+  })
+
+  it('client-tier passes the generic gate pre-dispatch but never the ID gate (the two differ by design)', () => {
+    expect(canEditCollectionDetails('Confirmed', 'client-admin')).toBe(true)
+    expect(canEditIdDetails('Confirmed', 'client-admin')).toBe(false)
+  })
+})
+
+// ── canEditMudAllocations (MUD collected-count correction, 2026-09-01) ────
+import { canEditMudAllocations } from '@/lib/booking/collection-details-edit'
+
+const MUD_EDITABLE_STATUSES: BookingStatus[] = [
+  'Completed',
+  'Non-conformance',
+  'Nothing Presented',
+]
+const MUD_NON_EDITABLE_STATUSES: BookingStatus[] = [
+  'Pending Payment',
+  'Submitted',
+  'Confirmed',
+  'Scheduled',
+  'Cancelled',
+  'Rebooked',
+  'Missed Collection',
+]
+
+describe('canEditMudAllocations (contractor-only post-collection count correction)', () => {
+  it('allows ONLY contractor roles, on post-collection statuses (incl. NCN/NP — billable per ADR 0017)', () => {
+    for (const status of MUD_EDITABLE_STATUSES) {
+      for (const role of ALL_ROLES) {
+        expect(canEditMudAllocations(status, role)).toBe(
+          role === 'contractor-admin' || role === 'contractor-staff',
+        )
+      }
+    }
+  })
+
+  it('rejects every role on every other status — Scheduled stays crew-owned (closeout form triggers on NULL)', () => {
+    for (const status of MUD_NON_EDITABLE_STATUSES) {
+      for (const role of ALL_ROLES) {
+        expect(canEditMudAllocations(status, role)).toBe(false)
+      }
+    }
+  })
+
+  it('null role fails closed everywhere', () => {
+    for (const status of [...MUD_EDITABLE_STATUSES, ...MUD_NON_EDITABLE_STATUSES]) {
+      expect(canEditMudAllocations(status, null)).toBe(false)
+    }
+  })
+
+  it('differs from canEditIdDetails on both edges (Scheduled out, NCN/NP in)', () => {
+    expect(canEditIdDetails('Scheduled', 'contractor-admin')).toBe(true)
+    expect(canEditMudAllocations('Scheduled', 'contractor-admin')).toBe(false)
+    expect(canEditIdDetails('Non-conformance', 'contractor-admin')).toBe(false)
+    expect(canEditMudAllocations('Non-conformance', 'contractor-admin')).toBe(true)
   })
 })

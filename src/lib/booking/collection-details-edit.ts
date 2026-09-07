@@ -55,6 +55,67 @@ export function canEditCollectionDetails(
   return false
 }
 
+/**
+ * Whether `role` may edit an Illegal Dumping booking's ID-specific fields
+ * (`geo_address`/pin, `id_waste_types`, `id_volume`, evidence `photos`) from
+ * the admin booking-detail panel.
+ *
+ * Contractor-tier ONLY, at every status `canEditCollectionDetails` allows —
+ * client-tier admins keep Location/Date/Notes editing pre-dispatch but the ID
+ * fields stay read-only for them: a council views the illegal-dumping record,
+ * it never restates what was dumped or where (design decision 28/08/2026,
+ * docs/superpowers/specs/2026-08-28-id-booking-edit-design.md). Completed
+ * bookings remain editable without a time bound (UC1 — reaffirmed by Dan);
+ * terminal/exception statuses (Cancelled, NCN, NP, Rebooked) are excluded —
+ * those records own their lifecycle via the rebook flow.
+ *
+ * Shared by the edit UI, the updateIdDetails server action, and mirrored by
+ * the enforce_booking_id_fields_write DB trigger, so the layers can't drift.
+ */
+export function canEditIdDetails(
+  status: BookingStatus,
+  role: AppRole | null,
+): boolean {
+  return isContractorStaff(role) && canEditCollectionDetails(status, role)
+}
+
+// Terminal collection outcomes on which contractor staff may correct the
+// per-service collected counts a crew entered at MUD closeout (Allocation
+// Entry → booking_item.actual_services). Scheduled is deliberately EXCLUDED:
+// pre-filling actual_services would suppress the crew's mandatory Allocation
+// Entry closeout form, which triggers on actual_services == null.
+// Non-conformance / Nothing Presented ARE included — crews enter counts before
+// raising either, and both are billable statuses in the monthly client report
+// (ADR 0017), so a mis-allocation there needs correcting too. Rebooked and
+// Cancelled excluded — those records own their lifecycle elsewhere.
+const MUD_ALLOCATION_EDITABLE: BookingStatus[] = [
+  'Completed',
+  'Non-conformance',
+  'Nothing Presented',
+]
+
+/**
+ * Whether `role` may edit a MUD booking's collected counts
+ * (`booking_item.actual_services`) from the admin booking-detail panel.
+ *
+ * Contractor-tier ONLY, post-collection ONLY. Deliberately NOT composed with
+ * canEditCollectionDetails — its contractor post-dispatch set is
+ * Scheduled/Completed, which is wrong on both edges here (see
+ * MUD_ALLOCATION_EDITABLE). Collected counts drive council invoicing via
+ * get_client_monthly_report's coalesce(actual_services, no_services), so this
+ * follows the #555 trust model: unbounded post-completion edits, contractor
+ * only, with the booking_item audit trail as the control.
+ *
+ * Shared by the edit UI and the updateMudAllocations server action, so the
+ * two guards can never drift.
+ */
+export function canEditMudAllocations(
+  status: BookingStatus,
+  role: AppRole | null,
+): boolean {
+  return isContractorStaff(role) && MUD_ALLOCATION_EDITABLE.includes(status)
+}
+
 /** Minimal target-date shape needed by the reschedule date-dimension gate. */
 export interface RescheduleTargetDate {
   /** `collection_date.is_open`. A closed date is `false`. */
@@ -79,8 +140,8 @@ export interface RescheduleTargetDate {
  * String comparison is chronological for zero-padded ISO dates.
  *
  * Capacity note: this is a gate on WHO may move the booking, not a capacity
- * check. A staff date-override is a correction — it keeps the booking's already
- * consumed allocation and is not re-gated by the target's capacity. The
+ * check — see capacityBlocksMove() for the capacity dimension (#426, 22/08/2026:
+ * client-tier gated, contractor keeps the override). The
  * recalculate_collection_date_units() trigger re-sums both the old and new dates
  * on the move, so no slot is double-counted or wrongly freed.
  */
@@ -92,4 +153,62 @@ export function canRescheduleToTargetDate(
   const isClosedOrPast = target.is_open === false || target.date < today
   if (!isClosedOrPast) return true
   return isContractorStaff(role)
+}
+
+/** Units a booking holds per capacity bucket (category.code). */
+export interface CategoryUnits {
+  bulk: number
+  anc: number
+  id: number
+}
+
+/** Sum a booking's items into per-bucket units; unknown codes are ignored. */
+export function unitsByCategory(
+  items: ReadonlyArray<{ no_services: number; category_code: string | null | undefined }>,
+): CategoryUnits {
+  const out: CategoryUnits = { bulk: 0, anc: 0, id: 0 }
+  for (const it of items) {
+    if (it.category_code === 'bulk' || it.category_code === 'anc' || it.category_code === 'id') {
+      out[it.category_code] += it.no_services
+    }
+  }
+  return out
+}
+
+/**
+ * Capacity dimension of a date move (#426, 22/08/2026). Contractor-tier keeps
+ * the documented override — a D&M date correction is never capacity-gated.
+ * Client-tier may only move a booking onto a date with room for EVERY bucket
+ * the booking uses (units ≤ remaining in that bucket). `remaining` is the
+ * target's `limit − booked` per bucket (pool-aware: callers resolve the
+ * collection_date_pool row for pooled areas). Moving onto the booking's
+ * current date is a no-op upstream and never reaches here.
+ */
+export function capacityBlocksMove(
+  role: AppRole | null,
+  units: CategoryUnits,
+  remaining: CategoryUnits,
+): boolean {
+  if (isContractorStaff(role)) return false
+  return (
+    (units.bulk > 0 && units.bulk > remaining.bulk) ||
+    (units.anc > 0 && units.anc > remaining.anc) ||
+    (units.id > 0 && units.id > remaining.id)
+  )
+}
+
+/** `limit − booked` per bucket from any row carrying the capacity counters (date or pool). */
+export function remainingByCategory(cap: {
+  bulk_capacity_limit: number
+  bulk_units_booked: number
+  anc_capacity_limit: number
+  anc_units_booked: number
+  id_capacity_limit: number
+  id_units_booked: number
+}): CategoryUnits {
+  return {
+    bulk: cap.bulk_capacity_limit - cap.bulk_units_booked,
+    anc: cap.anc_capacity_limit - cap.anc_units_booked,
+    id: cap.id_capacity_limit - cap.id_units_booked,
+  }
 }

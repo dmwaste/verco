@@ -43,6 +43,7 @@ Manual trigger (redeploy without a new commit): Actions → Deploy → Run workf
 |---|---|---|
 | `NEXT_PUBLIC_SUPABASE_URL` | GitHub Actions secret | Docker build-arg (baked into client bundle) |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | GitHub Actions secret | Docker build-arg (baked into client bundle) |
+| `NEXT_PUBLIC_SENTRY_DSN`, `SENTRY_ORG`, `SENTRY_PROJECT`, `SENTRY_AUTH_TOKEN` | GitHub Actions secrets | Docker build-args — DSN baked into the client bundle; org/project/token used only for source-map upload at build |
 | `SUPABASE_ACCESS_TOKEN` | GitHub Actions secret | `supabase functions deploy` + VER-156 guard API call |
 | `COOLIFY_WEBHOOK_URL` | GitHub Actions secret | `coolify` job |
 | `COOLIFY_API_TOKEN` | GitHub Actions secret | `coolify` job (bearer auth on webhook) |
@@ -51,8 +52,10 @@ Manual trigger (redeploy without a new commit): Actions → Deploy → Run workf
 | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` | `supabase secrets set` | `create-checkout`, `stripe-webhook` EFs |
 | `SENDGRID_API_KEY`, `SENDGRID_FROM_EMAIL` | `supabase secrets set` | `send-notification` EF |
 | `GOOGLE_PLACES_API_KEY` | `supabase secrets set` | `google-places-proxy` EF |
+| `CRON_SECRET` | `supabase secrets set` **and** Supabase Vault as `cron_ef_secret` (same value, never in git) | Every cron-invoked EF (`_shared/cron-handler.ts`, #517). pg_cron reads the Vault copy at run time and sends it as `X-Cron-Secret`; the EF compares it to its env copy. Rotate both together or every cron 401s — a mismatch raises a Sentry warning on the first run. |
+| `SENTRY_DSN` | `supabase secrets set` | All EFs (`withSentry`) — inert when unset |
 
-Coolify runtime env is intentionally thin: `NODE_ENV=production`, `PORT=3000`, `HOSTNAME=0.0.0.0`. Nothing else.
+Coolify runtime env is intentionally thin: `NODE_ENV=production`, `PORT=3000`, `HOSTNAME=0.0.0.0`, plus `ADMIN_SUBDOMAIN_ENFORCED=true` (server-runtime flag that 308s `{tenant}/admin/*` and `/field/*` to `admin.verco.au` / `field.verco.au`). Nothing else — `NEXT_PUBLIC_*` values are build-time only and a runtime edit is a no-op.
 
 ## Rollback — Next.js (fast path)
 

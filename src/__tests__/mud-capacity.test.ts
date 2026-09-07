@@ -56,11 +56,18 @@ describe('checkBucketCapacity', () => {
 })
 
 describe('isMudCollectionDate', () => {
-  it('for_mud=true → true', () => {
-    expect(isMudCollectionDate({ for_mud: true })).toBe(true)
+  const pooled = { capacity_pool_id: 'pool-1' }
+  const unpooled = { capacity_pool_id: null }
+
+  it('unpooled area: for_mud=true → true', () => {
+    expect(isMudCollectionDate({ for_mud: true }, unpooled)).toBe(true)
   })
-  it('for_mud=false → false', () => {
-    expect(isMudCollectionDate({ for_mud: false })).toBe(false)
+  it('unpooled area: for_mud=false → false (curated MUD days)', () => {
+    expect(isMudCollectionDate({ for_mud: false }, unpooled)).toBe(false)
+  })
+  it('pooled area: any date qualifies regardless of for_mud (#558 option 2)', () => {
+    expect(isMudCollectionDate({ for_mud: false }, pooled)).toBe(true)
+    expect(isMudCollectionDate({ for_mud: true }, pooled)).toBe(true)
   })
 })
 

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  isMissingRequiredCount,
   MATTRESS_COUNT_MAX,
   stopLogsMattresses,
   validateMattressCount,
@@ -26,9 +27,9 @@ describe('validateMattressCount', () => {
     expect(validateMattressCount(true, 4)).toEqual({ ok: true, data: 4 })
   })
 
-  it('rejects a missing count when required — the gate is the point', () => {
-    expect(validateMattressCount(true, null).ok).toBe(false)
-    expect(validateMattressCount(true, undefined).ok).toBe(false)
+  it('accepts a missing count as NULL ("uncounted") — a pre-counter client must still be able to close the stop (ADR 0011, 03/08 outage)', () => {
+    expect(validateMattressCount(true, null)).toEqual({ ok: true, data: null })
+    expect(validateMattressCount(true, undefined)).toEqual({ ok: true, data: null })
   })
 
   it('rejects negatives, floats and NaN', () => {
@@ -48,5 +49,19 @@ describe('validateMattressCount', () => {
   it('when not required, DISCARDS any submitted count — non-logging tenants must stay NULL', () => {
     expect(validateMattressCount(false, 7)).toEqual({ ok: true, data: null })
     expect(validateMattressCount(false, null)).toEqual({ ok: true, data: null })
+  })
+})
+
+describe('isMissingRequiredCount', () => {
+  it('flags a logging stop closing with no count — the stale-client signal the action reports to Sentry', () => {
+    expect(isMissingRequiredCount(true, null)).toBe(true)
+    expect(isMissingRequiredCount(true, undefined)).toBe(true)
+  })
+
+  it('quiet when a count was sent, or when the stop never logs', () => {
+    expect(isMissingRequiredCount(true, 0)).toBe(false)
+    expect(isMissingRequiredCount(true, 3)).toBe(false)
+    expect(isMissingRequiredCount(false, null)).toBe(false)
+    expect(isMissingRequiredCount(false, 5)).toBe(false)
   })
 })

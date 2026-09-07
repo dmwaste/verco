@@ -143,21 +143,14 @@ export default async function BookingDetailPage({
     }
   }
 
-  // Fetch receipt URL from paid booking_payment (separate query — receipt_url column
-  // added in migration 20260401100000, types will be stale until next regen)
-  let receiptUrl: string | null = null
+  // Stripe hosted receipt link from the paid booking_payment row.
   const { data: payments } = await supabase
     .from('booking_payment')
-    .select('receipt_url, status')
+    .select('receipt_url')
     .eq('booking_id', booking.id)
     .eq('status', 'paid')
     .limit(1)
-
-  if (payments && payments.length > 0) {
-    // receipt_url added in migration 20260401100000 — cast through unknown until types regen
-    const payment = payments[0] as unknown as Record<string, unknown>
-    receiptUrl = (typeof payment?.receipt_url === 'string' ? payment.receipt_url : null)
-  }
+  const receiptUrl: string | null = payments?.[0]?.receipt_url ?? null
 
   // Per-client place-out window — different councils have different policies
   // (KWN=48h / 2d, Verge Valet=72h / 3d). Read from the tenant resolved by

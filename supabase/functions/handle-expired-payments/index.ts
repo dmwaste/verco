@@ -1,4 +1,5 @@
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts'
+import { cronHandler } from '../_shared/cron-handler.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.100.0'
 import type { Database } from '../_shared/database.types.ts'
 import Stripe from 'https://esm.sh/stripe@17.7.0?target=deno'
@@ -74,7 +75,7 @@ async function assessBooking(
   return { decision: decideExpiryAction(rows, statuses), sessions }
 }
 
-serve(async (_req) => {
+serve(cronHandler('handle-expired-payments', async (_req) => {
   const supabaseUrl = Deno.env.get('SUPABASE_URL')!
   const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
 
@@ -277,4 +278,4 @@ serve(async (_req) => {
       { status: 500, headers: { 'Content-Type': 'application/json' } }
     )
   }
-})
+}))

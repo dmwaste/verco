@@ -13,6 +13,7 @@ import { stripAddressPrefix } from '@/lib/mud/address-strip'
 import { formatFinancialYearLabel } from '@/lib/booking/financial-year'
 import { finiteCoord } from '@/lib/booking/finite-coord'
 import { isAreaBookable } from '@/lib/booking/area-gate'
+import { isPropertyBookable } from '@/lib/booking/property-gate'
 import {
   addressMatchKey as buildAddressMatchKey,
   buildAddressIlikePattern,
@@ -168,6 +169,16 @@ export function AddressForm({
       // "not eligible". create-booking enforces the same check server-side.
       if (!isAreaBookable(property.collection_area)) {
         setNotYetAvailable(true)
+        return
+      }
+
+      // Admin-retired parcels (is_eligible = false, e.g. a pre-subdivision
+      // parent lot) still resolve here but must not book. The "Address not
+      // eligible" banner already carries the right resident guidance (contact
+      // your council), so reuse it. create-booking, the capacity RPCs and the
+      // booking_resident_insert RLS policy enforce the same gate fail-closed.
+      if (!isPropertyBookable(property)) {
+        setNotFound(true)
         return
       }
 

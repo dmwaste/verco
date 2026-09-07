@@ -1,4 +1,5 @@
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts'
+import { cronHandler } from '../_shared/cron-handler.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.100.0'
 import type { Database } from '../_shared/database.types.ts'
 import { addOneDay, awstDateFromUtc } from '../_shared/schedule-transition.ts'
@@ -41,42 +42,12 @@ interface WindowStop {
   collection_date: { date: string }
 }
 
-serve(async (req) => {
+serve(cronHandler('pull-optimoroute-routes', async (_req) => {
   const supabaseUrl = Deno.env.get('SUPABASE_URL')!
-  const anonKey = Deno.env.get('SUPABASE_ANON_KEY')!
   const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
 
-  // --- Dual auth -------------------------------------------------------
-  const bearer = (req.headers.get('Authorization') ?? '').replace(/^Bearer\s+/i, '')
-  if (!bearer) {
-    return new Response(JSON.stringify({ ok: false, error: 'Missing Authorization bearer.' }), {
-      status: 401,
-      headers: { 'Content-Type': 'application/json' },
-    })
-  }
-  if (bearer !== anonKey) {
-    // Not the cron's routing bearer — must be a valid contractor-staff JWT.
-    const callerClient = createClient<Database>(supabaseUrl, anonKey, {
-      global: { headers: { Authorization: `Bearer ${bearer}` } },
-    })
-    const {
-      data: { user },
-    } = await callerClient.auth.getUser()
-    if (!user) {
-      return new Response(JSON.stringify({ ok: false, error: 'Invalid bearer token.' }), {
-        status: 401,
-        headers: { 'Content-Type': 'application/json' },
-      })
-    }
-    const { data: role, error: roleError } = await callerClient.rpc('current_user_role')
-    if (roleError || !['contractor-admin', 'contractor-staff'].includes(role ?? '')) {
-      return new Response(
-        JSON.stringify({ ok: false, error: 'Insufficient permissions to refresh routes.' }),
-        { status: 403, headers: { 'Content-Type': 'application/json' } },
-      )
-    }
-  }
-
+  // Auth: cronHandler — X-Cron-Secret / service-role, or a contractor staff JWT
+  // (manual "Refresh routes" from the admin UI).
   const supabase = createClient<Database>(supabaseUrl, serviceRoleKey)
 
   const today = awstDateFromUtc(new Date())
@@ -270,4 +241,4 @@ serve(async (req) => {
       { status: 500, headers: { 'Content-Type': 'application/json' } },
     )
   }
-})
+}, { allowUserRoles: ['contractor-admin', 'contractor-staff'] }))

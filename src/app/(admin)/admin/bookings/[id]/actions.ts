@@ -7,10 +7,13 @@ import { createClient } from '@/lib/supabase/server'
 import { invokeSendNotification } from '@/lib/notifications/invoke'
 import { isPastCancellationCutoff } from '@/lib/booking/cancellation-cutoff'
 import {
-  canEditCollectionDetails,
-  canRescheduleToTargetDate,
-} from '@/lib/booking/collection-details-edit'
-import { STAFF_ROLES } from '@/lib/auth/roles'
+  canEditCollectionDetails, canEditIdDetails, canEditMudAllocations,
+  canRescheduleToTargetDate, capacityBlocksMove, remainingByCategory, unitsByCategory } from '@/lib/booking/collection-details-edit'
+import {
+  dedupePhotos, parseIdEdit, photosArePreserved, wasteTypesEqual,
+  type IdEditSubmission } from '@/lib/booking/id-edit'
+import { ID_WASTE_TYPES } from '@/lib/booking/id-options'
+import { STAFF_ROLES, isContractorStaff } from '@/lib/auth/roles'
 import { orchestrateRefund, type RefundOrchestrationState } from '@/lib/payments/orchestrate-refund'
 import { REFUND_REASONS } from '@/lib/refunds/auto-raised'
 import { refundStateToNotificationStatus } from '@/lib/refunds/notification-status'
@@ -281,7 +284,7 @@ export async function updateCollectionDetails(
   // without changing anything.
   const { data: current } = await supabase
     .from('booking')
-    .select('status, location, collection_area_id, booking_item(id, collection_date_id)')
+    .select('status, location, collection_area_id, collection_area!inner(capacity_pool_id), booking_item(id, collection_date_id, no_services, service!inner(category!inner(code)))')
     .eq('id', bookingId)
     .single()
 
@@ -359,6 +362,41 @@ export async function updateCollectionDetails(
       return {
         ok: false,
         error: 'Only D&M staff can reschedule a booking into a closed or past collection date.',
+      }
+    }
+
+    // Capacity dimension (#426, 22/08): client-tier may only move onto a date
+    // with room for the booking's units; contractor keeps the override. Pool-
+    // aware — a pooled area's counters live on collection_date_pool (the
+    // collection_date row stays at 0, which would read as "full").
+    const units = unitsByCategory(
+      (current.booking_item ?? []).map((bi) => ({
+        no_services: bi.no_services,
+        category_code: (bi.service as unknown as { category: { code: string } | null } | null)?.category?.code ?? null,
+      })),
+    )
+    const poolId = (current.collection_area as unknown as { capacity_pool_id: string | null } | null)?.capacity_pool_id ?? null
+    let remaining: { bulk: number; anc: number; id: number } | null = null
+    if (poolId) {
+      const { data: pool } = await supabase
+        .from('collection_date_pool')
+        .select('bulk_capacity_limit, bulk_units_booked, anc_capacity_limit, anc_units_booked, id_capacity_limit, id_units_booked')
+        .eq('capacity_pool_id', poolId)
+        .eq('date', targetDate.date)
+        .maybeSingle()
+      remaining = pool ? remainingByCategory(pool) : { bulk: 0, anc: 0, id: 0 } // no pool row = closed, same as the booking RPC
+    } else {
+      const { data: cap } = await supabase
+        .from('collection_date')
+        .select('bulk_capacity_limit, bulk_units_booked, anc_capacity_limit, anc_units_booked, id_capacity_limit, id_units_booked')
+        .eq('id', targetDate.id)
+        .single()
+      remaining = cap ? remainingByCategory(cap) : { bulk: 0, anc: 0, id: 0 }
+    }
+    if (capacityBlocksMove(role, units, remaining)) {
+      return {
+        ok: false,
+        error: 'That collection date is full for this booking\'s services. Only D&M staff can move a booking onto a full date.',
       }
     }
 
@@ -641,4 +679,211 @@ export async function updateBookingQuantities(
   })
 
   return { ok: true, data: { refundOwedCents, refundState } }
+}
+
+/**
+ * Edit an Illegal Dumping booking's ID-specific fields (issue: ID booking
+ * edit, design docs/superpowers/specs/2026-08-28-id-booking-edit-design.md).
+ *
+ * Contractor-tier only at every editable status (canEditIdDetails — client
+ * admins view but never restate the evidence record); photos are append-only
+ * (evidence integrity); writes are guarded by an optimistic-concurrency check
+ * on updated_at and, defence-in-depth, by the enforce_booking_id_fields_write
+ * DB trigger. No notification: ID bookings are contact-less by design.
+ *
+ * Dispatch: no push here — the hourly push-orders-to-optimoroute reconciler
+ * detects the address/pin change via payloadDiffers() and refreshes any
+ * Pending stop on its next run.
+ */
+export async function updateIdDetails(
+  bookingId: string,
+  input: IdEditSubmission,
+): Promise<Result<{ updated_at: string }>> {
+  const supabase = await createClient()
+
+  const { data: role } = await supabase.rpc('current_user_role')
+  if (!isContractorStaff(role ?? null)) {
+    return { ok: false, error: 'Only D&M staff can edit illegal dumping details.' }
+  }
+
+  // Fetch under the caller's RLS — doubles as the tenancy check (a booking
+  // outside accessible_client_ids() is invisible here).
+  const { data: booking } = await supabase
+    .from('booking')
+    .select('id, type, status, geo_address, latitude, longitude, id_waste_types, id_volume, photos, updated_at')
+    .eq('id', bookingId)
+    .single()
+
+  if (!booking) return { ok: false, error: 'Booking not found.' }
+  if (booking.type !== 'Illegal Dumping') {
+    return { ok: false, error: 'Not an illegal dumping booking.' }
+  }
+  if (!canEditIdDetails(booking.status, role ?? null)) {
+    return {
+      ok: false,
+      error: `Illegal dumping details cannot be edited on a "${booking.status}" booking.`,
+    }
+  }
+
+  const parsed = parseIdEdit(input, booking.id_waste_types, ID_WASTE_TYPES)
+  if (!parsed.ok) return { ok: false, error: parsed.error }
+
+  // Append-only evidence: dedupe, then every stored URL must survive. Same
+  // set-semantics definition as the trigger's NEW.photos @> OLD.photos.
+  const nextPhotos = dedupePhotos(parsed.data.photo_urls)
+  if (!photosArePreserved(booking.photos, nextPhotos)) {
+    return { ok: false, error: 'Evidence photos cannot be removed — corrections happen by adding.' }
+  }
+
+  // No-op skip across all six columns so the audit log never accrues empty
+  // "Updated booking" entries. id_waste_types compares order-insensitively.
+  const unchanged =
+    (booking.geo_address ?? null) === parsed.data.geo_address &&
+    numOrNull(booking.latitude) === parsed.data.latitude &&
+    numOrNull(booking.longitude) === parsed.data.longitude &&
+    wasteTypesEqual(booking.id_waste_types, parsed.data.waste_types) &&
+    (booking.id_volume ?? null) === parsed.data.volume &&
+    photosArePreserved(nextPhotos, booking.photos) // supersets both ways = same set
+  if (unchanged) {
+    return { ok: true, data: { updated_at: booking.updated_at } }
+  }
+
+  // Optimistic concurrency: the token is the page-rendered updated_at string,
+  // matched VERBATIM (never re-parsed — Postgres keeps microseconds, JS
+  // truncates; a reformatted token would zero-row-match on every save).
+  const { data: updated, error } = await supabase
+    .from('booking')
+    .update({
+      geo_address: parsed.data.geo_address,
+      latitude: parsed.data.latitude,
+      longitude: parsed.data.longitude,
+      id_waste_types: parsed.data.waste_types,
+      id_volume: parsed.data.volume,
+      photos: nextPhotos,
+    })
+    .eq('id', bookingId)
+    .eq('updated_at', parsed.data.expected_updated_at)
+    .select('id, updated_at')
+    .maybeSingle()
+
+  if (error) return { ok: false, error: error.message }
+  if (!updated) {
+    return {
+      ok: false,
+      error:
+        'This booking changed while you were editing — reload the page and re-apply your changes.',
+    }
+  }
+
+  return { ok: true, data: { updated_at: updated.updated_at } }
+}
+
+/** Postgres numeric arrives as string via PostgREST; coerce for comparison. */
+function numOrNull(v: number | string | null): number | null {
+  if (v === null) return null
+  return typeof v === 'number' ? v : Number(v)
+}
+
+// 999 is a defensive fat-finger cap, NOT MAX_SERVICE_QTY (10) — that constant
+// is a SUD booking bound; a large MUD complex can legitimately exceed it.
+const mudAllocationItemSchema = z.object({
+  booking_item_id: z.string().uuid(),
+  actual_services: z.number().int().min(0).max(999),
+  // Page-rendered booking_item.updated_at, matched VERBATIM (see below).
+  expected_updated_at: z.string().min(1).max(64),
+})
+const updateMudAllocationsInput = z.array(mudAllocationItemSchema).min(1).max(20)
+
+export type MudAllocationEditItem = z.infer<typeof mudAllocationItemSchema>
+
+/**
+ * Correct a MUD booking's per-service collected counts
+ * (booking_item.actual_services) after the collection.
+ *
+ * Crews enter these on the closeout "Allocation Entry" screen and sometimes
+ * mis-allocate across service lines; the counts drive council invoicing via
+ * get_client_monthly_report's coalesce(actual_services, no_services), so
+ * contractor staff need a correction path once the booking is terminal.
+ *
+ * Contractor-tier only, post-collection statuses only (canEditMudAllocations —
+ * Scheduled stays crew-owned: the closeout form triggers on NULL counts).
+ * The DB layer already enforces the same boundary: booking_item staff RLS +
+ * enforce_booking_item_staff_write status-gate CLIENT tier writes while
+ * leaving actual_services open to contractor tier, and field RLS is
+ * Scheduled-only — so admin and crew edit windows are disjoint by state
+ * machine. Writes are guarded per item by an optimistic-concurrency check on
+ * booking_item.updated_at and fail fast on the first conflict; any partial
+ * save is fully audit-logged and visible on reload (MUD bookings carry 1–3
+ * items). No notification: this is a back-office billing correction.
+ */
+export async function updateMudAllocations(
+  bookingId: string,
+  items: MudAllocationEditItem[],
+): Promise<Result<void>> {
+  const supabase = await createClient()
+
+  const { data: role } = await supabase.rpc('current_user_role')
+  if (!isContractorStaff(role ?? null)) {
+    return { ok: false, error: 'Only D&M staff can edit collected counts.' }
+  }
+
+  const parsed = updateMudAllocationsInput.safeParse(items)
+  if (!parsed.success) {
+    return { ok: false, error: 'Invalid collected-count input.' }
+  }
+
+  // Fetch under the caller's RLS — doubles as the tenancy check (a booking
+  // outside accessible_client_ids() is invisible here).
+  const { data: booking } = await supabase
+    .from('booking')
+    .select('id, type, status, booking_item(id, actual_services)')
+    .eq('id', bookingId)
+    .single()
+
+  if (!booking) return { ok: false, error: 'Booking not found.' }
+  if (booking.type !== 'MUD') {
+    return { ok: false, error: 'Not a MUD booking.' }
+  }
+  if (!canEditMudAllocations(booking.status, role ?? null)) {
+    return {
+      ok: false,
+      error: `Collected counts cannot be edited on a "${booking.status}" booking.`,
+    }
+  }
+
+  const ownItems = new Map(booking.booking_item.map((bi) => [bi.id, bi]))
+  if (parsed.data.some((item) => !ownItems.has(item.booking_item_id))) {
+    return { ok: false, error: 'One or more items do not belong to this booking.' }
+  }
+
+  // No-op skip so the audit log never accrues empty entries. NULL current
+  // values always count as changed (setting a missing count is a primary use).
+  const changed = parsed.data.filter(
+    (item) => ownItems.get(item.booking_item_id)!.actual_services !== item.actual_services,
+  )
+  if (changed.length === 0) return { ok: true, data: undefined }
+
+  for (const item of changed) {
+    // Optimistic concurrency: the token is the page-rendered updated_at
+    // string, matched VERBATIM (never re-parsed — Postgres keeps
+    // microseconds, JS truncates; a reformatted token zero-row-matches).
+    const { data: updated, error } = await supabase
+      .from('booking_item')
+      .update({ actual_services: item.actual_services })
+      .eq('id', item.booking_item_id)
+      .eq('updated_at', item.expected_updated_at)
+      .select('id')
+      .maybeSingle()
+
+    if (error) return { ok: false, error: error.message }
+    if (!updated) {
+      return {
+        ok: false,
+        error:
+          'This booking changed while you were editing — reload the page and re-apply your changes.',
+      }
+    }
+  }
+
+  return { ok: true, data: undefined }
 }

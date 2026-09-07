@@ -1,9 +1,18 @@
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.100.0'
 import type { Database } from '../_shared/database.types.ts'
+import { withSentry } from '../_shared/sentry.ts'
+import { isServiceRoleBearer } from '../_shared/service-role-auth.ts'
 import { jsonResponse, optionsResponse, errorResponse } from '../_shared/cors.ts'
+import {
+  SERVICE_STATE,
+  stripPremisePrefix,
+  verifyGeocodeResult,
+} from '../_shared/geocode-verify.ts'
 
 type RequestBody = {
+  // Restrict to these property ids (admin address edit re-geocode, #502).
+  property_ids?: unknown
   // Cap the number of rows processed in one invocation. Default: all matching.
   // Useful for chunking large backfills under the 150s EF wall-clock limit.
   limit?: number
@@ -26,19 +35,27 @@ type GeocodeOutcome =
       latitude: number
       longitude: number
       googleFormattedAddress: string
+      snapped: boolean
       autocompletePlaceId: string | null
       autocompleteDescription: string | null
       autocompleteStatus: string
     }
   | { id: string; success: false; error: string }
+  // Google's top result was a DIFFERENT premise (wrong suburb, interstate,
+  // locality-only): nothing was written. Not a failure — the row is fine, the
+  // geocode isn't — so it doesn't 500 the run; it's reported for a human.
+  | { id: string; success: false; rejected: true; reason: string; google: string }
 
 // Dual auth: service-role bearer for CLI/cron callers (import scripts),
-// OR a valid user JWT with an admin role for any admin-UI caller.
+// OR a valid user JWT with a staff role for any admin-UI caller.
 // Presence-only auth would let any anon-key holder mutate eligible_properties
-// or burn Google Places spend.
-const ADMIN_ROLES = ['contractor-admin', 'client-admin'] as const
+// or burn Google Places spend. All four staff tiers: the in-place address edit
+// (#502) is open to every admin role and re-geocodes through this EF — with
+// only -admin roles admitted, a -staff edit saved the address, cleared the
+// geocode and was then 403'd here, leaving the row permanently ungeocoded.
+const ADMIN_ROLES = ['contractor-admin', 'contractor-staff', 'client-admin', 'client-staff'] as const
 
-serve(async (req) => {
+serve(withSentry('geocode-properties', async (req) => {
   // Browser callers (the admin "Geocode All" button) send a CORS preflight
   // first. Without this short-circuit the OPTIONS request falls through to the
   // no-auth-header branch below and 401s with no Access-Control-Allow-Origin,
@@ -62,9 +79,17 @@ serve(async (req) => {
   }
   const bearer = authHeader.replace(/^Bearer\s+/i, '')
 
-  // Service-role direct match: CLI / cron callers bypass user-role check.
+  // Tenant scope for user-JWT callers: the client ids they may administer
+  // (accessible_client_ids). eligible_properties is public-SELECT, so an id in
+  // the body proves nothing — the query below is pinned to these clients so a
+  // council admin can't geocode (and spend Places quota on) another tenant's
+  // rows. Service-role/CLI callers stay unscoped (null).
+  let scopedClientIds: string[] | null = null
+
+  // Service-role bearer (any valid secret for this project — not just the one
+  // injected in env, #480): CLI / cron callers bypass the user-role check.
   // Otherwise validate the user JWT and gate on admin roles.
-  if (bearer !== serviceRoleKey) {
+  if (!(await isServiceRoleBearer(bearer, { supabaseUrl, serviceRoleKey }))) {
     const supabaseUser = createClient<Database>(supabaseUrl, anonKey, {
       global: { headers: { Authorization: authHeader } },
     })
@@ -78,8 +103,13 @@ serve(async (req) => {
       return errorResponse(`Role lookup failed: ${roleError.message}`, 500)
     }
     if (!roleData || !ADMIN_ROLES.includes(roleData as (typeof ADMIN_ROLES)[number])) {
-      return errorResponse('Forbidden: contractor-admin or client-admin only', 403)
+      return errorResponse('Forbidden: staff role required', 403)
     }
+    const { data: clientIds, error: scopeError } = await supabaseUser.rpc('accessible_client_ids')
+    if (scopeError) {
+      return errorResponse(`Client scope lookup failed: ${scopeError.message}`, 500)
+    }
+    scopedClientIds = clientIds ?? []
   }
 
   const supabase = createClient<Database>(supabaseUrl, serviceRoleKey)
@@ -100,6 +130,10 @@ serve(async (req) => {
   const dryRun = body.dry_run === true
   const compareAutocomplete = body.compare_autocomplete === true
   const externalSource = typeof body.external_source === 'string' ? body.external_source : null
+  // #502: re-geocode specific rows (admin address edit clears their place_id).
+  const propertyIds = Array.isArray(body.property_ids)
+    ? body.property_ids.filter((v): v is string => typeof v === 'string').slice(0, 100)
+    : null
 
   // Catches rows missing place_id regardless of has_geocode state. The Main VV
   // import populated lat/long from Airtable without calling Geocoding, so
@@ -107,11 +141,18 @@ serve(async (req) => {
   // booking autocomplete primary-path lookup is keyed on google_place_id.
   let query = supabase
     .from('eligible_properties')
-    .select('id, address, formatted_address, external_source')
+    .select('id, address, formatted_address, external_source, collection_area!inner(client_id)')
     .is('google_place_id', null)
     .order('created_at', { ascending: true })
 
   if (externalSource) query = query.eq('external_source', externalSource)
+  if (propertyIds && propertyIds.length > 0) query = query.in('id', propertyIds)
+  if (scopedClientIds) {
+    if (scopedClientIds.length === 0) {
+      return jsonResponse({ message: 'No accessible clients', processed: 0, total: 0, failed: 0 })
+    }
+    query = query.in('collection_area.client_id', scopedClientIds)
+  }
 
   // For smoke tests with compareAutocomplete: oversample then shuffle so the
   // 50-row sample spans Main/SUB/VIC by chance rather than all-from-oldest.
@@ -142,6 +183,18 @@ serve(async (req) => {
   let processed = 0
   let failed = 0
   const errors: Array<{ id: string; error: string }> = []
+  // Rows whose geocode came back with a DIFFERENT street number (parent-parcel
+  // snap): coordinates were written but identity columns were left untouched,
+  // so they remain in the null-place_id queue for a future run.
+  const snappedRows: Array<{ id: string; address: string; google: string }> = []
+  // Rows whose result failed verification outright (12 Smith St Perth →
+  // Beaconsfield, 10 Market St Kensington → Kensington VIC, 13A Epping Way →
+  // "Wellard WA 6170"): NOTHING was written — those coordinates would have
+  // routed a crew to the wrong suburb via OptimoRoute. They stay in the queue
+  // until the council address is corrected (e.g. postcode appended).
+  const rejectedRows: Array<{ id: string; address: string; google: string; reason: string }> =
+    []
+  let rejected = 0
   const parity: Array<{
     id: string
     address: string
@@ -164,7 +217,13 @@ serve(async (req) => {
           const geoUrl = new URL('https://maps.googleapis.com/maps/api/geocode/json')
           geoUrl.searchParams.set('address', address)
           geoUrl.searchParams.set('key', apiKey)
-          geoUrl.searchParams.set('components', 'country:AU')
+          // administrative_area is bias-only (Google never enforces it) — it
+          // nudges "10 Market St Kensington" toward WA; the verifier below is
+          // what actually rejects an interstate result.
+          geoUrl.searchParams.set(
+            'components',
+            `country:AU|administrative_area:${SERVICE_STATE}`
+          )
 
           const geoRes = await fetch(geoUrl.toString())
           const geoData = await geoRes.json()
@@ -186,6 +245,47 @@ serve(async (req) => {
           const googleFormattedAddress = stripPremisePrefix(
             result.formatted_address as string
           )
+
+          // Google snaps addresses it doesn't know (freshly subdivided lots,
+          // unlisted units) to the nearest parcel it does know — returning the
+          // PARENT's formatted_address and place_id for a "16A" input. Adopting
+          // that overwrites the child row's identity: every surface displays
+          // `formatted_address ?? address`, and siblings end up sharing the
+          // parent's place_id (16 Bolsover St, Wellard incident). On
+          // street-number disagreement, store the coordinates only — the row
+          // keeps its own address for display/matching, stays in this EF's
+          // null-place_id queue, and self-heals once Google learns the lot.
+          //
+          // Beyond the street number, the result must be an address-level
+          // premise in WA whose locality doesn't contradict the input's
+          // suburb: "12 Smith St Perth" came back as 12 Smith St BEACONSFIELD
+          // (Google read "Perth" as the metro), same number, and the EF
+          // adopted it — wrong coordinates for the crew, and the real
+          // Beaconsfield row's place_id copied onto a Perth MUD (VIN-MUD-104,
+          // 29/07/2026). Those results are rejected with no write at all.
+          const components = (result.address_components ?? []) as Array<{
+            long_name: string
+            short_name: string
+            types: string[]
+          }>
+          const component = (type: string) => components.find((c) => c.types.includes(type))
+          const verdict = verifyGeocodeResult(address, {
+            formattedAddress: googleFormattedAddress,
+            types: Array.isArray(result.types) ? (result.types as string[]) : [],
+            locationType: (result.geometry?.location_type as string | undefined) ?? null,
+            locality: component('locality')?.long_name ?? null,
+            state: component('administrative_area_level_1')?.short_name ?? null,
+          })
+          if (verdict.verdict === 'rejected') {
+            return {
+              id: prop.id,
+              success: false,
+              rejected: true,
+              reason: verdict.reason,
+              google: googleFormattedAddress,
+            }
+          }
+          const snapped = verdict.verdict === 'snapped'
 
           let autocompletePlaceId: string | null = null
           let autocompleteDescription: string | null = null
@@ -212,13 +312,21 @@ serve(async (req) => {
             // when both sides are in the same canonical format.
             const { error: updateError } = await supabase
               .from('eligible_properties')
-              .update({
-                latitude: location.lat,
-                longitude: location.lng,
-                google_place_id: placeId,
-                formatted_address: googleFormattedAddress,
-                has_geocode: true,
-              })
+              .update(
+                snapped
+                  ? {
+                      latitude: location.lat,
+                      longitude: location.lng,
+                      has_geocode: true,
+                    }
+                  : {
+                      latitude: location.lat,
+                      longitude: location.lng,
+                      google_place_id: placeId,
+                      formatted_address: googleFormattedAddress,
+                      has_geocode: true,
+                    }
+              )
               .eq('id', prop.id)
             if (updateError) {
               return { id: prop.id, success: false, error: updateError.message }
@@ -232,6 +340,7 @@ serve(async (req) => {
             latitude: location.lat,
             longitude: location.lng,
             googleFormattedAddress,
+            snapped,
             autocompletePlaceId,
             autocompleteDescription,
             autocompleteStatus,
@@ -251,6 +360,13 @@ serve(async (req) => {
       const prop = batch[j]!
       if (r.success) {
         processed++
+        if (r.snapped) {
+          snappedRows.push({
+            id: r.id,
+            address: prop.formatted_address ?? prop.address,
+            google: r.googleFormattedAddress,
+          })
+        }
         if (compareAutocomplete) {
           parity.push({
             id: r.id,
@@ -264,6 +380,14 @@ serve(async (req) => {
             match: r.autocompletePlaceId === r.placeId,
           })
         }
+      } else if ('rejected' in r) {
+        rejected++
+        rejectedRows.push({
+          id: r.id,
+          address: prop.formatted_address ?? prop.address,
+          google: r.google,
+          reason: r.reason,
+        })
       } else {
         failed++
         errors.push({ id: r.id, error: r.error })
@@ -278,13 +402,21 @@ serve(async (req) => {
   const response: Record<string, unknown> = {
     message: `${dryRun ? 'DRY RUN — ' : ''}Geocoding complete. ${processed} succeeded${
       dryRun ? ' (no writes)' : ' (written)'
-    }, ${failed} failed.`,
+    }, ${failed} failed, ${rejected} rejected (different premise — not written).`,
     total: properties.length,
     processed,
     failed,
     dry_run: dryRun,
   }
   if (errors.length > 0) response.errors = errors.slice(0, 20)
+  if (snappedRows.length > 0) {
+    response.snapped = snappedRows.length
+    response.snapped_samples = snappedRows.slice(0, 20)
+  }
+  if (rejected > 0) {
+    response.rejected = rejected
+    response.rejected_samples = rejectedRows.slice(0, 20)
+  }
   if (compareAutocomplete) {
     const matches = parity.filter((p) => p.match).length
     const bySource: Record<string, { total: number; matches: number }> = {}
@@ -312,11 +444,7 @@ serve(async (req) => {
   // Dry runs and clean completions stay on 200.
   const status = !dryRun && failed > 0 ? 500 : 200
   return jsonResponse(response, status)
-})
-
-function stripPremisePrefix(s: string): string {
-  return s.replace(/^(Unit|Flat|Townhouse|Apartment|Suite|Apt) +/i, '')
-}
+}))
 
 function shuffle<T>(arr: T[]): T[] {
   const out = [...arr]

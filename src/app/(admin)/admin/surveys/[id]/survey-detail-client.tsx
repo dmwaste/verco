@@ -8,17 +8,22 @@ import { StatusBadge } from '@/components/status-badge'
 import { AuditTimeline } from '@/components/audit-timeline'
 import { SURVEY_QUESTIONS, surveySections } from '@/lib/survey/questions'
 import type { ResolvedAuditEntry } from '@/lib/audit/resolve'
+import { SURVEY_SOURCE_AIRTABLE, legacySurveyRef } from '@/lib/survey/legacy'
+import { SurveySourceBadge } from '../source-badge'
 
 export interface SurveyDetail {
   id: string
   submitted_at: string | null
   responses: unknown
   created_at: string
+  source: string
+  external_ref: string | null
+  /** Area lives on the survey row — legacy Airtable rows have no booking. */
+  collection_area: { name: string; code: string } | null
   booking: {
     id: string
     ref: string
     status: string
-    collection_area: { name: string; code: string } | null
     eligible_properties: { formatted_address: string | null; address: string } | null
     booking_item: Array<{
       no_services: number
@@ -73,6 +78,8 @@ export function SurveyDetailClient({
   const responses = (survey.responses ?? {}) as Record<string, unknown>
   const collectionDate = booking?.booking_item?.[0]?.collection_date?.date ?? null
 
+  const isLegacy = survey.source === SURVEY_SOURCE_AIRTABLE
+  const legacyRef = legacySurveyRef(survey.external_ref)
   const knownIds = new Set(SURVEY_QUESTIONS.map((q) => q.id))
   const legacyKeys = Object.keys(responses).filter((k) => !knownIds.has(k))
 
@@ -81,9 +88,10 @@ export function SurveyDetailClient({
       <DetailHeader
         backHref={backHref}
         backLabel="Surveys"
-        title={booking?.ref ?? 'Survey'}
-        subtitle={address}
+        title={booking?.ref ?? legacyRef ?? 'Survey'}
+        subtitle={isLegacy && !booking ? 'Imported from Airtable — no Verco booking' : address}
       >
+        <SurveySourceBadge source={survey.source} />
         <StatusBadge entity="survey" status={submitted ? 'Submitted' : 'Pending'} />
       </DetailHeader>
 
@@ -95,9 +103,9 @@ export function SurveyDetailClient({
               <Link href={`/admin/bookings/${booking.id}`} className="text-[#293F52] hover:underline">
                 {booking.ref}
               </Link>
-            ) : '—'}
+            ) : legacyRef ?? '—'}
           </Field>
-          <Field label="Area">{booking?.collection_area?.code ?? '—'}</Field>
+          <Field label="Area">{survey.collection_area?.code ?? '—'}</Field>
           <Field label="Address">{address}</Field>
           <Field label="Collection date">
             {collectionDate ? format(new Date(collectionDate + 'T00:00:00'), 'EEE d MMM yyyy') : '—'}
