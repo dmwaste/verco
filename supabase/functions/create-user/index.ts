@@ -208,6 +208,10 @@ serve(async (req) => {
     // ── 5. Create or find auth user ─────────────────────────────────────
 
     let authUserId: string
+    // Reported back so the admin dialog can say whether anyone was actually
+    // created. Anyone who has used the resident booking portal already has an
+    // auth account, so "adding" them is really an in-place upgrade (#575).
+    let existingAccount = false
 
     // Try to create — if email already exists, Supabase returns a duplicate error
     const { data: newUser, error: createError } = await supabaseService.auth.admin.createUser({
@@ -238,6 +242,7 @@ serve(async (req) => {
         const existingProfile = existingProfiles?.[0]
         if (existingProfile) {
           authUserId = existingProfile.id
+          existingAccount = true
         } else {
           return errorResponse('A user with this email already exists in auth but has no profile. Contact support.', 409)
         }
@@ -331,11 +336,17 @@ serve(async (req) => {
       sub_client_id: sub_client_id ?? null,
     }
 
+    // `role` is selected too, not just `id`: it is the only record of what the
+    // account could do before this call, and the dialog names it back to the admin.
+    // For a brand-new user this reads 'resident' — the trigger's default, assigned
+    // moments ago — so consumers must gate on existing_account before quoting it.
     const { data: existingRole } = await supabaseService
       .from('user_roles')
-      .select('id')
+      .select('id, role')
       .eq('user_id', authUserId)
       .maybeSingle()
+
+    const previousRole = existingRole?.role ?? null
 
     if (existingRole) {
       const { error: updateError } = await supabaseService
@@ -447,7 +458,15 @@ serve(async (req) => {
 
     // ── 11. Return result ───────────────────────────────────────────────
 
-    return jsonResponse({ user_id: authUserId, email, role })
+    // existing_account / previous_role are always present, never conditional —
+    // the dialog reads them directly rather than inferring a default.
+    return jsonResponse({
+      user_id: authUserId,
+      email,
+      role,
+      existing_account: existingAccount,
+      previous_role: previousRole,
+    })
   } catch (err) {
     console.error('create-user error:', err)
     return new Response(
