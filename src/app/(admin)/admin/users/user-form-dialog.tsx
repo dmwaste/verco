@@ -10,6 +10,9 @@ import { createClient } from '@/lib/supabase/client'
 import { fetchAccessibleClientOptions } from '@/lib/admin/accessible-clients'
 import { invokeEfWithUserToken } from '@/lib/supabase/invoke-ef-client'
 import { normaliseAuMobile, formatAuMobileDisplay } from '@/lib/booking/schemas'
+import { normaliseEmail } from '@/lib/email'
+import { describeUserProvisioning, ROLE_LABELS } from './user-provisioning-message'
+import type { UserProvisioningOutcome } from './user-provisioning-message'
 import type { Database } from '@/lib/supabase/types'
 import { FieldLabel, Input, Select } from '@/components/admin/form'
 
@@ -20,21 +23,29 @@ const CLIENT_ROLES: AppRole[] = ['client-admin', 'client-staff', 'ranger']
 // Strata is client-scoped (needs client_id in user_roles) but shown separately
 const CLIENT_AND_STRATA_ROLES: AppRole[] = [...CLIENT_ROLES, 'strata']
 
-const ROLE_OPTIONS: { value: AppRole; label: string }[] = [
-  { value: 'contractor-admin', label: 'Contractor Admin' },
-  { value: 'contractor-staff', label: 'Contractor Staff' },
-  { value: 'field', label: 'Contractor Field' },
-  { value: 'client-admin', label: 'Client Admin' },
-  { value: 'client-staff', label: 'Client Staff' },
-  { value: 'ranger', label: 'Client Ranger' },
-  { value: 'strata', label: 'Strata User' },
+// Residents are never creatable here; every other role is, in this order.
+const CREATABLE_ROLES: AppRole[] = [
+  'contractor-admin',
+  'contractor-staff',
+  'field',
+  'client-admin',
+  'client-staff',
+  'ranger',
+  'strata',
 ]
+
+const ROLE_OPTIONS: { value: AppRole; label: string }[] = CREATABLE_ROLES.map((value) => ({
+  value,
+  label: ROLE_LABELS[value],
+}))
 
 const UserFormSchema = z
   .object({
     first_name: z.string().min(1, 'First name is required').max(100),
     last_name: z.string().min(1, 'Last name is required').max(100),
-    email: z.string().email('Please enter a valid email'),
+    // Canonicalised before it leaves the form so the success message and the
+    // request body show the address as auth will store it (#575).
+    email: z.string().email('Please enter a valid email').transform(normaliseEmail),
     mobile_e164: z
       .string()
       .transform((val) => val.replace(/[\s\-()]+/g, ''))
@@ -111,6 +122,7 @@ export function UserFormDialog({ callerRole, editData, open, onOpenChange }: Use
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [successEmail, setSuccessEmail] = useState<string | null>(null)
+  const [outcome, setOutcome] = useState<UserProvisioningOutcome | null>(null)
 
   // Compute initial tenant_id from editData
   function getInitialTenantId(): string {
@@ -160,6 +172,7 @@ export function UserFormDialog({ callerRole, editData, open, onOpenChange }: Use
       })
       setSubmitError(null)
       setSuccessEmail(null)
+      setOutcome(null)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, editData?.user_id])
@@ -249,6 +262,7 @@ export function UserFormDialog({ callerRole, editData, open, onOpenChange }: Use
     reset()
     setSubmitError(null)
     setSuccessEmail(null)
+    setOutcome(null)
   }
 
   async function onSubmit(data: UserFormData) {
@@ -299,6 +313,19 @@ export function UserFormDialog({ callerRole, editData, open, onOpenChange }: Use
         return
       }
 
+      // The EF may have upgraded an account that already existed rather than
+      // creating one; an older deploy omits these fields, which reads as "created".
+      const efData = efResult.data as {
+        existing_account?: boolean
+        previous_role?: AppRole | null
+      } | undefined
+      setOutcome(
+        describeUserProvisioning({
+          existingAccount: efData?.existing_account ?? false,
+          previousRole: efData?.previous_role ?? null,
+          role,
+        }),
+      )
       setSuccessEmail(data.email)
       void queryClient.invalidateQueries({ queryKey: ['admin-users'] })
     } catch (err) {
@@ -329,7 +356,7 @@ export function UserFormDialog({ callerRole, editData, open, onOpenChange }: Use
                   <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#00B864" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
                 </div>
                 <Dialog.Title className="font-[family-name:var(--font-heading)] text-lg font-bold text-[#293F52]">
-                  {isEdit ? 'User Updated' : 'User Created'}
+                  {isEdit ? 'User Updated' : outcome?.title ?? 'User Created'}
                 </Dialog.Title>
                 {!isEdit && (
                   <>
@@ -339,6 +366,11 @@ export function UserFormDialog({ callerRole, editData, open, onOpenChange }: Use
                     <span className="rounded-lg bg-[#E8EEF2] px-4 py-2 font-[family-name:var(--font-heading)] text-sm font-bold text-[#293F52]">
                       {successEmail}
                     </span>
+                    {outcome?.notice && (
+                      <p className="rounded-lg bg-status-info-bg px-3 py-2 text-left text-sm text-status-info">
+                        {outcome.notice}
+                      </p>
+                    )}
                   </>
                 )}
                 <button
