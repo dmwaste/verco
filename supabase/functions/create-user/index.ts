@@ -5,6 +5,7 @@ import { z } from 'https://esm.sh/zod@3.23.8'
 import { corsHeaders, jsonResponse, optionsResponse, errorResponse } from '../_shared/cors.ts'
 import { sendEmail } from '../_shared/sendgrid.ts'
 import { resolveWelcomeLoginBaseUrl } from '../_shared/welcome-login-url.ts'
+import { normaliseEmail, emailMatchPattern } from '../_shared/email.ts'
 
 // ── Role classification ─────────────────────────────────────────────────────
 
@@ -38,7 +39,10 @@ const CreateUserRequest = z
   .object({
     first_name: z.string().min(1).max(100),
     last_name: z.string().min(1).max(100),
-    email: z.string().email().max(320),
+    // Canonicalised on parse: GoTrue lowercases what it stores in auth.users,
+    // so a mixed-case address typed into the admin form must be folded here or
+    // every downstream lookup disagrees with auth (#575).
+    email: z.string().email().max(320).transform(normaliseEmail),
     mobile_e164: z.string().regex(/^\+614\d{8}$/).optional(),
     role: z.enum(ALL_ROLES),
     contractor_id: z.string().uuid().optional(),
@@ -204,6 +208,10 @@ serve(async (req) => {
     // ── 5. Create or find auth user ─────────────────────────────────────
 
     let authUserId: string
+    // Reported back so the admin dialog can say whether anyone was actually
+    // created. Anyone who has used the resident booking portal already has an
+    // auth account, so "adding" them is really an in-place upgrade (#575).
+    let existingAccount = false
 
     // Try to create — if email already exists, Supabase returns a duplicate error
     const { data: newUser, error: createError } = await supabaseService.auth.admin.createUser({
@@ -217,15 +225,24 @@ serve(async (req) => {
       const isDuplicate = msg.includes('already been registered') || msg.includes('already exists')
 
       if (isDuplicate) {
-        // Look up existing user via profiles table
-        const { data: existingProfile } = await supabaseService
+        // Look up the existing user via the profiles table. Matched
+        // case-insensitively: auth matched the duplicate that way, and rows
+        // written before email was canonicalised can still be mixed-case, so a
+        // byte-exact match here strands the admin on a 409 they cannot clear
+        // (#575 — a council staffer who had already used the resident portal).
+        // limit(1) rather than maybeSingle() so a legacy case-variant pair
+        // resolves to the oldest row instead of erroring.
+        const { data: existingProfiles } = await supabaseService
           .from('profiles')
           .select('id')
-          .eq('email', email)
-          .maybeSingle()
+          .ilike('email', emailMatchPattern(email))
+          .order('created_at', { ascending: true })
+          .limit(1)
 
+        const existingProfile = existingProfiles?.[0]
         if (existingProfile) {
           authUserId = existingProfile.id
+          existingAccount = true
         } else {
           return errorResponse('A user with this email already exists in auth but has no profile. Contact support.', 409)
         }
@@ -239,11 +256,17 @@ serve(async (req) => {
 
     // ── 6. Upsert contact ───────────────────────────────────────────────
 
-    const { data: existingContact } = await supabaseService
+    // Same case-insensitive match as the profiles lookup above: 214 contacts
+    // predate canonicalisation with mixed-case addresses, and an exact-match
+    // miss here would silently fork a second contact row for the same person.
+    const { data: existingContacts } = await supabaseService
       .from('contacts')
       .select('id')
-      .eq('email', email)
-      .maybeSingle()
+      .ilike('email', emailMatchPattern(email))
+      .order('created_at', { ascending: true })
+      .limit(1)
+
+    const existingContact = existingContacts?.[0]
 
     let contactId: string
 
@@ -313,11 +336,17 @@ serve(async (req) => {
       sub_client_id: sub_client_id ?? null,
     }
 
+    // `role` is selected too, not just `id`: it is the only record of what the
+    // account could do before this call, and the dialog names it back to the admin.
+    // For a brand-new user this reads 'resident' — the trigger's default, assigned
+    // moments ago — so consumers must gate on existing_account before quoting it.
     const { data: existingRole } = await supabaseService
       .from('user_roles')
-      .select('id')
+      .select('id, role')
       .eq('user_id', authUserId)
       .maybeSingle()
+
+    const previousRole = existingRole?.role ?? null
 
     if (existingRole) {
       const { error: updateError } = await supabaseService
@@ -429,7 +458,15 @@ serve(async (req) => {
 
     // ── 11. Return result ───────────────────────────────────────────────
 
-    return jsonResponse({ user_id: authUserId, email, role })
+    // existing_account / previous_role are always present, never conditional —
+    // the dialog reads them directly rather than inferring a default.
+    return jsonResponse({
+      user_id: authUserId,
+      email,
+      role,
+      existing_account: existingAccount,
+      previous_role: previousRole,
+    })
   } catch (err) {
     console.error('create-user error:', err)
     return new Response(
