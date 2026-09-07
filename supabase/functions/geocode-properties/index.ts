@@ -4,7 +4,11 @@ import type { Database } from '../_shared/database.types.ts'
 import { withSentry } from '../_shared/sentry.ts'
 import { isServiceRoleBearer } from '../_shared/service-role-auth.ts'
 import { jsonResponse, optionsResponse, errorResponse } from '../_shared/cors.ts'
-import { streetNumbersDisagree, stripPremisePrefix } from '../_shared/geocode-verify.ts'
+import {
+  SERVICE_STATE,
+  stripPremisePrefix,
+  verifyGeocodeResult,
+} from '../_shared/geocode-verify.ts'
 
 type RequestBody = {
   // Restrict to these property ids (admin address edit re-geocode, #502).
@@ -37,6 +41,10 @@ type GeocodeOutcome =
       autocompleteStatus: string
     }
   | { id: string; success: false; error: string }
+  // Google's top result was a DIFFERENT premise (wrong suburb, interstate,
+  // locality-only): nothing was written. Not a failure — the row is fine, the
+  // geocode isn't — so it doesn't 500 the run; it's reported for a human.
+  | { id: string; success: false; rejected: true; reason: string; google: string }
 
 // Dual auth: service-role bearer for CLI/cron callers (import scripts),
 // OR a valid user JWT with a staff role for any admin-UI caller.
@@ -179,6 +187,14 @@ serve(withSentry('geocode-properties', async (req) => {
   // snap): coordinates were written but identity columns were left untouched,
   // so they remain in the null-place_id queue for a future run.
   const snappedRows: Array<{ id: string; address: string; google: string }> = []
+  // Rows whose result failed verification outright (12 Smith St Perth →
+  // Beaconsfield, 10 Market St Kensington → Kensington VIC, 13A Epping Way →
+  // "Wellard WA 6170"): NOTHING was written — those coordinates would have
+  // routed a crew to the wrong suburb via OptimoRoute. They stay in the queue
+  // until the council address is corrected (e.g. postcode appended).
+  const rejectedRows: Array<{ id: string; address: string; google: string; reason: string }> =
+    []
+  let rejected = 0
   const parity: Array<{
     id: string
     address: string
@@ -201,7 +217,13 @@ serve(withSentry('geocode-properties', async (req) => {
           const geoUrl = new URL('https://maps.googleapis.com/maps/api/geocode/json')
           geoUrl.searchParams.set('address', address)
           geoUrl.searchParams.set('key', apiKey)
-          geoUrl.searchParams.set('components', 'country:AU')
+          // administrative_area is bias-only (Google never enforces it) — it
+          // nudges "10 Market St Kensington" toward WA; the verifier below is
+          // what actually rejects an interstate result.
+          geoUrl.searchParams.set(
+            'components',
+            `country:AU|administrative_area:${SERVICE_STATE}`
+          )
 
           const geoRes = await fetch(geoUrl.toString())
           const geoData = await geoRes.json()
@@ -233,7 +255,37 @@ serve(withSentry('geocode-properties', async (req) => {
           // street-number disagreement, store the coordinates only — the row
           // keeps its own address for display/matching, stays in this EF's
           // null-place_id queue, and self-heals once Google learns the lot.
-          const snapped = streetNumbersDisagree(address, googleFormattedAddress)
+          //
+          // Beyond the street number, the result must be an address-level
+          // premise in WA whose locality doesn't contradict the input's
+          // suburb: "12 Smith St Perth" came back as 12 Smith St BEACONSFIELD
+          // (Google read "Perth" as the metro), same number, and the EF
+          // adopted it — wrong coordinates for the crew, and the real
+          // Beaconsfield row's place_id copied onto a Perth MUD (VIN-MUD-104,
+          // 29/07/2026). Those results are rejected with no write at all.
+          const components = (result.address_components ?? []) as Array<{
+            long_name: string
+            short_name: string
+            types: string[]
+          }>
+          const component = (type: string) => components.find((c) => c.types.includes(type))
+          const verdict = verifyGeocodeResult(address, {
+            formattedAddress: googleFormattedAddress,
+            types: Array.isArray(result.types) ? (result.types as string[]) : [],
+            locationType: (result.geometry?.location_type as string | undefined) ?? null,
+            locality: component('locality')?.long_name ?? null,
+            state: component('administrative_area_level_1')?.short_name ?? null,
+          })
+          if (verdict.verdict === 'rejected') {
+            return {
+              id: prop.id,
+              success: false,
+              rejected: true,
+              reason: verdict.reason,
+              google: googleFormattedAddress,
+            }
+          }
+          const snapped = verdict.verdict === 'snapped'
 
           let autocompletePlaceId: string | null = null
           let autocompleteDescription: string | null = null
@@ -328,6 +380,14 @@ serve(withSentry('geocode-properties', async (req) => {
             match: r.autocompletePlaceId === r.placeId,
           })
         }
+      } else if ('rejected' in r) {
+        rejected++
+        rejectedRows.push({
+          id: r.id,
+          address: prop.formatted_address ?? prop.address,
+          google: r.google,
+          reason: r.reason,
+        })
       } else {
         failed++
         errors.push({ id: r.id, error: r.error })
@@ -342,7 +402,7 @@ serve(withSentry('geocode-properties', async (req) => {
   const response: Record<string, unknown> = {
     message: `${dryRun ? 'DRY RUN — ' : ''}Geocoding complete. ${processed} succeeded${
       dryRun ? ' (no writes)' : ' (written)'
-    }, ${failed} failed.`,
+    }, ${failed} failed, ${rejected} rejected (different premise — not written).`,
     total: properties.length,
     processed,
     failed,
@@ -352,6 +412,10 @@ serve(withSentry('geocode-properties', async (req) => {
   if (snappedRows.length > 0) {
     response.snapped = snappedRows.length
     response.snapped_samples = snappedRows.slice(0, 20)
+  }
+  if (rejected > 0) {
+    response.rejected = rejected
+    response.rejected_samples = rejectedRows.slice(0, 20)
   }
   if (compareAutocomplete) {
     const matches = parity.filter((p) => p.match).length

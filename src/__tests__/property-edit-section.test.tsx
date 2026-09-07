@@ -69,6 +69,33 @@ describe('PropertyEditSection (#502)', () => {
     await waitFor(() => expect(h.refresh).toHaveBeenCalled())
   })
 
+  // 12 Smith St Perth → Google returned 12 Smith St BEACONSFIELD (VIN-MUD-104):
+  // the EF now refuses to write that, and the admin must be told WHY the row is
+  // still ungeocoded so they can disambiguate the address (e.g. add the postcode).
+  it('tells the admin when the re-geocode was rejected as a different suburb', async () => {
+    h.updateAddress.mockResolvedValue({ ok: true, data: { property_id: 'p1', changed: true } })
+    h.invokeEf.mockResolvedValue({
+      ok: true,
+      data: {
+        processed: 0,
+        failed: 0,
+        rejected: 1,
+        rejected_samples: [
+          { id: 'p1', address: '12 Smith St Perth', google: '12 Smith St, Beaconsfield WA 6162, Australia', reason: 'locality' },
+        ],
+      },
+    })
+    render(<PropertyEditSection property={property} areas={areas} bookingStatuses={[]} role="client-admin" />)
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
+    fireEvent.change(screen.getByLabelText('Address'), { target: { value: '12 Smith St Perth' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => expect(h.invokeEf).toHaveBeenCalled())
+    expect(await screen.findByText(/12 Smith St, Beaconsfield WA 6162/)).toBeInTheDocument()
+    expect(screen.getByText(/different suburb/)).toBeInTheDocument()
+    expect(screen.getByText(/postcode/)).toBeInTheDocument()
+  })
+
   it('contractor moving area (no live bookings) calls moveEligiblePropertyArea', async () => {
     h.moveArea.mockResolvedValue({ ok: true, data: { property_id: 'p1' } })
     render(<PropertyEditSection property={property} areas={areas} bookingStatuses={['Completed']} role="contractor-staff" />)

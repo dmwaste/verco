@@ -22,3 +22,4 @@ An ADR — "architecture decision record" — is a short record of a decision we
 | [0016](0016-legacy-surveys-without-bookings.md) | Imported Airtable surveys live in Verco without a booking | 23/08/2026 | Accepted |
 | [0017](0017-monthly-client-report-bills-attended-collections.md) | The monthly client report bills attended collections, not just clean ones | 25/08/2026 | Accepted |
 | [0018](0018-rescheduling-cancels-the-old-days-job-immediately.md) | A rescheduled booking reaches OptimoRoute before the crews get their routes at 8pm | 27/08/2026 | Accepted |
+| [0021](0021-geocoder-refuses-a-match-in-the-wrong-suburb.md) | The geocoder refuses a match in the wrong suburb rather than storing it | 02/09/2026 | Accepted |

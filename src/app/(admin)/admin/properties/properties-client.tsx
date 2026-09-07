@@ -218,6 +218,7 @@ export function PropertiesClient({ clientId, isContractorAdmin, canManageAllocat
     const MAX_ITERATIONS = 100 // backstop against an unexpected non-terminating loop
     let totalProcessed = 0
     let residualFailed = 0
+    let residualRejected = 0
 
     try {
       for (let i = 0; i < MAX_ITERATIONS; i++) {
@@ -225,6 +226,7 @@ export function PropertiesClient({ clientId, isContractorAdmin, canManageAllocat
           processed?: number
           failed?: number
           total?: number
+          rejected?: number
         }>(supabase, 'geocode-properties', { limit: CHUNK })
 
         if (!efResult.ok) {
@@ -233,19 +235,23 @@ export function PropertiesClient({ clientId, isContractorAdmin, canManageAllocat
           return
         }
 
-        const { processed = 0, failed = 0, total = 0 } = efResult.data
+        const { processed = 0, failed = 0, total = 0, rejected = 0 } = efResult.data
         totalProcessed += processed
 
         // No rows left to geocode — clean finish.
         if (total === 0) {
           residualFailed = 0
+          residualRejected = 0
           break
         }
         // The chunk advanced nothing: only permanently-unmatchable rows remain
         // (they keep google_place_id NULL, so looping again refetches the same
-        // set). Stop and surface them rather than spin.
+        // set). Stop and surface them rather than spin. Rejected = Google
+        // matched a different suburb / interstate / no street-level result and
+        // the EF wrote nothing; those addresses need a human to disambiguate.
         if (processed === 0) {
           residualFailed = failed
+          residualRejected = rejected
           break
         }
 
@@ -254,7 +260,10 @@ export function PropertiesClient({ clientId, isContractorAdmin, canManageAllocat
 
       setGeocodeResult(
         `Geocoded ${totalProcessed} propert${totalProcessed === 1 ? 'y' : 'ies'}` +
-          (residualFailed ? `, ${residualFailed} could not be matched` : '')
+          (residualFailed ? `, ${residualFailed} could not be matched` : '') +
+          (residualRejected
+            ? `, ${residualRejected} rejected (Google matched a different suburb — open the property and add its suburb and postcode)`
+            : '')
       )
       void queryClient.invalidateQueries({ queryKey: ['admin-properties'] })
       void queryClient.invalidateQueries({ queryKey: ['ungeocoded-count'] })
