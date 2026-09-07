@@ -4,6 +4,7 @@ import type { Database, TablesInsert, TablesUpdate } from '../_shared/database.t
 import { z } from 'https://esm.sh/zod@3.23.8'
 import { corsHeaders, jsonResponse, optionsResponse, errorResponse } from '../_shared/cors.ts'
 import { sendEmail } from '../_shared/sendgrid.ts'
+import { resolveWelcomeLoginBaseUrl } from '../_shared/welcome-login-url.ts'
 
 // ── Role classification ─────────────────────────────────────────────────────
 
@@ -363,21 +364,18 @@ serve(async (req) => {
 
     const roleLabel = ROLE_LABELS[role] ?? role
 
-    // Resolve the login URL to the user's tenant subdomain. The SITE_URL
-    // env var / verco.au fallback points to the marketing site (no /auth
-    // route) — clicking the welcome-email button there 404s. Per-tenant
-    // resolution mirrors the proxy logic: custom_domain → slug.verco.au.
-    let loginBaseUrl: string
-    if (client_id && tenantCustomDomain) {
-      loginBaseUrl = `https://${tenantCustomDomain}`
-    } else if (client_id && tenantSlug) {
-      loginBaseUrl = `https://${tenantSlug}.verco.au`
-    } else {
-      // Contractor roles have no canonical tenant subdomain — the proxy
-      // resolves them by whichever hostname they land on. Fall back to
-      // SITE_URL; follow-up if this surfaces during UAT.
-      loginBaseUrl = Deno.env.get('SITE_URL') ?? 'https://verco.au'
-    }
+    // Resolve the login URL. Field-tier roles (ranger, field) go to the
+    // dedicated field host — the ranger guide says field.verco.au, so the
+    // welcome button must agree. Office roles resolve to the tenant host
+    // (custom_domain → slug.verco.au); contractor office staff fall back to
+    // SITE_URL (no canonical tenant). See _shared/welcome-login-url.ts.
+    const loginBaseUrl = resolveWelcomeLoginBaseUrl({
+      role,
+      clientId: client_id,
+      tenantCustomDomain,
+      tenantSlug,
+      siteUrl: Deno.env.get('SITE_URL') ?? 'https://verco.au',
+    })
 
     sendEmail({
       to: { email, name: full_name },
