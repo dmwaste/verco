@@ -10,6 +10,7 @@ import { createClient } from '@/lib/supabase/client'
 import { fetchAccessibleClientOptions } from '@/lib/admin/accessible-clients'
 import { invokeEfWithUserToken } from '@/lib/supabase/invoke-ef-client'
 import { normaliseAuMobile, formatAuMobileDisplay } from '@/lib/booking/schemas'
+import { normaliseEmail } from '@/lib/email'
 import type { Database } from '@/lib/supabase/types'
 import { FieldLabel, Input, Select } from '@/components/admin/form'
 
@@ -34,7 +35,9 @@ const UserFormSchema = z
   .object({
     first_name: z.string().min(1, 'First name is required').max(100),
     last_name: z.string().min(1, 'Last name is required').max(100),
-    email: z.string().email('Please enter a valid email'),
+    // Canonicalised before it leaves the form so the success message and the
+    // request body show the address as auth will store it (#575).
+    email: z.string().email('Please enter a valid email').transform(normaliseEmail),
     mobile_e164: z
       .string()
       .transform((val) => val.replace(/[\s\-()]+/g, ''))
