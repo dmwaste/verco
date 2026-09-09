@@ -74,6 +74,8 @@ async function setupMocks(page: Page, options?: {
   priorUsage?: Array<{ service_id: string; no_services: number }>
   /** Admin allocation top-ups returned by get_property_allocation_overrides. */
   overrides?: Array<{ service_id: string; extra_allocations: number }>
+  /** FY booking history returned by get_property_fy_booking_history (#582). */
+  priorBookings?: Array<{ ref: string; status: string; created_at: string }>
   createBookingResult?: Record<string, unknown>
   inactiveArea?: boolean
   /** When set, the client's terms_markdown — drives the T&Cs acceptance gate. */
@@ -192,6 +194,18 @@ async function setupMocks(page: Page, options?: {
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify(options?.overrides ?? []),
+      })
+    }
+
+    // get_property_fy_booking_history RPC — the address panel's Booking history
+    // list reads through this SECURITY DEFINER function (#582). The direct
+    // `booking` read below keeps returning [] — exactly what prod RLS gives an
+    // anonymous /book visitor — so a consumer still on the direct read fails.
+    if (url.includes('rpc/get_property_fy_booking_history')) {
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(options?.priorBookings ?? []),
       })
     }
 
@@ -696,5 +710,30 @@ test.describe('Booking Flow', () => {
     // Ancillary: 2 used of 3 effective (2 base + 1 override) → 1 remaining
     await expect(page.getByText('2 of 3 included used')).toBeVisible()
     await expect(page.getByText('1 remaining')).toBeVisible()
+  })
+
+  test('address lookup — booking history agrees with the allocation tile for an anonymous visitor', async ({ page }) => {
+    // Regression (#582 / BR-0037): the history list read `booking` directly.
+    // Every SELECT policy on booking needs an authenticated identity and /book
+    // renders pre-OTP as anon, so the panel said "No bookings yet for this
+    // financial year" directly under a tile reporting real usage. History now
+    // comes from the PII-free get_property_fy_booking_history DEFINER RPC.
+    await setupMocks(page, {
+      priorUsage: [{ service_id: 'svc-general', no_services: 1 }],
+      priorBookings: [
+        { ref: 'KWN-2-HIST01', status: 'Completed', created_at: '2026-07-14T02:00:00Z' },
+      ],
+    })
+
+    await page.goto('/book')
+    await page.getByPlaceholder('Start typing your address...').fill('23 Leda')
+    await page.getByText('23 Leda Blvd, Wellard WA 6170').click()
+    await expect(page.getByText('Property found!')).toBeVisible()
+
+    // Tile and history must describe the same property in the same FY.
+    await expect(page.getByText('1 of 3 included used')).toBeVisible()
+    await expect(page.getByText('KWN-2-HIST01')).toBeVisible()
+    await expect(page.getByText('Completed', { exact: true })).toBeVisible()
+    await expect(page.getByText('No bookings yet for this financial year.')).toHaveCount(0)
   })
 })
