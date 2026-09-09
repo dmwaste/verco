@@ -141,7 +141,11 @@ describe('fetchRunStops', () => {
     expect(calls.filters).toContainEqual(['eq', 'driver_serial', 'KWN1'])
     expect(calls.orders[0]).toEqual(['stop_sequence', { ascending: true, nullsFirst: false }])
     expect(calls.orders).toContainEqual(['id', undefined])
-    expect(calls.select).toContain('booking:booking_id(id, ref, status, type)')
+    // Job-type badge: booking.type plus the property's unit_count (MUD block
+    // size) — a PII-free render-time embed, never denormalised onto the stop.
+    expect(calls.select).toContain(
+      'booking:booking_id(id, ref, status, type, property:property_id(unit_count))',
+    )
     // #487: the card needs the client's mattress-logging pass to swap the
     // quick "Done" button for the Enter Count link.
     expect(calls.select).toContain('client:client_id(mattress_closeout_stream)')

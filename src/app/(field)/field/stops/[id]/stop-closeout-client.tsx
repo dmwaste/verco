@@ -4,6 +4,7 @@ import { Suspense, useState } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { VercoButton } from '@/components/ui/verco-button'
+import { BookingTypeBadge } from '@/components/field/booking-type-badge'
 import { StreamBadge } from '@/components/field/stream-badge'
 import { StopStatusBadge } from '@/components/field/stop-status-badge'
 import { getStopMapsUrl, STREAM_LABEL } from '@/lib/stops/labels'
@@ -38,6 +39,8 @@ export interface StopDetail {
     type: string
     location: string | null
     notes: string | null
+    /** MUD block size; null for ID bookings (no property). Must be selected by page.tsx. */
+    property: { unit_count: number } | null
     booking_item: StopBookingItem[]
   }
 }
@@ -139,8 +142,12 @@ function CloseoutInner({ stop, runHref, mattressRequired }: StopCloseoutClientPr
         </Link>
         <div className="flex items-center justify-between">
           <div>
-            <div className="flex items-center gap-2 font-[family-name:var(--font-heading)] text-base font-bold text-[var(--brand)]">
+            <div className="flex flex-wrap items-center gap-2 font-[family-name:var(--font-heading)] text-base font-bold text-[var(--brand)]">
               {stop.booking.ref}
+              <BookingTypeBadge
+                type={stop.booking.type}
+                unitCount={stop.booking.property?.unit_count}
+              />
               {stop.stop_sequence !== null && (
                 <span className="rounded-md bg-[#E8EEF2] px-1.5 py-0.5 text-caption font-bold text-[var(--brand)]">
                   #{stop.stop_sequence}
@@ -162,7 +169,6 @@ function CloseoutInner({ stop, runHref, mattressRequired }: StopCloseoutClientPr
         <div className="flex flex-col gap-2 rounded-xl bg-white p-3.5 shadow-sm">
           <div className="text-2xs font-semibold uppercase tracking-wide text-gray-500">
             {STREAM_LABEL[stop.stream]} Pass
-            {isMud && ' · MUD'}
           </div>
           <div className="flex justify-between border-b border-gray-100 py-1 text-body-sm">
             <span className="text-xs text-gray-500">Location</span>

@@ -3,11 +3,13 @@ import {
   planStopChanges,
   buildOrderNo,
   buildOrderNotes,
+  bookingTypeTag,
   buildServicesSummary,
   canStopTransition,
   computeRollup,
   groupItemsByStream,
   num,
+  orderTypeLine,
   partitionPushResults,
   payloadDiffers,
   STOP_DURATION_MINUTES,
@@ -18,6 +20,7 @@ import {
   stopItemKey,
   vehicleFeaturesForStream,
   wasteLocationOrNull,
+  type BookingTypeTag,
   type ServiceSummaryEntry,
   type StopDiffDesired,
   type StopDiffExisting,
@@ -290,6 +293,70 @@ describe('buildOrderNotes — structured OptimoRoute notes block', () => {
   it('renders empty notes for a fully empty stop', () => {
     expect(buildOrderNotes([])).toBe('')
     expect(buildOrderNotes([], null, null)).toBe('')
+  })
+})
+
+describe('bookingTypeTag — job-type marker shared by the crew badge and the OR notes', () => {
+  it('tags a MUD booking with its unit count', () => {
+    expect(bookingTypeTag('MUD', 38)).toEqual({ code: 'MUD', units: 38 })
+  })
+
+  it('drops the unit count for 0 (not yet recorded), 1 (column default) and null', () => {
+    // eligible_properties.unit_count is NOT NULL DEFAULT 1 and migration
+    // 20260522143000 made 0 legal ("not yet recorded") — neither is a real count.
+    expect(bookingTypeTag('MUD', 0)).toEqual({ code: 'MUD', units: null })
+    expect(bookingTypeTag('MUD', 1)).toEqual({ code: 'MUD', units: null })
+    expect(bookingTypeTag('MUD', null)).toEqual({ code: 'MUD', units: null })
+    expect(bookingTypeTag('MUD', undefined)).toEqual({ code: 'MUD', units: null })
+  })
+
+  it('tags an Illegal Dumping booking as ID and ignores any unit count (no property)', () => {
+    expect(bookingTypeTag('Illegal Dumping', null)).toEqual({ code: 'ID', units: null })
+    expect(bookingTypeTag('Illegal Dumping', 12)).toEqual({ code: 'ID', units: null })
+  })
+
+  it('returns null for residential and call-back bookings', () => {
+    expect(bookingTypeTag('Residential', 1)).toBeNull()
+    expect(bookingTypeTag('Call Back - DM', 1)).toBeNull()
+    expect(bookingTypeTag('Call Back - Client', 1)).toBeNull()
+  })
+})
+
+describe('orderTypeLine — the Type: value for the OR notes block', () => {
+  it('spells out MUD with the unit count', () => {
+    const tag: BookingTypeTag = { code: 'MUD', units: 38 }
+    expect(orderTypeLine(tag)).toBe('MUD (38 units)')
+  })
+
+  it('bare MUD when the unit count is unknown', () => {
+    expect(orderTypeLine({ code: 'MUD', units: null })).toBe('MUD')
+  })
+
+  it('spells out Illegal Dumping in full for ops', () => {
+    expect(orderTypeLine({ code: 'ID', units: null })).toBe('Illegal Dumping')
+  })
+
+  it('is null for an untagged booking', () => {
+    expect(orderTypeLine(null)).toBeNull()
+  })
+})
+
+describe('buildOrderNotes — Type line (job type) leads the block', () => {
+  const summary = [{ name: 'Bulk Waste', qty: 1 }]
+
+  it('puts the Type line FIRST when supplied', () => {
+    expect(buildOrderNotes(summary, 'Front Verge', 'Side street', 'MUD (38 units)')).toBe(
+      'Type: MUD (38 units)\nServices: Bulk Waste x1\nLocation: Front Verge\nNotes: Side street',
+    )
+  })
+
+  it('a Type line alone renders with no stray newline', () => {
+    expect(buildOrderNotes([], null, null, 'Illegal Dumping')).toBe('Type: Illegal Dumping')
+  })
+
+  it('omits the Type line when null or blank', () => {
+    expect(buildOrderNotes(summary, null, null, null)).toBe('Services: Bulk Waste x1')
+    expect(buildOrderNotes(summary, null, null, '  ')).toBe('Services: Bulk Waste x1')
   })
 })
 

@@ -41,7 +41,7 @@ describe('field run cards link through to their detail page', () => {
         scheduled_at: '08:30:00',
         driver_serial: 'T-01',
         driver_name: 'Driver A',
-        booking: { id: 'b1', ref: 'VV-STOP1', status: 'Scheduled', type: 'Residential' },
+        booking: { id: 'b1', ref: 'VV-STOP1', status: 'Scheduled', type: 'Residential', property: null },
         client: null,
       },
     ]
@@ -139,7 +139,7 @@ describe('run-sheet stop card surfaces waste location + driver notes', () => {
     scheduled_at: '08:30:00',
     driver_serial: 'T-01',
     driver_name: 'Driver A',
-    booking: { id: 'b2', ref: 'VV-STOP2', status: 'Scheduled', type: 'Residential' },
+    booking: { id: 'b2', ref: 'VV-STOP2', status: 'Scheduled', type: 'Residential', property: null },
     client: null,
   }
 
@@ -182,7 +182,7 @@ describe('run-sheet quick-complete vs count entry (#487)', () => {
     scheduled_at: null,
     driver_serial: 'VV-01',
     driver_name: 'Driver B',
-    booking: { id: 'b4', ref: 'VV-STOP4', status: 'Scheduled', type: 'Residential' },
+    booking: { id: 'b4', ref: 'VV-STOP4', status: 'Scheduled', type: 'Residential', property: null },
     client: { mattress_closeout_stream: 'general' },
   }
 
@@ -208,5 +208,90 @@ describe('run-sheet quick-complete vs count entry (#487)', () => {
     )
     expect(screen.getByRole('button', { name: /Done/ })).toBeInTheDocument()
     expect(screen.queryByRole('link', { name: 'Enter Count' })).not.toBeInTheDocument()
+  })
+})
+
+describe('run-sheet stop card marks MUD and ID jobs (job-type badge)', () => {
+  const base: ComponentProps<typeof RunSheetStopsClient>['stops'][number] = {
+    id: 'stop-6',
+    stream: 'general',
+    status: 'Pending',
+    address: '12 Strata Way, Mosman Park WA 6012',
+    latitude: -32.0,
+    longitude: 115.76,
+    services_summary: [{ name: 'Bulk Waste', qty: 4 }],
+    waste_location: null,
+    driver_notes: null,
+    stop_sequence: 3,
+    scheduled_at: null,
+    driver_serial: 'VV-01',
+    driver_name: 'Driver B',
+    booking: { id: 'b6', ref: 'VV-STOP6', status: 'Scheduled', type: 'Residential', property: null },
+    client: null,
+  }
+
+  it('a MUD stop shows the MUD badge with the unit count and still routes to Enter Count', () => {
+    render(
+      <RunSheetStopsClient
+        date="2026-06-16"
+        driverSerial="VV-01"
+        stops={[
+          {
+            ...base,
+            booking: { ...base.booking, type: 'MUD', property: { unit_count: 38 } },
+          },
+        ]}
+        runMeta={null}
+      />,
+    )
+    expect(screen.getByText('MUD · 38 units')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Enter Count' })).toBeInTheDocument()
+  })
+
+  it('an Illegal Dumping stop shows the ID badge', () => {
+    render(
+      <RunSheetStopsClient
+        date="2026-06-16"
+        driverSerial="VV-01"
+        stops={[
+          {
+            ...base,
+            id: 'stop-7',
+            stream: 'illegal_dumping',
+            services_summary: [{ name: 'Illegal Dumping', qty: 1 }],
+            booking: { ...base.booking, ref: 'VV-STOP7', type: 'Illegal Dumping', property: null },
+          },
+        ]}
+        runMeta={null}
+      />,
+    )
+    expect(screen.getByText('ID')).toBeInTheDocument()
+  })
+
+  it('a residential stop carries no job-type badge', () => {
+    render(
+      <RunSheetStopsClient date="2026-06-16" driverSerial="VV-01" stops={[base]} runMeta={null} />,
+    )
+    expect(screen.queryByText(/^MUD/)).not.toBeInTheDocument()
+    expect(screen.queryByText('ID')).not.toBeInTheDocument()
+  })
+
+  it('a cancelled MUD stop keeps its badge in the cancelled list', () => {
+    render(
+      <RunSheetStopsClient
+        date="2026-06-16"
+        driverSerial="VV-01"
+        stops={[
+          {
+            ...base,
+            id: 'stop-8',
+            status: 'Cancelled',
+            booking: { ...base.booking, ref: 'VV-STOP8', type: 'MUD', property: { unit_count: 12 } },
+          },
+        ]}
+        runMeta={null}
+      />,
+    )
+    expect(screen.getByText('MUD · 12 units')).toBeInTheDocument()
   })
 })

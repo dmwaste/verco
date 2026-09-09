@@ -278,23 +278,65 @@ export function planStopChanges<D extends PlanDesiredStop>(
 }
 
 /**
- * Structured OptimoRoute order notes — a labelled block the crew reads in the
- * driver app / order detail, e.g.
+ * Job-type marker shared by the crew badge and the OR notes block, so the two
+ * can never disagree. Keyed on booking.type (the canonical discriminator —
+ * every run-sheet consumer already joins it); read at render/push time, never
+ * denormalised onto collection_stop.
  *
+ * `units` is set ONLY when unitCount >= 2. That guard is load-bearing, not
+ * defensive: eligible_properties.unit_count is NOT NULL DEFAULT 1, and
+ * migration 20260522143000 dropped the >= 8 check with "unit_count=0 is valid
+ * and means not yet recorded" — so 0 and 1 both mean "unknown", never a real
+ * block size. Illegal Dumping bookings have no property, so units is always
+ * null for them.
+ */
+export interface BookingTypeTag {
+  code: 'MUD' | 'ID'
+  units: number | null
+}
+
+export function bookingTypeTag(
+  type: string,
+  unitCount: number | null | undefined,
+): BookingTypeTag | null {
+  if (type === 'MUD') {
+    return { code: 'MUD', units: typeof unitCount === 'number' && unitCount >= 2 ? unitCount : null }
+  }
+  if (type === 'Illegal Dumping') return { code: 'ID', units: null }
+  return null
+}
+
+/** The value after `Type:` in the OR notes block — spelled out for ops. */
+export function orderTypeLine(tag: BookingTypeTag | null): string | null {
+  if (!tag) return null
+  if (tag.code === 'ID') return 'Illegal Dumping'
+  return tag.units !== null ? `MUD (${tag.units} units)` : 'MUD'
+}
+
+/**
+ * Structured OptimoRoute order notes — a labelled block ops read in the OR
+ * web order detail, e.g.
+ *
+ *   Type: MUD (38 units)
  *   Services: E-Waste x1, Mattress x2
  *   Location: Front Verge
  *   Notes: Will be on the side street of the property
  *
  * Each line is omitted when its source is empty (a bare bulk stop is just
- * "Services: Bulk Waste x1"). location = booking.location (waste placement),
- * driverNotes = booking.notes (resident instructions for the crew).
+ * "Services: Bulk Waste x1"). typeLine = orderTypeLine(bookingTypeTag(...)),
+ * FIRST so it's visible in truncated order lists; location = booking.location
+ * (waste placement); driverNotes = booking.notes (resident instructions).
  */
 export function buildOrderNotes(
   summary: ServiceSummaryEntry[],
   location?: string | null,
   driverNotes?: string | null,
+  typeLine?: string | null,
 ): string {
   const lines: string[] = []
+  if (typeLine && typeLine.trim() !== '') {
+    lines.push(`Type: ${typeLine.trim()}`)
+  }
   if (summary.length > 0) {
     lines.push(`Services: ${summary.map((s) => `${s.name} x${s.qty}`).join(', ')}`)
   }

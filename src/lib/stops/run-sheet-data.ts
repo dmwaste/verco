@@ -34,7 +34,20 @@ export interface RunStop {
   scheduled_at: string | null
   driver_serial: string | null
   driver_name: string | null
-  booking: { id: string; ref: string; status: string; type: string }
+  /**
+   * booking.type is the job-type discriminator (MUD / Illegal Dumping); the
+   * property's unit_count is the MUD block size. Both are read at render time
+   * — never denormalised onto the stop. property is null for ID bookings
+   * (no property_id). Required, not optional, so a forgotten select edit
+   * can't hide behind a cast.
+   */
+  booking: {
+    id: string
+    ref: string
+    status: string
+    type: string
+    property: { unit_count: number } | null
+  }
   /** Mattress-logging pass for the stop's tenant (#487); NULL = never logs. */
   client: { mattress_closeout_stream: WasteStream | null } | null
 }
@@ -113,7 +126,7 @@ export async function fetchRunStops(
         `id, stream, status, address, latitude, longitude, services_summary,
          waste_location, driver_notes,
          stop_sequence, scheduled_at, driver_serial, driver_name,
-         booking:booking_id(id, ref, status, type),
+         booking:booking_id(id, ref, status, type, property:property_id(unit_count)),
          client:client_id(mattress_closeout_stream),
          collection_date!inner(date)`,
       )

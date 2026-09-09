@@ -27,6 +27,7 @@ export default async function StopCloseoutPage({ params }: StopCloseoutPageProps
        client:client_id(mattress_closeout_stream),
        booking:booking_id(
          id, ref, status, type, location, notes,
+         property:property_id(unit_count),
          booking_item(id, no_services, actual_services, is_extra,
            service!inner(name, waste_stream))
        )`,
