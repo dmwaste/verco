@@ -4,11 +4,13 @@ import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supa
 import type { Database, Json, TablesInsert } from '../_shared/database.types.ts'
 import { awstDateFromUtc } from '../_shared/schedule-transition.ts'
 import {
+  bookingTypeTag,
   buildOrderNo,
   buildOrderNotes,
   buildServicesSummary,
   groupItemsByStream,
   num,
+  orderTypeLine,
   partitionPushResults,
   planStopChanges,
   shouldCancelOrphanStop,
@@ -473,24 +475,36 @@ serve(cronHandler('push-orders-to-optimoroute', async (_req) => {
     )
 
     if (stops.length > 0) {
-      // Resident emails for OR order notifications, joined at push time only:
-      // collection_stop is PII-free by design, so email is never persisted on
-      // the stop (booking → contact → email).
+      // Per-booking context joined at push time only — collection_stop is
+      // PII-free by design, so nothing here is persisted on the stop:
+      //   • resident email (booking → contact → email) for OR order notifications
+      //   • job type + MUD unit count (booking.type, property.unit_count) for the
+      //     notes block's leading "Type:" line, so ops see MUD / ID while
+      //     route-planning. Read here rather than denormalised onto the stop:
+      //     no new column, nothing in payloadDiffers, no refresh storm.
       const bookingIds = [...new Set(stops.map((s) => s.booking_id))]
       const emailByBooking = new Map<string, string>()
+      const typeLineByBooking = new Map<string, string>()
       if (bookingIds.length > 0) {
-        const emailRows = await fetchAll<{ id: string; contact: { email: string | null } | null }>(
+        const bookingRows = await fetchAll<{
+          id: string
+          type: string
+          contact: { email: string | null } | null
+          property: { unit_count: number } | null
+        }>(
           (from, to) =>
             supabase
               .from('booking')
-              .select('id, contact:contact_id(email)')
+              .select('id, type, contact:contact_id(email), property:property_id(unit_count)')
               .in('id', bookingIds)
               .order('id')
               .range(from, to),
-          'booking email fetch',
+          'booking context fetch',
         )
-        for (const b of emailRows) {
+        for (const b of bookingRows) {
           if (b.contact?.email) emailByBooking.set(b.id, b.contact.email)
+          const typeLine = orderTypeLine(bookingTypeTag(b.type, b.property?.unit_count))
+          if (typeLine) typeLineByBooking.set(b.id, typeLine)
         }
       }
 
@@ -510,7 +524,12 @@ serve(cronHandler('push-orders-to-optimoroute', async (_req) => {
           duration: STOP_DURATION_MINUTES,
           priority: STREAM_PRIORITY[stop.stream],
           vehicleFeatures: vehicleFeaturesForStream(stop.stream),
-          notes: buildOrderNotes(stop.services_summary ?? [], stop.waste_location, stop.driver_notes),
+          notes: buildOrderNotes(
+            stop.services_summary ?? [],
+            stop.waste_location,
+            stop.driver_notes,
+            typeLineByBooking.get(stop.booking_id) ?? null,
+          ),
           email: emailByBooking.get(stop.booking_id),
           location:
             stop.latitude !== null && stop.longitude !== null

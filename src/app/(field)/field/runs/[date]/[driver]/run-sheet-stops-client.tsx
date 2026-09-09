@@ -4,6 +4,7 @@ import { useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { format, parseISO } from 'date-fns'
+import { BookingTypeBadge } from '@/components/field/booking-type-badge'
 import { StreamBadge } from '@/components/field/stream-badge'
 import { StopStatusBadge } from '@/components/field/stop-status-badge'
 import { getStopMapsUrl, splitAddress, formatTime } from '@/lib/stops/labels'
@@ -57,12 +58,17 @@ function StopCard({ stop, error, isPending, onComplete }: StopCardProps) {
           {stop.stop_sequence ?? '—'}
         </div>
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-1.5">
+          {/* Wraps so the job-type pill drops under the ref on a narrow phone
+              instead of truncating the ref to make room. */}
+          <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1">
             <span className="truncate font-[family-name:var(--font-heading)] text-xs font-semibold text-[#8FA5B8]">
               {stop.booking.ref}
-              {isMud && ' · MUD'}
             </span>
             {eta && <span className="text-caption text-gray-400">~{eta}</span>}
+            <BookingTypeBadge
+              type={stop.booking.type}
+              unitCount={stop.booking.property?.unit_count}
+            />
           </div>
           <div className="text-sm font-semibold leading-snug text-[var(--brand)]">
             {street}
@@ -348,8 +354,12 @@ export function RunSheetStopsClient({
                 className="flex items-center justify-between rounded-xl bg-white p-3.5 opacity-50 shadow-sm"
               >
                 <div>
-                  <div className="text-xs font-semibold text-[#8FA5B8]">
+                  <div className="flex items-center gap-1.5 text-xs font-semibold text-[#8FA5B8]">
                     {stop.booking.ref}
+                    <BookingTypeBadge
+                      type={stop.booking.type}
+                      unitCount={stop.booking.property?.unit_count}
+                    />
                   </div>
                   <div className="text-sm font-medium text-gray-500 line-through">
                     {street}

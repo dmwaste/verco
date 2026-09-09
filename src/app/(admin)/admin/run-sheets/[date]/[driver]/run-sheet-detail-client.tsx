@@ -4,6 +4,7 @@ import { format, parseISO } from 'date-fns'
 import { DetailHeader } from '@/components/admin/detail-header'
 import { Th } from '@/components/admin/th'
 import { StatusBadge } from '@/components/status-badge'
+import { BookingTypeBadge } from '@/components/field/booking-type-badge'
 import { StopStatusBadge } from '@/components/field/stop-status-badge'
 import { getStopMapsUrl, splitAddress, formatTime } from '@/lib/stops/labels'
 import {
@@ -121,7 +122,12 @@ export function RunSheetDetailClient({
                       {suburb && <div className="text-body-sm text-gray-500">{suburb}</div>}
                       <div className="text-caption text-gray-400">
                         {stop.booking.ref}
-                        {stop.booking.type === 'MUD' && ' · MUD'}
+                        {/* Job-type marker prints with the sheet — never print:hidden. */}
+                        <BookingTypeBadge
+                          type={stop.booking.type}
+                          unitCount={stop.booking.property?.unit_count}
+                          className="ml-1 align-middle"
+                        />
                       </div>
                       {mapsUrl && (
                         <a
