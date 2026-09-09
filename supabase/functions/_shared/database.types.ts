@@ -2879,6 +2879,14 @@ export type Database = {
           service_id: string
         }[]
       }
+      get_property_fy_booking_history: {
+        Args: { p_fy_id?: string; p_property_id: string }
+        Returns: {
+          created_at: string
+          ref: string
+          status: Database["public"]["Enums"]["booking_status"]
+        }[]
+      }
       get_property_fy_usage: {
         Args: {
           p_exclude_booking_id?: string
