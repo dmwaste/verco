@@ -326,14 +326,15 @@ export function AddressForm({
         }
       })
 
-      const { data: bookings } = await supabase
-        .from('booking')
-        .select('ref, status, created_at')
-        .eq('property_id', selectedProperty.id)
-        .eq('fy_id', fy.id)
-        .not('status', 'in', '("Cancelled","Pending Payment")')
-        .order('created_at', { ascending: false })
-        .limit(5)
+      // Booking history via the companion SECURITY DEFINER RPC (#582) — the
+      // same pre-OTP trap as the usage count above: every SELECT policy on
+      // `booking` needs an authenticated identity, so a direct read returned
+      // zero rows here and the panel said "No bookings yet" directly under a
+      // tile reporting real usage. PII-free (ref, status, created_at), newest 5.
+      const { data: bookings } = await supabase.rpc('get_property_fy_booking_history', {
+        p_property_id: selectedProperty.id,
+        p_fy_id: fy.id,
+      })
 
       return { fy, allocations, bookings: bookings ?? [], swapDelta }
     },
