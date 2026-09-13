@@ -13,7 +13,7 @@ import { VercoButton } from '@/components/ui/verco-button'
 import type { Database } from '@/lib/supabase/types'
 import { MattressCounter } from './mattress-counter'
 import type { StopDetail } from './stop-closeout-client'
-import { reloadIfStaleAction } from '@/lib/bundle/stale-action'
+import { staleActionMessage } from '@/lib/bundle/stale-action'
 
 type NcnReason = Database['public']['Enums']['ncn_reason']
 
@@ -115,11 +115,8 @@ export function StopNcnForm({
       router.push(runHref)
       router.refresh()
     } catch (err) {
-      if (reloadIfStaleAction(err)) {
-        setError('App updated — reloading…')
-        return
-      }
-      setError('No connection — check signal and retry.')
+      // A stale post-deploy bundle reloads once (ADR 0023); anything else is signal.
+      setError(staleActionMessage(err) ?? 'No connection — check signal and retry.')
     } finally {
       setIsSubmitting(false)
     }

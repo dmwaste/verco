@@ -26,4 +26,4 @@ An ADR — "architecture decision record" — is a short record of a decision we
 | [0020](0020-pooled-councils-accept-mud-bookings-on-any-open-date.md) | Pooled councils accept MUD bookings on any open collection date | 01/09/2026 | Accepted |
 | [0021](0021-geocoder-refuses-a-match-in-the-wrong-suburb.md) | The geocoder refuses a match in the wrong suburb rather than storing it | 02/09/2026 | Accepted |
 | [0022](0022-mattress-counts-crew-logged-at-closeout-one-daily-series.md) | Mattress counts: crews log at bulk closeout; one daily series feeds every report | 01/08/2026 | Accepted (mandatory-count clause superseded by 0011) |
-| [0023](0023-stale-build-reloads-on-next-navigation.md) | Every crew and admin screen swaps a stale app build for the live one on its next navigation | 13/09/2026 | Accepted |
+| [0023](0023-stale-build-reloads-on-first-failed-save.md) | A stale app build reloads itself the first time a save fails, on every screen | 13/09/2026 | Accepted |
