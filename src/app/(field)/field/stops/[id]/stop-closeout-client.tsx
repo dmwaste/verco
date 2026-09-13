@@ -14,6 +14,7 @@ import { MattressCounter } from './mattress-counter'
 import { StopNcnForm } from './stop-ncn-form'
 import { StopNpForm } from './stop-np-form'
 import { StopMudForm } from './stop-mud-form'
+import { reloadIfStaleAction } from '@/lib/bundle/stale-action'
 
 interface StopBookingItem {
   id: string
@@ -120,7 +121,11 @@ function CloseoutInner({ stop, runHref, mattressRequired }: StopCloseoutClientPr
       }
       router.push(runHref)
       router.refresh()
-    } catch {
+    } catch (err) {
+      if (reloadIfStaleAction(err)) {
+        setError('App updated — reloading…')
+        return
+      }
       setError('No connection — check signal and retry.')
     } finally {
       setIsPending(false)

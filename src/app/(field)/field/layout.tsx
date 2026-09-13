@@ -4,6 +4,7 @@ import { headers } from 'next/headers'
 import { createClient } from '@/lib/supabase/server'
 import { getRangerScope } from '@/lib/field/ranger-scope'
 import { FieldLayoutClient } from './field-layout-client'
+import { BundleFreshness } from '@/components/bundle-freshness'
 
 // PWA metadata scoped to the field surface via this nested layout — a root
 // app/manifest.ts would advertise the Verco-brand manifest on white-label
@@ -102,6 +103,8 @@ export default async function FieldLayout({
         '--brand-accent-dark': `color-mix(in srgb, ${accentColour} 75%, black)`,
       } as React.CSSProperties}
     >
+      {/* Stale-bundle self-heal on every navigation (ADR 0023). */}
+      <BundleFreshness />
       <FieldLayoutClient role={role} roleLabel={roleLabel} areaCodes={areaCodes}>
         {children}
       </FieldLayoutClient>

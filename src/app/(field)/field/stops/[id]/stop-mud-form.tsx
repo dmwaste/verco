@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation'
 import { STREAM_LABEL } from '@/lib/stops/labels'
 import { saveMudActualServices } from '../../booking/[ref]/actions'
 import type { StopDetail } from './stop-closeout-client'
+import { reloadIfStaleAction } from '@/lib/bundle/stale-action'
 
 interface StopMudItem {
   id: string
@@ -68,7 +69,11 @@ export function StopMudForm({ stop, items, returnTo }: StopMudFormProps) {
       // NCN/NP form the crew originally asked for.
       router.replace(returnTo)
       router.refresh()
-    } catch {
+    } catch (err) {
+      if (reloadIfStaleAction(err)) {
+        setError('App updated — reloading…')
+        return
+      }
       setError('No connection — check signal and retry.')
     } finally {
       setIsSubmitting(false)

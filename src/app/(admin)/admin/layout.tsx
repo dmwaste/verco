@@ -6,6 +6,7 @@ import {
 } from '@/lib/admin/current-client'
 import { OPEN_INVESTIGATION_STATUSES } from '@/lib/exceptions/status'
 import { AdminLayoutClient } from './admin-layout-client'
+import { BundleFreshness } from '@/components/bundle-freshness'
 
 export default async function AdminLayout({
   children,
@@ -102,14 +103,18 @@ export default async function AdminLayout({
     : (profile?.email?.[0] ?? 'U').toUpperCase()
 
   return (
-    <AdminLayoutClient
-      currentClient={currentClient}
-      accessibleClients={accessibleClients}
-      initials={initials}
-      counts={counts}
-      role={role}
-    >
-      {children}
-    </AdminLayoutClient>
+    <>
+      {/* Stale-bundle self-heal on every navigation (ADR 0023). */}
+      <BundleFreshness />
+      <AdminLayoutClient
+        currentClient={currentClient}
+        accessibleClients={accessibleClients}
+        initials={initials}
+        counts={counts}
+        role={role}
+      >
+        {children}
+      </AdminLayoutClient>
+    </>
   )
 }
