@@ -13,6 +13,7 @@ import type { StopStatus } from '@/lib/stops/stops'
 import type { RunStop, RunMeta } from '@/lib/stops/run-sheet-data'
 import { completeStop } from '../../../stops/[id]/actions'
 import { useRefreshOnFocus } from './use-refresh-on-focus'
+import { staleActionMessage } from '@/lib/bundle/stale-action'
 
 interface RunSheetStopsClientProps {
   date: string
@@ -219,11 +220,10 @@ export function RunSheetStopsClient({
         return
       }
       router.refresh()
-    } catch {
-      setErrors((prev) => ({
-        ...prev,
-        [stop.id]: 'No connection — check signal and retry.',
-      }))
+    } catch (err) {
+      // A stale post-deploy bundle reloads once (ADR 0023); anything else is signal.
+      const message = staleActionMessage(err) ?? 'No connection — check signal and retry.'
+      setErrors((prev) => ({ ...prev, [stop.id]: message }))
     } finally {
       setPendingIds((prev) => {
         const next = new Set(prev)
