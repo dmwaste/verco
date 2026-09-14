@@ -3,6 +3,7 @@
 import * as Sentry from "@sentry/nextjs";
 
 import { scrubBreadcrumb, scrubEvent } from "./lib/sentry/scrub";
+import { handleStaleAction } from "./lib/bundle/stale-action";
 
 Sentry.init({
   dsn: process.env.NEXT_PUBLIC_SENTRY_DSN,
@@ -31,5 +32,17 @@ Sentry.init({
   beforeSend: scrubEvent,
   beforeBreadcrumb: scrubBreadcrumb,
 });
+
+// Stale-bundle net (ADR 0023): a bare `await serverAction()` in an event
+// handler rejects unhandled on a post-deploy bundle, and error boundaries never
+// see handler rejections — reload once so the crew isn't left on a dead
+// button. Catch sites that show a message use `staleActionMessage` instead.
+// Not preventDefault'd: Sentry still records the event, which is the signal
+// for how often deploys bite open tabs.
+if (typeof window !== "undefined") {
+  window.addEventListener("unhandledrejection", (event) => {
+    handleStaleAction(event.reason);
+  });
+}
 
 export const onRouterTransitionStart = Sentry.captureRouterTransitionStart;

@@ -19,6 +19,7 @@ import { matchAddressToArea, resolveAreaSuggestion } from '@/lib/booking/id-area
 import { AvailabilityCalendar, type CalendarDate } from '@/components/booking/availability-calendar'
 import { STATUS_CHIP, type DateStatus } from '@/lib/booking/calendar'
 import { createAdminIdBooking } from './actions'
+import { staleActionMessage } from '@/lib/bundle/stale-action'
 
 export interface AreaOption {
   id: string
@@ -286,8 +287,12 @@ export function IdRequestForm({
         geoAddress: geoAddress.trim(),
         collectionDate: selectedDate.date,
       })
-    } catch {
-      setError('Something went wrong submitting the ID collection. Please try again.')
+    } catch (err) {
+      // A stale post-deploy bundle reloads once (ADR 0023) — "try again" could never work.
+      setError(
+        staleActionMessage(err) ??
+          'Something went wrong submitting the ID collection. Please try again.',
+      )
       setIsSubmitting(false)
     }
   }

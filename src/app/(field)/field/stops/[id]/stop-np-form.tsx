@@ -10,6 +10,7 @@ import { raiseNpForStop } from './actions'
 import { VercoButton } from '@/components/ui/verco-button'
 import { MattressCounter } from './mattress-counter'
 import type { StopDetail } from './stop-closeout-client'
+import { staleActionMessage } from '@/lib/bundle/stale-action'
 
 interface StopNpFormProps {
   stop: StopDetail
@@ -105,8 +106,9 @@ export function StopNpForm({
       }
       router.push(runHref)
       router.refresh()
-    } catch {
-      setError('No connection — check signal and retry.')
+    } catch (err) {
+      // A stale post-deploy bundle reloads once (ADR 0023); anything else is signal.
+      setError(staleActionMessage(err) ?? 'No connection — check signal and retry.')
     } finally {
       setIsSubmitting(false)
     }
