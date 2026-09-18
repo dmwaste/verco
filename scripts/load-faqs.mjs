@@ -165,7 +165,7 @@ If you have not set up an account, you can phone us on [9384 6711](tel:089384671
 
 | Council | Bulk waste collections | Green waste collections |
 |---|---|---|
-| Town of Cambridge | 2 | 1 |
+| Town of Cambridge | 1 | 1 |
 | Town of Cottesloe | 2 | 1 |
 | City of Fremantle | 1 | N/A |
 | Town of Mosman Park | 2 | 1 |
@@ -175,9 +175,9 @@ If you have not set up an account, you can phone us on [9384 6711](tel:089384671
 | Town of Victoria Park | 2 | 1 |
 | City of Vincent | 2 collections total | |
 
-You may swap your bulk waste collection for a green waste collection if you prefer (excluding Fremantle, Subiaco and Vincent).
+You may swap your bulk waste collection for a green waste collection if you prefer (excluding Cambridge, Fremantle, Subiaco and Vincent).
 
-City of Vincent properties can have two bulk waste collections or one bulk and one green waste collection. City of Vincent properties cannot have two green waste collections.
+City of Vincent properties have two collections per financial year, which can be any combination of bulk waste and green waste (two bulk, two green, or one of each).
 
 You may choose to purchase additional collections through **Verge Valet Extra**. This is a pre-paid collection service that follows the same terms, conditions and guidelines as Verge Valet™. To book, follow the regular booking process and select the 'Verge Valet Extra' checkbox. You will receive an invoice by email.`,
   },
