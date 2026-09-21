@@ -144,8 +144,8 @@ describe('renderNcnRaised', () => {
       expect(html).toContain('$400 infringement under section 2.10(1)')
       expect(html).toContain('City of Kwinana Waste Local Law 2022')
       expect(html).toContain('7 days of this notice')
-      expect(html).toContain('Emma Gillham')
-      expect(html).toContain('Waste Management Officer')
+      expect(html).toContain("Keri O'Keefe")
+      expect(html).toContain('Waste Projects Officer')
     })
 
     it('uses the corrected contact URL and collection wording, not the supplied typos', () => {
@@ -165,7 +165,7 @@ describe('renderNcnRaised', () => {
       const booking = makeMockBooking() // default slug 'mock-tenant'
       const { html } = renderNcnRaised(booking, APP_URL, { reason: 'Building Waste' })
       expect(html).not.toContain('$400 infringement')
-      expect(html).not.toContain('Emma Gillham')
+      expect(html).not.toContain("Keri O'Keefe")
       expect(html).not.toContain('Waste Local Law 2022')
     })
 
@@ -179,7 +179,7 @@ describe('renderNcnRaised', () => {
       // Contractor fault → softer intro, no fine threat, no signature.
       expect(html).toContain('unable to complete your collection')
       expect(html).not.toContain('$400 infringement')
-      expect(html).not.toContain('Emma Gillham')
+      expect(html).not.toContain("Keri O'Keefe")
     })
   })
 

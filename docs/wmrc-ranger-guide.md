@@ -272,7 +272,7 @@ Run through these to get comfortable before you're relying on it on the road.
 | 3 | Amber **"placed out too early"** | Apply your council's early-placement process | Not an ID — it's a genuine booking, just early |
 | 4 | Red **"No upcoming booking"** | Tap **Raise ID at this address** | The ID form opens with the location pre-pinned |
 | 5 | A dump on a vacant lot / non-residential spot | Search it → **"No matches"** | Not eligible — raise an ID from the **New ID** tab (GPS-pinned) |
-| 6 | Complete an ID with a photo and date | Submit | **ID Collection Logged**, a `VV-…` reference, and it appears in **My IDs** as **Confirmed** |
+| 6 | Complete an ID with a photo and date | Submit | **ID Collection Logged**, a reference like `MOS-9ET76E` (your area code + six characters), and it appears in **My IDs** as **Confirmed** |
 | 7 | Check an ID a day later | Open **My IDs** | Status has moved to **Scheduled** (then **Completed** after the crew visits) |
 | 8 | Lost signal mid-lookup | See **"Search failed"** / **"Couldn't load booking history"** | Get signal, **Retry** / reload — do **not** raise an ID off the error |
 
@@ -326,12 +326,13 @@ For anything urgent (the app is down, or you can't sign in at all), contact D&M 
 
 ---
 
-**Document version:** 1.3
-**Last updated:** 2026-09-02
+**Document version:** 1.4
+**Last updated:** 2026-09-18
 **Next review:** after the first round of live ranger use
 
 ### Revision log
 
+- **1.4 — 2026-09-18**: Corrected the reference format in worked scenario 6 (§5) — it read `VV-…`, but ID references are `{AREA}-{code}` (e.g. `MOS-9ET76E`), matching §3.7. No other content changes.
 - **1.3 — 2026-09-02**: Waste-type table updated to the current app label — **Bulk Waste** replaces "General / Mixed" (app relabel #461, July 2026; the stored value is unchanged, only what rangers see on the button). The R06 form screenshot predates the relabel; its caption says so. No other content changes.
 - **1.2 — 2026-07-05**: Restyled to the **D&M Waste Management design system** (v1.0, April 2026) — Poppins display / DM Sans body, the navy `#293F52` + green `#00E47C` palette, a navy gradient cover with the D&M logo, brand callout cards (green top bar, not a left border), navy table headers, and a D&M running footer. Replaced the traffic-light emoji with brand status dots (design-system rule: no emoji).
 - **1.1 — 2026-07-05**: Added live screenshots captured on `field.verco.au` (sign-in, verify, app frame, address lookup, all three verdict banners — green/amber/red, the New ID form top + bottom, and the My IDs tab). Corrected example values against live data — area codes are bare (`COT`, `MOS`, `PEP`…), ID references are `{AREA}-{code}` e.g. `MOS-9ET76E`. The post-submit confirmation (R09) was captured via a controlled test ID (`PEP-AHMUY5`) that was cancelled immediately — cropped to the success + summary card so it doesn't show the pre-#305 button label. §3.7 documents the confirmation's primary CTA as **View My IDs** to match fix #305 (routes rangers to their My IDs list rather than a crew-only run sheet).
