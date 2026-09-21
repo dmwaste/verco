@@ -838,7 +838,12 @@ describe('dispatch', () => {
 
   describe('structured logging contract', () => {
     it('emits one JSON log line per dispatch with the required fields', async () => {
+      // vitest 4 returns the spy already installed by the beforeEach hook
+      // (v3 re-wrapped and handed back a fresh one), so its call history
+      // carries every console.log from earlier tests in this file. Clear it
+      // so the assertion below counts only this dispatch.
       const logSpy = vi.spyOn(console, 'log')
+      logSpy.mockClear()
       const booking = makeMockBooking({ id: 'b9' })
       const deps = createMockDispatchDeps({ bookings: { b9: booking } })
 
