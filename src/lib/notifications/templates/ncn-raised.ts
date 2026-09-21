@@ -90,7 +90,7 @@ export function renderNcnRaised(
     <p style="margin:0 0 16px 0;color:#293F52;font-size:14px">If your items are compliant but you did not book adequate collections, or if an incorrect collection type was selected, you can arrange an additional collection at <a href="https://kwn.verco.au" style="color:#293F52;text-decoration:underline">kwn.verco.au</a>.</p>
     <p style="margin:0 0 16px 0;color:#293F52;font-size:14px">If you have any questions or concerns, please visit <a href="https://www.kwinana.wa.gov.au/verge" style="color:#293F52;text-decoration:underline">www.kwinana.wa.gov.au/verge</a> or lodge an online inquiry at <a href="https://kwn.verco.au/contact" style="color:#293F52;text-decoration:underline">kwn.verco.au/contact</a>.</p>
     <p style="margin:0 0 16px 0;color:#293F52;font-size:14px">Thank you for your cooperation.</p>
-    <p style="margin:0 0 16px 0;color:#293F52;font-size:14px;line-height:1.5"><strong>Emma Gillham</strong><br />Waste Management Officer<br />City of Kwinana</p>`
+    <p style="margin:0 0 16px 0;color:#293F52;font-size:14px;line-height:1.5"><strong>Keri O'Keefe</strong><br />Waste Projects Officer<br />City of Kwinana</p>`
       : ''
 
   // Photos render BELOW the details table: full-width portrait shots would
