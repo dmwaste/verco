@@ -48,9 +48,11 @@ describe('isStaleActionError', () => {
 })
 
 describe('handleStaleAction', () => {
-  let reload: ReturnType<typeof vi.fn>
+  // vitest 4 infers bare vi.fn() as Mock<Procedure | Constructable>, which is
+  // not assignable to StaleActionDeps['reload'] (() => void). Pin the signature.
+  let reload: ReturnType<typeof vi.fn<() => void>>
   beforeEach(() => {
-    reload = vi.fn()
+    reload = vi.fn<() => void>()
   })
 
   it('leaves a genuine network error to the caller', async () => {
@@ -112,7 +114,7 @@ describe('handleStaleAction', () => {
 describe('staleActionMessage', () => {
   it('maps the outcome to the crew-facing copy', async () => {
     const { staleActionMessage, STALE_ACTION_MESSAGE } = await loadLib()
-    const deps = { storage: memoryStorage(), reload: vi.fn(), now: () => 1_000_000 }
+    const deps = { storage: memoryStorage(), reload: vi.fn<() => void>(), now: () => 1_000_000 }
     expect(staleActionMessage(stale(), deps)).toBe(STALE_ACTION_MESSAGE.reloading)
     expect(staleActionMessage(stale(), deps)).toBe(STALE_ACTION_MESSAGE['reload-blocked'])
     expect(STALE_ACTION_MESSAGE.reloading).toBe('App updated — reloading…')
