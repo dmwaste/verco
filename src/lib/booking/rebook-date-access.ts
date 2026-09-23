@@ -9,6 +9,8 @@
  * `<bucket>_is_closed`, and the T-3 lock sets that flag.
  *
  * The rule:
+ *   * It must be before **3:00pm AWST the day before** — WMRC's published
+ *     cut-off, and the practical one: crews take their routes at 8pm.
  *   * The date must be OPEN. A public holiday or an admin-closed date stays
  *     closed — no crew runs, so the redo would strand. (A contractor-admin who
  *     genuinely needs one of those still has the admin date override, ADR 0014.)
@@ -38,6 +40,8 @@ export interface BucketState {
 }
 
 export interface RebookDateGate {
+  /** The collection date, `YYYY-MM-DD` (AWST calendar date). */
+  date: string
   /** The AREA's own flag, even for a pooled date — that's where a holiday lands. */
   is_open: boolean
   /** Closed by the T-3 lock. From the pool's row for a pooled area. */
@@ -49,9 +53,28 @@ export interface RebookDateGate {
 export interface RebookDateVerdict {
   bookable: boolean
   /** Why not — for the staff-facing message. Null when bookable. */
-  reason: 'closed' | 'full' | null
+  reason: 'closed' | 'full' | 'past-cutoff' | null
   /** True when the only thing standing in the way was the T-3 lock. */
   insideLockWindow: boolean
+}
+
+/**
+ * 3:00pm AWST the day before collection, as an instant. WA has no daylight
+ * saving, so +08:00 is exact and 3:00pm AWST is 07:00 UTC. Built with
+ * `Date.UTC` so it does not depend on the server's timezone — `Date#setHours`
+ * is wrong on the UTC production box (see cancellation-cutoff.ts).
+ *
+ * This is WMRC's published cut-off. It only ever bites on a next-day redo: for
+ * anything further out we are already before it.
+ */
+export function rebookCutoff(collectionDate: string): Date {
+  const [y, m, d] = collectionDate.split('-').map(Number) as [number, number, number]
+  return new Date(Date.UTC(y, m - 1, d - 1, 7, 0, 0, 0))
+}
+
+/** True once the 3:00pm-AWST-day-before cut-off has passed for that date. */
+export function isPastRebookCutoff(collectionDate: string, now: Date = new Date()): boolean {
+  return now.getTime() >= rebookCutoff(collectionDate).getTime()
 }
 
 /**
@@ -63,8 +86,15 @@ export interface RebookDateVerdict {
 export function checkRebookDate(
   gate: RebookDateGate,
   requiredBuckets: readonly string[],
+  now: Date = new Date(),
 ): RebookDateVerdict {
   const insideLockWindow = gate.locked_closed
+  // WMRC's 3:00pm cut-off. Without it a redo could be created for tomorrow at
+  // 9pm — after the crews took their routes at 8pm — and reach OptimoRoute on
+  // the next hourly push with nobody having told the driver.
+  if (isPastRebookCutoff(gate.date, now)) {
+    return { bookable: false, reason: 'past-cutoff', insideLockWindow }
+  }
   if (!gate.is_open) return { bookable: false, reason: 'closed', insideLockWindow }
 
   for (const code of requiredBuckets) {
@@ -87,8 +117,9 @@ export function checkRebookDate(
 export function isRebookDateBookable(
   gate: RebookDateGate,
   requiredBuckets: readonly string[],
+  now: Date = new Date(),
 ): boolean {
-  return checkRebookDate(gate, requiredBuckets).bookable
+  return checkRebookDate(gate, requiredBuckets, now).bookable
 }
 
 /** Build the bucket map from a `collection_date` or `collection_date_pool` row. */
