@@ -38,6 +38,9 @@ import {
  * by the template-sync CI job.
  */
 
+/** Verge Valet's site green — WMRC's banner colour for the V1 look (15/09). */
+const VERGE_VALET_GREEN = '#72b75c'
+
 export function renderBookingCreated(
   booking: BookingForDispatch,
   appUrl: string
@@ -89,8 +92,23 @@ export function renderBookingCreated(
       ? `<tr><td style="padding:12px 12px 0 0;color:#293F52;font-size:13px;font-weight:600;border-top:1px solid #F0F2F5">Total paid</td><td style="padding:12px 0 0 0;color:#293F52;font-size:13px;font-weight:600;text-align:right;border-top:1px solid #F0F2F5">${formatCurrency(booking.total_charge_cents)}</td></tr>`
       : ''
 
+  // Verge Valet's confirmation is WMRC-authored copy (received 15/09/2026,
+  // for the 01/10 cutover): it replaces the generic "another email closer to
+  // the date" line, because VV residents are told to wait for the place-out
+  // SMS at T-3 and NOT to put anything out before it. Every other tenant keeps
+  // the generic body. Static council copy + generated links, no user input.
+  const isVergeValet = booking.client.slug === 'vergevalet'
+  const faqUrl = buildBookingPortalUrl(booking.client, '/contact#faqs', appUrl)
+  const contactUrl = buildBookingPortalUrl(booking.client, '/contact', appUrl)
+  const vvClosingBlock = `
+    <p style="margin:0 0 16px 0"><strong>Please don't place your items on the verge yet.</strong> You will receive a &ldquo;place out&rdquo; SMS approximately 3 days before your scheduled collection date. Please wait until you receive this message before placing your items out for collection.</p>
+    <p style="margin:0 0 16px 0"><strong>Have a question about your collection?</strong> Before contacting us, please check the Verge Valet <a href="${escapeHtml(faqUrl)}" style="color:#293F52;text-decoration:underline">Frequently Asked Questions</a>, where you'll find information about what can be collected, how much you can place out, collection requirements and other common enquiries.</p>
+    <p style="margin:0 0 16px 0"><strong>Still need help?</strong> If you can't find the answer in the FAQs, please complete the <a href="${escapeHtml(contactUrl)}" style="color:#293F52;text-decoration:underline">customer contact form</a> and one of the Verge Valet team will be in touch. For matters that require urgent assistance, customers can also contact the Verge Valet Call Centre on 9384 6711.</p>
+    <p style="margin:0;color:#8FA5B8;font-size:13px">Please do not respond to this email.</p>
+  `
+
   const bodyHtml = `
-    <p style="margin:0 0 16px 0">Thanks — your verge collection is booked. Here are the details:</p>
+    <p style="margin:0 0 16px 0">${isVergeValet ? 'Thank you for booking your Verge Valet collection. Here are the details:' : 'Thanks — your verge collection is booked. Here are the details:'}</p>
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 16px 0;border-collapse:collapse">
       <tr><td style="padding:6px 12px 6px 0;color:#8FA5B8;font-size:13px;white-space:nowrap">Reference</td><td style="padding:6px 0;color:#293F52;font-size:13px;text-align:right;font-family:'SF Mono',monospace">${escapeHtml(ref)}</td></tr>
       <tr><td style="padding:6px 12px 6px 0;color:#8FA5B8;font-size:13px;white-space:nowrap">Collection date</td><td style="padding:6px 0;color:#293F52;font-size:13px;text-align:right">${escapeHtml(dateStr)}</td></tr>
@@ -99,7 +117,7 @@ export function renderBookingCreated(
       ${itemRows}
       ${totalRow}
     </table>
-    <p style="margin:0 0 16px 0">You'll get another email closer to the date with a reminder to put your waste on the verge.</p>
+    ${isVergeValet ? vvClosingBlock : `<p style="margin:0 0 16px 0">You'll get another email closer to the date with a reminder to put your waste on the verge.</p>`}
   `
 
   const ctaUrl = buildBookingPortalUrl(
@@ -113,10 +131,12 @@ export function renderBookingCreated(
     html: renderEmailLayout({
       client: booking.client,
       preheader: `Your verge collection is booked for ${dateStr}`,
-      heading: 'Booking confirmed',
+      heading: isVergeValet ? "You're all set!" : 'Booking confirmed',
       bodyHtml,
-      ctaText: 'View booking',
+      ctaText: isVergeValet ? 'View, change or cancel your booking' : 'View booking',
       ctaUrl,
+      // WMRC asked for the Verge Valet green residents recognise from V1.
+      ...(isVergeValet ? { accentColour: VERGE_VALET_GREEN } : {}),
     }),
   }
 }

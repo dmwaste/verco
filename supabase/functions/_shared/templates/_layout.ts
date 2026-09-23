@@ -37,6 +37,14 @@ export interface RenderEmailLayoutParams {
   ctaText?: string
   /** Optional CTA URL — omit (or pass without ctaText) to render no button */
   ctaUrl?: string
+  /**
+   * Overrides `client.primary_colour` for the header banner, heading and CTA
+   * in THIS email only. Verge Valet's confirmation keeps the green its
+   * residents know from the old system (WMRC, 15/09) while the portal itself
+   * stays on the tenant's own colour — swapping `client.primary_colour` would
+   * restyle every resident surface (the 29/07 hero-colour incident).
+   */
+  accentColour?: string
 }
 
 const DEFAULT_PRIMARY_COLOUR = '#293F52'
@@ -58,8 +66,10 @@ function normaliseHex(colour: string | null): string {
 }
 
 export function renderEmailLayout(params: RenderEmailLayoutParams): string {
-  const { client, preheader, heading, bodyHtml, ctaText, ctaUrl } = params
-  const primary = normaliseHex(client.primary_colour)
+  const { client, preheader, heading, bodyHtml, ctaText, ctaUrl, accentColour } = params
+  const primary = accentColour
+    ? normaliseHex(accentColour)
+    : normaliseHex(client.primary_colour)
   const footer = client.email_footer_html ?? DEFAULT_FOOTER_HTML
   const clientNameEscaped = escapeHtml(client.name)
 

@@ -93,6 +93,20 @@ export function renderNcnRaised(
     <p style="margin:0 0 16px 0;color:#293F52;font-size:14px;line-height:1.5"><strong>Keri O'Keefe</strong><br />Waste Projects Officer<br />City of Kwinana</p>`
       : ''
 
+  // Verge Valet drops the "14 days to dispute" line in favour of WMRC's own
+  // wording (received 15/09/2026, approved for the 01/10 cutover). The dispute
+  // mechanism itself is UNCHANGED — residents can still dispute from the
+  // booking page and `auto-close-notices` still closes an undisputed notice
+  // after 14 days. WMRC simply doesn't want the window advertised. Every other
+  // tenant keeps the original line.
+  const disputeBlock =
+    booking.client.slug === 'vergevalet'
+      ? `
+    <p style="margin:0 0 16px 0;color:#293F52;font-size:14px">Please note that this non-conformance remains outstanding and requires attention. We understand that some circumstances may be outside your control and appreciate your assistance in resolving the issue.</p>
+    <p style="margin:0 0 16px 0;color:#293F52;font-size:14px">If you are unsure what action is required, please refer to the Verge Valet <a href="${escapeHtml(buildBookingPortalUrl(booking.client, '/contact#faqs', appUrl))}" style="color:#293F52;text-decoration:underline">Frequently Asked Questions</a> for further information. If you still require assistance or need to discuss the issue or arrange another collection, please contact the Verge Valet team via the <a href="${escapeHtml(buildBookingPortalUrl(booking.client, '/contact', appUrl))}" style="color:#293F52;text-decoration:underline">customer contact form</a>. Our Call Centre is also available if you require further assistance on 9384 6711.</p>`
+      : `
+    <p style="margin:0 0 16px 0;color:#8FA5B8;font-size:13px">You have 14 days from the date of this notice to dispute it.</p>`
+
   // Photos render BELOW the details table: full-width portrait shots would
   // otherwise push the statutory compliance copy, the 14-day dispute window,
   // and the details multiple screens down on a 4-photo notice. Note the
@@ -104,7 +118,7 @@ export function renderNcnRaised(
     ${notesBlock}
     ${pendingBlock}
     ${kwnComplianceBlock}
-    <p style="margin:0 0 16px 0;color:#8FA5B8;font-size:13px">You have 14 days from the date of this notice to dispute it.</p>
+    ${disputeBlock}
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 16px 0;border-collapse:collapse">
       <tr><td style="padding:6px 12px 6px 0;color:#8FA5B8;font-size:13px;white-space:nowrap">Reference</td><td style="padding:6px 0;color:#293F52;font-size:13px;text-align:right;font-family:'SF Mono',monospace">${escapeHtml(ref)}</td></tr>
       ${options.serviceLabel ? `<tr><td style="padding:6px 12px 6px 0;color:#8FA5B8;font-size:13px;white-space:nowrap">Service type</td><td style="padding:6px 0;color:#293F52;font-size:13px;text-align:right">${escapeHtml(options.serviceLabel)}</td></tr>` : ''}
