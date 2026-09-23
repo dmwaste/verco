@@ -2,6 +2,12 @@ import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import { getCurrentAdminClient } from '@/lib/admin/current-client'
 import { awstDateFromUtc } from '@/lib/booking/schedule-transition'
+import {
+  idDateAccessForRole,
+  isIdDateBookable,
+  type IdDateAccess,
+  type IdDateGate,
+} from '@/lib/booking/id-date-access'
 import { IdRequestForm, type AreaOption, type IdDateOption } from './id-request-form'
 
 export default async function NewIdRequestPage() {
@@ -9,8 +15,11 @@ export default async function NewIdRequestPage() {
   const supabase = await createClient()
 
   let areas: AreaOption[] = []
-  let dates: IdDateOption[] = []
+  // The gate columns ride along with each row so the pooled/unpooled filters
+  // below can judge a date; IdRequestForm only reads the IdDateOption fields.
+  let dates: (IdDateOption & IdDateGate)[] = []
   let isContractorAdmin = false
+  let access: IdDateAccess = 'open-only'
 
   if (currentClient) {
     // Sub-client narrowing (VER-216): a client-tier user scoped to one
@@ -26,9 +35,11 @@ export default async function NewIdRequestPage() {
       .eq('is_active', true)
       .maybeSingle()
     const subClientId = userRole?.sub_client_id ?? null
-    // Contractor-admins may schedule ID collections onto closed dates that
-    // still have capacity (see the date fetch below + the RPC's closure gate).
-    isContractorAdmin = userRole?.role === 'contractor-admin'
+    // Which dates this role may book onto — contractor-admin overrides any
+    // closure, office/council staff may book inside the T-3 lock while spots
+    // remain, rangers get open dates only. Same rule as the RPC's closure gate.
+    access = idDateAccessForRole(userRole?.role)
+    isContractorAdmin = access === 'any-open-or-closed'
 
     // collection_area / collection_date are public-SELECT — RLS does not
     // tenant-scope them (CLAUDE.md §21), so filter by the switcher client.
@@ -54,19 +65,23 @@ export default async function NewIdRequestPage() {
       // silently starve later-sorting areas of their dates.
       const horizon = awstDateFromUtc(new Date(now.getTime() + 90 * 24 * 60 * 60 * 1000))
 
-      // Standard roles only see open, not-ID-closed dates. Contractor-admins
-      // also see closed dates — the calendar keeps only those with capacity
-      // remaining, and the RPC relaxes the same closure gate for this role.
+      // Every role but contractor-admin needs the date to be open, so keep that
+      // as a DB filter; the closure/capacity tiers are then applied by
+      // isIdDateBookable, which mirrors the RPC exactly. Lock-closed dates now
+      // reach the filter (rather than being excluded here) so office and
+      // council staff can be offered the 3-day window.
       let dateQuery = supabase
         .from('collection_date')
-        .select('id, date, id_capacity_limit, id_units_booked, collection_area_id')
+        .select(
+          'id, date, id_capacity_limit, id_units_booked, collection_area_id, is_open, id_is_closed, locked_closed',
+        )
         .in('collection_area_id', areas.map((a) => a.id))
         .gte('date', today)
         .lte('date', horizon)
         .order('date', { ascending: true })
         .limit(500)
       if (!isContractorAdmin) {
-        dateQuery = dateQuery.eq('is_open', true).eq('id_is_closed', false)
+        dateQuery = dateQuery.eq('is_open', true)
       }
       const { data: dateRows } = await dateQuery
       dates = dateRows ?? []
@@ -80,11 +95,19 @@ export default async function NewIdRequestPage() {
           .filter((a) => a.capacity_pool_id)
           .map((a) => [a.id, a.capacity_pool_id as string])
       )
+      // Unpooled areas gate on their own row. Pooled areas MUST NOT — a pool
+      // member carries id_capacity_limit = 0 on its own row (the real limit
+      // lives on the pool), so judging them here would hide every pooled date.
+      // They are gated on the pool's counters just below instead.
+      dates = dates.filter(
+        (d) => poolByArea.has(d.collection_area_id) || isIdDateBookable(d, access),
+      )
+
       if (poolByArea.size > 0 && dates.length > 0) {
         const poolIds = [...new Set(poolByArea.values())]
         const { data: poolRows } = await supabase
           .from('collection_date_pool')
-          .select('capacity_pool_id, date, id_capacity_limit, id_units_booked, id_is_closed')
+          .select('capacity_pool_id, date, id_capacity_limit, id_units_booked, id_is_closed, locked_closed')
           .in('capacity_pool_id', poolIds)
           .gte('date', today)
           .lte('date', horizon)
@@ -96,11 +119,20 @@ export default async function NewIdRequestPage() {
           if (!poolId) return [d]
           const pool = poolByKey.get(`${poolId}|${d.date}`)
           if (!pool) return []
-          // Standard roles: a pool-closed date is not bookable. Contractor-admins
-          // may book a closed pool date as long as it still has capacity — mirror
-          // the RPC's per-role gate so the picker never offers a dead-end date.
-          const poolHasCapacity = pool.id_units_booked < pool.id_capacity_limit
-          if (isContractorAdmin ? !poolHasCapacity : pool.id_is_closed) return []
+          // Gate pooled dates on the POOL's counters + lock (what the RPC
+          // enforces), but on the AREA's own is_open — that's where a holiday
+          // or admin closure lands for a pool member.
+          const bookable = isIdDateBookable(
+            {
+              is_open: d.is_open,
+              id_is_closed: pool.id_is_closed,
+              locked_closed: pool.locked_closed,
+              id_capacity_limit: pool.id_capacity_limit,
+              id_units_booked: pool.id_units_booked,
+            },
+            access,
+          )
+          if (!bookable) return []
           return [
             {
               ...d,
