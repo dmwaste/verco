@@ -124,6 +124,7 @@ export default async function NewIdRequestPage() {
           // or admin closure lands for a pool member.
           const bookable = isIdDateBookable(
             {
+              date: d.date,
               is_open: d.is_open,
               id_is_closed: pool.id_is_closed,
               locked_closed: pool.locked_closed,

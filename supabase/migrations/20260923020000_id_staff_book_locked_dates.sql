@@ -22,8 +22,15 @@
 -- case to the capacity check below. The pooled branch mirrors it on
 -- collection_date_pool, which carries the same two columns.
 --
--- Mirror: src/lib/booking/id-date-access.ts keeps the admin date picker showing
--- exactly the dates this function accepts. Change both together.
+-- A 3:00pm cut-off binds EVERY role, contractor-admin included: nobody may add
+-- an ID collection for TOMORROW after 3:00pm AWST. The day's work went to
+-- OptimoRoute three days ago and the crews take their routes at 8pm, so a later
+-- addition is a stop nobody has told the driver about. Dates further out are
+-- untouched. (WMRC publishes the same 3:00pm to residents.)
+--
+-- Mirror: src/lib/booking/id-date-access.ts + src/lib/booking/next-day-cutoff.ts
+-- keep the admin date picker showing exactly the dates this function accepts.
+-- Change them together.
 --
 -- Signature is unchanged, so generated types are unaffected.
 
@@ -102,6 +109,16 @@ BEGIN
   WHERE id = p_collection_date_id AND collection_area_id = p_collection_area_id;
   IF NOT FOUND THEN
     RAISE EXCEPTION 'Collection date does not belong to the collection area';
+  END IF;
+
+  -- 3:00pm cut-off, ahead of the per-role branches because it binds all of them.
+  -- Perth wall-clock on both sides; WA has no daylight saving.
+  PERFORM 1 FROM collection_date cd
+  WHERE cd.id = p_collection_date_id
+    AND (now() AT TIME ZONE 'Australia/Perth')
+        < (cd.date - interval '1 day' + interval '15 hours');
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Bookings for that date closed at 3:00pm the day before';
   END IF;
 
   -- Date validity. Every role: not in the past (AWST calendar date). Standard

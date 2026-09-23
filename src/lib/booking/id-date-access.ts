@@ -1,8 +1,13 @@
 /**
  * Which collection dates a role may book an illegal-dumping collection onto.
  *
- * Three tiers, and the capacity ceiling applies to all of them — a date with
- * `id_units_booked >= id_capacity_limit` is never bookable by anyone:
+ * Two rules bind every tier below. A date with
+ * `id_units_booked >= id_capacity_limit` is never bookable by anyone, and no
+ * tier may add a job for TOMORROW after **3:00pm** (see next-day-cutoff.ts —
+ * WMRC's published cut-off, and the one that keeps a next-day job ahead of the
+ * 8pm route handover). Contractor-admin is included: its override is about
+ * closed days, not about the clock, and a stop nobody tells the crew about is
+ * a stop that doesn't get collected.
  *
  *   'any-open-or-closed' — contractor-admin. Any future date with ID capacity,
  *                          including admin-closed and public holidays (ops
@@ -21,6 +26,8 @@
  * `locked_closed` and the raw counters, which is what `isIdDateBookable` does
  * and what the RPC's own gate mirrors.
  */
+import { isPastNextDayCutoff } from './next-day-cutoff'
+
 export type IdDateAccess = 'any-open-or-closed' | 'locked-only' | 'open-only'
 
 export function idDateAccessForRole(role: string | null | undefined): IdDateAccess {
@@ -37,6 +44,8 @@ export function idDateAccessForRole(role: string | null | undefined): IdDateAcce
 
 /** The date's gate columns, from `collection_date` or `collection_date_pool`. */
 export interface IdDateGate {
+  /** The collection date, `YYYY-MM-DD` (AWST calendar date). */
+  date: string
   is_open: boolean
   id_is_closed: boolean
   locked_closed: boolean
@@ -49,9 +58,15 @@ export interface IdDateGate {
  * so the picker never offers a date the RPC will reject (and never hides one it
  * would accept). Date-in-the-past is the caller's filter, not this one's.
  */
-export function isIdDateBookable(gate: IdDateGate, access: IdDateAccess): boolean {
+export function isIdDateBookable(
+  gate: IdDateGate,
+  access: IdDateAccess,
+  now: Date = new Date(),
+): boolean {
   const hasCapacity = gate.id_units_booked < gate.id_capacity_limit
   if (!hasCapacity) return false
+  // Binds every tier, contractor-admin included.
+  if (isPastNextDayCutoff(gate.date, now)) return false
   if (access === 'any-open-or-closed') return true
   if (!gate.is_open) return false
   if (access === 'locked-only') {
