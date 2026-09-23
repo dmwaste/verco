@@ -3,10 +3,9 @@ import {
   checkRebookDate,
   isRebookDateBookable,
   bucketsFromRow,
-  rebookCutoff,
-  isPastRebookCutoff,
   type RebookDateGate,
 } from '@/lib/booking/rebook-date-access'
+import { nextDayCutoff, isPastNextDayCutoff } from '@/lib/booking/next-day-cutoff'
 
 /**
  * Fixed clock for every case below: Mon 28 Sep 2026, 09:00 AWST (01:00 UTC).
@@ -141,7 +140,7 @@ describe('bucketsFromRow', () => {
 describe('the 3:00pm cut-off (WMRC)', () => {
   it('is 3:00pm AWST the day before, as an exact instant', () => {
     // 3:00pm AWST = 07:00 UTC; WA has no daylight saving.
-    expect(rebookCutoff('2026-10-02').toISOString()).toBe('2026-10-01T07:00:00.000Z')
+    expect(nextDayCutoff('2026-10-02').toISOString()).toBe('2026-10-01T07:00:00.000Z')
   })
 
   it('allows a next-day redo before 3:00pm and refuses it after', () => {
@@ -156,8 +155,8 @@ describe('the 3:00pm cut-off (WMRC)', () => {
   })
 
   it('refuses exactly on 3:00pm, not a minute later', () => {
-    expect(isPastRebookCutoff(TOMORROW, new Date('2026-09-28T07:00:00Z'))).toBe(true)
-    expect(isPastRebookCutoff(TOMORROW, new Date('2026-09-28T06:59:59Z'))).toBe(false)
+    expect(isPastNextDayCutoff(TOMORROW, new Date('2026-09-28T07:00:00Z'))).toBe(true)
+    expect(isPastNextDayCutoff(TOMORROW, new Date('2026-09-28T06:59:59Z'))).toBe(false)
   })
 
   it('does not touch a date further out — 9pm tonight is fine for Wednesday', () => {

@@ -9,8 +9,9 @@
  * `<bucket>_is_closed`, and the T-3 lock sets that flag.
  *
  * The rule:
- *   * It must be before **3:00pm AWST the day before** — WMRC's published
- *     cut-off, and the practical one: crews take their routes at 8pm.
+ *   * It must be before **3:00pm AWST the day before** (next-day-cutoff.ts) —
+ *     WMRC's published cut-off, and the practical one: crews take their routes
+ *     at 8pm. The illegal-dumping path uses the same module.
  *   * The date must be OPEN. A public holiday or an admin-closed date stays
  *     closed — no crew runs, so the redo would strand. (A contractor-admin who
  *     genuinely needs one of those still has the admin date override, ADR 0014.)
@@ -29,6 +30,8 @@
  * a capacity limit of 0 — so judging a pooled date on its own row would refuse
  * every date.
  */
+
+import { isPastNextDayCutoff } from './next-day-cutoff'
 
 /** Capacity bucket codes, matching `category.code`. */
 export type BucketCode = 'bulk' | 'anc' | 'id'
@@ -59,25 +62,6 @@ export interface RebookDateVerdict {
 }
 
 /**
- * 3:00pm AWST the day before collection, as an instant. WA has no daylight
- * saving, so +08:00 is exact and 3:00pm AWST is 07:00 UTC. Built with
- * `Date.UTC` so it does not depend on the server's timezone — `Date#setHours`
- * is wrong on the UTC production box (see cancellation-cutoff.ts).
- *
- * This is WMRC's published cut-off. It only ever bites on a next-day redo: for
- * anything further out we are already before it.
- */
-export function rebookCutoff(collectionDate: string): Date {
-  const [y, m, d] = collectionDate.split('-').map(Number) as [number, number, number]
-  return new Date(Date.UTC(y, m - 1, d - 1, 7, 0, 0, 0))
-}
-
-/** True once the 3:00pm-AWST-day-before cut-off has passed for that date. */
-export function isPastRebookCutoff(collectionDate: string, now: Date = new Date()): boolean {
-  return now.getTime() >= rebookCutoff(collectionDate).getTime()
-}
-
-/**
  * Decide one date for one booking. `requiredBuckets` are the category codes of
  * the items being cloned (a green-waste-only NCN needs 'bulk' capacity only,
  * since Green sits in the Bulk category — the codes come straight from
@@ -92,7 +76,7 @@ export function checkRebookDate(
   // WMRC's 3:00pm cut-off. Without it a redo could be created for tomorrow at
   // 9pm — after the crews took their routes at 8pm — and reach OptimoRoute on
   // the next hourly push with nobody having told the driver.
-  if (isPastRebookCutoff(gate.date, now)) {
+  if (isPastNextDayCutoff(gate.date, now)) {
     return { bookable: false, reason: 'past-cutoff', insideLockWindow }
   }
   if (!gate.is_open) return { bookable: false, reason: 'closed', insideLockWindow }
