@@ -203,6 +203,7 @@ export async function rebookNp(
   ]
   const verdict = checkRebookDate(
     {
+      date: collDate.date,
       is_open: collDate.is_open,
       locked_closed: gateRow.locked_closed,
       buckets: bucketsFromRow(gateRow),
@@ -215,7 +216,9 @@ export async function rebookNp(
       error:
         verdict.reason === 'full'
           ? "That collection date is full for this booking's services — pick another date."
-          : 'That collection date is no longer available — pick an upcoming open date.',
+          : verdict.reason === 'past-cutoff'
+            ? 'Bookings for that date closed at 3:00pm the day before — pick a later date.'
+            : 'That collection date is no longer available — pick an upcoming open date.',
     }
   }
 

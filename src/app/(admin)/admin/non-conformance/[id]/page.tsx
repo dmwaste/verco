@@ -107,6 +107,7 @@ export default async function NcnDetailPage({ params }: NcnDetailPageProps) {
       if (!gateRow) return []
       const verdict = checkRebookDate(
         {
+          date: d.date,
           is_open: d.is_open,
           locked_closed: gateRow.locked_closed,
           buckets: bucketsFromRow(gateRow),
