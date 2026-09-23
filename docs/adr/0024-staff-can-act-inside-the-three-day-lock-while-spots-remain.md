@@ -1,0 +1,37 @@
+# 0024 — Staff can book inside the 3-day lock while spots remain; the ceiling never moves
+
+**Date:** 23/09/2026 · **Status:** Accepted
+
+## What we decided
+
+Office and council staff can place two kinds of job inside the 3-day window before a collection day, as long as that day still has room:
+
+1. an **illegal-dumping collection**, and
+2. an **ad-hoc redo for a property that got a non-conformance notice**.
+
+Residents cannot. Neither can anyone book a day that is closed for a public holiday or closed by an admin — no crew runs then. And nobody, in any role, can push a day past its capacity through these paths.
+
+## Why
+
+WMRC made both a condition of moving the remaining five Verge Valet councils onto Verco on 01/10/2026. Their staff field the calls: someone reports a dumped pile, or a resident's collection was knocked back for the wrong waste, and the fix usually needs to happen this week, not next. Before this, the 3-day lock refused them and the only way through was to ring D&M and have a contractor-admin do it.
+
+The lock exists to protect dispatch: three days out, a day's work is sent to OptimoRoute, the place-out SMS goes to residents, and the crews get their routes at 8pm the night before. Those things stay true. What we've separated is "this day is locked for planning" from "this day is full" — only the second is a hard ceiling.
+
+## What this changes for the crews
+
+A job added inside the window can land **after** the crew already has the route. The picker labels those dates "within 3 days, tell the crew", and ops adds the stop in OptimoRoute by hand. The hourly push means anything added before the route goes out still flows through normally.
+
+## The honest limit
+
+The non-conformance redo checks the remaining spots when it saves, but does not hold a lock while it does. Two people rebooking onto the last spot of the same day at the same moment could both succeed, putting that day one over. We accepted this because these are deliberate, low-volume office actions on days with 60 bulk spots or 5 illegal-dumping spots, and being one over is an operational nuisance, not a money or safety problem. The illegal-dumping path, which already ran through a database function, does take the lock. If ad-hoc redos ever become common, the fix is to move that write into a database function too.
+
+## What we rejected
+
+- **Letting council staff book holidays and admin-closed days.** WMRC asked for the 3-day window, not for closed days. A booking on a day with no crew strands the resident.
+- **Reading the existing "closed" flag.** It means "locked or full" in one value, so it cannot answer "is there room?". Both paths now read the actual counters.
+- **Removing the lock, or shortening it.** It is what makes the place-out SMS and the 8pm route handover possible.
+
+## Related
+
+- [0014](0014-client-tier-date-moves-respect-capacity.md) — council staff can't move a booking onto a full date; D&M staff still can. Same principle: the closure relaxes, the ceiling does not.
+- [0018](0018-rescheduling-cancels-the-old-days-job-immediately.md) — why 8pm the night before is the deadline every dispatch change has to beat.
