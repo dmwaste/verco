@@ -17,6 +17,7 @@ import { Pagination } from '@/components/admin/pagination'
 import { FilterBar, SearchInput, FilterSelect } from '@/components/admin/filter-bar'
 import { PageHeader } from '@/components/admin/page-header'
 import { Pill } from '@/components/status-badge'
+import { areaOptionLabel } from './area-option-label'
 
 const PAGE_SIZE = 50
 
@@ -87,13 +88,14 @@ export function PropertiesClient({ clientId, isContractorAdmin, canManageAllocat
   // SELECT RLS policy (USING is_active = true) for the resident booking flow,
   // which means logged-in admins see every tenant's areas without an explicit
   // filter. CLAUDE.md §21 "Public-SELECT RLS doesn't tenant-scope".
+  // Deliberately NOT filtered on is_active: staff load properties for a
+  // council before its staged go-live, so not-yet-live areas must be pickable.
   const { data: areas } = useQuery({
     queryKey: ['collection-areas', clientId],
     queryFn: async () => {
       let query = supabase
         .from('collection_area')
-        .select('id, code, name')
-        .eq('is_active', true)
+        .select('id, code, name, is_active')
         .order('code')
       if (clientId) {
         query = query.eq('client_id', clientId)
@@ -454,7 +456,7 @@ export function PropertiesClient({ clientId, isContractorAdmin, canManageAllocat
               >
                 <option value="">Select area…</option>
                 {(areas ?? []).map((a) => (
-                  <option key={a.id} value={a.id}>{a.code} — {a.name}</option>
+                  <option key={a.id} value={a.id}>{areaOptionLabel(a)}</option>
                 ))}
               </select>
             </div>
@@ -571,7 +573,7 @@ export function PropertiesClient({ clientId, isContractorAdmin, canManageAllocat
         >
           <option value="">All areas</option>
           {(areas ?? []).map((a) => (
-            <option key={a.id} value={a.id}>{a.code} — {a.name}</option>
+            <option key={a.id} value={a.id}>{areaOptionLabel(a)}</option>
           ))}
         </FilterSelect>
         <FilterSelect
