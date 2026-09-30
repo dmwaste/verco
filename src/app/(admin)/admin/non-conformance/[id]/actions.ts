@@ -8,6 +8,7 @@ import { orchestrateRefund, type RefundOrchestrationState } from '@/lib/payments
 import { REFUND_REASONS } from '@/lib/refunds/auto-raised'
 import { refundStateToNotificationStatus } from '@/lib/refunds/notification-status'
 import { invokeSendNotification } from '@/lib/notifications/invoke'
+import { checkRebookDate, bucketsFromRow } from '@/lib/booking/rebook-date-access'
 
 export async function updateNcnStatus(
   ncnId: string,
@@ -135,31 +136,87 @@ export async function rebookNcn(
 
   // Server-side date validation mirroring the dialog's filters: the date must
   // belong to THIS booking's area, be in the future (AWST — never Date#setHours,
-  // see cancellation-cutoff), be open, and not closed for any bucket the cloned
-  // items occupy. A stale dialog or forged call otherwise strands a Confirmed
-  // rebook on a dead date that never dispatches.
+  // see cancellation-cutoff), be open, and have room in every bucket the cloned
+  // items occupy. A closure caused ONLY by the T-3 lock is allowed (ADR 0024);
+  // a holiday, an admin closure or a full bucket is not. A stale dialog or
+  // forged call otherwise strands a Confirmed rebook on a date that never
+  // dispatches, or pushes a day past its capacity.
   const awstToday = new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().slice(0, 10)
   const { data: collDate } = await supabase
     .from('collection_date')
-    .select('id, date, is_open, bulk_is_closed, anc_is_closed, id_is_closed')
+    .select(
+      `id, date, is_open, locked_closed,
+       bulk_is_closed, bulk_capacity_limit, bulk_units_booked,
+       anc_is_closed, anc_capacity_limit, anc_units_booked,
+       id_is_closed, id_capacity_limit, id_units_booked`,
+    )
     .eq('id', collectionDateId)
     .eq('collection_area_id', booking.collection_area_id)
     .single()
 
   if (!collDate) return { ok: false, error: "Collection date not found for this booking's area." }
-  if (!collDate.is_open || collDate.date <= awstToday) {
+  if (collDate.date <= awstToday) {
     return { ok: false, error: 'That collection date is no longer available — pick an upcoming open date.' }
   }
-  const closedByBucket: Record<string, boolean> = {
-    bulk: collDate.bulk_is_closed,
-    anc: collDate.anc_is_closed,
-    id: collDate.id_is_closed,
+
+  // Pooled areas (MOS/COT/PEP/FRE-N share one crew) hold their real counters on
+  // collection_date_pool; their own row reads a limit of 0. Judge the date on
+  // the pool's numbers, but keep the AREA's is_open — that's where a public
+  // holiday lands for a pool member.
+  const { data: area } = await supabase
+    .from('collection_area')
+    .select('capacity_pool_id')
+    .eq('id', booking.collection_area_id)
+    .single()
+
+  let gateRow: Parameters<typeof bucketsFromRow>[0] & { locked_closed: boolean } = collDate
+  if (area?.capacity_pool_id) {
+    const { data: poolRow } = await supabase
+      .from('collection_date_pool')
+      .select(
+        `locked_closed,
+         bulk_is_closed, bulk_capacity_limit, bulk_units_booked,
+         anc_is_closed, anc_capacity_limit, anc_units_booked,
+         id_is_closed, id_capacity_limit, id_units_booked`,
+      )
+      .eq('capacity_pool_id', area.capacity_pool_id)
+      .eq('date', collDate.date)
+      .maybeSingle()
+    if (!poolRow) {
+      return { ok: false, error: 'No shared-capacity row exists for that date — pick another date.' }
+    }
+    gateRow = poolRow
   }
-  const hitsClosedBucket = itemsToClone.some(
-    (i) => i.service.category?.code && closedByBucket[i.service.category.code],
+
+  // Staff may rebook onto a date the T-3 lock closed, while spots remain (WMRC,
+  // for the 01/10 cutover). A holiday, an admin closure or a full bucket is
+  // still refused — see rebook-date-access.ts.
+  const requiredBuckets = [
+    ...new Set(
+      itemsToClone
+        .map((i) => i.service.category?.code)
+        .filter((c): c is string => Boolean(c)),
+    ),
+  ]
+  const verdict = checkRebookDate(
+    {
+      date: collDate.date,
+      is_open: collDate.is_open,
+      locked_closed: gateRow.locked_closed,
+      buckets: bucketsFromRow(gateRow),
+    },
+    requiredBuckets,
   )
-  if (hitsClosedBucket) {
-    return { ok: false, error: "That collection date is full for this booking's services — pick another date." }
+  if (!verdict.bookable) {
+    return {
+      ok: false,
+      error:
+        verdict.reason === 'full'
+          ? "That collection date is full for this booking's services — pick another date."
+          : verdict.reason === 'past-cutoff'
+            ? 'Bookings for that date closed at 3:00pm the day before — pick a later date.'
+            : 'That collection date is no longer available — pick an upcoming open date.',
+    }
   }
 
   // Generate a booking ref
