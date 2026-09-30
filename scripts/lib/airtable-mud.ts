@@ -53,11 +53,13 @@ type MudFields = {
 }
 
 /**
- * Fetch all records from the MUD List table in the main VV base,
- * with council codes resolved to their name (e.g. "FRE-S").
+ * Fetch all records from the MUD List table in the main VV base (or a
+ * council's own base — SUB/VIC were duplicated from it, so the table, field
+ * and Council Code ids are identical), with council codes resolved to their
+ * name (e.g. "FRE-S").
  */
-export async function fetchAllMudRecords(token: string): Promise<AirtableMudRecord[]> {
-  const codeLookup = await fetchCouncilCodeLookup(MUD_BASE_ID, token)
+export async function fetchAllMudRecords(token: string, baseId: string = MUD_BASE_ID): Promise<AirtableMudRecord[]> {
+  const codeLookup = await fetchCouncilCodeLookup(baseId, token)
 
   const results: AirtableMudRecord[] = []
   let offset: string | undefined = undefined
@@ -65,7 +67,7 @@ export async function fetchAllMudRecords(token: string): Promise<AirtableMudReco
   do {
     const params = new URLSearchParams({ pageSize: String(PAGE_SIZE), returnFieldsByFieldId: 'true' })
     if (offset) params.set('offset', offset)
-    const url = `https://api.airtable.com/v0/${MUD_BASE_ID}/${MUD_LIST_TABLE_ID}?${params}`
+    const url = `https://api.airtable.com/v0/${baseId}/${MUD_LIST_TABLE_ID}?${params}`
     const body = await airtableFetch<AirtableListResponse<MudFields>>(url, token)
 
     for (const rec of body.records) {

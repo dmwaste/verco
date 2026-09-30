@@ -3,6 +3,24 @@
 // Follows the same pattern as area-map.ts / verco-upsert.ts.
 
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { canonicaliseAuMobile, normalisePhone } from '../../src/lib/phone'
+
+/**
+ * Airtable MUD List contact cells → upsertContact input. Phones go through the
+ * one-brain store rule (src/lib/phone.ts, CLAUDE.md §21): AU mobiles → E.164 so
+ * SMS works, landlines/other → formatting-stripped — never a local variant.
+ */
+export function mudContactInput(rec: { contactName: string | null; contactNumber: string | null; email: string | null }) {
+  const name = rec.contactName?.trim() ?? ''
+  const sp = name.indexOf(' ')
+  const phone = rec.contactNumber?.trim() ?? ''
+  return {
+    email: rec.email?.trim() ? rec.email.trim().toLowerCase() : null,
+    firstName: sp === -1 ? name : name.slice(0, sp),
+    lastName: sp === -1 ? '' : name.slice(sp + 1),
+    mobileE164: phone ? (canonicaliseAuMobile(phone) ?? normalisePhone(phone)) : '',
+  }
+}
 
 export type ContactUpsertResult = {
   contactId: string | null

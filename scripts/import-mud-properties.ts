@@ -17,14 +17,22 @@
  *   pnpm tsx scripts/import-mud-properties.ts --dry-run  # no writes
  *   pnpm tsx scripts/import-mud-properties.ts --skip-forms
  *   pnpm tsx scripts/import-mud-properties.ts --limit=10
+ *   --base=appIgPfNX8SYS9QIq   read a council's OWN base (SUB/VIC were duplicated
+ *                              from the main base: same table + field ids)
+ *   --geocode                  after the upsert, geocode rows still without a
+ *                              geocode via the geocode-properties EF
+ *
+ * ⚠ Writes by default — pass --dry-run first. Pass 1 re-upserts whole rows
+ * (geocode → NULL, status → Contact Made): for rows already in Verco use --only
+ * or --forms-only (see #460), or attach-mud-strata-contacts.ts for contacts.
  */
 import { createClient } from '@supabase/supabase-js'  // keep for verco client creation
 import { randomUUID } from 'node:crypto'
 import { writeFileSync } from 'node:fs'
-import { fetchAllMudRecords } from './lib/airtable-mud'
+import { fetchAllMudRecords, MUD_BASE_ID } from './lib/airtable-mud'
 import { loadAreaMap, resolveAreaId } from './lib/area-map'
 import { upsertEligibleProperties } from './lib/verco-upsert'
-import { upsertContact } from './lib/contact-upsert'
+import { mudContactInput, upsertContact } from './lib/contact-upsert'
 import { parseFlags, requireEnv } from './lib/cli'
 import { timestamp } from './lib/report'
 import type { AirtableMudRecord, MudPropertyInsert } from './lib/types'
@@ -33,28 +41,6 @@ const EXTERNAL_SOURCE = 'airtable-mud'
 const STORAGE_BUCKET = 'mud-auth-forms'
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
-
-function normalisePhone(raw: string | null): string {
-  if (!raw?.trim()) return ''
-  const s = raw.replace(/[\s\-()+.]/g, '').replace(/^\+/, '')
-  // Already started with +61 → re-add
-  if (raw.trimStart().startsWith('+61')) return `+61${s.slice(2)}`
-  if (raw.trimStart().startsWith('+')) return `+${s}`
-  // 8-digit landline without leading 0 (e.g. "93827700") → Perth +618
-  if (/^\d{8}$/.test(s)) return `+618${s}`
-  // 10-digit starting with 0 (mobile 04xx / landline 08xx)
-  if (s.startsWith('0') && s.length === 10) return `+61${s.slice(1)}`
-  // Fallback: store as-is (flagged in report)
-  return raw.trim()
-}
-
-function splitName(raw: string | null): { firstName: string; lastName: string } {
-  if (!raw?.trim()) return { firstName: '', lastName: '' }
-  const trimmed = raw.trim()
-  const idx = trimmed.indexOf(' ')
-  if (idx === -1) return { firstName: trimmed, lastName: '' }
-  return { firstName: trimmed.slice(0, idx), lastName: trimmed.slice(idx + 1) }
-}
 
 function toCadence(months: number): 'Ad-hoc' | 'Annual' | 'Bi-annual' | 'Quarterly' {
   if (months === 12) return 'Annual'
@@ -92,6 +78,9 @@ async function main() {
     ? new Set(flags.only.split(',').map((s) => s.trim()).filter(Boolean))
     : null
   const formsOnly = !!flags['forms-only']
+  const base = typeof flags.base === 'string' ? flags.base : MUD_BASE_ID
+  if (!/^app[A-Za-z0-9]{14}$/.test(base)) { console.error(`--base must be an Airtable base id, got "${base}"`); process.exit(1) }
+  const geocode = !!flags.geocode
 
   const airtableToken = requireEnv('AIRTABLE_TOKEN')
   const supabaseUrl   = requireEnv('NEXT_PUBLIC_SUPABASE_URL')
@@ -104,8 +93,8 @@ async function main() {
   console.log(`Loaded ${areaMap.size} Verco collection_areas for vergevalet.`)
 
   // ── Fetch MUD records ──
-  console.log('\nFetching MUD List from Airtable…')
-  let records = await fetchAllMudRecords(airtableToken)
+  console.log(`\nFetching MUD List from Airtable base ${base}…${dryRun ? '  (DRY RUN)' : ''}`)
+  let records = await fetchAllMudRecords(airtableToken, base)
   if (only) {
     records = records.filter((r) => only.has(r.id))
     console.log(`--only: narrowed to ${records.length}/${only.size} requested record(s).`)
@@ -202,13 +191,7 @@ async function main() {
       report.noPhoneContact.push({ id: rec.id, address: rec.address })
     }
 
-    const { firstName, lastName } = splitName(rec.contactName)
-    const mobile = normalisePhone(rec.contactNumber)
-    const { contactId, created, error: contactError } = await upsertContact(
-      verco,
-      { email: rec.email, firstName, lastName, mobileE164: mobile },
-      dryRun,
-    )
+    const { contactId, created, error: contactError } = await upsertContact(verco, mudContactInput(rec), dryRun)
     if (contactError) {
       report.contactErrors.push({ id: rec.id, address: rec.address, error: contactError })
     }
@@ -352,6 +335,29 @@ async function main() {
       if (shouldUpgrade) report.statusUpgradedToRegistered.push({ id: rec.id, address: rec.address })
     }
     process.stdout.write('\n')
+  }
+
+  // ── Geocode (opt-in) — Pass 1 inserts rows with has_geocode=false ──
+  if (geocode && !dryRun && !formsOnly) {
+    const ids = records.map((r) => r.id)
+    const { data: ungeo, error: gErr } = await verco
+      .from('eligible_properties')
+      .select('id')
+      .eq('external_source', EXTERNAL_SOURCE)
+      .in('external_id', ids)
+      .eq('has_geocode', false)
+    if (gErr) throw new Error(`geocode lookup: ${gErr.message}`)
+    const propertyIds = (ungeo ?? []).map((r) => (r as { id: string }).id)
+    if (propertyIds.length > 0) {
+      console.log(`\nGeocoding ${propertyIds.length} properties via geocode-properties EF…`)
+      const res = await fetch(`${supabaseUrl}/functions/v1/geocode-properties`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${serviceKey}` },
+        body: JSON.stringify({ property_ids: propertyIds }),
+      })
+      console.log(`  EF HTTP ${res.status}: ${(await res.text()).slice(0, 400)}`)
+      if (!res.ok) process.exitCode = 1
+    }
   }
 
   // ── Write report ──
