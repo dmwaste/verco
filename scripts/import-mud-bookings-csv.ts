@@ -17,6 +17,10 @@
  *                                 Completed — Dan confirmed 01/09/2026 that all
  *                                 Jul–Aug MUD collections were attended, and FY
  *                                 usage/reporting needs the rows.
+ *   - Booked, dated before      → skipped + reported, even if still in the
+ *     --live-from                 future (those runs finish on the Airtable leg;
+ *                                 a live copy would double the crews' stops).
+ *                                 Never completed by --past-booked.
  *
  * Match: `MUD Ref (from Address)` → `eligible_properties.mud_code` (exact,
  * unique). The property supplies the area, the strata contact (the CSV has no
@@ -34,6 +38,7 @@
  *   npx tsx scripts/import-mud-bookings-csv.ts --file="path.csv" --areas=... --apply                            # write
  *   optional: --since=2026-07-01 (default)  --refs=CAM-MUD-11-2271,... (subset)
  *             --past-booked=completed (past-dated Booked rows → Completed)
+ *             --live-from=YYYY-MM-DD (first date Verco dispatches; default today AWST)
  */
 import { createClient } from '@supabase/supabase-js'
 import { readFileSync, writeFileSync } from 'node:fs'
@@ -43,15 +48,13 @@ import { pagedIn } from './lib/db'
 import { timestamp } from './lib/report'
 import { parseCsv, type CsvRow as Row } from './lib/csv'
 import { MUD_UNITS_PER_SERVICE } from '../src/lib/mud/capacity'
-import { parseDate } from './import-vv-bookings-csv'
+import { parseDate, TODAY } from './import-vv-bookings-csv'
 
 // Verge Valet service ids (same client across all VV areas).
 const SERVICE = {
   bulk: '756932e9-f6da-40e4-bda3-cd63feba0bd0',
   green: '888fd3d5-64db-43f8-b849-f375796d8610',
 } as const
-
-const TODAY = new Date().toISOString().slice(0, 10)
 
 export type Parsed = {
   ref: string
@@ -81,10 +84,10 @@ export function parseRow(r: Row): Parsed {
   }
 }
 
-export function targetStatus(status: string, date: string, today = TODAY, pastBooked: 'skip' | 'completed' = 'skip'): 'Completed' | 'Confirmed' | null {
+export function targetStatus(status: string, date: string, today = TODAY, pastBooked: 'skip' | 'completed' = 'skip', liveFrom = today): 'Completed' | 'Confirmed' | null {
   if (status === 'Completed') return 'Completed'
   if (status === 'Booked') {
-    if (date >= today) return 'Confirmed'
+    if (date >= today) return date >= liveFrom ? 'Confirmed' : null
     return pastBooked === 'completed' ? 'Completed' : null
   }
   return null
@@ -99,13 +102,15 @@ async function main() {
   const since = typeof flags.since === 'string' ? flags.since : '2026-07-01'
   const onlyRefs = typeof flags.refs === 'string' ? new Set(flags.refs.split(',').map((s) => s.trim()).filter(Boolean)) : null
   const pastBooked = flags['past-booked'] === 'completed' ? 'completed' as const : 'skip' as const
+  const liveFrom = typeof flags['live-from'] === 'string' ? flags['live-from'] : TODAY
   if (flags['past-booked'] && flags['past-booked'] !== 'completed') { console.error('--past-booked only accepts "completed"'); process.exit(1) }
-  if (!file || areaCodes.length === 0) { console.error('Usage: --file=<csv> --areas=CODE,CODE [--since=YYYY-MM-DD] [--refs=a,b] [--past-booked=completed] [--apply]'); process.exit(1) }
-  const unknown = Object.keys(flags).filter((k) => !['apply', 'file', 'areas', 'since', 'refs', 'past-booked'].includes(k))
+  if (!file || areaCodes.length === 0) { console.error('Usage: --file=<csv> --areas=CODE,CODE [--since=YYYY-MM-DD] [--live-from=YYYY-MM-DD] [--refs=a,b] [--past-booked=completed] [--apply]'); process.exit(1) }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(liveFrom)) { console.error(`--live-from must be YYYY-MM-DD, got "${liveFrom}"`); process.exit(1) }
+  const unknown = Object.keys(flags).filter((k) => !['apply', 'file', 'areas', 'since', 'refs', 'past-booked', 'live-from'].includes(k))
   if (unknown.length) { console.error(`Unknown flag(s): ${unknown.join(', ')}`); process.exit(1) }
 
   const verco = createClient(requireEnv('NEXT_PUBLIC_SUPABASE_URL'), requireEnv('SUPABASE_SERVICE_ROLE_KEY'))
-  console.log(`Import MUD bookings CSV → ${areaCodes.join(',')}  (${apply ? 'APPLY' : 'DRY RUN'})  today=${TODAY}  since=${since}  past-booked=${pastBooked}`)
+  console.log(`Import MUD bookings CSV → ${areaCodes.join(',')}  (${apply ? 'APPLY' : 'DRY RUN'})  today=${TODAY} (AWST)  since=${since}  live-from=${liveFrom}  past-booked=${pastBooked}`)
 
   const { data: areas, error: aErr } = await verco.from('collection_area').select('id, client_id, contractor_id, code').in('code', areaCodes)
   if (aErr) throw new Error(aErr.message)
@@ -120,8 +125,12 @@ async function main() {
 
   // Rows
   const all = parseCsv(readFileSync(file, 'utf8')).map(parseRow)
+  // A row whose date doesn't parse never reaches a skip bucket — count it, and
+  // stop outright if NO row parses (wrong export / renamed date column).
+  const undated = all.filter((p) => !p.date)
+  if (all.length > 0 && undated.length === all.length) throw new Error(`no row has a parseable 'Collection_Date (from Collection_Date)' — check the CSV header/date format`)
   const inWindow = all.filter((p) => p.date && p.date >= since && (!onlyRefs || onlyRefs.has(p.ref)))
-  console.log(`CSV rows: ${all.length}; with collection date >= ${since}: ${inWindow.length}`)
+  console.log(`CSV rows: ${all.length}; no parseable collection date: ${undated.length}; with collection date >= ${since}: ${inWindow.length}`)
 
   // Verco state — MUD properties across ALL areas (so a row for a not-yet-live
   // council is reported as inactive_area, not mistaken for a missing property).
@@ -172,6 +181,7 @@ async function main() {
   const plans: Plan[] = []
   const skip = {
     past_unresolved: [] as { ref: string; status: string; date: string }[],
+    before_live_from: [] as { ref: string; status: string; date: string }[],
     no_mud_ref: [] as string[], no_property: [] as { ref: string; mudRef: string }[],
     ambiguous_mud_code: [] as string[], inactive_area: [] as { ref: string; mudRef: string }[],
     no_contact: [] as { ref: string; mudRef: string }[], no_date: [] as { ref: string; area: string; date: string }[],
@@ -193,8 +203,13 @@ async function main() {
     const area = prop.collection_area_id ? areaById.get(prop.collection_area_id) : undefined
     if (!area) { skip.inactive_area.push({ ref: p.ref, mudRef: p.mudRef }); continue }
     if (p.status !== 'Booked' && p.status !== 'Completed') { skip.unknown_status.push({ ref: p.ref, status: p.status }); continue }
-    const status = targetStatus(p.status, date, TODAY, pastBooked)
-    if (!status) { skip.past_unresolved.push({ ref: p.ref, status: p.status, date }); continue }
+    const status = targetStatus(p.status, date, TODAY, pastBooked, liveFrom)
+    if (!status) {
+      // Would have gone live without --live-from → held back, not "past".
+      const bucket = targetStatus(p.status, date, TODAY, pastBooked) ? skip.before_live_from : skip.past_unresolved
+      bucket.push({ ref: p.ref, status: p.status, date })
+      continue
+    }
     if (existingRefs.has(p.ref)) { skip.already_in_verco.push(p.ref); continue }
     if (!prop.strata_contact_id) { skip.no_contact.push({ ref: p.ref, mudRef: p.mudRef }); continue }
     const cdId = cdByAreaDate.get(`${prop.collection_area_id}|${date}`)
@@ -215,9 +230,9 @@ async function main() {
   const stamp = timestamp()
   const reportPath = `import-mud-report-${stamp}.json`
   writeFileSync(reportPath, JSON.stringify({
-    areas: areaCodes, since, today: TODAY, apply, pastBooked,
+    areas: areaCodes, since, liveFrom, today: TODAY, apply, pastBooked,
     plans: plans.map((x) => ({ ref: x.p.ref, status: x.status, date: x.p.date, area: x.areaCode, mudRef: x.p.mudRef, address: x.prop.address, services: x.p.services })),
-    csvDupPairs, nonStandardQty, notRegistered, skip,
+    csvDupPairs, nonStandardQty, notRegistered, undated: undated.map((p) => ({ ref: p.ref, status: p.status })), skip,
   }, null, 2))
 
   console.log('\n═════════ Import plan ═════════')
@@ -227,6 +242,7 @@ async function main() {
   console.log(`  CSV qty != 1 (2 units anyway):   ${nonStandardQty.length} (listed in report — eyeball them)`)
   console.log(`  skip · same property+date twin   ${csvDupPairs.length}`)
   console.log(`  skip · past, not closed out      ${skip.past_unresolved.length}`)
+  console.log(`  skip · before --live-from        ${skip.before_live_from.length}`)
   console.log(`  skip · already in Verco (ref)    ${skip.already_in_verco.length}`)
   console.log(`  skip · property+date booked      ${skip.duplicate_prop_date.length}`)
   console.log(`  skip · no MUD ref in row         ${skip.no_mud_ref.length}`)
