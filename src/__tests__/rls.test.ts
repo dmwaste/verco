@@ -3507,4 +3507,57 @@ if (!haveDb) {
     })
   })
 
+  // ---------------------------------------------------------------------------
+  // #603 hotfix (20260930060000): booking + contacts SELECT policies evaluate
+  // once per statement. A bare per-row user_sub_client_allows_area() in booking
+  // RLS and a correlated EXISTS in the contacts policies drove ~150 statement
+  // timeouts/day on /admin/bookings. Shape guards + the narrowing still holds.
+  // ---------------------------------------------------------------------------
+  describe('booking + contacts policies once per statement (#603, 20260930060000)', () => {
+    async function quals(): Promise<Record<string, string>> {
+      const r = await pg.query<{ policyname: string; qual: string }>(
+        `SELECT policyname, qual FROM pg_policies WHERE schemaname = 'public' AND policyname IN
+           ('booking_client_staff_select','booking_field_select','contacts_client_staff_select','contacts_contractor_select')`,
+      )
+      return Object.fromEntries(r.rows.map((x) => [x.policyname, x.qual]))
+    }
+    const deployed = (q: Record<string, string>) => !(q['booking_client_staff_select'] ?? '').includes('user_sub_client_allows_area')
+
+    it('booking SELECT policies use the once-per-statement sub-client set, not the per-row helper', async (ctx) => {
+      const q = await quals()
+      if (!deployed(q)) return ctx.skip()
+      for (const name of ['booking_client_staff_select', 'booking_field_select']) {
+        expect(q[name]).not.toContain('user_sub_client_allows_area')
+        expect(q[name]).toContain('current_user_sub_client_id')
+      }
+    })
+
+    it('contacts staff policies are uncorrelated (no per-row EXISTS on booking)', async (ctx) => {
+      const q = await quals()
+      if (!deployed(q)) return ctx.skip()
+      for (const name of ['contacts_client_staff_select', 'contacts_contractor_select']) {
+        expect(q[name]).not.toContain('EXISTS')
+        expect(q[name]).toContain('contact_id')
+      }
+    })
+
+    it('a sub-client-scoped client-staff user still sees only their own sub-client’s bookings', async (ctx) => {
+      if (!deployed(await quals())) return ctx.skip()
+      const sc = await pg.query<{ id: string }>(
+        `SELECT ca.sub_client_id AS id FROM booking b JOIN collection_area ca ON ca.id = b.collection_area_id
+          WHERE ca.sub_client_id IS NOT NULL AND b.client_id = $1 GROUP BY 1 ORDER BY count(*) DESC LIMIT 1`,
+        [VV_CLIENT_ID],
+      )
+      const subClientId = sc.rows[0]!.id
+      const seed: Array<[string, unknown[]]> = [
+        [`UPDATE user_roles SET client_id = $1, sub_client_id = $2 WHERE user_id = $3`, [VV_CLIENT_ID, subClientId, USERS['client-staff']]],
+        [`CREATE TEMP TABLE _own_areas ON COMMIT DROP AS SELECT id FROM collection_area WHERE sub_client_id = '${subClientId}'`, []],
+        ['GRANT SELECT ON _own_areas TO authenticated', []],
+      ]
+      const user = USERS['client-staff']
+      expect(await countAsWithSeed(user, seed, 'SELECT id FROM booking WHERE collection_area_id IN (SELECT id FROM _own_areas)')).toBeGreaterThan(0)
+      expect(await countAsWithSeed(user, seed, 'SELECT id FROM booking WHERE collection_area_id NOT IN (SELECT id FROM _own_areas)')).toBe(0)
+    })
+  })
+
 })
