@@ -28,3 +28,4 @@ An ADR — "architecture decision record" — is a short record of a decision we
 | [0022](0022-mattress-counts-crew-logged-at-closeout-one-daily-series.md) | Mattress counts: crews log at bulk closeout; one daily series feeds every report | 01/08/2026 | Accepted (mandatory-count clause superseded by 0011) |
 | [0023](0023-stale-build-reloads-on-first-failed-save.md) | A stale app build reloads itself the first time a save fails, on every screen | 13/09/2026 | Accepted |
 | [0024](0024-council-staff-see-only-their-councils-notifications-tickets-and-no-audit-log.md) | Council staff see only their own council's notifications and tickets, and no audit log until it's tagged by council | 30/09/2026 | Accepted |
+| [0025](0025-residents-told-3pm-cutoff-system-allows-until-330.md) | Residents are told the cutoff is 3:00pm; the system still allows changes until 3:30pm | 30/09/2026 | Accepted |

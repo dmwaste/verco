@@ -80,7 +80,7 @@ export function renderCollectionReminder(
       ${itemRows}
     </table>
     <p style="margin:0 0 16px 0"><strong>Place your items on the verge by 7am</strong> on the morning of collection — or the night before if it's easier.</p>
-    <p style="margin:0 0 16px 0;color:#8FA5B8;font-size:13px">Need to make a change? Use the link below to view or cancel up to 3:30pm the day before.</p>
+    <p style="margin:0 0 16px 0;color:#8FA5B8;font-size:13px">Need to make a change? Use the link below to view or cancel up to 3:00pm the day before.</p>
   `
 
   const ctaUrl = buildBookingPortalUrl(

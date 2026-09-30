@@ -79,7 +79,7 @@ export function evaluateEditGuard(input: EditGuardInput): EditGuardResult {
       ok: false,
       status: 403,
       error:
-        'The change cutoff (3:30pm the day before collection) has passed; this booking can no longer be edited.',
+        'The change cutoff (3:00pm the day before collection) has passed; this booking can no longer be edited.',
     }
   }
 

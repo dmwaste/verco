@@ -22,3 +22,14 @@ export function isPastCancellationCutoff(
 ): boolean {
   return now.getTime() >= cancellationCutoff(collectionDateStr).getTime()
 }
+
+/**
+ * The cutoff residents are TOLD: 3:00pm AWST the day before — 30 minutes ahead
+ * of the enforced cutoff above, a deliberate grace window (ADR 0025). DISPLAY
+ * ONLY (dashboard countdown, booking-detail cutoff card). Never gate on it:
+ * every check uses `cancellationCutoff` / `isPastCancellationCutoff`, which match
+ * the DB trigger.
+ */
+export function advertisedCancellationCutoff(collectionDateStr: string): Date {
+  return new Date(cancellationCutoff(collectionDateStr).getTime() - 30 * 60 * 1000)
+}
