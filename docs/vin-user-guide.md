@@ -24,7 +24,7 @@ Your login is **scoped to City of Vincent** — you see Vincent bookings, notice
 | Extra (paid) collections | Bulk Waste **$195.45** · Green Waste **$114.55** — paid by card at the time of booking |
 | Services | Bulk Waste, Green Waste (no mattress service for Vincent) |
 | Place-out window | Items on the verge no earlier than **72 hours** before collection day |
-| Booking / cancellation cut-off | **3:30pm the day before** collection |
+| Booking / cancellation cut-off | **3:00pm the day before** collection (what residents are told; the system accepts changes until 3:30pm as a grace window) |
 | Booking references | New bookings: `VIN-` + 6 characters (e.g. `VIN-K7Q2RM`). Bookings carried over from the old system keep their old reference (e.g. `VIN-B-59803`). Both work in search. |
 | Eligible properties | 17,881 — every Vincent address from the old system, plus 97 strata buildings (MUDs) |
 | Help for residents | WMRC Verge Valet team — `vergevalet@wmrc.wa.gov.au` |
@@ -68,7 +68,7 @@ A **confirmation email and SMS** arrive straight away with the reference and a l
 
 ### 2.6 After booking
 
-From the link in their email the resident can **change services or date** (up to the cut-off) or **cancel** (up to 3:30pm the day before). After collection they get a short **feedback survey** — the results feed the Reports page you'll use (§3.9).
+From the link in their email the resident can **change services or date** (up to the cut-off) or **cancel** (up to 3:00pm the day before). After collection they get a short **feedback survey** — the results feed the Reports page you'll use (§3.9).
 
 > **Common call: "I never got the code."** Ask them to check junk mail, and to confirm the email they typed. The code expires after a few minutes — they can request a new one. If it still fails, raise a Service Ticket.
 
