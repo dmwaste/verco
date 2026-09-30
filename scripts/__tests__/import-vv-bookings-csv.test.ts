@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi, afterEach } from 'vitest'
 import { looseKey, normAddr, parseDate, parseRow, storePhone, targetStatus } from '../import-vv-bookings-csv'
 import { parseCsv } from '../lib/csv'
 
@@ -32,6 +32,37 @@ describe('targetStatus', () => {
     expect(targetStatus('Place Out Issued', '2026-08-23', '2026-08-23')).toBe('Confirmed')
     expect(targetStatus('Booked', '2026-08-20', '2026-08-23')).toBeNull()
     expect(targetStatus('Cancelled', '2026-09-01', '2026-08-23')).toBeNull()
+  })
+
+  // 30/09/2026 changeover: the 30/09–03/10 runs finish on the Airtable leg (their
+  // orders are already in OptimoRoute). Importing them live would strand today's
+  // rows on a finished date and put duplicate stops in front of the crews.
+  it('--live-from holds back live rows dated before it, even when still in the future', () => {
+    expect(targetStatus('Scheduled', '2026-09-30', '2026-09-30', '2026-10-04')).toBeNull()
+    expect(targetStatus('Booked', '2026-10-01', '2026-09-30', '2026-10-04')).toBeNull()
+    expect(targetStatus('Place Out Issued', '2026-10-03', '2026-09-30', '2026-10-04')).toBeNull()
+    expect(targetStatus('Booked', '2026-10-04', '2026-09-30', '2026-10-04')).toBe('Confirmed')
+    expect(targetStatus('Booked', '2026-10-05', '2026-09-30', '2026-10-04')).toBe('Confirmed')
+  })
+  it('--live-from never holds back terminal history', () => {
+    expect(targetStatus('Completed', '2026-09-30', '2026-09-30', '2026-10-04')).toBe('Completed')
+    expect(targetStatus('Non-Conformance', '2026-09-29', '2026-09-30', '2026-10-04')).toBe('Non-conformance')
+  })
+  it('a --live-from already in the past changes nothing — today still wins', () => {
+    expect(targetStatus('Booked', '2026-09-29', '2026-09-30', '2026-09-01')).toBeNull()
+    expect(targetStatus('Booked', '2026-09-30', '2026-09-30', '2026-09-01')).toBe('Confirmed')
+  })
+})
+
+describe('today (default)', () => {
+  afterEach(() => { vi.useRealTimers(); vi.resetModules() })
+  it('is the AWST date — a run at 01:30 AWST 01/10 must not treat 30/09 as today', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-09-30T17:30:00Z')) // 01:30 AWST Thu 01/10 — UTC is still 30/09
+    vi.resetModules()
+    const mod = await import('../import-vv-bookings-csv')
+    expect(mod.targetStatus('Booked', '2026-09-30')).toBeNull()
+    expect(mod.targetStatus('Booked', '2026-10-01')).toBe('Confirmed')
   })
 })
 
