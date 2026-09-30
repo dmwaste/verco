@@ -3414,4 +3414,97 @@ if (!haveDb) {
     })
   })
 
+  // ---------------------------------------------------------------------------
+  // Side-table sub-client scope + field PII (hotfix 20260930030000). A
+  // sub-client-scoped client-staff user read other councils' notification_log
+  // (resident emails/mobiles), unbooked tickets, resident profiles and the whole
+  // audit_log; field read every notification_log row (Red Line #2). The scoped
+  // user is seeded INSIDE the rolled-back tx: the KWN client-staff fixture is
+  // re-pointed at the Verge Valet sub-client with the most notifications, so the
+  // positive guard below can't pass vacuously.
+  // ---------------------------------------------------------------------------
+  describe('side-table sub-client scope + field PII (20260930030000)', () => {
+    async function deployed(): Promise<boolean> {
+      const r = await pg.query(
+        `SELECT qual FROM pg_policies WHERE tablename = 'notification_log' AND policyname = 'notification_log_select'`,
+      )
+      const qual: string = r.rows[0]?.qual ?? ''
+      return Boolean(qual) && !qual.includes('is_contractor_user')
+    }
+
+    // Seeds run as the privileged role, so the helper tables below are built
+    // from unfiltered data; ids come from our own query, safe to inline.
+    async function scopedSeed(): Promise<Array<[string, unknown[]]>> {
+      const r = await pg.query<{ id: string }>(
+        `SELECT ca.sub_client_id AS id
+           FROM notification_log nl
+           JOIN booking b ON b.id = nl.booking_id
+           JOIN collection_area ca ON ca.id = b.collection_area_id
+          WHERE ca.sub_client_id IS NOT NULL AND b.client_id = $1
+          GROUP BY 1 ORDER BY count(*) DESC LIMIT 1`,
+        [VV_CLIENT_ID],
+      )
+      const subClientId = r.rows[0]!.id
+      return [
+        [`UPDATE user_roles SET client_id = $1, sub_client_id = $2 WHERE user_id = $3`, [VV_CLIENT_ID, subClientId, USERS['client-staff']]],
+        [`CREATE TEMP TABLE _own_bookings ON COMMIT DROP AS
+            SELECT b.id FROM booking b JOIN collection_area ca ON ca.id = b.collection_area_id
+             WHERE ca.sub_client_id = '${subClientId}'`, []],
+        ['GRANT SELECT ON _own_bookings TO authenticated', []],
+        ...residentsSeed(),
+      ]
+    }
+
+    function residentsSeed(): Array<[string, unknown[]]> {
+      return [
+        [`CREATE TEMP TABLE _residents ON COMMIT DROP AS SELECT user_id FROM user_roles WHERE role = 'resident'`, []],
+        ['GRANT SELECT ON _residents TO authenticated', []],
+      ]
+    }
+
+    it('field sees zero notification_log rows (Red Line #2)', async (ctx) => {
+      if (!(await deployed())) return ctx.skip()
+      expect(await countAs(USERS.field, 'SELECT id FROM notification_log')).toBe(0)
+    })
+
+    it('whole-client staff still see notification_log', async (ctx) => {
+      if (!(await deployed())) return ctx.skip()
+      expect(await countAs(USERS['contractor-admin'], 'SELECT id FROM notification_log')).toBeGreaterThan(0)
+    })
+
+    it('a sub-client-scoped user sees only their own council’s notifications', async (ctx) => {
+      if (!(await deployed())) return ctx.skip()
+      const seed = await scopedSeed()
+      const user = USERS['client-staff']
+      expect(await countAsWithSeed(user, seed, 'SELECT id FROM notification_log WHERE booking_id IN (SELECT id FROM _own_bookings)')).toBeGreaterThan(0)
+      expect(
+        await countAsWithSeed(user, seed, 'SELECT id FROM notification_log WHERE booking_id IS NULL OR booking_id NOT IN (SELECT id FROM _own_bookings)'),
+      ).toBe(0)
+    })
+
+    it('a sub-client-scoped user sees no ticket without a booking in their council', async (ctx) => {
+      if (!(await deployed())) return ctx.skip()
+      const seed = await scopedSeed()
+      expect(
+        await countAsWithSeed(
+          USERS['client-staff'],
+          seed,
+          'SELECT id FROM service_ticket WHERE booking_id IS NULL OR booking_id NOT IN (SELECT id FROM _own_bookings)',
+        ),
+      ).toBe(0)
+    })
+
+    it('a sub-client-scoped user sees zero audit_log rows (option B until the post-freeze tag)', async (ctx) => {
+      if (!(await deployed())) return ctx.skip()
+      expect(await countAsWithSeed(USERS['client-staff'], await scopedSeed(), 'SELECT id FROM audit_log')).toBe(0)
+    })
+
+    it('client-tier staff see zero resident profiles', async (ctx) => {
+      if (!(await deployed())) return ctx.skip()
+      const sql = 'SELECT id FROM profiles WHERE id IN (SELECT user_id FROM _residents)'
+      expect(await countAsWithSeed(USERS['client-admin'], residentsSeed(), sql)).toBe(0)
+      expect(await countAsWithSeed(USERS['client-staff'], await scopedSeed(), sql)).toBe(0)
+    })
+  })
+
 })
