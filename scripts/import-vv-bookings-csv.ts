@@ -15,6 +15,11 @@
  *                                     them to Scheduled + the push EF creates stops.
  *                                     Red Line #5: never set Scheduled here.
  *   - Past-dated Booked/POI         → skipped + reported (outcome unknown).
+ *   - Booked/POI dated before       → skipped + reported, even if still in the
+ *     --live-from                     future: those runs finish on the Airtable
+ *                                     leg (orders already in OptimoRoute), so a
+ *                                     live Verco copy would double the crews'
+ *                                     stops. They come in later as history.
  *
  * Match: Verco VV `eligible_properties.address` is stored in Airtable's raw
  * format (e.g. `126 Shakespeare ST MOUNT HAWTHORN`, no postcode), so we match
@@ -29,6 +34,7 @@
  *   npx tsx scripts/import-vv-bookings-csv.ts --file="path.csv" --area=VIN            # dry run
  *   npx tsx scripts/import-vv-bookings-csv.ts --file="path.csv" --area=VIN --apply    # write
  *   optional: --since=2026-07-01 (default)  --refs=VIN-B-1,VIN-B-2 (subset)
+ *             --live-from=YYYY-MM-DD (first date Verco dispatches; default today AWST)
  */
 import { createClient } from '@supabase/supabase-js'
 import { readFileSync, writeFileSync } from 'node:fs'
@@ -39,6 +45,7 @@ import { timestamp } from './lib/report'
 import { parseCsv } from './lib/csv'
 import { upsertContact } from './lib/contact-upsert'
 import { canonicaliseAuMobile, normalisePhone } from '../src/lib/phone'
+import { awstDateFromUtc } from '../src/lib/booking/schedule-transition'
 
 const SERVICE = {
   bulk: '756932e9-f6da-40e4-bda3-cd63feba0bd0',
@@ -46,7 +53,8 @@ const SERVICE = {
   mattress: '9a0538d8-111c-452a-9483-3d20b07725a4',
 } as const
 
-const TODAY = new Date().toISOString().slice(0, 10)
+// AWST, not UTC — a UTC date is yesterday for any run between 00:00 and 07:59 AWST.
+export const TODAY = awstDateFromUtc(new Date())
 
 import type { CsvRow as Row } from './lib/csv'
 export type Parsed = {
@@ -146,10 +154,10 @@ export function parseRow(r: Row): Parsed {
   }
 }
 
-export function targetStatus(status: string, date: string, today = TODAY): 'Completed' | 'Non-conformance' | 'Confirmed' | null {
+export function targetStatus(status: string, date: string, today = TODAY, liveFrom = today): 'Completed' | 'Non-conformance' | 'Confirmed' | null {
   if (status === 'Completed') return 'Completed'
   if (status === 'Non-Conformance') return 'Non-conformance'
-  if (status === 'Booked' || status === 'Place Out Issued' || status === 'Scheduled') return date >= today ? 'Confirmed' : null
+  if (status === 'Booked' || status === 'Place Out Issued' || status === 'Scheduled') return date >= today && date >= liveFrom ? 'Confirmed' : null
   return null
 }
 
@@ -161,12 +169,14 @@ async function main() {
   const areaCode = typeof flags.area === 'string' ? flags.area : null
   const since = typeof flags.since === 'string' ? flags.since : '2026-07-01'
   const onlyRefs = typeof flags.refs === 'string' ? new Set(flags.refs.split(',').map((s) => s.trim()).filter(Boolean)) : null
-  if (!file || !areaCode) { console.error('Usage: --file=<csv> --area=<CODE> [--since=YYYY-MM-DD] [--refs=a,b] [--apply]'); process.exit(1) }
-  const unknown = Object.keys(flags).filter((k) => !['apply', 'file', 'area', 'since', 'refs'].includes(k))
+  const liveFrom = typeof flags['live-from'] === 'string' ? flags['live-from'] : TODAY
+  if (!file || !areaCode) { console.error('Usage: --file=<csv> --area=<CODE> [--since=YYYY-MM-DD] [--live-from=YYYY-MM-DD] [--refs=a,b] [--apply]'); process.exit(1) }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(liveFrom)) { console.error(`--live-from must be YYYY-MM-DD, got "${liveFrom}"`); process.exit(1) }
+  const unknown = Object.keys(flags).filter((k) => !['apply', 'file', 'area', 'since', 'refs', 'live-from'].includes(k))
   if (unknown.length) { console.error(`Unknown flag(s): ${unknown.join(', ')}`); process.exit(1) }
 
   const verco = createClient(requireEnv('NEXT_PUBLIC_SUPABASE_URL'), requireEnv('SUPABASE_SERVICE_ROLE_KEY'))
-  console.log(`Import VV bookings CSV → ${areaCode}  (${apply ? 'APPLY' : 'DRY RUN'})  today=${TODAY}  since=${since}`)
+  console.log(`Import VV bookings CSV → ${areaCode}  (${apply ? 'APPLY' : 'DRY RUN'})  today=${TODAY} (AWST)  since=${since}  live-from=${liveFrom}`)
 
   const { data: area, error: aErr } = await verco.from('collection_area').select('id, client_id, contractor_id, code').eq('code', areaCode).single()
   if (aErr || !area) throw new Error(`collection_area ${areaCode}: ${aErr?.message ?? 'not found'}`)
@@ -176,8 +186,12 @@ async function main() {
 
   // Rows
   const all = parseCsv(readFileSync(file, 'utf8')).map(parseRow)
+  // A row whose date doesn't parse never reaches a skip bucket — count it, and
+  // stop outright if NO row parses (wrong export / renamed date column).
+  const undated = all.filter((p) => !p.date)
+  if (all.length > 0 && undated.length === all.length) throw new Error(`no row has a parseable 'Collection_Date (from Collection_Date)' — check the CSV header/date format`)
   const inWindow = all.filter((p) => p.date && p.date >= since && (!onlyRefs || onlyRefs.has(p.ref)))
-  console.log(`CSV rows: ${all.length}; with collection date >= ${since}: ${inWindow.length}`)
+  console.log(`CSV rows: ${all.length}; no parseable collection date: ${undated.length}; with collection date >= ${since}: ${inWindow.length}`)
 
   // Verco state
   const props = await pagedIn<{ id: string; address: string | null; latitude: number | null; longitude: number | null }>(
@@ -226,6 +240,7 @@ async function main() {
   const plans: Plan[] = []
   const skip = {
     cancelled: [] as string[], past_unresolved: [] as { ref: string; status: string; date: string }[],
+    before_live_from: [] as { ref: string; status: string; date: string }[],
     no_property: [] as { ref: string; address: string }[], ambiguous: [] as string[], no_date: [] as { ref: string; date: string }[],
     already_in_verco: [] as string[], duplicate_prop_date: [] as string[], no_email: [] as string[], no_services: [] as string[],
   }
@@ -236,8 +251,13 @@ async function main() {
   for (const p of inWindow) {
     const date = p.date!
     if (p.status === 'Cancelled') { skip.cancelled.push(p.ref); continue }
-    const status = targetStatus(p.status, date)
-    if (!status) { skip.past_unresolved.push({ ref: p.ref, status: p.status, date }); continue }
+    const status = targetStatus(p.status, date, TODAY, liveFrom)
+    if (!status) {
+      // Would have gone live without --live-from → held back, not "past".
+      const bucket = targetStatus(p.status, date) ? skip.before_live_from : skip.past_unresolved
+      bucket.push({ ref: p.ref, status: p.status, date })
+      continue
+    }
     if (existingRefs.has(p.ref)) { skip.already_in_verco.push(p.ref); continue }
     const k = normAddr(p.address)
     if (ambiguous.has(k)) { skip.ambiguous.push(p.ref); continue }
@@ -264,9 +284,9 @@ async function main() {
   const stamp = timestamp()
   const reportPath = `import-vv-${areaCode}-report-${stamp}.json`
   writeFileSync(reportPath, JSON.stringify({
-    area: areaCode, since, today: TODAY, apply,
+    area: areaCode, since, liveFrom, today: TODAY, apply,
     plans: plans.map((x) => ({ ref: x.p.ref, status: x.status, date: x.p.date, address: x.geo, location: x.p.location, services: x.p.services })),
-    csvDupPairs, looseMatched, skip,
+    csvDupPairs, looseMatched, undated: undated.map((p) => ({ ref: p.ref, status: p.status })), skip,
   }, null, 2))
 
   console.log('\n═════════ Import plan ═════════')
@@ -275,6 +295,7 @@ async function main() {
   console.log(`  same property+date twice in CSV: ${csvDupPairs.length} (both kept — faithful to master; listed in report)`)
   console.log(`  skip · cancelled               ${skip.cancelled.length}`)
   console.log(`  skip · past, not closed out    ${skip.past_unresolved.length}`)
+  console.log(`  skip · before --live-from      ${skip.before_live_from.length}`)
   console.log(`  skip · already in Verco (ref)  ${skip.already_in_verco.length}`)
   console.log(`  skip · property+date booked    ${skip.duplicate_prop_date.length}`)
   console.log(`  skip · no property match       ${skip.no_property.length}`)

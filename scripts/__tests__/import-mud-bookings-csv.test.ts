@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi, afterEach } from 'vitest'
 import { parseRow, targetStatus } from '../import-mud-bookings-csv'
 
 const BULK = '756932e9-f6da-40e4-bda3-cd63feba0bd0'
@@ -16,6 +16,29 @@ describe('targetStatus', () => {
     expect(targetStatus('Booked', '2026-08-03', '2026-09-01', 'completed')).toBe('Completed')
     expect(targetStatus('Booked', '2026-09-02', '2026-09-01', 'completed')).toBe('Confirmed')
     expect(targetStatus('Cancelled', '2026-08-03', '2026-09-01', 'completed')).toBeNull()
+  })
+  it('--live-from holds back future Booked rows dated before it (30/09 changeover)', () => {
+    expect(targetStatus('Booked', '2026-09-30', '2026-09-30', 'skip', '2026-10-04')).toBeNull()
+    expect(targetStatus('Booked', '2026-10-02', '2026-09-30', 'skip', '2026-10-04')).toBeNull()
+    expect(targetStatus('Booked', '2026-10-04', '2026-09-30', 'skip', '2026-10-04')).toBe('Confirmed')
+    expect(targetStatus('Completed', '2026-09-29', '2026-09-30', 'skip', '2026-10-04')).toBe('Completed')
+  })
+  it('past-booked=completed never completes a still-future row held back by --live-from', () => {
+    expect(targetStatus('Booked', '2026-09-30', '2026-09-30', 'completed', '2026-10-04')).toBeNull()
+    expect(targetStatus('Booked', '2026-10-01', '2026-09-30', 'completed', '2026-10-04')).toBeNull()
+    expect(targetStatus('Booked', '2026-09-29', '2026-09-30', 'completed', '2026-10-04')).toBe('Completed')
+  })
+})
+
+describe('today (default)', () => {
+  afterEach(() => { vi.useRealTimers(); vi.resetModules() })
+  it('is the AWST date — a run at 01:30 AWST 01/10 must not treat 30/09 as today', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-09-30T17:30:00Z')) // 01:30 AWST Thu 01/10 — UTC is still 30/09
+    vi.resetModules()
+    const mod = await import('../import-mud-bookings-csv')
+    expect(mod.targetStatus('Booked', '2026-09-30')).toBeNull()
+    expect(mod.targetStatus('Booked', '2026-10-01')).toBe('Confirmed')
   })
 })
 

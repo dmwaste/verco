@@ -391,7 +391,7 @@ Each booking card on the dashboard shows:
 - **Collection date**
 - **Address**
 - **Service chips** with paid extras tagged: *"General (extra · $89.67)"*
-- **Countdown** for bookings ≤7 days out: *"5 days away · cannot cancel after 3:30pm Sunday"*
+- **Countdown** for bookings ≤7 days out: *"5 days away · cannot cancel after 3:00pm Sunday"*
 - **Place-out reminder** (green banner) for bookings ≤2 days out
 
 ### 3.3 Open a booking
@@ -407,7 +407,7 @@ The booking detail page shows:
 - **Collection Details** — date, area, location on property, driver notes
 - **Included Services** — green-tinted block
 - **Extra Services** — orange-tinted block with $ amounts and a **View receipt** link (when paid)
-- **Cancellation cutoff card** (blue) — *"You can cancel this booking until 3:30pm Sunday 24 May. After this time the booking is locked."*
+- **Cancellation cutoff card** (blue) — *"You can cancel this booking until 3:00pm Sunday 24 May. After this time the booking is locked."*
 - **Action buttons** — Get Help, Edit Booking, Cancel Booking
 
 #### Other conditional banners
@@ -451,9 +451,9 @@ Two buttons: **Keep Booking** and **Cancel Booking**.
 
 #### The cancellation cutoff
 
-A resident can cancel up until **3:30pm AWST on the day before collection**. After that, the cancel button is hidden and any direct attempt is rejected with:
+Residents are told they can cancel up until **3:00pm AWST on the day before collection**. The system quietly accepts changes until **3:30pm** as a 30-minute grace window; after that, the cancel button is hidden and any direct attempt is rejected with:
 
-> *"Cancellation cutoff has passed (3:30pm the day before collection)."*
+> *"Cancellation cutoff has passed (3:00pm the day before collection)."*
 
 This is enforced in three places — front-end (button hidden), server action (rejects late requests), and database trigger (defence in depth). **There is no override available to the resident.** City of Kwinana staff can sometimes cancel after the cutoff via the admin app — see the admin guide.
 
@@ -724,7 +724,7 @@ What happens after cancellation:
 
 #### e) Cancelling after the cutoff (staff-only override)
 
-Residents lose the ability to cancel at **3:30pm AWST the day before collection**. After that, the cancel button is hidden from their dashboard. Field crew are already on the road or about to be.
+Residents lose the ability to cancel at **3:30pm AWST the day before collection** (they are told 3:00pm — the extra 30 minutes is a grace window). After that, the cancel button is hidden from their dashboard. Field crew are already on the road or about to be.
 
 **Staff can still cancel post-cutoff**, but the policy expectation is:
 - **Don't cancel within 24h of collection unless there's a genuine operational reason** (e.g. weather closure, address error). Doing so doesn't refund the resident automatically — you'll need to manually approve a refund or note in the audit trail why no refund applies.

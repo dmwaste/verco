@@ -155,7 +155,7 @@ Nothing Presented → Rebooked      (any staff role — verifyStaffRole gates th
 
 **Never directly set `status = 'Scheduled'` from application code.** The cron handles this.
 
-**Cancellation cutoff:** 3:30pm AWST the day prior to collection. The DB trigger `enforce_cancellation_cutoff` rejects violations — but always check `can_cancel_booking()` RPC before showing the cancel UI.
+**Cancellation cutoff:** 3:30pm AWST the day prior to collection. The DB trigger `enforce_cancellation_cutoff` rejects violations — but always check `can_cancel_booking()` RPC before showing the cancel UI. Residents are TOLD 3:00pm (`advertisedCancellationCutoff`, display/copy only — a deliberate 30-min grace, ADR 0025); never gate on it, and staff-facing copy stays 3:30pm.
 
 ### NCN/NP State Machine
 

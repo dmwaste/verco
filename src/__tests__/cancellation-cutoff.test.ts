@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 
 import {
+  advertisedCancellationCutoff,
   cancellationCutoff,
   isPastCancellationCutoff,
 } from '@/lib/booking/cancellation-cutoff'
@@ -43,6 +44,27 @@ describe('isPastCancellationCutoff — runtime-timezone independent', () => {
     // 2026-06-20 21:00 AWST = 2026-06-20 13:00 UTC — well before the 07:30 UTC cutoff.
     expect(
       isPastCancellationCutoff('2026-06-22', new Date('2026-06-20T13:00:00.000Z'))
+    ).toBe(false)
+  })
+})
+
+describe('advertisedCancellationCutoff — 3:00pm AWST, display only (ADR 0025)', () => {
+  it('is 07:00 UTC the day before (= 3:00pm AWST)', () => {
+    expect(advertisedCancellationCutoff('2026-06-22').toISOString()).toBe(
+      '2026-06-21T07:00:00.000Z'
+    )
+  })
+
+  it('sits exactly 30 minutes before the enforced cutoff (the grace window)', () => {
+    expect(
+      cancellationCutoff('2026-07-01').getTime() -
+        advertisedCancellationCutoff('2026-07-01').getTime()
+    ).toBe(30 * 60 * 1000)
+  })
+
+  it('does not move enforcement — a 3:15pm AWST cancel is still allowed', () => {
+    expect(
+      isPastCancellationCutoff('2026-06-22', new Date('2026-06-21T07:15:00.000Z'))
     ).toBe(false)
   })
 })

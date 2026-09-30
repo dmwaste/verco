@@ -25,7 +25,7 @@ export const DEFAULT_FAQS: FaqItem[] = [
   {
     question: 'Can I cancel my booking?',
     answer:
-      'Yes — bookings can be cancelled up until 3:30pm the day before your scheduled collection. Log in to your dashboard to cancel.',
+      'Yes — bookings can be cancelled up until 3:00pm the day before your scheduled collection. Log in to your dashboard to cancel.',
   },
   {
     question: "What if my items weren't collected?",

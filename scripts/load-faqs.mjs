@@ -153,11 +153,11 @@ The summer holidays (Dec-Jan) and the end of the financial year (June) are our b
     question: 'How can I change or cancel my booking?',
     answer: `We get it, life happens.
 
-You can change, cancel, or postpone your booking by 3:30pm on the business day before your collection date if you have set up an account on the booking system. [Make a change or cancellation online here](/dashboard).
+You can change, cancel, or postpone your booking by 3:00pm on the business day before your collection date if you have set up an account on the booking system. [Make a change or cancellation online here](/dashboard).
 
 If you have not set up an account, you can phone us on [9384 6711](tel:0893846711) during business hours.
 
-**Please let us know by 3:30pm on the business day before your collection, or you will lose your collection allocation.**`,
+**Please let us know by 3:00pm on the business day before your collection, or you will lose your collection allocation.**`,
   },
   {
     question: 'How many collections can I book using Verge Valet™?',

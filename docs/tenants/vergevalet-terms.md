@@ -19,5 +19,5 @@ Please read the following conditions, then check the box below to confirm your a
 - I understand that the Verge Valet Collection Team can only collect waste from the location I have indicated on my verge unless I have agreed an alternative with the Team.
 - I understand that collections occur between 7am and 4pm on my collection date. I will be notified if the collection is to occur outside these hours.
 - I understand that the waste will be mechanically collected, and I will position it to avoid damage to services and infrastructure.
-- I understand that if I change or cancel my booking after 3:30pm on the business day before my collection, I will lose my collection allocation.
+- I understand that if I change or cancel my booking after 3:00pm on the business day before my collection, I will lose my collection allocation.
 ```

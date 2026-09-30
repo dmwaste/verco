@@ -54,7 +54,7 @@ export async function cancelBooking(bookingId: string): Promise<Result<void>> {
       return {
         ok: false,
         error:
-          'Cancellation cutoff has passed (3:30pm the day before collection).',
+          'Cancellation cutoff has passed (3:00pm the day before collection).',
       }
     }
   }
