@@ -370,7 +370,9 @@ export function AddressForm({
       <BookingStepper currentStep={1} />
 
       {/* Content */}
-      <div className="flex flex-1 flex-col gap-4 overflow-y-auto pb-24 pt-6">
+      {/* No overflow clipping here — the address suggestion list is absolutely
+          positioned and must paint past this wrapper's bottom edge. */}
+      <div className="flex flex-1 flex-col gap-4 pb-24 pt-6">
         <div>
           <h1 className="font-[family-name:var(--font-heading)] text-title font-bold leading-tight text-[var(--brand)]">
             Book a collection
