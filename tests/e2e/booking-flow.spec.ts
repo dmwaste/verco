@@ -736,4 +736,37 @@ test.describe('Booking Flow', () => {
     await expect(page.getByText('Completed', { exact: true })).toBeVisible()
     await expect(page.getByText('No bookings yet for this financial year.')).toHaveCount(0)
   })
+
+  test('address lookup — every autocomplete suggestion is visible, none clipped below the search card', async ({ page }) => {
+    // Regression: the step's content wrapper was a scroll container
+    // (overflow-y-auto), which clips the absolutely-positioned suggestion list.
+    // Only ~2.5 of Google's 5 predictions showed; the rest sat behind an
+    // invisible inner scroll. toBeInViewport (IntersectionObserver) accounts
+    // for ancestor clipping — toBeVisible does not.
+    await setupMocks(page)
+    const suggestions = [
+      '7 Blay Road, Calista WA, Australia',
+      '7 Bay Road, Claremont WA, Australia',
+      '7 Bay View Terrace, Mosman Park WA, Australia',
+      '7 Blaven Way, Ardross WA, Australia',
+      '7 Blackwood Avenue, Augusta WA, Australia',
+    ]
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? 'http://localhost:54321'
+    await page.route(`${supabaseUrl}/functions/v1/google-places-proxy**`, async (route: Route) => {
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          predictions: suggestions.map((description, i) => ({ place_id: `place-${i}`, description })),
+        }),
+      })
+    })
+
+    await page.goto('/book')
+    await page.getByPlaceholder('Start typing your address...').fill('7 blay road')
+
+    for (const description of suggestions) {
+      await expect(page.getByRole('button', { name: description })).toBeInViewport({ ratio: 1 })
+    }
+  })
 })
