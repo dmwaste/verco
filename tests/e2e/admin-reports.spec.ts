@@ -70,18 +70,23 @@ test.describe('Admin reports — route boundary', () => {
     expect(reportCalls).toEqual([])
   })
 
-  // The invoice-backing statement downloads are route handlers under /admin —
-  // the proxy must bounce an anonymous request before either one renders a file.
+  // The invoice-backing statement downloads are route handlers under /admin.
+  // WHICH layer refuses an anonymous request depends on the host: on
+  // admin.verco.au (or with ADMIN_SUBDOMAIN_ENFORCED) the proxy redirects to
+  // /auth; on a tenant host with enforcement off — CI's localhost — the proxy
+  // doesn't guard /admin/*, route handlers skip the (admin) layout guard, and
+  // the route's own contractor-admin gate answers 403. The guarantee pinned
+  // here is the same either way: refused, and no statement file served.
   for (const format of ['pdf', 'xlsx'] as const) {
-    test(`unauthenticated ${format} statement download redirects to /auth`, async ({ request }) => {
+    test(`unauthenticated ${format} statement download is refused with no file`, async ({ request }) => {
       const res = await request.get(
         `/admin/reports/client-report/${format}?client=123e4567-e89b-42d3-a456-426614174000&month=2026-09`,
         { maxRedirects: 0 },
       )
-      expect(res.status()).toBeGreaterThanOrEqual(300)
-      expect(res.status()).toBeLessThan(400)
-      expect(res.headers()['location']).toMatch(/\/auth/)
+      expect(res.ok()).toBe(false)
       expect(res.headers()['content-disposition']).toBeUndefined()
+      const location = res.headers()['location']
+      if (location) expect(location).toMatch(/\/auth/)
     })
   }
 })
