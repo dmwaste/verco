@@ -48,6 +48,20 @@ export interface ClientMonthlyReport {
   extras: ReportTable
 }
 
+/** Header + branding text shared by the PDF and Excel renderings of one statement. */
+export interface ReportLabels {
+  monthLabel: string
+  refCode: string
+  issuedLabel: string
+  serviceName: string
+  legalName: string
+  extrasLabel: string
+  rowHeader: string
+  totalRowLabel: string
+  primaryColour: string
+  accentColour: string
+}
+
 export interface BuildOptions {
   rows: ReportRow[]
   offered: OfferedService[]
