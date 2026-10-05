@@ -20,8 +20,8 @@ export function lastCompleteMonth(now: Date): string {
  * downloads the invoice-backing monthly collections statement for a chosen
  * client + month. Deliberately independent of the page's own client/period
  * scope: a contractor-admin generates reports across ANY accessible client,
- * not just the one currently switched to. `/admin/reports/client-report/pdf`
- * re-derives + re-checks the accessible client set server-side (§21), so
+ * not just the one currently switched to. `/admin/reports/client-report/{pdf,xlsx}`
+ * re-derive + re-check the accessible client set server-side (§21), so
  * this picker is UX only, not the authorization boundary.
  */
 export function ClientReportsCard() {
@@ -38,9 +38,8 @@ export function ClientReportsCard() {
   }, [])
 
   const ready = Boolean(clientId && month)
-  const href = ready
-    ? `/admin/reports/client-report/pdf?client=${clientId}&month=${month}`
-    : undefined
+  const hrefFor = (format: 'pdf' | 'xlsx') =>
+    ready ? `/admin/reports/client-report/${format}?client=${clientId}&month=${month}` : undefined
 
   return (
     <section className="mb-6">
@@ -49,7 +48,7 @@ export function ClientReportsCard() {
       </h2>
       <div className="rounded-xl bg-white p-5 shadow-sm">
         <p className="mb-4 text-body-sm text-gray-500">
-          Monthly collections statement (PDF) — the quantity record backing the monthly invoice.
+          Monthly collections statement (PDF or Excel) — the quantity record backing the monthly invoice.
         </p>
         <div className="flex flex-wrap items-end gap-3">
           <div>
@@ -78,7 +77,7 @@ export function ClientReportsCard() {
             />
           </div>
           <a
-            href={href}
+            href={hrefFor('pdf')}
             download
             aria-disabled={!ready}
             className={`rounded-lg px-4 py-2.5 text-body font-semibold transition-colors ${
@@ -91,6 +90,21 @@ export function ClientReportsCard() {
             style={ready ? { color: '#FFFFFF' } : undefined}
           >
             Download PDF
+          </a>
+          {/* Secondary action: an inset ring (not a border) outlines it without
+              changing its height, so it lines up with the PDF button. */}
+          <a
+            href={hrefFor('xlsx')}
+            download
+            aria-disabled={!ready}
+            className={`rounded-lg px-4 py-2.5 text-body font-semibold ring-[1.5px] ring-inset transition-colors ${
+              ready
+                ? 'bg-white ring-gray-200 hover:bg-gray-50 hover:ring-[#293F52]'
+                : 'pointer-events-none bg-gray-100 text-gray-400 ring-gray-100'
+            }`}
+            style={ready ? { color: '#293F52' } : undefined}
+          >
+            Download Excel
           </a>
         </div>
       </div>
