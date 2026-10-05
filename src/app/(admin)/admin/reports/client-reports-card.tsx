@@ -38,11 +38,8 @@ export function ClientReportsCard() {
   }, [])
 
   const ready = Boolean(clientId && month)
-  const href = (format: 'pdf' | 'xlsx') =>
+  const hrefFor = (format: 'pdf' | 'xlsx') =>
     ready ? `/admin/reports/client-report/${format}?client=${clientId}&month=${month}` : undefined
-  // Shared 1.5px border keeps the outline Excel button the same height as the PDF one.
-  const button = 'rounded-lg border-[1.5px] px-4 py-2.5 text-body font-semibold transition-colors'
-  const disabled = 'pointer-events-none border-gray-100 bg-gray-100 text-gray-400'
 
   return (
     <section className="mb-6">
@@ -80,11 +77,13 @@ export function ClientReportsCard() {
             />
           </div>
           <a
-            href={href('pdf')}
+            href={hrefFor('pdf')}
             download
             aria-disabled={!ready}
-            className={`${button} ${
-              ready ? 'border-[#293F52] bg-[#293F52] hover:border-[#1A2D3B] hover:bg-[#1A2D3B]' : disabled
+            className={`rounded-lg px-4 py-2.5 text-body font-semibold transition-colors ${
+              ready
+                ? 'bg-[#293F52] hover:bg-[#1A2D3B]'
+                : 'pointer-events-none bg-gray-100 text-gray-400'
             }`}
             // §21: text-white can silently fail under Tailwind v4 + Turbopack —
             // inline fallback so the CTA label can never vanish.
@@ -92,12 +91,16 @@ export function ClientReportsCard() {
           >
             Download PDF
           </a>
+          {/* Secondary action: an inset ring (not a border) outlines it without
+              changing its height, so it lines up with the PDF button. */}
           <a
-            href={href('xlsx')}
+            href={hrefFor('xlsx')}
             download
             aria-disabled={!ready}
-            className={`${button} ${
-              ready ? 'border-gray-200 bg-white hover:border-[#293F52] hover:bg-gray-50' : disabled
+            className={`rounded-lg px-4 py-2.5 text-body font-semibold ring-[1.5px] ring-inset transition-colors ${
+              ready
+                ? 'bg-white ring-gray-200 hover:bg-gray-50 hover:ring-[#293F52]'
+                : 'pointer-events-none bg-gray-100 text-gray-400 ring-gray-100'
             }`}
             style={ready ? { color: '#293F52' } : undefined}
           >
