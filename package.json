@@ -31,7 +31,7 @@
     "date-fns": "^4.1.0",
     "exceljs": "^4.4.0",
     "leaflet": "^1.9.4",
-    "next": "16.3.3",
+    "next": "16.3.6",
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "react-hook-form": "^7.72.0",
