@@ -1,7 +1,7 @@
 import path from 'node:path'
 import { Document, Page, View, Text, Font, StyleSheet } from '@react-pdf/renderer'
 import { DmLogo } from './dm-logo'
-import type { ClientMonthlyReport, ReportGroupRow } from './report-model'
+import type { ClientMonthlyReport, ReportGroupRow, ReportLabels } from './report-model'
 
 const fontDir = path.join(process.cwd(), 'public', 'report-fonts')
 Font.register({
@@ -16,18 +16,8 @@ Font.register({
   ],
 })
 
-export interface PdfProps {
+export interface PdfProps extends ReportLabels {
   report: ClientMonthlyReport
-  monthLabel: string
-  refCode: string
-  issuedLabel: string
-  serviceName: string
-  legalName: string
-  extrasLabel: string
-  rowHeader: string
-  totalRowLabel: string
-  primaryColour: string
-  accentColour: string
 }
 
 /**

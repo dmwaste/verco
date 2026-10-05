@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseReportParams } from '@/app/(admin)/admin/reports/client-report/pdf/params'
+import { parseReportParams } from '@/app/(admin)/admin/reports/client-report/params'
 import { lastCompleteMonth } from '@/app/(admin)/admin/reports/client-reports-card'
 
 describe('parseReportParams', () => {
