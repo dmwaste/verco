@@ -9,6 +9,10 @@
  * It only ever bites on a next-day job — for anything further out we are
  * already before it.
  *
+ * Sibling, not a duplicate: `advertisedCancellationCutoff` (cancellation-cutoff.ts)
+ * computes the same instant but is DISPLAY-ONLY — the 3:00pm residents are told
+ * while cancellation stays enforced at 3:30pm (ADR 0025). This one is enforced.
+ *
  * WA has no daylight saving, so a fixed +08:00 offset is exact: 3:00pm AWST is
  * 07:00 UTC. Computed via `Date.UTC` so it does not depend on the server's
  * timezone — `Date#setHours` is wrong on the UTC production box, which is how

@@ -51,7 +51,7 @@ interface Ncn {
 
 interface NcnDetailClientProps {
   ncn: Ncn
-  availableDates: { id: string; date: string }[]
+  availableDates: { id: string; date: string; insideLockWindow: boolean }[]
   auditLogs: ResolvedAuditEntry[]
 }
 
@@ -435,6 +435,9 @@ export function NcnDetailClient({ ncn, availableDates, auditLogs }: NcnDetailCli
                 {availableDates.map((d) => (
                   <option key={d.id} value={d.id}>
                     {format(new Date(d.date + 'T00:00:00'), 'EEEE d MMMM yyyy')}
+                    {/* Routes for a locked date are already with the crew, so
+                        ops must add this stop in OptimoRoute by hand. */}
+                    {d.insideLockWindow ? ' — within 3 days, tell the crew' : ''}
                   </option>
                 ))}
               </select>
