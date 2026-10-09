@@ -27,10 +27,6 @@ An ADR — "architecture decision record" — is a short record of a decision we
 | [0021](0021-geocoder-refuses-a-match-in-the-wrong-suburb.md) | The geocoder refuses a match in the wrong suburb rather than storing it | 02/09/2026 | Accepted |
 | [0022](0022-mattress-counts-crew-logged-at-closeout-one-daily-series.md) | Mattress counts: crews log at bulk closeout; one daily series feeds every report | 01/08/2026 | Accepted (mandatory-count clause superseded by 0011) |
 | [0023](0023-stale-build-reloads-on-first-failed-save.md) | A stale app build reloads itself the first time a save fails, on every screen | 13/09/2026 | Accepted |
-<<<<<<< HEAD
 | [0024](0024-council-staff-see-only-their-councils-notifications-tickets-and-no-audit-log.md) | Council staff see only their own council's notifications and tickets, and no audit log until it's tagged by council | 30/09/2026 | Accepted |
 | [0025](0025-residents-told-3pm-cutoff-system-allows-until-330.md) | Residents are told the cutoff is 3:00pm; the system still allows changes until 3:30pm | 30/09/2026 | Accepted |
 | [0026](0026-staff-can-act-inside-the-three-day-lock-while-spots-remain.md) | Staff can book ID collections and ad-hoc redos (non-conformance + nothing presented) inside the 3-day lock while spots remain | 23/09/2026 | Accepted |
-=======
-| [0024](0024-staff-can-act-inside-the-three-day-lock-while-spots-remain.md) | Staff can book ID collections and ad-hoc redos (non-conformance + nothing presented) inside the 3-day lock while spots remain | 23/09/2026 | Accepted |
->>>>>>> d9d2b64 (feat(admin): nothing-presented rebooks get the same 3-day window)

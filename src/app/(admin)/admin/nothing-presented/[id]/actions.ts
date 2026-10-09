@@ -140,7 +140,7 @@ export async function rebookNp(
   // Server-side date validation mirroring the dialog's filters: the date must
   // belong to THIS booking's area, be in the future (AWST — never Date#setHours,
   // see cancellation-cutoff), be open, and have room in every bucket the cloned
-  // items occupy. A closure caused ONLY by the T-3 lock is allowed (ADR 0024);
+  // items occupy. A closure caused ONLY by the T-3 lock is allowed (ADR 0026);
   // a holiday, an admin closure or a full bucket is not. A stale dialog or
   // forged call otherwise strands a Confirmed rebook on a date that never
   // dispatches, or pushes a day past its capacity.
