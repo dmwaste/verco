@@ -201,9 +201,10 @@ export function ConfirmForm() {
       const [servicesResult, dateResult, fyResult, allocationRulesResult] =
         await Promise.all([
           supabase
+            // Every service, not just the cart's — an override on a service not
+            // being booked still counts toward its category bonus (#625).
             .from('service')
-            .select('id, name, category!inner(name, code)')
-            .in('id', serviceIds),
+            .select('id, name, category!inner(name, code)'),
           supabase
             .from('collection_date')
             .select('date')
