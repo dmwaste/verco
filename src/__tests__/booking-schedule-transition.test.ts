@@ -1,9 +1,10 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi, afterEach } from 'vitest'
 import {
   addOneDay,
   awstDateFromUtc,
   fetchAllConfirmedBookings,
   filterBookingsReadyToSchedule,
+  runWithinBudget,
   type BookingWithItemDates,
 } from '@/lib/booking/schedule-transition'
 
@@ -248,5 +249,82 @@ describe('fetchAllConfirmedBookings', () => {
     if (!result.ok) return
 
     expect(filterBookingsReadyToSchedule(result.rows, '2026-04-16')).toContain('stranded')
+  })
+})
+
+describe('runWithinBudget', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  // Each reminder is one send-notification call (~1.3 s for email + SMS). The
+  // edge gateway answers 504 at 150 s and the worker dies shortly after, so the
+  // 09:00 run had ~110 s of useful time. 244 is the 17/10/2026 candidate count.
+  const SEND_MS = 1_300
+  const BUDGET_MS = 110_000
+  const slowSend = () => new Promise<void>((resolve) => setTimeout(resolve, SEND_MS))
+
+  async function runTimed(count: number, concurrency: number) {
+    vi.useFakeTimers()
+    const items = Array.from({ length: count }, (_, i) => i)
+    const started = Date.now()
+    const done = runWithinBudget(items, { concurrency, deadlineMs: started + BUDGET_MS }, slowSend)
+    await vi.runAllTimersAsync()
+    return { result: await done, elapsedMs: Date.now() - started }
+  }
+
+  it('reproduces the 12/10 cut-off: one-at-a-time leaves most of a 244-booking day unsent', async () => {
+    const { result } = await runTimed(244, 1)
+    expect(result.remaining).toBeGreaterThan(150)
+  })
+
+  it('sends a 244-booking day well inside the budget at concurrency 8', async () => {
+    const { result, elapsedMs } = await runTimed(244, 8)
+    expect(result).toEqual({ started: 244, remaining: 0 })
+    expect(elapsedMs).toBeLessThan(BUDGET_MS / 2)
+  })
+
+  it('stops starting new items at the deadline but finishes those in flight', async () => {
+    vi.useFakeTimers()
+    const finished: number[] = []
+    const items = Array.from({ length: 100 }, (_, i) => i)
+    const done = runWithinBudget(items, { concurrency: 2, deadlineMs: Date.now() + 5_000 }, async (n) => {
+      await new Promise((r) => setTimeout(r, 1_000))
+      finished.push(n)
+    })
+    await vi.runAllTimersAsync()
+    const result = await done
+
+    // Lanes start items at t=0,1,2,3,4 s (5 rounds × 2 lanes); the deadline blocks the 6th round.
+    expect(result).toEqual({ started: 10, remaining: 90 })
+    expect(finished).toHaveLength(10)
+  })
+
+  it('never has more than `concurrency` items in flight and starts them in order', async () => {
+    let inFlight = 0
+    let peak = 0
+    const order: number[] = []
+    const items = Array.from({ length: 25 }, (_, i) => i)
+
+    await runWithinBudget(items, { concurrency: 4, deadlineMs: Number.POSITIVE_INFINITY }, async (n) => {
+      order.push(n)
+      inFlight++
+      peak = Math.max(peak, inFlight)
+      await new Promise((r) => setTimeout(r, 1))
+      inFlight--
+    })
+
+    expect(peak).toBe(4)
+    expect(order).toEqual(items)
+  })
+
+  it('handles an empty list and more lanes than items', async () => {
+    expect(await runWithinBudget([], { concurrency: 8, deadlineMs: Number.POSITIVE_INFINITY }, async () => {})).toEqual({ started: 0, remaining: 0 })
+    const seen: string[] = []
+    const result = await runWithinBudget(['a', 'b'], { concurrency: 8, deadlineMs: Number.POSITIVE_INFINITY }, async (x) => {
+      seen.push(x)
+    })
+    expect(result).toEqual({ started: 2, remaining: 0 })
+    expect(seen).toEqual(['a', 'b'])
   })
 })

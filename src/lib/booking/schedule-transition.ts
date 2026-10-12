@@ -122,3 +122,39 @@ export async function fetchAllConfirmedBookings<T = BookingWithItemDates>(
 
   return { ok: true, rows }
 }
+
+export interface BudgetRunResult {
+  /** Items handed to the worker (all of them have finished when this returns). */
+  started: number
+  /** Items never started because the deadline passed. */
+  remaining: number
+}
+
+/**
+ * Runs `worker` over `items` in order, at most `concurrency` at a time, and
+ * stops STARTING items once `deadlineMs` (epoch ms) has passed. Items already
+ * in flight are always awaited. The worker must not reject — catch inside it.
+ *
+ * Why: send-collection-reminders used to await one send-notification call per
+ * booking (~1.3 s each). The edge gateway answers 504 at 150 s and the worker
+ * is killed soon after, so every busy 09:00 run silently stopped after ~125–157
+ * bookings — the rest never got a reminder (12/10/2026, WMRC). Concurrency
+ * clears a full day in seconds; the deadline turns any overflow into a counted
+ * `remaining` the caller can report, instead of a mid-loop kill.
+ */
+export async function runWithinBudget<T>(
+  items: T[],
+  opts: { concurrency: number; deadlineMs: number },
+  worker: (item: T) => Promise<void>,
+): Promise<BudgetRunResult> {
+  let next = 0
+  const lane = async () => {
+    while (next < items.length && Date.now() < opts.deadlineMs) {
+      const item = items[next++] as T
+      await worker(item)
+    }
+  }
+  const lanes = Math.max(1, Math.min(opts.concurrency, items.length))
+  await Promise.all(Array.from({ length: lanes }, lane))
+  return { started: next, remaining: items.length - next }
+}
