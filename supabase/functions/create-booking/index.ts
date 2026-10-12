@@ -10,6 +10,7 @@ import { evaluateEditGuard, mayKeepClosedHeldDate } from '../_shared/edit-guard.
 import { evaluateQuantityEdit } from '../_shared/quantity-edit-decision.ts'
 import { mapEditErrorToStatus } from '../_shared/edit-error-mapping.ts'
 import { canonicaliseAuMobile, isValidPhone, normalisePhone } from '../_shared/phone.ts'
+import { resolveContact } from '../_shared/contact-match.ts'
 import { withSentry } from '../_shared/sentry.ts'
 import type { Database } from '../_shared/database.types.ts'
 
@@ -651,7 +652,7 @@ serve(withSentry('create-booking', async (req) => {
       })
     }
 
-    // ── 7. Upsert contact (by email) ────────────────────────────────────────
+    // ── 7. Resolve contact (by email, never rewriting someone else's row) ──
 
     // Contact is optional in the schema (the inline edit branch above never uses
     // it and returns before here). The create path requires it.
@@ -659,16 +660,49 @@ serve(withSentry('create-booking', async (req) => {
       return jsonResponse({ error: 'Contact is required to create a booking' }, 400)
     }
 
-    const { data: existingContact } = await supabaseService
+    // Never edit a row just because the email matches — see resolveContact.
+    // Only the signed-in resident booking for themselves may update their row.
+    const enteredBySelf = Boolean(
+      actingUserEarly?.email && actingUserEarly.email.toLowerCase() === contact.email.toLowerCase(),
+    )
+    const { data: sameEmail, error: lookupError } = await supabaseService
       .from('contacts')
-      .select('id')
+      .select('id, first_name, last_name, mobile_e164')
       .eq('email', contact.email)
-      .maybeSingle()
+      .order('created_at', { ascending: true })
+      .limit(50)
 
+    if (lookupError) {
+      console.error('Contact lookup error:', lookupError)
+      return jsonResponse({ error: `Failed to look up contact: ${lookupError.message}` }, 500)
+    }
+
+    // Who else a row reaches: bookings at another address, or a MUD strata link.
+    const ids = (sameEmail ?? []).map((c) => c.id)
+    const [elsewhere, strata] = ids.length
+      ? await Promise.all([
+          supabaseService.from('booking').select('contact_id').in('contact_id', ids).neq('property_id', property_id),
+          supabaseService.from('eligible_properties').select('strata_contact_id').in('strata_contact_id', ids),
+        ])
+      : [{ data: [], error: null }, { data: [], error: null }]
+    const usageError = elsewhere.error ?? strata.error
+    if (usageError) {
+      console.error('Contact usage lookup error:', usageError)
+      return jsonResponse({ error: `Failed to look up contact: ${usageError.message}` }, 500)
+    }
+    const bookedElsewhere = new Set((elsewhere.data ?? []).map((r) => r.contact_id))
+    const strataIds = new Set((strata.data ?? []).map((r) => r.strata_contact_id))
+
+    const resolution = resolveContact(
+      (sameEmail ?? []).map((c) => ({ ...c, bookedElsewhere: bookedElsewhere.has(c.id), isStrataContact: strataIds.has(c.id) })),
+      contact,
+      enteredBySelf,
+    )
     let contactId: string
 
-    if (existingContact) {
-      // Update name and mobile if they've changed.
+    if (resolution.action === 'reuse') {
+      contactId = resolution.contactId
+    } else if (resolution.action === 'update') {
       // full_name is a generated column — must write first/last_name.
       const { error: updateError } = await supabaseService
         .from('contacts')
@@ -677,14 +711,14 @@ serve(withSentry('create-booking', async (req) => {
           last_name: contact.last_name,
           mobile_e164: contact.mobile_e164,
         })
-        .eq('id', existingContact.id)
+        .eq('id', resolution.contactId)
 
       if (updateError) {
         console.error('Contact update error:', updateError)
         return jsonResponse({ error: 'Failed to update contact' }, 500)
       }
 
-      contactId = existingContact.id
+      contactId = resolution.contactId
     } else {
       const { data: newContact, error: insertError } = await supabaseService
         .from('contacts')

@@ -128,6 +128,7 @@ sync_one "$SHARED/email.ts" "src/lib/email.ts" || drift=1
 sync_one "$SHARED/geocode-verify.ts" "src/lib/booking/geocode-verify.ts" || drift=1
 sync_one "$SHARED/service-role-auth.ts" "src/lib/auth/service-role-auth.ts" || drift=1
 sync_one "$SHARED/cron-auth.ts" "src/lib/auth/cron-request.ts" || drift=1
+sync_one "$SHARED/contact-match.ts" "src/lib/contacts/contact-match.ts" || drift=1
 
 if [ "$mode" = "check" ]; then
   if [ "$drift" -eq 1 ]; then

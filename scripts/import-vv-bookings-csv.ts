@@ -43,7 +43,7 @@ import { normaliseWasteLocation } from './lib/reconcile'
 import { pagedIn } from './lib/db'
 import { timestamp } from './lib/report'
 import { parseCsv } from './lib/csv'
-import { upsertContact } from './lib/contact-upsert'
+import { resolveResidentContact } from './lib/contact-upsert'
 import { canonicaliseAuMobile, normalisePhone } from '../src/lib/phone'
 import { awstDateFromUtc } from '../src/lib/booking/schedule-transition'
 
@@ -311,7 +311,7 @@ async function main() {
   const fail: { ref: string; error: string }[] = []
   for (const pl of plans) {
     try {
-      const contactId = await resolveContact(pl.p)
+      const contactId = await resolveContact(pl.p, pl.propertyId)
       const { data: bk, error: bErr } = await verco
         .from('booking')
         .insert({
@@ -339,15 +339,15 @@ async function main() {
   for (const f of fail) console.error(`  ✗ ${f.ref}: ${f.error}`)
   if (fail.length) process.exit(1)
 
-  async function resolveContact(p: Parsed): Promise<string> {
+  async function resolveContact(p: Parsed, propertyId: string): Promise<string> {
     const name = p.contactName.trim()
     const sp = name.indexOf(' ')
-    const r = await upsertContact(verco, {
+    const r = await resolveResidentContact(verco, propertyId, {
       email: p.contactEmail,
       firstName: sp > 0 ? name.slice(0, sp) : name || 'Resident',
       lastName: sp > 0 ? name.slice(sp + 1) : '—',
       mobileE164: p.contactPhone,
-    }, false)
+    })
     if (r.error || !r.contactId) throw new Error(`contact: ${r.error ?? 'no id'}`)
     return r.contactId
   }
