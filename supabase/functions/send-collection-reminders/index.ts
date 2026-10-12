@@ -35,6 +35,9 @@ import { awstDateFromUtc, fetchAllConfirmedBookings, runWithinBudget } from '../
 // gateway at ~150 bookings, silently skipping 20–50% of a busy day (12/10/2026).
 const CONCURRENCY = 8
 const TIME_BUDGET_MS = 110_000
+// A send that hangs must fail inside the budget, not ride past the 150 s
+// gateway cut-off — it's counted as failed and the 09:20 tick retries it.
+const SEND_TIMEOUT_MS = 20_000
 
 interface BookingRow {
   id: string
@@ -149,6 +152,7 @@ serve(cronHandler('send-collection-reminders', async (_req) => {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({ type: 'collection_reminder', booking_id: id }),
+          signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
         })
         if (!res.ok) {
           results.failed++
