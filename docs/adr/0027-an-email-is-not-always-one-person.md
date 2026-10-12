@@ -12,7 +12,7 @@ Verco still finds a booking's contact by email, but a matching email alone no lo
 - **Same household** (the record is used only at this address and isn't a MUD strata contact): it's updated in place, so a partner on a shared email or a new mobile number still corrects the household's record.
 - **Anything else:** the booking gets a **new** contact record of its own.
 
-The same rule applies to staff editing the contact on a booking (if the contact is used at any other address, or is a strata contact, only this booking moves to the new details) and to saving a MUD's strata contact (a record that residents' bookings use is never rewritten from the MUD page). Booking imports follow it too, and never edit an existing record.
+The same rule applies to staff editing the contact on a booking (if the contact is used at any other address, or is a strata contact, only this booking moves to the new details) and to saving a MUD's strata contact (a record that residents' bookings use is never rewritten from the MUD page). The Verge Valet booking import reuses a record only for the same person and never edits one. A staff member booking on someone's behalf under their *own* email is not "booking for themselves". Support tickets, staff-created logins and the Kwinana importers still match by email the old way, and are being brought under this rule in #631.
 
 ## Why
 

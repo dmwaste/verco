@@ -311,7 +311,7 @@ async function main() {
   const fail: { ref: string; error: string }[] = []
   for (const pl of plans) {
     try {
-      const contactId = await resolveContact(pl.p, pl.propertyId)
+      const contactId = await residentContactId(pl.p)
       const { data: bk, error: bErr } = await verco
         .from('booking')
         .insert({
@@ -339,10 +339,10 @@ async function main() {
   for (const f of fail) console.error(`  ✗ ${f.ref}: ${f.error}`)
   if (fail.length) process.exit(1)
 
-  async function resolveContact(p: Parsed, propertyId: string): Promise<string> {
+  async function residentContactId(p: Parsed): Promise<string> {
     const name = p.contactName.trim()
     const sp = name.indexOf(' ')
-    const r = await resolveResidentContact(verco, propertyId, {
+    const r = await resolveResidentContact(verco, {
       email: p.contactEmail,
       firstName: sp > 0 ? name.slice(0, sp) : name || 'Resident',
       lastName: sp > 0 ? name.slice(sp + 1) : '—',

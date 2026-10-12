@@ -203,7 +203,7 @@ BEGIN
     IF v_contact_id IS NULL THEN
       -- full_name is GENERATED ALWAYS — write first/last only.
       INSERT INTO contacts (first_name, last_name, mobile_e164, email)
-      VALUES (btrim(p_first_name), btrim(p_last_name), btrim(p_mobile_e164), btrim(p_email))
+      VALUES (btrim(p_first_name), btrim(p_last_name), btrim(p_mobile_e164), lower(btrim(p_email)))
       RETURNING id INTO v_contact_id;
     ELSE
       UPDATE contacts
