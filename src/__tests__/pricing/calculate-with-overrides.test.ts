@@ -251,3 +251,42 @@ describe('computeLineItems with additive extra_allocations overrides', () => {
     expect(result.line_items[0]!.line_charge_cents).toBe(10000)
   })
 })
+
+// #625 (BR-0041, SOP, 08/10/2026): a council reinstatement granted Green +3 and
+// Bulk +1 (both in the bulk category). The category bonus is the SUM of every
+// override in the category, so the engine needs every override service's
+// category — not just the cart's. The confirm page and the create-booking EF
+// built that map from the cart only, dropped Green's +3 when only Bulk was
+// booked, and charged the resident for a collection the council made free.
+describe('override category bonus needs every override service, not just the cart (#625)', () => {
+  const sopRules = rules([
+    [SVC_GENERAL, { max_collections: 1, extra_unit_price: 195.45 }],
+    [SVC_GREEN, { max_collections: 2, extra_unit_price: 114.55 }],
+  ])
+  const sopCatMax = catMax([[CAT_BULK, 3]])
+  const reinstatement: AllocationOverride[] = [
+    { service_id: SVC_GREEN, extra_allocations: 3 },
+    { service_id: SVC_GENERAL, extra_allocations: 1 },
+  ]
+  const price = (serviceCategoryMap: Map<string, string>) =>
+    computeLineItems(
+      [{ service_id: SVC_GENERAL, quantity: 1 }],
+      sopRules,
+      sopCatMax,
+      serviceCategoryMap,
+      usage([[SVC_GREEN, 4]]),   // Green used 4 this FY
+      usage([[CAT_BULK, 4]]),    // bulk category used 4 — already over its base cap of 3
+      reinstatement,
+    ).line_items[0]!
+
+  it('a cart-only category map loses the Green bonus and charges the resident (the bug)', () => {
+    const line = price(svcCat([[SVC_GENERAL, CAT_BULK]]))
+    expect(line.paid_units).toBe(1)
+  })
+
+  it('a map covering every service applies the full bonus: 3 + (3 + 1) = 7, used 4 → free', () => {
+    const line = price(svcCat([[SVC_GENERAL, CAT_BULK], [SVC_GREEN, CAT_BULK], [SVC_MATTRESS, CAT_ANC]]))
+    expect(line.free_units).toBe(1)
+    expect(line.paid_units).toBe(0)
+  })
+})

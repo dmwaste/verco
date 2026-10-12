@@ -101,11 +101,13 @@ export async function calculatePrice(
       .select('max_collections, category!inner(code)')
       .eq('collection_area_id', collectionAreaId),
 
-    // Services with their category codes
+    // EVERY service's category, not just the cart's: an override on a service
+    // that isn't being booked still adds to its category's bonus (#625 — a
+    // cart-only map dropped Green's +3 when only Bulk was booked and charged
+    // the resident). The service table is a handful of rows.
     supabase
       .from('service')
-      .select('id, category!inner(code)')
-      .in('id', serviceIds),
+      .select('id, category!inner(code)'),
 
     usagePromise,
 
