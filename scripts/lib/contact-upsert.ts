@@ -4,6 +4,8 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { canonicaliseAuMobile, normalisePhone } from '../../src/lib/phone'
+import { resolveContact } from '../../src/lib/contacts/contact-match'
+import { emailMatchPattern, normaliseEmail } from '../../src/lib/email'
 
 /**
  * Airtable MUD List contact cells → upsertContact input. Phones go through the
@@ -65,5 +67,47 @@ export async function upsertContact(
     .single()
 
   if (error) return { contactId: null, created: false, error: error.message }
+  return { contactId: (created as { id: string }).id, created: true, error: null }
+}
+
+/**
+ * Booking imports: find-or-create the resident's contact without folding
+ * different people onto one row. Airtable phone bookings carry the WMRC office
+ * email, and find-by-email put 263 residents on one contact (12/10/2026). Reuses
+ * a row only for the SAME person (resolveContact's exact match); an import never
+ * edits a row, and a different name at the same address is a new resident (e.g.
+ * a new owner), so it gets its own row too.
+ */
+export async function resolveResidentContact(
+  verco: SupabaseClient,
+  opts: { email: string; firstName: string; lastName: string; mobileE164: string },
+): Promise<ContactUpsertResult> {
+  const email = normaliseEmail(opts.email)
+  const { data: rows, error } = await verco
+    .from('contacts')
+    .select('id, first_name, last_name, mobile_e164')
+    .ilike('email', emailMatchPattern(email))
+    .order('created_at', { ascending: true })
+    .limit(50)
+  if (error) return { contactId: null, created: false, error: error.message }
+
+  const resolution = resolveContact(
+    (rows ?? []).map((r: { id: string; first_name: string | null; last_name: string | null; mobile_e164: string | null }) => ({
+      ...r,
+      // Only the exact-person match is ever reused here, so usage doesn't matter.
+      bookedElsewhere: true,
+      isStrataContact: false,
+    })),
+    { first_name: opts.firstName, last_name: opts.lastName, mobile_e164: opts.mobileE164 },
+    false,
+  )
+  if (resolution.action === 'reuse') return { contactId: resolution.contactId, created: false, error: null }
+
+  const { data: created, error: insertError } = await verco
+    .from('contacts')
+    .insert({ first_name: opts.firstName, last_name: opts.lastName, email, mobile_e164: opts.mobileE164 })
+    .select('id')
+    .single()
+  if (insertError) return { contactId: null, created: false, error: insertError.message }
   return { contactId: (created as { id: string }).id, created: true, error: null }
 }
