@@ -124,10 +124,19 @@ export async function fetchAllConfirmedBookings<T = BookingWithItemDates>(
 }
 
 export interface BudgetRunResult {
-  /** Items handed to the worker (all of them have finished when this returns). */
+  /** Items the worker finished (rate-limited attempts that were re-queued don't count). */
   started: number
-  /** Items never started because the deadline passed. */
+  /** Items never finished because the deadline passed (incl. any re-queued after a rate limit). */
   remaining: number
+}
+
+/**
+ * A worker returns this when the platform rate-limited it: the item goes back
+ * to the front of the queue and EVERY lane waits `retryAfterMs` before starting
+ * anything else (the next call would be refused too).
+ */
+export interface RateLimited {
+  retryAfterMs: number
 }
 
 /**
@@ -141,20 +150,73 @@ export interface BudgetRunResult {
  * bookings — the rest never got a reminder (12/10/2026, WMRC). Concurrency
  * clears a full day in seconds; the deadline turns any overflow into a counted
  * `remaining` the caller can report, instead of a mid-loop kill.
+ *
+ * Concurrency then ran into Supabase's limit on one edge function calling
+ * another (~60 calls per window on 13/10/2026): a worker that returns
+ * `RateLimited` re-queues its item and pauses all lanes until the window
+ * reopens. A pause that would outlast the deadline ends the run instead — the
+ * leftovers are `remaining`, never a sleep past the edge gateway's 150 s.
  */
 export async function runWithinBudget<T>(
   items: T[],
   opts: { concurrency: number; deadlineMs: number },
-  worker: (item: T) => Promise<void>,
+  worker: (item: T) => Promise<void | RateLimited>,
 ): Promise<BudgetRunResult> {
-  let next = 0
+  const queue = [...items]
+  let finished = 0
+  let pausedUntil = 0
   const lane = async () => {
-    while (next < items.length && Date.now() < opts.deadlineMs) {
-      const item = items[next++] as T
-      await worker(item)
+    while (queue.length > 0) {
+      if (pausedUntil >= opts.deadlineMs) return
+      const wait = pausedUntil - Date.now()
+      if (wait > 0) await new Promise((r) => setTimeout(r, wait))
+      if (queue.length === 0 || Date.now() >= opts.deadlineMs) return
+      const item = queue.shift() as T
+      const outcome = await worker(item)
+      if (outcome && outcome.retryAfterMs > 0) {
+        pausedUntil = Math.max(pausedUntil, Date.now() + outcome.retryAfterMs)
+        queue.unshift(item)
+      } else {
+        finished++
+      }
     }
   }
   const lanes = Math.max(1, Math.min(opts.concurrency, items.length))
   await Promise.all(Array.from({ length: lanes }, lane))
-  return { started: next, remaining: items.length - next }
+  return { started: finished, remaining: queue.length }
+}
+
+/**
+ * Wait (ms) demanded by an edge-runtime `RateLimitError` thrown from `fetch()`
+ * to another edge function, or null for any other error. Reads the error's
+ * `retryAfterMs`, falls back to the "Retry after Nms" text, then to a minute.
+ * Duck-typed on `name` — the class isn't in the Deno type defs `deno check` uses.
+ */
+export function rateLimitRetryAfterMs(err: unknown): number | null {
+  if (!(err instanceof Error) || err.name !== 'RateLimitError') return null
+  const declared = (err as Error & { retryAfterMs?: unknown }).retryAfterMs
+  if (typeof declared === 'number' && declared > 0) return declared
+  const parsed = /Retry after (\d+)\s*ms/i.exec(err.message)
+  return parsed ? Number(parsed[1]) : 60_000
+}
+
+/**
+ * Booking ids whose collection_reminder is already `sent` on BOTH email and
+ * SMS. The reminder cron skips these before calling send-notification: a
+ * no-op call still spends the per-minute function-to-function budget, which
+ * on 13/10 starved the 09:20 retry of the bookings that actually needed it.
+ * A booking with only one channel sent is still re-invoked (send-notification
+ * skips the sent channel and retries the other).
+ */
+export function remindedOnBothChannels(rows: Array<{ booking_id: string | null; channel: string }>): Set<string> {
+  const channels = new Map<string, Set<string>>()
+  for (const r of rows) {
+    if (!r.booking_id) continue
+    const set = channels.get(r.booking_id) ?? new Set<string>()
+    set.add(r.channel)
+    channels.set(r.booking_id, set)
+  }
+  const done = new Set<string>()
+  for (const [id, set] of channels) if (set.has('email') && set.has('sms')) done.add(id)
+  return done
 }

@@ -2,13 +2,19 @@ import { serve } from 'https://deno.land/std@0.177.0/http/server.ts'
 import { cronHandler } from '../_shared/cron-handler.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.100.0'
 import type { Database } from '../_shared/database.types.ts'
-import { awstDateFromUtc, fetchAllConfirmedBookings, runWithinBudget } from '../_shared/schedule-transition.ts'
+import {
+  awstDateFromUtc,
+  fetchAllConfirmedBookings,
+  rateLimitRetryAfterMs,
+  remindedOnBothChannels,
+  runWithinBudget,
+} from '../_shared/schedule-transition.ts'
 
 /**
  * send-collection-reminders cron Edge Function
  *
- * Fires daily at 09:00 AWST (01:00 UTC) via pg_cron, plus a 09:20 catch-up
- * tick (re-runs are idempotent — see below). Service role only.
+ * Fires daily at 09:00 AWST (01:00 UTC) via pg_cron, plus catch-up ticks at
+ * 09:10, 09:20 and 09:30 (re-runs are idempotent — see below). Service role only.
  *
  * For each tenant with `client.sms_reminder_days_before` NOT NULL, finds
  * Confirmed bookings whose earliest `collection_date` is exactly
@@ -23,9 +29,16 @@ import { awstDateFromUtc, fetchAllConfirmedBookings, runWithinBudget } from '../
  * reminder either — the schema field controls the whole reminder, not just
  * the SMS channel; the name is historical).
  *
+ * Every call here is one edge function calling another, which Supabase
+ * rate-limits per run (~60 per window, 13/10/2026). So candidates already
+ * reminded on both channels are dropped before any call (a no-op call still
+ * spends the budget), and a RateLimitError pauses the run until the window
+ * reopens instead of failing the booking. One tick clears ~120; the four
+ * ticks cover a ~480-booking day.
+ *
  * Returns HTTP 500 if any per-booking invocation fails OR the time budget ran
  * out with candidates still unsent (`remaining` > 0), so Sentry sees it and the
- * 09:20 tick picks up the rest. The dispatcher is fire-and-forget at the EF
+ * next tick picks up the rest. The dispatcher is fire-and-forget at the EF
  * level (failures return 200 with `{ok:false}`), so this cron's HTTP-status
  * check captures network-level failures specifically.
  */
@@ -38,6 +51,9 @@ const TIME_BUDGET_MS = 110_000
 // A send that hangs must fail inside the budget, not ride past the 150 s
 // gateway cut-off — it's counted as failed and the 09:20 tick retries it.
 const SEND_TIMEOUT_MS = 20_000
+const DEGRADED_BACKOFF_MS = 2_000
+// Booking ids per `.in()` lookup — keeps the PostgREST GET URL short.
+const ID_CHUNK = 100
 
 interface BookingRow {
   id: string
@@ -78,8 +94,11 @@ serve(cronHandler('send-collection-reminders', async (_req) => {
     today_awst: today,
     fetched: 0,
     candidates: 0,
+    already_reminded: 0,
     invoked: 0,
     failed: 0,
+    rate_limited: 0,
+    degraded: 0,
     remaining: 0,
     skipped_no_config: 0,
     skipped_no_date: 0,
@@ -143,7 +162,29 @@ serve(cronHandler('send-collection-reminders', async (_req) => {
 
     results.candidates = candidates.length
 
-    const run = await runWithinBudget(candidates, { concurrency: CONCURRENCY, deadlineMs: startedAt + TIME_BUDGET_MS }, async (id) => {
+    // Drop bookings already reminded on both channels. Fails OPEN: if the
+    // lookup errors we send to everyone — send-notification's per-channel key
+    // still blocks duplicates; we only lose budget, never a resident.
+    const sentRows: Array<{ booking_id: string | null; channel: string }> = []
+    for (let i = 0; i < candidates.length; i += ID_CHUNK) {
+      const { data, error } = await supabase
+        .from('notification_log')
+        .select('booking_id, channel')
+        .eq('notification_type', 'collection_reminder')
+        .eq('status', 'sent')
+        .in('booking_id', candidates.slice(i, i + ID_CHUNK))
+      if (error) {
+        console.error('Already-reminded lookup failed (sending to all candidates):', error.message)
+        sentRows.length = 0
+        break
+      }
+      sentRows.push(...(data ?? []))
+    }
+    const alreadyReminded = remindedOnBothChannels(sentRows)
+    const toSend = candidates.filter((id) => !alreadyReminded.has(id))
+    results.already_reminded = candidates.length - toSend.length
+
+    const run = await runWithinBudget(toSend, { concurrency: CONCURRENCY, deadlineMs: startedAt + TIME_BUDGET_MS }, async (id) => {
       try {
         const res = await fetch(`${supabaseUrl}/functions/v1/send-notification`, {
           method: 'POST',
@@ -154,6 +195,19 @@ serve(cronHandler('send-collection-reminders', async (_req) => {
           body: JSON.stringify({ type: 'collection_reminder', booking_id: id }),
           signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
         })
+        if (res.status === 429) {
+          results.rate_limited++
+          await res.body?.cancel()
+          return { retryAfterMs: Number(res.headers.get('retry-after')) * 1000 || 60_000 }
+        }
+        // SUPABASE_EDGE_RUNTIME_SERVICE_DEGRADED came back on 16 of the 13/10
+        // 09:00 run's sends — transient, so back off briefly and retry in-run
+        // rather than leave the resident to a later tick.
+        if (res.status === 503) {
+          results.degraded++
+          await res.body?.cancel()
+          return { retryAfterMs: DEGRADED_BACKOFF_MS }
+        }
         if (!res.ok) {
           results.failed++
           const errBody = await res.text().catch(() => '<unreadable>')
@@ -162,13 +216,18 @@ serve(cronHandler('send-collection-reminders', async (_req) => {
           results.invoked++
         }
       } catch (err) {
+        const retryAfterMs = rateLimitRetryAfterMs(err)
+        if (retryAfterMs !== null) {
+          results.rate_limited++
+          return { retryAfterMs }
+        }
         results.failed++
         console.error(`send-notification crashed for booking ${id}:`, err)
       }
     })
     results.remaining = run.remaining
     if (run.remaining > 0) {
-      console.error(`Time budget spent: ${run.remaining} of ${candidates.length} reminders not started (next tick retries them)`)
+      console.error(`Time budget spent: ${run.remaining} of ${toSend.length} reminders not sent (next tick retries them)`)
     }
 
     console.log(JSON.stringify({ event: 'send_collection_reminders', ...results }))
