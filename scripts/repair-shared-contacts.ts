@@ -59,6 +59,9 @@ const MUD_BASE_BY_AREA: Record<string, string> = {
   VIC: VV_BASES.find((b) => b.key === 'vic')!.baseId,
 }
 const FIX_LIVE_AT = '2026-10-12T15:25:00Z' // PR #629 live: rewrites after this are a surprise
+// Strata links ops must confirm before anything changes (Dan, 13/10): EAS-MUD-25's
+// manager isn't in the MUD List; its history points at Magix (d46aef30) — unconfirmed.
+const HELD_STRATA_LINKS = new Set(['EAS-MUD-25'])
 const REF_SHAPE = /^[A-Z0-9-]+$/
 
 const short = (id: string | null | undefined) => (id ?? '').slice(0, 8)
@@ -238,19 +241,20 @@ async function buildPlan(verco: SupabaseClient, token: string) {
     externalSource: p.external_source,
     externalId: p.external_id,
   })
-  const strataLinked = strataRows.map(toMud)
+  const strataLinked = strataRows.map(toMud).filter((p) => !HELD_STRATA_LINKS.has((p.mudCode ?? '').toUpperCase()))
+  const held = strataRows.filter((p) => HELD_STRATA_LINKS.has((p.mud_code ?? '').toUpperCase())).map((p) => p.mud_code!)
 
   // Sources.
   const audit = (
-    await pagedIn<{ id: string; record_id: string; created_at: string; old_data: Record<string, unknown> | null; new_data: Record<string, unknown> | null }>(
+    await pagedIn<{ id: string; record_id: string; created_at: string; new_data: Record<string, unknown> | null }>(
       verco,
       'audit_log',
-      'id, record_id, created_at, old_data, new_data',
+      'id, record_id, created_at, new_data',
       'record_id',
       sharedIds,
       (q) => q.eq('table_name', 'contacts'),
     )
-  ).map((r): AuditSnapshot => ({ id: r.id, recordId: r.record_id, createdAt: r.created_at, oldData: r.old_data, newData: r.new_data }))
+  ).map((r): AuditSnapshot => ({ id: r.id, recordId: r.record_id, createdAt: r.created_at, newData: r.new_data }))
 
   const legacyRefs = (slug: string) => uniq(residentialBookings.filter((b) => b.createdVia === 'legacy' && b.clientSlug === slug).map((b) => b.ref))
   const airtable: AirtableContactRow[] = []
@@ -275,17 +279,18 @@ async function buildPlan(verco: SupabaseClient, token: string) {
 
   // Plan twice: first to learn the emails, then with the existing contacts behind them.
   const mudInput = { mudBookings, propertiesById: new Map(mudProps.map((p) => [p.id, p])), strataLinkedToShared: strataLinked, contactEmailById, mudRecords, shared }
-  const draft = planResidentialRepair({ bookings: residentialBookings, audit, airtableByRef, existingByEmail: new Map(), shared })
+  const currentEmailById = new Map(candidates.map((c) => [c.id, c.email]))
+  const draft = planResidentialRepair({ bookings: residentialBookings, audit, airtableByRef, existingByEmail: new Map(), shared, currentEmailById })
   const draftMud = planMudRepair({ ...mudInput, existingByEmail: new Map() })
   const emails = uniq([...draft.groups.map((g) => g.details.email), ...draftMud.strataGroups.map((g) => g.details.email)])
   const existingByEmail = await loadExistingByEmail(verco, emails)
 
   const plan: FullPlan = {
     shared,
-    residential: planResidentialRepair({ bookings: residentialBookings, audit, airtableByRef, existingByEmail, shared }),
+    residential: planResidentialRepair({ bookings: residentialBookings, audit, airtableByRef, existingByEmail, shared, currentEmailById }),
     mud: planMudRepair({ ...mudInput, existingByEmail }),
   }
-  return { plan, candidates, all, inScope, audit, airtable }
+  return { plan, candidates, all, inScope, audit, airtable, held }
 }
 
 // ─── Report ───────────────────────────────────────────────────────────────────
@@ -295,7 +300,7 @@ function pad(s: string | number, n: number) {
 }
 
 function printReport(ctx: Awaited<ReturnType<typeof buildPlan>>) {
-  const { plan, candidates, all, inScope, audit, airtable } = ctx
+  const { plan, candidates, all, inScope, audit, airtable, held } = ctx
   const { residential: res, mud } = plan
   const emailOf = new Map(candidates.map((c) => [c.id, c.email]))
 
@@ -339,11 +344,12 @@ function printReport(ctx: Awaited<ReturnType<typeof buildPlan>>) {
   console.log(`(MUD bookings repoint to their property's existing strata contact — no new contact.)`)
 
   const strataLinks = mud.strataGroups.reduce((n, g) => n + g.links.length, 0)
-  console.log(`\nMUD strata links on a shared row: ${strataLinks + mud.unsourced.filter((u) => u.kind === 'strata link').length}`)
+  console.log(`\nMUD strata links on a shared row: ${strataLinks + mud.unsourced.filter((u) => u.kind === 'strata link').length + held.length}`)
   for (const g of mud.strataGroups) {
     console.log(`  ${g.links.map((l) => l.mudCode).join(', ')} → ${g.reuseContactId ? `reuse ${short(g.reuseContactId)}` : 'one new contact'} (@${emailDomain(g.details.email)})`)
   }
   for (const m of mud.bookingRepoints) console.log(`  MUD booking ${m.ref}: ${short(m.oldContactId)} → strata contact ${short(m.newContactId)}`)
+  if (held.length) console.log(`  Held, not planned (ops to confirm the strata manager): ${held.join(', ')}`)
 
   const allUnsourced = [...res.unsourced.map((u) => ({ ref: u.ref, who: `${u.clientSlug} ${short(u.contactId)}`, reason: u.reason })), ...mud.unsourced.map((u) => ({ ref: u.ref, who: `MUD ${u.kind}`, reason: u.reason }))]
   console.log(`\nUnsourced (left on their row): ${allUnsourced.length}`)
@@ -360,7 +366,11 @@ function printReport(ctx: Awaited<ReturnType<typeof buildPlan>>) {
   const refLists = (xs: string[][]) => (xs.length ? ` — ${xs.map((x) => x.join(',')).join(' | ')}` : '')
   console.log(`  Properties getting more than one person (different names/mobiles, one contact each): ${res.notes.propertiesWithSeveralPeople.length}${refLists(res.notes.propertiesWithSeveralPeople)}`)
   console.log(`  Same person + property but different emails across bookings (latest used): ${res.notes.emailConflicts.length}${refLists(res.notes.emailConflicts)}`)
-  console.log(`  Booking-time staff mailbox later corrected on the row (corrected address used): ${res.notes.staffEmailCorrected.length}${res.notes.staffEmailCorrected.length ? ` — ${res.notes.staffEmailCorrected.join(', ')}` : ''}`)
+  const fixes = new Map<string, number>()
+  for (const f of [...res.groups, ...mud.strataGroups].map((g) => g.emailFix)) {
+    if (f) fixes.set(`@${f.from} → @${f.to} (${f.via})`, (fixes.get(`@${f.from} → @${f.to} (${f.via})`) ?? 0) + 1)
+  }
+  console.log(`  Mistyped D&M domains corrected, planned contacts: ${[...fixes.values()].reduce((a, b) => a + b, 0)}${fixes.size ? ` — ${[...fixes].sort().map(([k, n]) => `${k}: ${n}`).join('; ')}` : ''}`)
   console.log(`  Refs with duplicate (identical) Airtable rows: ${res.notes.duplicateAirtableRefs.join(', ') || 'none'}`)
   const refUse = new Map<string, number>()
   for (const b of inScope) refUse.set(b.ref, (refUse.get(b.ref) ?? 0) + 1)

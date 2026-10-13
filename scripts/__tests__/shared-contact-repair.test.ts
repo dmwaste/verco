@@ -4,6 +4,7 @@ import {
   detailsFromAudit,
   findMudRecord,
   findReusableResidentContact,
+  fixStaffEmail,
   isStaffDomainEmail,
   pickAuditSnapshot,
   planMudRepair,
@@ -11,7 +12,6 @@ import {
   selectSharedContacts,
   SHARED_WMRC_CONTACT_ID,
   splitName,
-  staffEmailCorrections,
   storePhone,
   type AirtableContactRow,
   type AuditSnapshot,
@@ -47,7 +47,6 @@ function snap(o: Partial<AuditSnapshot> = {}): AuditSnapshot {
     id: 'a1',
     recordId: SHARED_WMRC_CONTACT_ID,
     createdAt: '2026-09-01T00:00:09.500Z',
-    oldData: null,
     newData: { first_name: 'Bob', last_name: 'Ng', email: OFFICE, mobile_e164: '+61400000001' },
     ...o,
   }
@@ -55,12 +54,16 @@ function snap(o: Partial<AuditSnapshot> = {}): AuditSnapshot {
 
 const shared = new Set([SHARED_WMRC_CONTACT_ID])
 
-function plan(bookings: RepairBooking[], opts: { audit?: AuditSnapshot[]; airtable?: AirtableContactRow[]; existing?: ExistingContact[] } = {}) {
+function plan(
+  bookings: RepairBooking[],
+  opts: { audit?: AuditSnapshot[]; airtable?: AirtableContactRow[]; existing?: ExistingContact[]; currentEmails?: Array<[string, string]> } = {},
+) {
   const airtableByRef = new Map<string, AirtableContactRow[]>()
   for (const r of opts.airtable ?? []) airtableByRef.set(r.ref, [...(airtableByRef.get(r.ref) ?? []), r])
   const existingByEmail = new Map<string, ExistingContact[]>()
   for (const c of opts.existing ?? []) existingByEmail.set(c.email, [...(existingByEmail.get(c.email) ?? []), c])
-  return planResidentialRepair({ bookings, audit: opts.audit ?? [], airtableByRef, existingByEmail, shared })
+  const currentEmailById = new Map<string, string | null>([[SHARED_WMRC_CONTACT_ID, 'info@magixstrata.com.au'], ...(opts.currentEmails ?? [])])
+  return planResidentialRepair({ bookings, audit: opts.audit ?? [], airtableByRef, existingByEmail, shared, currentEmailById })
 }
 
 describe('isStaffDomainEmail', () => {
@@ -160,22 +163,34 @@ describe('pickAuditSnapshot', () => {
   })
 })
 
-describe('staffEmailCorrections', () => {
-  it('follows a staff fix of a typo mailbox but never the move to an outside address', () => {
-    const out = staffEmailCorrections([
-      snap({ recordId: 'k', createdAt: '2026-10-01T00:00:00Z', oldData: { email: 'Bookings@verco.com' }, newData: { email: 'bookings@verco.au' } }),
-      snap({ recordId: SHARED_WMRC_CONTACT_ID, createdAt: '2026-10-05T00:00:00Z', oldData: { email: OFFICE }, newData: { email: 'info@strata.example.com.au' } }),
-    ])
-    expect(out.get('k|bookings@verco.com')).toBe('bookings@verco.au')
-    expect(out.has(`${SHARED_WMRC_CONTACT_ID}|${OFFICE}`)).toBe(false)
+describe('fixStaffEmail', () => {
+  const row = (email: string | null, id = 'staffrow') => ({ id, email })
+
+  it('maps each mistyped D&M domain, keeping the local part', () => {
+    expect(fixStaffEmail('ops@dmwaste.com', null)).toEqual({ email: 'ops@dmwaste.com.au', fix: { from: 'dmwaste.com', to: 'dmwaste.com.au', via: 'domain map' } })
+    expect(fixStaffEmail('ops@dmwastemanagement.com', null).email).toBe('ops@dmwastemanagement.com.au')
+    expect(fixStaffEmail('bookings@verco.com', null).email).toBe('bookings@verco.au')
+    expect(fixStaffEmail('bookings@verco.com.au', null).email).toBe('bookings@verco.au')
   })
 
-  it('resolves a chain of fixes to the final address', () => {
-    const out = staffEmailCorrections([
-      snap({ recordId: 'k', createdAt: '2026-10-01T00:00:00Z', oldData: { email: 'a@verco.com' }, newData: { email: 'b@dmwaste.com.au' } }),
-      snap({ recordId: 'k', createdAt: '2026-10-02T00:00:00Z', oldData: { email: 'b@dmwaste.com.au' }, newData: { email: 'c@verco.au' } }),
-    ])
-    expect(out.get('k|a@verco.com')).toBe('c@verco.au')
+  it('prefers the address the shared staff row carries now when it is on a correct D&M domain', () => {
+    expect(fixStaffEmail('bookings@verco.com.au', row('team@verco.au'))).toEqual({
+      email: 'team@verco.au',
+      fix: { from: 'verco.com.au', to: 'verco.au', via: 'staff row' },
+    })
+    // A row still on a typo domain is no help — fall back to the domain map.
+    expect(fixStaffEmail('ops@dmwaste.com', row('ops@dmwaste.com')).email).toBe('ops@dmwaste.com.au')
+  })
+
+  it("never uses the WMRC row's current email (Magix since 05/10), even on a D&M domain", () => {
+    expect(fixStaffEmail('bookings@verco.com', row('info@magixstrata.com.au', SHARED_WMRC_CONTACT_ID)).email).toBe('bookings@verco.au')
+    expect(fixStaffEmail('bookings@verco.com', row('someone@dmwaste.com.au', SHARED_WMRC_CONTACT_ID)).email).toBe('bookings@verco.au')
+  })
+
+  it('leaves correct D&M domains, council addresses and look-alike real domains untouched', () => {
+    for (const e of ['a@verco.au', 'a@dmwaste.com.au', 'a@dmwastemanagement.com.au', OFFICE, 'a@myverco.com', 'a@mail.verco.com', 'a@notdmwaste.com', 'a@verco.com.au.example.org', 'a@gmail.com']) {
+      expect(fixStaffEmail(e, row('team@verco.au'))).toEqual({ email: e, fix: null })
+    }
   })
 })
 
@@ -234,15 +249,24 @@ describe('planResidentialRepair', () => {
     expect(twins.unsourced.map((u) => u.reason)).toEqual(['booking-time audit snapshot shared with another booking', 'booking-time audit snapshot shared with another booking'])
   })
 
-  it('swaps in the staff-corrected mailbox for a snapshot taken before the fix', () => {
+  it("corrects a mistyped D&M domain to the shared staff row's current address", () => {
     const p = plan([booking({ createdVia: 'admin', contactId: 'k' })], {
-      audit: [
-        snap({ recordId: 'k', newData: { first_name: 'Bob', last_name: 'Ng', email: 'bookings@verco.com', mobile_e164: null } }),
-        snap({ id: 'fix', recordId: 'k', createdAt: '2026-10-01T00:00:00Z', oldData: { email: 'bookings@verco.com' }, newData: { email: 'bookings@verco.au' } }),
-      ],
+      audit: [snap({ recordId: 'k', newData: { first_name: 'Bob', last_name: 'Ng', email: 'bookings@verco.com', mobile_e164: null } })],
+      currentEmails: [['k', 'Team@Verco.au']],
     })
-    expect(p.groups[0]!.details.email).toBe('bookings@verco.au')
-    expect(p.notes.staffEmailCorrected).toEqual(['VIC-1'])
+    expect(p.groups[0]!.details.email).toBe('team@verco.au')
+    expect(p.groups[0]!.emailFix).toEqual({ from: 'verco.com', to: 'verco.au', via: 'staff row' })
+  })
+
+  it('maps a typo domain on the WMRC row by domain only, and leaves correct emails alone', () => {
+    const p = plan([booking({ id: 'b1', ref: 'VIC-1' }), booking({ id: 'b2', ref: 'VIC-2', propertyId: 'p2' })], {
+      airtable: [at({ ref: 'VIC-1', email: 'ops@dmwaste.com' }), at({ ref: 'VIC-2', recordId: 'rec2' })],
+    })
+    const byRef = new Map(p.groups.map((g) => [g.bookings[0]!.ref, g]))
+    expect(byRef.get('VIC-1')!.details.email).toBe('ops@dmwaste.com.au')
+    expect(byRef.get('VIC-1')!.emailFix?.via).toBe('domain map')
+    expect(byRef.get('VIC-2')!.details.email).toBe(OFFICE)
+    expect(byRef.get('VIC-2')!.emailFix).toBeNull()
   })
 
   it('reuses an existing contact that is already this person at this property', () => {

@@ -63,7 +63,6 @@ export interface AuditSnapshot {
   id: string
   recordId: string
   createdAt: string
-  oldData: Record<string, unknown> | null
   newData: Record<string, unknown> | null
 }
 
@@ -138,31 +137,40 @@ export function detailsFromAudit(newData: Record<string, unknown> | null): Sourc
   return { ok: true, details: { firstName, lastName, email, mobile: storePhone(str('mobile_e164')) } }
 }
 
-const auditEmail = (d: Record<string, unknown> | null) => (typeof d?.email === 'string' ? normaliseEmail(d.email) : '')
+// ─── Mistyped D&M staff mailboxes (Dan, 13/10) ────────────────────────────────
+
+/** The real D&M staff domains, and the typos staff entered for them (exact domain match only). */
+const DM_STAFF_DOMAINS = new Set(['verco.au', 'dmwaste.com.au', 'dmwastemanagement.com.au'])
+const DM_TYPO_DOMAINS: Record<string, string> = {
+  'dmwaste.com': 'dmwaste.com.au',
+  'dmwastemanagement.com': 'dmwastemanagement.com.au',
+  'verco.com': 'verco.au', // a third party's mail domain
+  'verco.com.au': 'verco.au',
+}
+
+/** Domains only — what the report may print. */
+export interface EmailFix {
+  from: string
+  to: string
+  via: 'staff row' | 'domain map'
+}
 
 /**
- * Later staff corrections of a shared row's mailbox, keyed `${contactId}|${oldEmail}`
- * → the address it ended up as. Only a move to another operator/council address
- * counts (a typo'd staff mailbox such as @verco.com, a third party's domain, fixed
- * to @verco.au); a move to an outside address — the 05/10 Magix edit — is the
- * incident itself and never followed.
+ * A planned email on a mistyped D&M domain → the right D&M address. When the
+ * booking's shared staff row now carries a correct D&M address (staff fixed the
+ * row later), that address is used; otherwise the domain is swapped and the local
+ * part kept. The WMRC row is never a source — it has carried Magix's email since
+ * 05/10. Every other email, correct D&M ones included, comes back unchanged.
  */
-export function staffEmailCorrections(audit: AuditSnapshot[]): Map<string, string> {
-  const direct = new Map<string, string>()
-  for (const a of [...audit].sort((x, y) => Date.parse(x.createdAt) - Date.parse(y.createdAt))) {
-    const from = auditEmail(a.oldData)
-    const to = auditEmail(a.newData)
-    if (from && to && from !== to && isStaffDomainEmail(to)) direct.set(`${a.recordId}|${from}`, to)
+export function fixStaffEmail(email: string, currentRow: { id: string; email: string | null } | null): { email: string; fix: EmailFix | null } {
+  const from = emailDomain(email)
+  const mapped = DM_TYPO_DOMAINS[from]
+  if (!mapped) return { email, fix: null }
+  const rowEmail = normaliseEmail(currentRow?.email ?? '')
+  if (currentRow && currentRow.id !== SHARED_WMRC_CONTACT_ID && DM_STAFF_DOMAINS.has(emailDomain(rowEmail))) {
+    return { email: rowEmail, fix: { from, to: emailDomain(rowEmail), via: 'staff row' } }
   }
-  // Follow chains (A→B then B→C means A→C); bounded so a back-and-forth can't loop.
-  const out = new Map<string, string>()
-  for (const [key, first] of direct) {
-    const recordId = key.slice(0, key.indexOf('|'))
-    let to = first
-    for (let hop = 0; hop < 10 && direct.has(`${recordId}|${to}`); hop++) to = direct.get(`${recordId}|${to}`)!
-    out.set(key, to)
-  }
-  return out
+  return { email: `${email.slice(0, email.lastIndexOf('@'))}@${mapped}`, fix: { from, to: mapped, via: 'domain map' } }
 }
 
 /**
@@ -247,6 +255,8 @@ export interface ContactGroup {
   source: SourceKind
   /** An existing contact to repoint to instead of inserting a new one. */
   reuseContactId: string | null
+  /** Set when `details.email` was moved off a mistyped D&M domain. */
+  emailFix: EmailFix | null
   bookings: PlannedBooking[]
 }
 
@@ -267,8 +277,6 @@ export interface ResidentialPlan {
     emailConflicts: string[][]
     /** Refs per property that gets more than one contact (different people booked the same address). */
     propertiesWithSeveralPeople: string[][]
-    /** Bookings whose booking-time staff mailbox was later corrected on the row (corrected address used). */
-    staffEmailCorrected: string[]
   }
 }
 
@@ -284,7 +292,8 @@ function sameAirtableDetails(rows: AirtableContactRow[]): boolean {
 
 /**
  * Plan one contact per (property, person) for every residential booking on a
- * shared row. `bookings` must already exclude Illegal Dumping and MUD bookings.
+ * shared row. `bookings` must already exclude Illegal Dumping and MUD bookings;
+ * `currentEmailById` holds each shared row's email as it stands now.
  */
 export function planResidentialRepair(input: {
   bookings: RepairBooking[]
@@ -292,13 +301,16 @@ export function planResidentialRepair(input: {
   airtableByRef: Map<string, AirtableContactRow[]>
   existingByEmail: Map<string, ExistingContact[]>
   shared: Set<string>
+  currentEmailById: Map<string, string | null>
 }): ResidentialPlan {
-  const { bookings, audit, airtableByRef, existingByEmail, shared } = input
-  const corrections = staffEmailCorrections(audit)
-  const correctedRefs: string[] = []
+  const { bookings, audit, airtableByRef, existingByEmail, shared, currentEmailById } = input
   const unsourced: Unsourced[] = []
   const duplicateAirtableRefs: string[] = []
-  const sourced: Array<{ b: RepairBooking; details: ContactDetails; source: SourceKind }> = []
+  const sourced: Array<{ b: RepairBooking; details: ContactDetails; source: SourceKind; emailFix: EmailFix | null }> = []
+  const add = (b: RepairBooking, details: ContactDetails, source: SourceKind) => {
+    const fixed = fixStaffEmail(details.email, { id: b.contactId, email: currentEmailById.get(b.contactId) ?? null })
+    sourced.push({ b, details: { ...details, email: fixed.email }, source, emailFix: fixed.fix })
+  }
 
   // One audit snapshot can only describe one booking — two bookings in the same
   // window on the same row can't be told apart.
@@ -323,16 +335,14 @@ export function planResidentialRepair(input: {
       }
       const r = detailsFromAirtable(rows[0]!)
       if (!r.ok) { fail(r.reason); continue }
-      sourced.push({ b, details: r.details, source: 'airtable' })
+      add(b, r.details, 'airtable')
     } else {
       const s = snapshotFor.get(b.id)
       if (!s) { fail('no booking-time audit snapshot'); continue }
       if ((snapshotUse.get(s.id) ?? 0) > 1) { fail('booking-time audit snapshot shared with another booking'); continue }
       const r = detailsFromAudit(s.newData)
       if (!r.ok) { fail(r.reason); continue }
-      const corrected = corrections.get(`${b.contactId}|${r.details.email}`)
-      if (corrected) correctedRefs.push(b.ref)
-      sourced.push({ b, details: corrected ? { ...r.details, email: corrected } : r.details, source: 'audit' })
+      add(b, r.details, 'audit')
     }
   }
 
@@ -355,6 +365,7 @@ export function planResidentialRepair(input: {
       details: latest.details,
       source: latest.source,
       reuseContactId: findReusableResidentContact(latest.details, propertyId, existingByEmail.get(latest.details.email) ?? [], shared),
+      emailFix: latest.emailFix,
       bookings: members
         .map((m) => ({ id: m.b.id, ref: m.b.ref, oldContactId: m.b.contactId, source: m.source, createdAt: m.b.createdAt }))
         .sort((a, b) => a.ref.localeCompare(b.ref)),
@@ -374,7 +385,6 @@ export function planResidentialRepair(input: {
       propertiesWithSeveralPeople: [...perProperty.values()]
         .filter((gs) => gs.length > 1)
         .map((gs) => gs.flatMap((g) => g.bookings.map((b) => b.ref)).sort()),
-      staffEmailCorrected: correctedRefs.sort(),
     },
   }
 }
@@ -430,6 +440,7 @@ export interface MudBookingRepoint {
 export interface StrataGroup {
   details: ContactDetails
   reuseContactId: string | null
+  emailFix: EmailFix | null
   links: Array<{ propertyId: string; mudCode: string; oldContactId: string }>
 }
 
@@ -482,10 +493,12 @@ export function planMudRepair(input: {
     if (!rec.ok) { fail(rec.reason); continue }
     const r = detailsFromAirtable({ name: rec.record.contactName ?? '', email: rec.record.email ?? '', phone: rec.record.contactNumber ?? '' })
     if (!r.ok) { fail(r.reason.replace('Airtable Contact_Name', 'MUD List Contact Name').replace('Airtable Contact_Email', 'MUD List Email')); continue }
-    const d = r.details
+    const fixed = fixStaffEmail(r.details.email, null)
+    const d = { ...r.details, email: fixed.email }
     const key = `${d.email}|${norm(`${d.firstName} ${d.lastName}`)}|${norm(d.mobile)}`
     const g = groups.get(key) ?? {
       details: d,
+      emailFix: fixed.fix,
       // Reuse an identical contact only when no resident booking uses it.
       reuseContactId:
         (existingByEmail.get(d.email) ?? []).find(
