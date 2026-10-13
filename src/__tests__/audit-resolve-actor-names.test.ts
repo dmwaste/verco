@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { resolveActorNames } from '@/lib/audit/resolve'
+import { resolveActorNames, resolveFkLabels } from '@/lib/audit/resolve'
 
 /**
  * `resolveActorNames` now delegates to the `resolve_actor_names` SECURITY
@@ -68,5 +68,52 @@ describe('resolveActorNames', () => {
     // @ts-expect-error — test mock partial-shape, not full SupabaseClient
     const map = await resolveActorNames(supabase, ['u1'])
     expect(map).toEqual({})
+  })
+})
+
+/**
+ * `*_by` FK columns (created_by, removed_by, …) resolve through
+ * `profiles.display_name`, which is NULL for staff whose name lives on their
+ * linked contact — History showed "Created By: Unknown" for the very person
+ * named in the actor column (property notes walk-through, 13/10/2026). Ids the
+ * direct read can't label fall back to resolve_actor_names; labels the direct
+ * read did find are never replaced.
+ */
+describe('resolveFkLabels — profiles fallback', () => {
+  function makeFkSupabase(profileRows: Array<{ id: string; display_name: string | null }>, rpcRows: Row[]) {
+    const rpcCalls: Array<{ fn: string; args: unknown }> = []
+    return {
+      rpcCalls,
+      from: () => ({ select: () => ({ in: () => Promise.resolve({ data: profileRows }) }) }),
+      rpc(fn: string, args: unknown) {
+        rpcCalls.push({ fn, args })
+        return Promise.resolve({ data: rpcRows })
+      },
+    }
+  }
+
+  it('fills a NULL display_name from resolve_actor_names', async () => {
+    const supabase = makeFkSupabase([{ id: 'u1', display_name: null }], [{ user_id: 'u1', name: 'Daniel Taylor' }])
+    // @ts-expect-error — minimal mock
+    const labels = await resolveFkLabels(supabase, { created_by: new Set(['u1']), removed_by: new Set(['u1']) })
+    expect(labels).toEqual({ u1: 'Daniel Taylor' })
+  })
+
+  it('keeps a direct display_name and only asks the RPC for the rest', async () => {
+    const supabase = makeFkSupabase(
+      [{ id: 'u1', display_name: 'Kim Lenton' }, { id: 'u2', display_name: null }],
+      [{ user_id: 'u2', name: 'Ben Davies' }],
+    )
+    // @ts-expect-error — minimal mock
+    const labels = await resolveFkLabels(supabase, { created_by: new Set(['u1', 'u2']) })
+    expect(labels).toEqual({ u1: 'Kim Lenton', u2: 'Ben Davies' })
+    expect(supabase.rpcCalls).toEqual([{ fn: 'resolve_actor_names', args: { p_user_ids: ['u2'] } }])
+  })
+
+  it('makes no RPC call when every profile resolved directly', async () => {
+    const supabase = makeFkSupabase([{ id: 'u1', display_name: 'Kim Lenton' }], [])
+    // @ts-expect-error — minimal mock
+    await resolveFkLabels(supabase, { created_by: new Set(['u1']) })
+    expect(supabase.rpcCalls).toEqual([])
   })
 })

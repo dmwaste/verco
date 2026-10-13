@@ -8,6 +8,7 @@ import { BookingStatusBadge } from '@/components/booking/booking-status-badge'
 import { AllocationFormModal } from '@/app/(admin)/admin/allocations/allocation-form-modal'
 import { MudDetailSection } from './mud-detail-section'
 import { PropertyEditSection } from './property-edit-section'
+import { PropertyNotesSection, type PropertyNoteView } from './property-notes-section'
 import type { ResolvedAuditEntry } from '@/lib/audit/resolve'
 import { AuditTimeline } from '@/components/audit-timeline'
 import { StatusBadge, Pill } from '@/components/status-badge'
@@ -52,6 +53,8 @@ interface PropertyDetailClientProps {
   fy: { id: string; label: string }
   nextExpected: { last_date: string | null; next_expected_date: string | null } | null
   authFormSignedUrl: string | null
+  /** null = the notes read failed */
+  notes: PropertyNoteView[] | null
   bookings: Array<{
     id: string
     ref: string
@@ -211,6 +214,7 @@ export function PropertyDetailClient({
   fyUsage,
   nextExpected,
   authFormSignedUrl,
+  notes,
   auditLogs,
   canManageAllocations,
   areas,
@@ -277,6 +281,11 @@ export function PropertyDetailClient({
           bookingStatuses={bookings.map((b) => b.status)}
           role={role}
         />
+      </div>
+
+      {/* ── 2a-ii. Notes & documents — permission-to-enter forms (ADR 0031) ── */}
+      <div className="px-7 pb-5">
+        <PropertyNotesSection propertyId={property.id} notes={notes} />
       </div>
 
       {/* ── 2b. MUD section (only shown for MUD properties) ──────── */}

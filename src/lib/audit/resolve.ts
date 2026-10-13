@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { Database } from '@/lib/supabase/types'
 import { FIELD_LABELS, NOISE_FIELDS, FK_RESOLVE_MAP } from './field-labels'
+import { PROPERTY_NOTE_KIND_LABELS, type PropertyNoteKind } from '@/lib/property-notes/validation'
 import { format } from 'date-fns'
 
 type Json = Database['public']['Tables']['audit_log']['Row']['old_data']
@@ -197,6 +198,14 @@ export async function resolveFkLabels(
         }
       }
     }
+
+    // Staff whose name lives on their linked contact have a NULL
+    // display_name — fill those from the same resolver the actor column uses,
+    // never replacing a label the direct read found.
+    if (spec.table === 'profiles') {
+      const unresolved = ids.filter((id) => !(id in labelMap))
+      Object.assign(labelMap, await resolveActorNames(supabase, unresolved))
+    }
   }
 
   return labelMap
@@ -287,6 +296,9 @@ function formatValue(
   if (col === 'is_open') {
     return val ? 'Open' : 'Closed'
   }
+  if (col === 'kind' && typeof val === 'string') {
+    return PROPERTY_NOTE_KIND_LABELS[val as PropertyNoteKind] ?? val
+  }
   if (col === 'date' || col === 'rescheduled_date') {
     return formatDate(String(val))
   }
@@ -331,6 +343,7 @@ export const TABLE_LABELS: Record<string, string> = {
   contacts: 'Contact',
   eligible_properties: 'Property',
   stop_outcome_correction: 'Closeout correction',
+  property_note: 'Property note',
 }
 
 function generateSummary(
@@ -347,6 +360,11 @@ function generateSummary(
   const statusChange = changes.find((c) => c.field === 'Status')
   if (statusChange && statusChange.newValue) {
     return `Status changed to ${statusChange.newValue}`
+  }
+
+  // property_note updates are removal-only (ADR 0031)
+  if (changes.some((c) => c.field === 'Removed' && c.newValue)) {
+    return `${tableLabel} removed`
   }
 
   const isOpenChange = changes.find((c) => c.field === 'Open for Bookings')
