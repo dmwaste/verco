@@ -28,4 +28,4 @@ The calendar horizon was a fixed 16 weeks for everyone. Staff and residents now 
 
 **Still open (issue #644):** the resident booking path and its price preview use the *current* FY. That's safe while residents are capped at 16 weeks, until about 10 March 2027, when 16 weeks ahead first crosses 30 June. It must be fixed before then. The 1 July rollover (`financial_year.is_current`) is also still a manual flip.
 
-**Not yet done:** booking a MUD's whole year in one go (Option 2). That's planned for November, once WMRC agrees the rules for dates, capacity and notifications. 2028 public holidays aren't published yet; the generator raises an alert when its window passes the last known holiday.
+**Not yet done:** booking a MUD's whole year in one go (Option 2). That's planned for November, once WMRC agrees the rules for dates, capacity and notifications. 2028 public holidays aren't published yet. The generator never builds past 31 December of the last year whose holiday list reaches December. It reports `holiday_capped` instead, so a holiday can't open as a collection day. From December 2026 the window shrinks gently below 12 months until the 2028 list is loaded.
