@@ -5,7 +5,7 @@ import { z } from 'https://esm.sh/zod@3.23.8'
 import { corsHeaders, jsonResponse, optionsResponse, errorResponse } from '../_shared/cors.ts'
 import { sendEmail } from '../_shared/sendgrid.ts'
 import { resolveWelcomeLoginBaseUrl } from '../_shared/welcome-login-url.ts'
-import { normaliseEmail, emailMatchPattern } from '../_shared/email.ts'
+import { normaliseEmail, emailMatchPattern, rejectMistypedEmailDomain } from '../_shared/email.ts'
 import { attachContact } from '../_shared/contact-attach.ts'
 
 // ── Role classification ─────────────────────────────────────────────────────
@@ -43,7 +43,7 @@ const CreateUserRequest = z
     // Canonicalised on parse: GoTrue lowercases what it stores in auth.users,
     // so a mixed-case address typed into the admin form must be folded here or
     // every downstream lookup disagrees with auth (#575).
-    email: z.string().email().max(320).transform(normaliseEmail),
+    email: z.string().email().max(320).superRefine(rejectMistypedEmailDomain).transform(normaliseEmail),
     mobile_e164: z.string().regex(/^\+614\d{8}$/).optional(),
     role: z.enum(ALL_ROLES),
     contractor_id: z.string().uuid().optional(),
