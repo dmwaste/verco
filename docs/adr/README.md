@@ -31,3 +31,4 @@ An ADR — "architecture decision record" — is a short record of a decision we
 | [0025](0025-residents-told-3pm-cutoff-system-allows-until-330.md) | Residents are told the cutoff is 3:00pm; the system still allows changes until 3:30pm | 30/09/2026 | Accepted |
 | [0026](0026-staff-can-act-inside-the-three-day-lock-while-spots-remain.md) | Staff can book ID collections and ad-hoc redos (non-conformance + nothing presented) inside the 3-day lock while spots remain | 23/09/2026 | Accepted |
 | [0027](0027-an-email-is-not-always-one-person.md) | An email address is not always one person: editing a contact can never change someone else's booking | 12/10/2026 | Accepted |
+| [0028](0028-verco-shares-tomorrows-routes-at-8pm.md) | Verco shares tomorrow's routes with the crews at 8pm, once; later changes are re-shared by hand | 13/10/2026 | Accepted |

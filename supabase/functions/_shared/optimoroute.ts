@@ -2,7 +2,8 @@
  * OptimoRoute REST API v1 client — plan-only integration (EF-only, Deno).
  *
  * Verco pushes orders at T-3 hard close, ops plan routes in the OptimoRoute
- * web UI, Verco pulls the planned sequences back, and reports closeout back as
+ * web UI, Verco pulls the planned sequences back, shares tomorrow's routes
+ * with the crews at 8pm (send_routes, ADR 0028), and reports closeout back as
  * completion status (update_completion_details) so OR can run its customer
  * notifications (the "~30 min away" ETA email + completion receipt). Crews
  * still work in Verco's field UI, not the OR driver app.
@@ -309,4 +310,28 @@ export async function getRoutes(apiKey: string, date: string): Promise<OrRoute[]
     throw new Error(`get_routes(${date}) failed: ${data.message ?? 'unknown error'}`)
   }
   return data.routes ?? []
+}
+
+/**
+ * Sends a date's planned routes to the drivers (send_routes) — the API form of
+ * ops pressing "Share routes" in the OR web UI. Whole date, every driver: OR
+ * has no per-driver filter. Customer notifications go with the routes, same
+ * as the manual share (OR rejects a split send with ERR_SYNC anyway).
+ *
+ * OR sends whatever is planned at call time. A share set up earlier carries
+ * the routes as they were then (get_dispatch_status diffs against "the last
+ * sent or scheduled version") — that is how MOS-12984 reached the crews on
+ * 12/10 two days after it was moved (ADR 0028).
+ *
+ * ERR_NOTHING_TO_SEND (already sent and unchanged) is a no-op, not a failure.
+ */
+export async function sendRoutes(apiKey: string, date: string): Promise<'sent' | 'nothing_to_send'> {
+  const res = await post(apiKey, 'send_routes', { date, sendNotifications: true })
+  if (!res.ok) {
+    throw new Error(`send_routes(${date}) failed: HTTP ${res.status}: ${await res.text()}`)
+  }
+  const data = (await res.json()) as { success: boolean; code?: string; message?: string }
+  if (data.success) return 'sent'
+  if (data.code === 'ERR_NOTHING_TO_SEND') return 'nothing_to_send'
+  throw new Error(`send_routes(${date}) failed: ${data.code ?? ''} ${data.message ?? 'unknown error'}`)
 }
