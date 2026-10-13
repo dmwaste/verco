@@ -13,6 +13,8 @@ import { decodeItems } from '@/lib/booking/search-params'
 import { indexPoolDates } from '@/lib/capacity/effective-capacity'
 import { STATUS_CHIP, STATUS_LABEL } from '@/lib/booking/calendar'
 import { buildCalendarDates, mergeHeldDate } from '@/lib/booking/edit-aware-dates'
+import { residentHorizonEnd } from '@/lib/booking/booking-horizon'
+import { awstDateFromUtc } from '@/lib/booking/schedule-transition'
 import { AvailabilityCalendar, type CalendarDate } from '@/components/booking/availability-calendar'
 import { isContractorStaff } from '@/lib/auth/roles'
 import { cn } from '@/lib/utils'
@@ -100,6 +102,9 @@ export function DateForm() {
         // for_mud dates are bookable by residents alongside MUDs — the flag
         // enables MUD bookings on that date, it does not exclude residents.
         .gte('date', new Date().toISOString().split('T')[0])
+        // The calendar runs ~12 months ahead for MUD bookings; residents keep
+        // their 16-week window (create-booking enforces the same rule).
+        .lt('date', residentHorizonEnd(awstDateFromUtc(new Date())))
         .order('date', { ascending: true })
 
       return data ?? []
