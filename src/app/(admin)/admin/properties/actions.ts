@@ -1,6 +1,7 @@
 'use server'
 
 import { z } from 'zod'
+import { rejectMistypedEmailDomain } from '@/lib/email'
 import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { canMarkRegistered } from '@/lib/mud/state-machine'
@@ -42,7 +43,7 @@ const strataContactSchema = z.object({
     .max(25)
     .refine(isValidPhone, 'Enter a valid phone number')
     .transform((v) => canonicaliseAuMobile(v) ?? normalisePhone(v)),
-  email: z.string().trim().email('Invalid email').max(255),
+  email: z.string().trim().email('Invalid email').max(255).superRefine(rejectMistypedEmailDomain),
 })
 
 /**

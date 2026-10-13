@@ -13,7 +13,7 @@ import { canonicaliseAuMobile, isValidPhone, normalisePhone } from '../_shared/p
 import { resolveContact } from '../_shared/contact-match.ts'
 import { isWithinResidentHorizon } from '../_shared/booking-horizon.ts'
 import { awstDateFromUtc } from '../_shared/schedule-transition.ts'
-import { emailMatchPattern } from '../_shared/email.ts'
+import { emailMatchPattern, rejectMistypedEmailDomain } from '../_shared/email.ts'
 import { withSentry } from '../_shared/sentry.ts'
 import type { Database } from '../_shared/database.types.ts'
 
@@ -68,7 +68,7 @@ function jsonResponse(body: unknown, status = 200) {
 const ContactInput = z.object({
   first_name: z.string().min(1).max(100),
   last_name: z.string().min(1).max(100),
-  email: z.string().email().max(320),
+  email: z.string().email().max(320).superRefine(rejectMistypedEmailDomain),
   // Any real phone (mobile / landline / 1300 / intl) — WMRC #457. Mobiles are
   // canonicalised to E.164 (+614…); non-mobiles stored formatting-stripped.
   // SMS dispatch guards on /^\+614\d{8}$/ and skips non-mobiles cleanly.

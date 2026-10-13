@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { rejectMistypedEmailDomain } from '@/lib/email'
 
 export const BookingItemSchema = z.object({
   service_id: z.string().uuid(),
@@ -46,7 +47,7 @@ import { canonicaliseAuMobile, isValidPhone, normalisePhone } from '@/lib/phone'
 export const ContactSchema = z.object({
   first_name: z.string().min(1, 'First name is required').max(100),
   last_name: z.string().min(1, 'Last name is required').max(100),
-  email: z.string().min(1, 'Email is required').email('Invalid email address'),
+  email: z.string().min(1, 'Email is required').email('Invalid email address').superRefine(rejectMistypedEmailDomain),
   // Accept any real phone — mobile / landline / 1300 / international (WMRC
   // #457). Canonicalise on store: mobiles → E.164 (+614…) so SMS works;
   // non-mobiles → formatting-stripped (SMS dispatch skips them cleanly and

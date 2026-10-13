@@ -4,13 +4,14 @@ import type { Database } from '../_shared/database.types.ts'
 import { z } from 'https://esm.sh/zod@3.23.8'
 import { corsHeaders, jsonResponse, optionsResponse, errorResponse } from '../_shared/cors.ts'
 import { attachContact } from '../_shared/contact-attach.ts'
+import { rejectMistypedEmailDomain } from '../_shared/email.ts'
 
 // ── Input validation ─────────────────────────────────────────────────────────
 
 const ContactInput = z.object({
   first_name: z.string().min(1).max(100),
   last_name: z.string().min(1).max(100),
-  email: z.string().email().max(320),
+  email: z.string().email().max(320).superRefine(rejectMistypedEmailDomain),
   mobile_e164: z.string().regex(/^\+614\d{8}$/).optional(),
 })
 
