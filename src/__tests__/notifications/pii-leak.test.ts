@@ -135,6 +135,24 @@ describe('PII leak regression', () => {
     expect(html).not.toContain(PII_STRINGS.mobile_e164)
   })
 
+  it('closeout_corrected template does not contain contact full_name, email, or mobile', async () => {
+    const booking = makePiiLoadedBooking()
+    const deps = createMockDispatchDeps({ bookings: { [booking.id]: booking } })
+
+    await dispatch(deps, {
+      type: 'closeout_corrected',
+      booking_id: booking.id,
+      correction_id: 'corr-pii-test',
+    })
+
+    expect(deps.sendEmailMock).toHaveBeenCalledTimes(1)
+    const html: string = deps.sendEmailMock.mock.calls[0]![0].htmlBody
+
+    expect(html).not.toContain(PII_STRINGS.full_name)
+    expect(html).not.toContain(PII_STRINGS.email)
+    expect(html).not.toContain(PII_STRINGS.mobile_e164)
+  })
+
   it('payment_reminder template does not contain contact full_name, email, or mobile', async () => {
     const booking = makePiiLoadedBooking()
     const deps = createMockDispatchDeps({ bookings: { [booking.id]: booking } })

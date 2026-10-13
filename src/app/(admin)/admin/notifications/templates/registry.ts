@@ -92,6 +92,14 @@ export const TEMPLATE_CATALOG: TemplateCatalogEntry[] = [
     channels: ['email'],
     sourceFile: 'src/lib/notifications/templates/completion-survey.ts',
   },
+  {
+    type: 'closeout_corrected',
+    label: 'Closeout corrected',
+    description:
+      'Sent when D&M office staff correct a non-conformance or nothing-presented closeout to Completed. Tells the resident to disregard the earlier notice.',
+    channels: ['email'],
+    sourceFile: 'src/lib/notifications/templates/closeout-corrected.ts',
+  },
 ]
 
 export function getCatalogEntry(type: string): TemplateCatalogEntry | null {

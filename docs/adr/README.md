@@ -33,3 +33,4 @@ An ADR — "architecture decision record" — is a short record of a decision we
 | [0027](0027-an-email-is-not-always-one-person.md) | An email address is not always one person: editing a contact can never change someone else's booking | 12/10/2026 | Accepted |
 | [0028](0028-verco-shares-tomorrows-routes-at-8pm.md) | Verco shares tomorrow's routes with the crews at 8pm, once; later changes are re-shared by hand | 13/10/2026 | Accepted |
 | [0029](0029-mud-bookings-twelve-months-ahead-residents-keep-sixteen-weeks.md) | Staff can book MUD collections 12 months ahead; residents keep 16 weeks; a booking's FY is its collection date's | 13/10/2026 | Accepted |
+| [0030](0030-office-corrects-a-wrong-closeout-within-seven-days.md) | The office can correct a crew's wrong closeout within 7 days; the crew's buttons stay one-tap | 13/10/2026 | Accepted |

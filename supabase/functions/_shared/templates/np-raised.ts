@@ -47,6 +47,12 @@ export interface RenderNpRaisedOptions {
    * other has run. Omitted when nothing else is pending.
    */
   pendingServices?: string | undefined
+  /**
+   * Office staff corrected this collection's closeout from the other notice
+   * type (NCN ↔ NP, ADR 0030) — the resident already holds that notice, so
+   * this one says it replaces it.
+   */
+  replacesEarlierNotice?: boolean | undefined
 }
 
 export function renderNpRaised(
@@ -61,6 +67,12 @@ export function renderNpRaised(
   const introCopy = options.contractor_fault
     ? 'We were unable to attend your address as planned.'
     : 'Our crew attended your address but no items were found on the verge.'
+
+  // Office closeout correction NCN ↔ NP (ADR 0030): the resident already
+  // holds the other notice for this collection.
+  const replacesBlock = options.replacesEarlierNotice
+    ? `<p style="margin:0 0 16px 0;padding:12px 16px;background:#F0F6FB;border-radius:8px;color:#293F52;font-size:14px">This notice replaces the one we sent you earlier about this collection. Please disregard the earlier notice.</p>`
+    : ''
 
   const notesBlock = options.notes
     ? `<p style="margin:0 0 16px 0;color:#293F52;font-size:14px"><strong>Notes:</strong> ${escapeHtml(options.notes)}</p>`
@@ -80,6 +92,7 @@ export function renderNpRaised(
   // sits below the photos — accepted: evidence-then-action reading order.
   const bodyHtml = `
     <p style="margin:0 0 16px 0">${introCopy}</p>
+    ${replacesBlock}
     ${notesBlock}
     ${pendingBlock}
     <p style="margin:0 0 16px 0;color:#8FA5B8;font-size:13px">You have 14 days from the date of this notice to dispute it.</p>
