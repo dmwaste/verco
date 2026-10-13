@@ -31,6 +31,8 @@ import { normaliseWasteLocation } from './lib/reconcile'
 import { pagedIn, uniq } from './lib/db'
 import { timestamp } from './lib/report'
 import { addrKey } from './lib/kwn-address'
+import { resolveResidentContact } from './lib/contact-upsert'
+import { storePhone } from './import-vv-bookings-csv'
 
 const KWN_BASE = 'apppzIjIc05ghcixH'
 const BOOKINGS_ALL = 'tblthTRXTHTvUkxBk'
@@ -66,7 +68,7 @@ const SERVICE = {
 
 const ACTIVE = new Set(['Booked', 'Place Out Issued', 'Scheduled'])
 
-type Master = {
+export type Master = {
   ref: string
   epId: string | null
   status: string
@@ -210,17 +212,22 @@ async function main() {
   for (const f of fail) console.error(`  ✗ ${f.ref}: ${f.error}`)
 }
 
-async function upsertContact(verco: SupabaseClient, m: Master): Promise<string> {
-  const email = m.contactEmail!.trim().toLowerCase()
-  const { data: existing } = await verco.from('contacts').select('id').eq('email', email).limit(1).maybeSingle()
-  if (existing) return existing.id as string
+/**
+ * The booking's contact. Reuses a row only for the same person and never edits
+ * one (resolveResidentContact, ADR 0027): KWN staff booked residents under D&M
+ * office emails, and reusing the first row by email put them all on one contact.
+ */
+export async function upsertContact(verco: SupabaseClient, m: Master): Promise<string> {
   const name = (m.contactName || '').trim()
   const sp = name.indexOf(' ')
-  const first = sp > 0 ? name.slice(0, sp) : name || 'Resident'
-  const last = sp > 0 ? name.slice(sp + 1) : '—'
-  const { data, error } = await verco.from('contacts').insert({ first_name: first, last_name: last, email, mobile_e164: m.contactPhone || null }).select('id').single()
-  if (error) throw new Error(`contact: ${error.message}`)
-  return data!.id as string
+  const r = await resolveResidentContact(verco, {
+    email: m.contactEmail!,
+    firstName: sp > 0 ? name.slice(0, sp) : name || 'Resident',
+    lastName: sp > 0 ? name.slice(sp + 1) : '—',
+    mobileE164: storePhone(m.contactPhone ?? ''),
+  })
+  if (r.error || !r.contactId) throw new Error(`contact: ${r.error ?? 'no id'}`)
+  return r.contactId
 }
 
 async function loadAllKwnProps(verco: SupabaseClient, areaIds: string[]) {
@@ -305,4 +312,6 @@ function mode(xs: string[]): string {
   return [...c.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? ''
 }
 
-main().catch((err) => { console.error('Fatal:', err); process.exit(1) })
+if (process.argv[1]?.endsWith('create-missing-kwn-bookings.ts')) {
+  main().catch((err) => { console.error('Fatal:', err); process.exit(1) })
+}

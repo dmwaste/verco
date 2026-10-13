@@ -105,7 +105,7 @@ export async function resolveResidentContact(
 
   const { data: created, error: insertError } = await verco
     .from('contacts')
-    .insert({ first_name: opts.firstName, last_name: opts.lastName, email, mobile_e164: opts.mobileE164 })
+    .insert({ first_name: opts.firstName, last_name: opts.lastName, email, mobile_e164: opts.mobileE164 || null })
     .select('id')
     .single()
   if (insertError) return { contactId: null, created: false, error: insertError.message }

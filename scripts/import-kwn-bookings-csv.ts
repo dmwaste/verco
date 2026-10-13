@@ -33,7 +33,8 @@ import { pagedIn } from './lib/db'
 import { timestamp } from './lib/report'
 import { parseCsv, type CsvRow as Row } from './lib/csv'
 import { addrKey } from './lib/kwn-address'
-import { parseDate, targetStatus } from './import-vv-bookings-csv'
+import { parseDate, storePhone, targetStatus } from './import-vv-bookings-csv'
+import { resolveResidentContact } from './lib/contact-upsert'
 
 const SERVICE = {
   bulk: '756932e9-f6da-40e4-bda3-cd63feba0bd0',
@@ -269,16 +270,22 @@ async function main() {
   if (fail.length) process.exit(1)
 }
 
-async function upsertContact(verco: SupabaseClient, p: Parsed): Promise<string> {
-  const { data: existing } = await verco.from('contacts').select('id').eq('email', p.contactEmail).limit(1).maybeSingle()
-  if (existing) return existing.id as string
+/**
+ * The booking's contact. Reuses a row only for the same person and never edits
+ * one (resolveResidentContact, ADR 0027): KWN staff booked residents under D&M
+ * office emails, and reusing the first row by email put them all on one contact.
+ */
+export async function upsertContact(verco: SupabaseClient, p: Parsed): Promise<string> {
   const name = p.contactName.trim()
   const sp = name.indexOf(' ')
-  const first = sp > 0 ? name.slice(0, sp) : name || 'Resident'
-  const last = sp > 0 ? name.slice(sp + 1) : '—'
-  const { data, error } = await verco.from('contacts').insert({ first_name: first, last_name: last, email: p.contactEmail, mobile_e164: p.contactPhone || null }).select('id').single()
-  if (error) throw new Error(`contact: ${error.message}`)
-  return data!.id as string
+  const r = await resolveResidentContact(verco, {
+    email: p.contactEmail,
+    firstName: sp > 0 ? name.slice(0, sp) : name || 'Resident',
+    lastName: sp > 0 ? name.slice(sp + 1) : '—',
+    mobileE164: storePhone(p.contactPhone),
+  })
+  if (r.error || !r.contactId) throw new Error(`contact: ${r.error ?? 'no id'}`)
+  return r.contactId
 }
 
 if (process.argv[1]?.endsWith('import-kwn-bookings-csv.ts')) {

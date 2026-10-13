@@ -12,7 +12,13 @@ Verco still finds a booking's contact by email, but a matching email alone no lo
 - **Same household** (the record is used only at this address and isn't a MUD strata contact): it's updated in place, so a partner on a shared email or a new mobile number still corrects the household's record.
 - **Anything else:** the booking gets a **new** contact record of its own.
 
-The same rule applies to staff editing the contact on a booking (if the contact is used at any other address, or is a strata contact, only this booking moves to the new details) and to saving a MUD's strata contact (a record that residents' bookings use is never rewritten from the MUD page). The Verge Valet booking import reuses a record only for the same person and never edits one. A staff member booking on someone's behalf under their *own* email is not "booking for themselves". Support tickets, staff-created logins and the Kwinana importers still match by email the old way, and are being brought under this rule in #631.
+The same rule applies to staff editing the contact on a booking (if the contact is used at any other address, or is a strata contact, only this booking moves to the new details) and to saving a MUD's strata contact (a record that residents' bookings use is never rewritten from the MUD page). The Verge Valet booking import reuses a record only for the same person and never edits one. A staff member booking on someone's behalf under their *own* email is not "booking for themselves".
+
+Support tickets, staff-created logins and the Kwinana importers follow the same rule (#631, 13/10/2026):
+
+- **A support ticket** about a booking treats that booking's address as the household. A ticket with no booking has no address, so it reuses a record only for the same person, or the signed-in resident's own single record.
+- **A staff-created login** has no address of its own, so an existing record is only corrected when it's used at one address at most and isn't a strata contact. Otherwise the new user gets their own record.
+- **The Kwinana booking importers**, like the Verge Valet one, reuse a record only for the same person and never edit one.
 
 ## Why
 
