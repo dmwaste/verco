@@ -83,18 +83,7 @@ export async function createMudBooking(
     }
   }
 
-  // ── 2. Resolve current FY ───────────────────────────────────────────────
-  const { data: fy, error: fyError } = await supabase
-    .from('financial_year')
-    .select('id')
-    .eq('is_current', true)
-    .single()
-
-  if (fyError || !fy) {
-    return { ok: false, error: 'No active financial year found.' }
-  }
-
-  // ── 3. Verify collection date is MUD-bookable + open. Pooled areas accept
+  // ── 2. Verify collection date is MUD-bookable + open. Pooled areas accept
   //       MUDs on any open date; unpooled require the curated for_mud flag
   //       (#558 option 2 — mirrors isMudCollectionDate + the RPC gate). ──────
   const { data: collDate, error: collDateError } = await supabase
@@ -116,6 +105,22 @@ export async function createMudBooking(
     return { ok: false, error: 'Collection date is for a different area.' }
   }
 
+  // ── 3. The FY the COLLECTION date falls in — MUD bookings run 12 months out,
+  //       so the allowance check must count the right year (the RPC derives the
+  //       booking's fy_id the same way). ───────────────────────────────────────
+  const { data: fy, error: fyError } = await supabase
+    .from('financial_year')
+    .select('id')
+    .lte('start_date', collDate.date)
+    .gte('end_date', collDate.date)
+    .order('start_date', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  if (fyError || !fy) {
+    return { ok: false, error: 'No financial year covers this collection date.' }
+  }
+
   // ── 4. Load service rules for the requested services + their categories ─
   const { data: rules, error: rulesError } = await supabase
     .from('service_rules')
@@ -133,7 +138,7 @@ export async function createMudBooking(
 
   // ── 5. MUD allowance check: per-service FY usage vs cap ─────────────────
   // Usage = sum of no_services across all booking_items for this property,
-  // this service, in non-Cancelled bookings for the current FY.
+  // this service, in non-Cancelled bookings in the collection date's FY.
   const { data: usageRows, error: usageError } = await supabase
     .from('booking_item')
     .select(
