@@ -18,6 +18,10 @@ import { STAFF_ROLES, isContractorStaff } from '@/lib/auth/roles'
 import { orchestrateRefund, type RefundOrchestrationState } from '@/lib/payments/orchestrate-refund'
 import { REFUND_REASONS } from '@/lib/refunds/auto-raised'
 import { refundStateToNotificationStatus } from '@/lib/refunds/notification-status'
+import { NCN_REASONS } from '@/lib/ncn/reasons'
+import {
+  CORRECTABLE_OUTCOMES, correctionNotice, replacesEarlierNotice } from '@/lib/stops/outcome-correction'
+import { pendingServicesLabel, serviceLabelFromSummary } from '@/lib/stops/service-label'
 import type { Result } from '@/lib/result'
 
 /**
@@ -889,4 +893,138 @@ export async function updateMudAllocations(
   }
 
   return { ok: true, data: undefined }
+}
+
+const correctStopOutcomeSchema = z
+  .object({
+    stopId: z.string().uuid(),
+    toStatus: z.enum(CORRECTABLE_OUTCOMES),
+    reason: z
+      .string()
+      .trim()
+      .min(3, 'Give a reason for the correction (at least 3 characters).')
+      .max(500, 'Keep the reason under 500 characters.'),
+    ncnReason: z.enum(NCN_REASONS).nullable(),
+    residentNotes: z.string().trim().max(2000, 'Notes for the resident must be 2000 characters or fewer.'),
+    contractorFault: z.boolean(),
+  })
+  .refine((v) => v.toStatus !== 'Non-conformance' || v.ncnReason !== null, {
+    message: 'Choose the non-conformance reason.',
+  })
+
+export type CorrectStopOutcomeInput = z.input<typeof correctStopOutcomeSchema>
+
+// correct_stop_outcome's jsonb return — parsed, never cast.
+const correctionResultSchema = z.object({
+  correction_id: z.string().uuid(),
+  booking_id: z.string().uuid(),
+  from_status: z.enum(CORRECTABLE_OUTCOMES),
+  to_status: z.enum(CORRECTABLE_OUTCOMES),
+  new_notice_id: z.string().uuid().nullable(),
+  photos: z.array(z.string()),
+  booking_status: z.string(),
+})
+
+/**
+ * Office correction of a crew's closeout (ADR 0030) — e.g. the crew tapped
+ * Completed when it was a non-conformance. The `correct_stop_outcome` RPC is
+ * the enforcement (contractor-admin, 7-day window, withdraws an Issued notice,
+ * raises the corrected one, re-derives the booking, logs the correction); this
+ * action only validates input and then emails the resident the message that
+ * matches the corrected outcome. The email is best-effort (as on the crew
+ * path): a failed send never undoes the correction.
+ */
+export async function correctStopOutcome(
+  input: CorrectStopOutcomeInput,
+): Promise<Result<{ bookingStatus: string }>> {
+  const parsed = correctStopOutcomeSchema.safeParse(input)
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0]?.message ?? 'Invalid input.' }
+  }
+  const v = parsed.data
+
+  const supabase = await createClient()
+
+  const { data: role } = await supabase.rpc('current_user_role')
+  if (role !== 'contractor-admin') {
+    return { ok: false, error: 'Only a contractor admin can correct a closeout.' }
+  }
+
+  const { data, error } = await supabase.rpc('correct_stop_outcome', {
+    p_stop_id: v.stopId,
+    p_to_status: v.toStatus,
+    p_reason: v.reason,
+    ...(v.ncnReason ? { p_ncn_reason: v.ncnReason } : {}),
+    ...(v.residentNotes ? { p_resident_notes: v.residentNotes } : {}),
+    p_contractor_fault: v.contractorFault,
+  })
+  if (error) return { ok: false, error: error.message }
+
+  const result = correctionResultSchema.safeParse(data)
+  if (!result.success) {
+    return {
+      ok: false,
+      error: 'The outcome was corrected, but the resident email was not sent (unexpected response). Refresh and contact the resident directly.',
+    }
+  }
+  const r = result.data
+
+  // Name the booked service(s), as the crew-raised notices do, and reassure
+  // about any sibling pass still to come.
+  const [{ data: stop }, { data: siblings }] = await Promise.all([
+    supabase.from('collection_stop').select('stream, services_summary').eq('id', v.stopId).single(),
+    supabase
+      .from('collection_stop')
+      .select('stream, services_summary')
+      .eq('booking_id', r.booking_id)
+      .neq('id', v.stopId)
+      .eq('status', 'Pending'),
+  ])
+  const stream = stop ? serviceLabelFromSummary(stop.services_summary, stop.stream).label : undefined
+  const pendingServices =
+    siblings && siblings.length > 0
+      ? pendingServicesLabel(siblings)
+      : undefined
+  const notes = v.residentNotes || undefined
+  const photos = r.photos.length > 0 ? r.photos : undefined
+  const replaces = replacesEarlierNotice(r.from_status, r.to_status)
+
+  switch (correctionNotice(r.to_status)) {
+    case 'ncn_raised':
+      await invokeSendNotification(supabase, {
+        type: 'ncn_raised',
+        booking_id: r.booking_id,
+        ncn_id: r.new_notice_id ?? '',
+        reason: v.ncnReason ?? '',
+        notes,
+        photos,
+        stream,
+        pending_services: pendingServices,
+        replaces_earlier_notice: replaces,
+      })
+      break
+    case 'np_raised':
+      await invokeSendNotification(supabase, {
+        type: 'np_raised',
+        booking_id: r.booking_id,
+        np_id: r.new_notice_id ?? '',
+        notes,
+        photos,
+        contractor_fault: v.contractorFault,
+        stream,
+        pending_services: pendingServices,
+        replaces_earlier_notice: replaces,
+      })
+      break
+    case 'closeout_corrected':
+      await invokeSendNotification(supabase, {
+        type: 'closeout_corrected',
+        booking_id: r.booking_id,
+        correction_id: r.correction_id,
+        stream,
+      })
+      break
+  }
+
+  return { ok: true, data: { bookingStatus: r.booking_status } }
 }
