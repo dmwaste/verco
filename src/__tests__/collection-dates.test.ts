@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import {
+  capWindowEnd,
   dayOfWeek,
   enumerateDates,
+  holidayCoverageEnd,
   planDates,
+  weekOfMonth,
   windowFromToday,
   type ScheduleEntry,
 } from '@/lib/scheduling/collection-dates'
@@ -189,5 +192,70 @@ describe('collection-dates: KWN schedule extends dates past Dec 2026', () => {
     // KWN-1 collects Mondays only.
     const kwn1Dows = new Set(result.filter((r) => r.entity_id === 'KWN-1').map((r) => dayOfWeek(r.date)))
     expect([...kwn1Dows]).toEqual([1])
+  })
+})
+
+// ADR 0029: the calendar runs ~12 months ahead, and MUD days in unpooled areas
+// are flagged from collection_schedule.mud_weeks instead of by hand.
+describe('collection-dates: MUD days from mud_weeks', () => {
+  const thursdays = (mud_weeks: number[] | null): ScheduleEntry[] => [
+    { id: 'VIN', day_of_week: 4, bulk_capacity_limit: 60, anc_capacity_limit: 60, id_capacity_limit: 10, mud_weeks },
+  ]
+  // Thursdays in January 2027: 7, 14, 21, 28.
+  const jan = { start: new Date('2027-01-01T00:00:00Z'), end: new Date('2027-02-01T00:00:00Z') }
+
+  it('numbers each weekday occurrence within its month (1st … 5th)', () => {
+    expect(weekOfMonth('2027-01-04')).toBe(1)
+    expect(weekOfMonth('2027-01-07')).toBe(1)
+    expect(weekOfMonth('2027-01-08')).toBe(2)
+    expect(weekOfMonth('2027-01-28')).toBe(4)
+    expect(weekOfMonth('2027-01-29')).toBe(5)
+  })
+
+  it('flags only the listed occurrences', () => {
+    const rows = planDates(thursdays([1, 3]), jan.start, jan.end, new Map())
+    expect(rows.filter((r) => r.for_mud).map((r) => r.date)).toEqual(['2027-01-07', '2027-01-21'])
+  })
+
+  it('flags every occurrence for {1..5}', () => {
+    const rows = planDates(thursdays([1, 2, 3, 4, 5]), jan.start, jan.end, new Map())
+    expect(rows.every((r) => r.for_mud)).toBe(true)
+    expect(rows).toHaveLength(4)
+  })
+
+  it('never flags when mud_weeks is NULL or absent (staff curate by hand)', () => {
+    expect(planDates(thursdays(null), jan.start, jan.end, new Map()).some((r) => r.for_mud)).toBe(false)
+    const legacy = [{ id: 'X', day_of_week: 4, bulk_capacity_limit: 1, anc_capacity_limit: 1, id_capacity_limit: 1 }]
+    expect(planDates(legacy, jan.start, jan.end, new Map()).some((r) => r.for_mud)).toBe(false)
+  })
+
+  it('never flags a public holiday', () => {
+    const rows = planDates(thursdays([1, 2, 3, 4, 5]), jan.start, jan.end, new Map([['2027-01-14', 'Test Day']]))
+    expect(rows.find((r) => r.date === '2027-01-14')).toMatchObject({ is_holiday: true, for_mud: false })
+  })
+})
+
+// Generating a date past the last loaded holiday list would open a public
+// holiday as a collection day, so generation stops at the end of the last
+// year whose list includes December (WA publishes a year at a time).
+describe('collection-dates: holiday coverage cap', () => {
+  it('covers through 31 December of the last year with a December holiday', () => {
+    expect(holidayCoverageEnd(['2027-06-07', '2027-12-27', '2027-12-28'])).toBe('2028-01-01')
+  })
+
+  it('ignores a later year that is only partly loaded', () => {
+    expect(holidayCoverageEnd(['2026-12-25', '2027-01-01', '2027-06-07'])).toBe('2027-01-01')
+  })
+
+  it('returns null when there is no complete year at all', () => {
+    expect(holidayCoverageEnd(['2027-01-01'])).toBeNull()
+    expect(holidayCoverageEnd([])).toBeNull()
+  })
+
+  it('caps the window end but never extends it', () => {
+    const end = new Date('2027-11-09T00:00:00Z')
+    expect(capWindowEnd(end, '2028-01-01').toISOString().slice(0, 10)).toBe('2027-11-09')
+    expect(capWindowEnd(new Date('2028-02-01T00:00:00Z'), '2028-01-01').toISOString().slice(0, 10)).toBe('2028-01-01')
+    expect(capWindowEnd(end, null).toISOString().slice(0, 10)).toBe('2027-11-09')
   })
 })

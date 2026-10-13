@@ -3,6 +3,8 @@ import { cronHandler } from '../_shared/cron-handler.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.100.0'
 import type { Database } from '../_shared/database.types.ts'
 import {
+  capWindowEnd,
+  holidayCoverageEnd,
   planDates,
   windowFromToday,
   type ScheduleEntry,
@@ -13,9 +15,16 @@ import {
  *
  * Fires daily at 19:00 UTC (= 3am AWST next day) via pg_cron. Service role.
  *
- * For the next 16 weeks, generates:
- *   - collection_date rows for every area in collection_schedule
+ * For the next ~12 months (56 weeks, ADR 0029 — MUD bookings run a year out;
+ * residents stay capped at 16 weeks by _shared/booking-horizon.ts), generates:
+ *   - collection_date rows for every area in collection_schedule, flagged
+ *     for_mud on the occurrences listed in collection_schedule.mud_weeks
  *   - collection_date_pool rows for every pool in capacity_pool_schedule
+ *
+ * Never past the loaded holiday list: the window stops at the end of the last
+ * year whose WA holidays reach December (`holiday_capped` in the response), so
+ * a public holiday can't be created as an open collection day. Load the next
+ * year's list when WA publishes it and the window grows back on its own.
  *
  * Idempotent: UNIQUE constraints on (area, date) and (pool, date) +
  * ON CONFLICT DO NOTHING means re-runs are safe. Schedule changes don't
@@ -29,7 +38,10 @@ import {
  * still see them in the calendar with the holiday name for context.
  */
 
-const HORIZON_WEEKS = 16
+const HORIZON_WEEKS = 56
+// Rows per upsert: the first 56-week run inserts ~1,000 rows, and the
+// returned id list is capped at PostgREST's max-rows (1000).
+const UPSERT_CHUNK = 500
 
 interface Counts {
   start_date: string
@@ -41,6 +53,7 @@ interface Counts {
   collection_dates_skipped: number
   pool_dates_inserted: number
   pool_dates_skipped: number
+  holiday_capped: boolean
   failed: number
   errors: string[]
 }
@@ -51,7 +64,8 @@ serve(cronHandler('generate-collection-dates', async (_req) => {
   const supabase = createClient<Database>(supabaseUrl, serviceRoleKey)
 
   const today = new Date()
-  const { start, end } = windowFromToday(today, HORIZON_WEEKS)
+  const { start, end: horizonEnd } = windowFromToday(today, HORIZON_WEEKS)
+  let end = horizonEnd
 
   const counts: Counts = {
     start_date: start.toISOString().slice(0, 10),
@@ -63,6 +77,7 @@ serve(cronHandler('generate-collection-dates', async (_req) => {
     collection_dates_skipped: 0,
     pool_dates_inserted: 0,
     pool_dates_skipped: 0,
+    holiday_capped: false,
     failed: 0,
     errors: [],
   }
@@ -72,17 +87,18 @@ serve(cronHandler('generate-collection-dates', async (_req) => {
     const [scheduleResp, poolScheduleResp, holidayResp] = await Promise.all([
       supabase
         .from('collection_schedule')
-        .select('collection_area_id, day_of_week, bulk_capacity_limit, anc_capacity_limit, id_capacity_limit')
+        .select('collection_area_id, day_of_week, bulk_capacity_limit, anc_capacity_limit, id_capacity_limit, mud_weeks')
         .eq('is_active', true),
       supabase
         .from('capacity_pool_schedule')
         .select('capacity_pool_id, day_of_week, bulk_capacity_limit, anc_capacity_limit, id_capacity_limit')
         .eq('is_active', true),
+      // Every holiday from today on (not just the window): the coverage cap
+      // needs to see how far the loaded list reaches.
       supabase
         .from('public_holiday')
         .select('date, name')
         .gte('date', counts.start_date)
-        .lt('date', counts.end_date)
         .eq('jurisdiction', 'WA'),
     ])
 
@@ -96,9 +112,17 @@ serve(cronHandler('generate-collection-dates', async (_req) => {
 
     counts.schedule_entries = scheduleRows.length
     counts.pool_schedule_entries = poolScheduleRows.length
-    counts.holidays_in_window = holidayRows.length
 
-    const holidaysByDate = new Map(holidayRows.map((h) => [h.date as string, h.name as string]))
+    end = capWindowEnd(horizonEnd, holidayCoverageEnd(holidayRows.map((h) => h.date as string)))
+    if (end < horizonEnd) {
+      counts.holiday_capped = true
+      counts.end_date = end.toISOString().slice(0, 10)
+      console.warn(`generate-collection-dates: window capped at ${counts.end_date} — load the next year's WA public holidays`)
+    }
+    const windowHolidays = holidayRows.filter((h) => (h.date as string) < counts.end_date)
+    counts.holidays_in_window = windowHolidays.length
+
+    const holidaysByDate = new Map(windowHolidays.map((h) => [h.date as string, h.name as string]))
 
     // 2. Plan per-area dates.
     const areaSchedule: ScheduleEntry[] = scheduleRows.map((r) => ({
@@ -107,6 +131,7 @@ serve(cronHandler('generate-collection-dates', async (_req) => {
       bulk_capacity_limit: r.bulk_capacity_limit as number,
       anc_capacity_limit: r.anc_capacity_limit as number,
       id_capacity_limit: r.id_capacity_limit as number,
+      mud_weeks: r.mud_weeks,
     }))
     const areaDates = planDates(areaSchedule, start, end, holidaysByDate)
 
@@ -126,26 +151,29 @@ serve(cronHandler('generate-collection-dates', async (_req) => {
         collection_area_id: d.entity_id,
         date: d.date,
         is_open: !d.is_holiday,
-        for_mud: false,
+        for_mud: d.for_mud,
         bulk_capacity_limit: d.is_holiday ? 0 : d.bulk_capacity_limit,
         anc_capacity_limit: d.is_holiday ? 0 : d.anc_capacity_limit,
         id_capacity_limit: d.is_holiday ? 0 : d.id_capacity_limit,
       }))
 
-      const { data: inserted, error } = await supabase
-        .from('collection_date')
-        .upsert(areaRows, {
-          onConflict: 'collection_area_id,date',
-          ignoreDuplicates: true,
-        })
-        .select('id')
+      for (let i = 0; i < areaRows.length; i += UPSERT_CHUNK) {
+        const chunk = areaRows.slice(i, i + UPSERT_CHUNK)
+        const { data: inserted, error } = await supabase
+          .from('collection_date')
+          .upsert(chunk, {
+            onConflict: 'collection_area_id,date',
+            ignoreDuplicates: true,
+          })
+          .select('id')
 
-      if (error) {
-        counts.failed++
-        counts.errors.push(`collection_date upsert: ${error.message}`)
-      } else {
-        counts.collection_dates_inserted = inserted?.length ?? 0
-        counts.collection_dates_skipped = areaRows.length - counts.collection_dates_inserted
+        if (error) {
+          counts.failed++
+          counts.errors.push(`collection_date upsert: ${error.message}`)
+        } else {
+          counts.collection_dates_inserted += inserted?.length ?? 0
+          counts.collection_dates_skipped += chunk.length - (inserted?.length ?? 0)
+        }
       }
     }
 
@@ -162,20 +190,23 @@ serve(cronHandler('generate-collection-dates', async (_req) => {
         id_is_closed: d.is_holiday,
       }))
 
-      const { data: inserted, error } = await supabase
-        .from('collection_date_pool')
-        .upsert(poolRows, {
-          onConflict: 'capacity_pool_id,date',
-          ignoreDuplicates: true,
-        })
-        .select('id')
+      for (let i = 0; i < poolRows.length; i += UPSERT_CHUNK) {
+        const chunk = poolRows.slice(i, i + UPSERT_CHUNK)
+        const { data: inserted, error } = await supabase
+          .from('collection_date_pool')
+          .upsert(chunk, {
+            onConflict: 'capacity_pool_id,date',
+            ignoreDuplicates: true,
+          })
+          .select('id')
 
-      if (error) {
-        counts.failed++
-        counts.errors.push(`collection_date_pool upsert: ${error.message}`)
-      } else {
-        counts.pool_dates_inserted = inserted?.length ?? 0
-        counts.pool_dates_skipped = poolRows.length - counts.pool_dates_inserted
+        if (error) {
+          counts.failed++
+          counts.errors.push(`collection_date_pool upsert: ${error.message}`)
+        } else {
+          counts.pool_dates_inserted += inserted?.length ?? 0
+          counts.pool_dates_skipped += chunk.length - (inserted?.length ?? 0)
+        }
       }
     }
 
