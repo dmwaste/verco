@@ -16,7 +16,7 @@ import { addressMateriallyChanged } from '@/lib/booking/id-edit'
 import { matchAddressToArea } from '@/lib/booking/id-area-suggestion'
 import { DetailHeader } from '@/components/admin/detail-header'
 import { FieldLabel, Input, Select, Textarea } from '@/components/admin/form'
-import { LOCATION_OPTIONS, MAX_SERVICE_QTY, type LocationOption } from '@/lib/booking/schemas'
+import { LOCATION_OPTIONS, MAX_SERVICE_QTY, STAFF_LOCATION_OPTION, type LocationOption } from '@/lib/booking/schemas'
 import { buildQuantityEditItems } from '@/lib/booking/quantity-edit-payload'
 import { canEditCollectionDetails, canEditIdDetails, canEditMudAllocations } from '@/lib/booking/collection-details-edit'
 import { isContractorStaff } from '@/lib/auth/roles'
@@ -139,6 +139,12 @@ export function BookingDetailClient({
 
   // Notes edit form
   const [editNotesText, setEditNotesText] = useState(booking.notes ?? '')
+
+  // Staff surface: offer the staff-only 'Other' alongside the resident
+  // locations, with the on-behalf wizard's rule that 'Other' needs driver notes.
+  const staffLocationOptions = [...LOCATION_OPTIONS, STAFF_LOCATION_OPTION]
+  const otherNotesMissing =
+    editLocation === STAFF_LOCATION_OPTION && editNotesText.trim().length === 0
 
   // ── Illegal Dumping details edit (contractor-only; design 2026-08-28) ──
   // Postgres numeric arrives as a string through PostgREST — coerce once so
@@ -1197,10 +1203,11 @@ export function BookingDetailClient({
             <div>
               <label className="mb-1 block text-xs font-medium text-gray-500">Location</label>
               <div className="flex flex-wrap gap-1.5">
-                {LOCATION_OPTIONS.map((opt) => (
+                {staffLocationOptions.map((opt) => (
                   <button
                     key={opt}
                     type="button"
+                    aria-pressed={editLocation === opt}
                     onClick={() => setEditLocation(opt)}
                     className={cn(
                       'rounded-full border-[1.5px] px-3 py-1.5 text-caption font-medium transition-colors',
@@ -1258,12 +1265,17 @@ export function BookingDetailClient({
                 placeholder="Notes for driver..."
                 className="h-16 resize-none py-2"
               />
+              {otherNotesMissing && (
+                <p className="mt-1 text-caption text-status-error">
+                  Notes for driver are required when the location is &ldquo;Other&rdquo;.
+                </p>
+              )}
             </div>
             <div className="flex gap-2">
               <button
                 type="button"
                 onClick={handleSaveDetails}
-                disabled={isPending || (canEditId && (isUploadingPhotos || isGeocodingEdit))}
+                disabled={isPending || otherNotesMissing || (canEditId && (isUploadingPhotos || isGeocodingEdit))}
                 className="flex-1 rounded-lg bg-[#293F52] px-3 py-2 text-body-sm font-semibold text-white disabled:opacity-50"
               >
                 {isPending ? 'Saving...' : 'Save'}
