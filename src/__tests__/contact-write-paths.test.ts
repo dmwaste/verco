@@ -51,4 +51,11 @@ describe('contact write paths (ADR 0027)', () => {
     expect(src).toContain("from '../_shared/contact-attach.ts'")
     expect(src).toMatch(/attachContact\(/)
   })
+
+  // A login has no address: a contact used at one address belongs to that
+  // household, so create-user may only reuse the same person or insert.
+  it('create-user never lets a login correct an existing contact', () => {
+    const src = code(join(ROOT, 'supabase/functions/create-user/index.ts'))
+    expect(src).toMatch(/household:\s*'none',\s*enteredBySelf:\s*false/)
+  })
 })

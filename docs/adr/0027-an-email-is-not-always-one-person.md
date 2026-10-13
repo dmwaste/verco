@@ -17,7 +17,7 @@ The same rule applies to staff editing the contact on a booking (if the contact 
 Support tickets, staff-created logins and the Kwinana importers follow the same rule (#631, 13/10/2026):
 
 - **A support ticket** about a booking treats that booking's address as the household. A ticket with no booking has no address, so it reuses a record only for the same person, or the signed-in resident's own single record.
-- **A staff-created login** has no address of its own, so an existing record is only corrected when it's used at one address at most and isn't a strata contact. Otherwise the new user gets their own record.
+- **A staff-created login** has no address of its own, so it never changes an existing record. It reuses a record only for the same person (same name and mobile); otherwise the new user gets a new record. A record used at one address belongs to that household, and one with no bookings may be someone else's login, so neither is ever renamed. The cost: a resident whose only record is shared with others gets a new record for their login, and their profile follows it.
 - **The Kwinana booking importers**, like the Verge Valet one, reuse a record only for the same person and never edit one.
 
 ## Why

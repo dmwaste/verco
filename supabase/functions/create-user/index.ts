@@ -260,14 +260,15 @@ serve(async (req) => {
     // This used to overwrite the oldest contact carrying the email, so a login
     // made under a shared address (the WMRC office email sat on 278 bookings)
     // renamed every booking on it (ADR 0027, #631). A login has no address of
-    // its own: an existing row is corrected only when its bookings reach one
-    // address at most and it isn't a MUD strata contact; otherwise the person
-    // gets a new row. The admin creating the login is never "self". Matching is
+    // its own, so a contact used at one address belongs to THAT household, and
+    // one with no bookings may be another person's login: a login only ever
+    // reuses the same person (name + mobile) or gets a new contact — never an
+    // update. The admin creating the login is never "self". Matching is
     // case-insensitive (214 contacts predate email canonicalisation, #575).
     const attached = await attachContact(
       supabaseService,
       { first_name, last_name, email, mobile_e164 },
-      { household: 'one-address', enteredBySelf: false },
+      { household: 'none', enteredBySelf: false },
     )
     if (!attached.ok) {
       console.error('Contact attach error:', attached.error)

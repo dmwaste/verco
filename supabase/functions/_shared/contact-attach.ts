@@ -3,7 +3,7 @@
 import type { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2.100.0'
 import type { Database, TablesInsert, TablesUpdate } from './database.types.ts'
 import { resolveContact, type ContactResolution } from './contact-match.ts'
-import { emailMatchPattern } from './email.ts'
+import { emailMatchPattern, normaliseEmail } from './email.ts'
 
 export interface EnteredContact {
   first_name: string
@@ -16,15 +16,13 @@ export interface EnteredContact {
 /**
  * Which address the write is for. It decides which rows count as the same
  * household in resolveContact:
- *   { propertyId }  a row whose bookings are all at this property
- *   'one-address'   no address of its own (a staff-created login): a row whose
- *                   bookings reach one address at most
- *   'none'          no address at all (a ticket with no booking): no row is local,
- *                   so only the same person, or a signed-in caller's own single
- *                   row, is kept
- * A booking with no property (an ID booking) always counts as another address.
+ *   { propertyId }  a row whose bookings are all at this property (a booking
+ *                   with no property, e.g. an ID booking, counts as elsewhere)
+ *   'none'          no address (a staff-created login, a ticket with no
+ *                   booking): no row is local, so only the same person, or a
+ *                   signed-in caller's own single row, is kept
  */
-export type ContactHousehold = { propertyId: string } | 'one-address' | 'none'
+export type ContactHousehold = { propertyId: string } | 'none'
 
 export type AttachContactResult =
   | { ok: true; contactId: string; action: ContactResolution['action'] }
@@ -44,30 +42,6 @@ async function bookingUsage(
   household: ContactHousehold,
 ): Promise<Usage> {
   if (household === 'none') return { elsewhere: everywhere, error: null }
-
-  if (household === 'one-address') {
-    const { data, error } = await supabase
-      .from('booking')
-      .select('contact_id, property_id')
-      .in('contact_id', ids)
-      .limit(USAGE_CAP)
-    if (error) return { elsewhere: everywhere, error }
-    if ((data ?? []).length >= USAGE_CAP) return { elsewhere: everywhere, error: null }
-    const addresses = new Map<string, Set<string | null>>()
-    for (const b of data ?? []) {
-      if (!b.contact_id) continue
-      const seen = addresses.get(b.contact_id) ?? new Set<string | null>()
-      seen.add(b.property_id)
-      addresses.set(b.contact_id, seen)
-    }
-    return {
-      elsewhere: (id) => {
-        const seen = addresses.get(id)
-        return Boolean(seen && (seen.size > 1 || seen.has(null)))
-      },
-      error: null,
-    }
-  }
 
   const { data, error } = await supabase
     .from('booking')
@@ -138,7 +112,8 @@ export async function attachContact(
   const insert: TablesInsert<'contacts'> = {
     first_name: entered.first_name,
     last_name: entered.last_name,
-    email: entered.email,
+    // Store rule #577: canonical on write, so new rows match auth.users.
+    email: normaliseEmail(entered.email),
   }
   if (mobile) insert.mobile_e164 = mobile
   const { data: created, error: insertError } = await supabase.from('contacts').insert(insert).select('id').single()

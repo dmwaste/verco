@@ -13,7 +13,7 @@
 import { beforeAll, describe, expect, it } from 'vitest'
 import { fakeContactsDb, type FakeRow } from './helpers/fake-contacts-db'
 
-type Household = { propertyId: string } | 'one-address' | 'none'
+type Household = { propertyId: string } | 'none'
 type Entered = { first_name: string; last_name: string; email: string; mobile_e164?: string | null }
 type AttachResult =
   | { ok: true; contactId: string; action: 'reuse' | 'update' | 'insert' }
@@ -124,44 +124,59 @@ describe('attachContact — create-ticket (household = the ticket booking’s ad
   })
 })
 
-describe('attachContact — create-user (household = one address at most)', () => {
+// create-user calls attachContact with household 'none', enteredBySelf false. A
+// login has no address, so a row whose bookings sit at one address belongs to
+// THAT household, not the new login: the WMRC office email sits on single-property
+// rows, and correcting one would put a staff member's name on a resident's booking.
+describe('attachContact — create-user (household none: same person or a new contact, never an update)', () => {
+  const login = { household: 'none', enteredBySelf: false } as const
+
   it('a login under the shared office email gets its own contact — the many-address row is never rewritten', async () => {
     const db = fakeContactsDb(officeSeed())
-    const res = await attachContact(db.client, ann, { household: 'one-address', enteredBySelf: false })
+    const res = await attachContact(db.client, ann, login)
     expect(res).toMatchObject({ ok: true, action: 'insert' })
     expect(db.updates).toEqual([])
   })
 
-  it('corrects a contact whose bookings are all at one address (a resident given a staff login)', async () => {
+  it('a row with a different name and bookings at ONE property is that household’s — a new contact is inserted, the row untouched', async () => {
     const db = fakeContactsDb({
-      contacts: [contact('home', 'Annie', 'Lee', '+61411111111')],
-      booking: [booking('home', 'P1'), booking('home', 'P1')],
+      contacts: [contact('resident', 'Previous', 'Resident', '+61499999999')],
+      booking: [booking('resident', 'P1'), booking('resident', 'P1')],
     })
-    const res = await attachContact(db.client, ann, { household: 'one-address', enteredBySelf: false })
-    expect(res).toEqual({ ok: true, contactId: 'home', action: 'update' })
+    const res = await attachContact(db.client, ann, login)
+    expect(res).toEqual({ ok: true, contactId: 'new-1', action: 'insert' })
+    expect(db.updates).toEqual([])
   })
 
-  it('corrects a contact with no bookings at all', async () => {
-    const db = fakeContactsDb({ contacts: [contact('fresh', 'Annie', 'Lee', null)] })
-    const res = await attachContact(db.client, ann, { household: 'one-address', enteredBySelf: false })
-    expect(res).toEqual({ ok: true, contactId: 'fresh', action: 'update' })
+  it('a row with a different name and no bookings (another person’s login contact) is never rewritten', async () => {
+    const db = fakeContactsDb({ contacts: [contact('other-login', 'Sam', 'Ray', null)] })
+    const res = await attachContact(db.client, ann, login)
+    expect(res).toEqual({ ok: true, contactId: 'new-1', action: 'insert' })
+    expect(db.updates).toEqual([])
   })
 
-  it('a booking with no property counts as a second address', async () => {
-    const db = fakeContactsDb({
-      contacts: [contact('c', 'Annie', 'Lee', null)],
-      booking: [booking('c', 'P1'), booking('c', null)],
-    })
-    const res = await attachContact(db.client, ann, { household: 'one-address', enteredBySelf: false })
-    expect(res).toMatchObject({ ok: true, action: 'insert' })
+  it('reuses the same person untouched', async () => {
+    const db = fakeContactsDb({ contacts: [contact('ann', 'Ann', 'Lee', '+61411111111')], booking: [booking('ann', 'P1')] })
+    const res = await attachContact(db.client, ann, login)
+    expect(res).toEqual({ ok: true, contactId: 'ann', action: 'reuse' })
+    expect(db.updates).toEqual([])
+    expect(db.inserts).toEqual([])
+  })
+})
+
+describe('attachContact — inserts', () => {
+  it('stores the email canonicalised (trimmed, lowercased — #577)', async () => {
+    const db = fakeContactsDb({})
+    await attachContact(db.client, { ...ann, email: '  Ann.Lee@Example.COM ' }, { household: 'none', enteredBySelf: false })
+    expect(db.inserts).toEqual([{ first_name: 'Ann', last_name: 'Lee', email: 'ann.lee@example.com', mobile_e164: '+61411111111' }])
   })
 
   it('treats every row as shared when its bookings are too many to read in full', async () => {
     const db = fakeContactsDb({
       contacts: [contact('c', 'Annie', 'Lee', null)],
-      booking: Array.from({ length: 1000 }, () => booking('c', 'P1')),
+      booking: Array.from({ length: 1000 }, () => booking('c', 'P2')),
     })
-    const res = await attachContact(db.client, ann, { household: 'one-address', enteredBySelf: false })
+    const res = await attachContact(db.client, ann, { household: { propertyId: 'P1' }, enteredBySelf: false })
     expect(res).toMatchObject({ ok: true, action: 'insert' })
     expect(db.updates).toEqual([])
   })
