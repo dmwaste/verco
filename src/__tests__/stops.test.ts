@@ -18,6 +18,7 @@ import {
   servicesSummariesEqual,
   shouldCancelOrphanStop,
   stopItemKey,
+  stopLocation,
   vehicleFeaturesForStream,
   wasteLocationOrNull,
   type BookingTypeTag,
@@ -204,6 +205,68 @@ describe('num — Postgres numeric coercion', () => {
     expect(num('-32.1')).toBe(-32.1)
     expect(num(115.7)).toBe(115.7)
     expect(num(null)).toBeNull()
+  })
+})
+
+describe('stopLocation — where the crew is sent', () => {
+  // VIN-MUD-104: the legacy import froze Google's wrong "12 Smith St Perth"
+  // pin (Beaconsfield) onto the booking; the property was corrected 02/09.
+  const staleBooking = {
+    latitude: '-32.0649988',
+    longitude: '115.7779509',
+    geo_address: '12 Smith St Perth',
+    location: 'Front Verge',
+  }
+  const correctedProperty = {
+    formatted_address: '12 Smith St, Perth WA 6000, Australia',
+    address: '12 Smith St Perth 6000',
+    latitude: '-31.9429604',
+    longitude: '115.8705401',
+  }
+
+  it('pins the stop to the property, not a stale pin copied onto the booking', () => {
+    expect(stopLocation(staleBooking, correctedProperty)).toEqual({
+      address: '12 Smith St, Perth WA 6000, Australia',
+      latitude: -31.9429604,
+      longitude: 115.8705401,
+    })
+  })
+
+  it('uses the booking pin when there is no property (Illegal Dumping)', () => {
+    expect(
+      stopLocation(
+        { latitude: -32.2, longitude: 115.8, geo_address: 'Verge opp. 4 Leda Blvd', location: null },
+        null,
+      ),
+    ).toEqual({ address: 'Verge opp. 4 Leda Blvd', latitude: -32.2, longitude: 115.8 })
+  })
+
+  it('falls back to the booking pin while the property is not geocoded yet', () => {
+    const ungeocoded = { ...correctedProperty, latitude: null, longitude: null }
+    expect(stopLocation(staleBooking, ungeocoded)).toMatchObject({
+      latitude: -32.0649988,
+      longitude: 115.7779509,
+    })
+  })
+
+  it('never mixes a latitude from one record with a longitude from the other', () => {
+    const halfPinned = { ...correctedProperty, longitude: null }
+    expect(stopLocation(staleBooking, halfPinned)).toMatchObject({
+      latitude: -32.0649988,
+      longitude: 115.7779509,
+    })
+  })
+
+  it('address falls back property formatted → property raw → geo_address → location', () => {
+    const noCoords = { latitude: null, longitude: null, geo_address: null, location: 'Driveway' }
+    expect(stopLocation(noCoords, { ...correctedProperty, formatted_address: null }).address).toBe(
+      '12 Smith St Perth 6000',
+    )
+    expect(stopLocation(noCoords, null)).toEqual({
+      address: 'Driveway',
+      latitude: null,
+      longitude: null,
+    })
   })
 })
 

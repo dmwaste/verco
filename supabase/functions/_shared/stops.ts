@@ -168,6 +168,48 @@ export function num(value: number | string | null): number | null {
   return value === null ? null : Number(value)
 }
 
+/** The booking fields stopLocation reads. */
+export interface StopLocationBooking {
+  latitude: number | string | null
+  longitude: number | string | null
+  geo_address: string | null
+  location: string | null
+}
+
+/** The eligible_properties fields stopLocation reads. */
+export interface StopLocationProperty {
+  formatted_address: string | null
+  address: string | null
+  latitude: number | string | null
+  longitude: number | string | null
+}
+
+/**
+ * Where a stop sends the crew. Address and pin BOTH come from the property
+ * first, falling back to the booking's own fields — Illegal Dumping bookings
+ * have no property, so their geo pin is the only one.
+ *
+ * Never prefer the booking pin over the property's: legacy-imported bookings
+ * carry a copy of the Airtable pin, so a property pin corrected since (geocode
+ * repair, admin fix) would be shadowed by the stale copy — VIN-MUD-104 kept
+ * its Beaconsfield pin after its property was fixed to Perth. The pin is
+ * taken as a pair, never a latitude from one record and longitude from the
+ * other.
+ */
+export function stopLocation(
+  booking: StopLocationBooking,
+  property: StopLocationProperty | null,
+): { address: string | null; latitude: number | null; longitude: number | null } {
+  const pin =
+    property?.latitude != null && property.longitude != null ? property : booking
+  return {
+    address:
+      property?.formatted_address ?? property?.address ?? booking.geo_address ?? booking.location,
+    latitude: num(pin.latitude),
+    longitude: num(pin.longitude),
+  }
+}
+
 /** The existing collection_stop fields payloadDiffers reads. lat/long come
  *  back from Postgres numeric as string | number. */
 export interface StopDiffExisting {
