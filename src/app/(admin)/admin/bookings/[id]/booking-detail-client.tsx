@@ -91,6 +91,8 @@ interface BookingDetailClientProps {
   tickets: BookingTicket[]
   /** Contractor tier only (ADR 0030); null for council roles. */
   closeout?: { stops: CloseoutStop[]; corrections: CloseoutCorrection[]; todayAwst: string } | null
+  /** "Permission-to-enter form on file" / "N property notes on file" (ADR 0031), or null. */
+  propertyNotesSummary?: string | null
 }
 
 // Pencil icon shared across edit buttons
@@ -111,6 +113,7 @@ export function BookingDetailClient({
   exceptions,
   tickets,
   closeout,
+  propertyNotesSummary = null,
 }: BookingDetailClientProps) {
   const router = useRouter()
   const listSearchParams = useSearchParams()
@@ -826,6 +829,17 @@ export function BookingDetailClient({
       )}
       <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-3">
       <div className="flex min-w-0 flex-col gap-4 lg:col-span-2">
+
+      {/* Property notes / permission-to-enter form on file (ADR 0031) */}
+      {propertyNotesSummary && booking.property_id && (
+        <Link
+          href={`/admin/properties/${booking.property_id}`}
+          className="flex items-center justify-between gap-3 rounded-xl bg-status-info-bg px-5 py-3 text-body-sm font-medium text-status-info hover:underline"
+        >
+          <span>{propertyNotesSummary}</span>
+          <span className="shrink-0 text-xs">View property &rarr;</span>
+        </Link>
+      )}
 
       {/* MUD Context — only for MUD bookings */}
       {mudContext && (

@@ -18,6 +18,7 @@ export const NOISE_FIELDS = new Set([
   'pushed_at',
   'routes_pulled_at',
   'external_deleted_at',
+  'file_path', // storage object path — file_name is the human-readable version
 ])
 
 /** Map of column name → human-readable label. */
@@ -108,6 +109,15 @@ export const FIELD_LABELS: Record<string, string> = {
 
   // Strata user properties
   user_id: 'User',
+
+  // Property notes & documents (ADR 0031)
+  kind: 'Type',
+  body: 'Note',
+  file_name: 'File',
+  file_type: 'File Type',
+  file_size: 'File Size (bytes)',
+  removed_at: 'Removed',
+  removed_by: 'Removed By',
 
   // Client (white-label config)
   name: 'Name',
@@ -212,6 +222,7 @@ export const FK_RESOLVE_MAP: Record<string, { table: string; column: string }> =
   created_by: { table: 'profiles', column: 'display_name' },
   reviewed_by: { table: 'profiles', column: 'display_name' },
   corrected_by: { table: 'profiles', column: 'display_name' },
+  removed_by: { table: 'profiles', column: 'display_name' },
   category_id: { table: 'category', column: 'name' },
   sub_client_id: { table: 'sub_client', column: 'name' },
 }

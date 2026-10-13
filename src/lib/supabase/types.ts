@@ -2119,6 +2119,76 @@ export type Database = {
           },
         ]
       }
+      property_note: {
+        Row: {
+          body: string | null
+          client_id: string
+          created_at: string
+          created_by: string
+          file_name: string | null
+          file_path: string | null
+          file_size: number | null
+          file_type: string | null
+          id: string
+          kind: string
+          property_id: string
+          removed_at: string | null
+          removed_by: string | null
+        }
+        Insert: {
+          body?: string | null
+          client_id: string
+          created_at?: string
+          created_by?: string
+          file_name?: string | null
+          file_path?: string | null
+          file_size?: number | null
+          file_type?: string | null
+          id?: string
+          kind?: string
+          property_id: string
+          removed_at?: string | null
+          removed_by?: string | null
+        }
+        Update: {
+          body?: string | null
+          client_id?: string
+          created_at?: string
+          created_by?: string
+          file_name?: string | null
+          file_path?: string | null
+          file_size?: number | null
+          file_type?: string | null
+          id?: string
+          kind?: string
+          property_id?: string
+          removed_at?: string | null
+          removed_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "property_note_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "client"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "property_note_property_id_fkey"
+            columns: ["property_id"]
+            isOneToOne: false
+            referencedRelation: "eligible_properties"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "property_note_property_id_fkey"
+            columns: ["property_id"]
+            isOneToOne: false
+            referencedRelation: "v_mud_next_expected"
+            referencedColumns: ["property_id"]
+          },
+        ]
+      }
       public_holiday: {
         Row: {
           created_at: string
@@ -2802,6 +2872,10 @@ export type Database = {
       bulk_update_booking_item_actuals: {
         Args: { p_booking_id: string; p_updates: Json }
         Returns: undefined
+      }
+      can_upload_property_document: {
+        Args: { p_name: string }
+        Returns: boolean
       }
       client_has_terms: { Args: { p_client_id: string }; Returns: boolean }
       close_imminent_collection_dates: { Args: never; Returns: Json }

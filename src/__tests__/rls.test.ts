@@ -3868,4 +3868,166 @@ if (!haveDb) {
     })
   })
 
+
+  // ---------------------------------------------------------------------------
+  // Property notes & documents (ADR 0031, migration 20261013180000): staff +
+  // tenant + sub-client scoped; field/ranger/resident see nothing; removal-only
+  // updates; no deletes; a file is readable exactly when its note is.
+  // Fixtures are seeded inside each rolled-back transaction.
+  // ---------------------------------------------------------------------------
+  describe('property_note + property-documents bucket (ADR 0031)', () => {
+    const NOTE_KWN = 'dddddddd-0001-4000-8000-000000000001'
+    const NOTE_VV_A = 'dddddddd-0002-4000-8000-000000000002'
+    const NOTE_VV_B = 'dddddddd-0003-4000-8000-000000000003'
+    const FIXTURE_NOTES = `('${NOTE_KWN}','${NOTE_VV_A}','${NOTE_VV_B}')`
+
+    async function deployed(): Promise<boolean> {
+      const r = await pg.query(`SELECT to_regclass('public.property_note') IS NOT NULL AS ok`)
+      return Boolean(r.rows[0]?.ok)
+    }
+
+    // One KWN property, plus VV properties in two different sub-clients.
+    async function fixture() {
+      const kwn = await pg.query<{ id: string }>(
+        `SELECT ep.id FROM eligible_properties ep JOIN collection_area ca ON ca.id = ep.collection_area_id
+          WHERE ca.client_id = $1 LIMIT 1`,
+        [CLIENT_ID],
+      )
+      const vv = await pg.query<{ id: string; sub_client_id: string }>(
+        `SELECT DISTINCT ON (ca.sub_client_id) ep.id, ca.sub_client_id
+           FROM eligible_properties ep JOIN collection_area ca ON ca.id = ep.collection_area_id
+          WHERE ca.client_id = $1 AND ca.sub_client_id IS NOT NULL
+          ORDER BY ca.sub_client_id, ep.id LIMIT 2`,
+        [VV_CLIENT_ID],
+      )
+      const a = vv.rows[0]!
+      const b = vv.rows[1]!
+      const pathB = `${VV_CLIENT_ID}/${b.id}/rls-fixture.pdf`
+      const seed: Array<[string, unknown[]]> = [
+        [
+          `INSERT INTO property_note (id, property_id, client_id, kind, body, created_by) VALUES
+             ($1, $2, $3, 'note', 'rls fixture', $7),
+             ($4, $5, $6, 'note', 'rls fixture', $7)`,
+          [NOTE_KWN, kwn.rows[0]!.id, CLIENT_ID, NOTE_VV_A, a.id, VV_CLIENT_ID, USERS['contractor-admin']],
+        ],
+        [
+          `INSERT INTO property_note (id, property_id, client_id, kind, file_path, file_name, file_type, file_size, created_by)
+             VALUES ($1, $2, $3, 'access_form', $4, 'form.pdf', 'application/pdf', 100, $5)`,
+          [NOTE_VV_B, b.id, VV_CLIENT_ID, pathB, USERS['contractor-admin']],
+        ],
+        [`INSERT INTO storage.objects (bucket_id, name, owner_id) VALUES ('property-documents', $1, $2)`, [pathB, USERS['contractor-admin']]],
+      ]
+      // client-staff narrowed to sub-client A of VV (rolled back with the rest).
+      const scopeToA: [string, unknown[]] = [
+        `UPDATE user_roles SET client_id = $1, sub_client_id = $2 WHERE user_id = $3`,
+        [VV_CLIENT_ID, a.sub_client_id, USERS['client-staff']],
+      ]
+      return { seed, scopeToA, kwnProperty: kwn.rows[0]!.id, propA: a.id, propB: b.id, pathB }
+    }
+
+    /** Run `sql` as `userId` after `seed`, in a rolled-back tx; returns rows or the error. */
+    async function runAs(
+      userId: string,
+      seed: Array<[string, unknown[]]>,
+      sql: string,
+      params: unknown[] = [],
+    ): Promise<{ rows: Record<string, unknown>[]; rowCount: number; error: string | null }> {
+      await pg.query('BEGIN')
+      try {
+        for (const [text, values] of seed) await pg.query(text, values)
+        await pg.query(`SET LOCAL ROLE authenticated`)
+        await pg.query(`SELECT set_config('request.jwt.claims', $1, true)`, [
+          JSON.stringify({ sub: userId, role: 'authenticated' }),
+        ])
+        const r = await pg.query(sql, params)
+        return { rows: r.rows, rowCount: r.rowCount ?? 0, error: null }
+      } catch (e) {
+        return { rows: [], rowCount: 0, error: e instanceof Error ? e.message : String(e) }
+      } finally {
+        await pg.query('ROLLBACK')
+      }
+    }
+
+    const visibleFixtures = `SELECT id FROM property_note WHERE id IN ${FIXTURE_NOTES}`
+
+    it('contractor-admin sees every tenant’s notes', async (ctx) => {
+      if (!(await deployed())) return ctx.skip()
+      const f = await fixture()
+      expect((await runAs(USERS['contractor-admin'], f.seed, visibleFixtures)).rowCount).toBe(3)
+    })
+
+    it('client-admin sees only their own client’s notes', async (ctx) => {
+      if (!(await deployed())) return ctx.skip()
+      const f = await fixture()
+      const r = await runAs(USERS['client-admin'], f.seed, visibleFixtures)
+      expect(r.rows.map((x) => x.id)).toEqual([NOTE_KWN])
+    })
+
+    it('sub-client-scoped staff see only their own council’s notes', async (ctx) => {
+      if (!(await deployed())) return ctx.skip()
+      const f = await fixture()
+      const r = await runAs(USERS['client-staff'], [...f.seed, f.scopeToA], visibleFixtures)
+      expect(r.rows.map((x) => x.id)).toEqual([NOTE_VV_A])
+    })
+
+    it('field, ranger and resident see zero notes (Red Line #2)', async (ctx) => {
+      if (!(await deployed())) return ctx.skip()
+      const f = await fixture()
+      for (const user of [USERS.field, USERS.ranger, USERS.resident]) {
+        expect((await runAs(user, f.seed, visibleFixtures)).rowCount).toBe(0)
+      }
+    })
+
+    it('ranger and cross-tenant inserts are rejected', async (ctx) => {
+      if (!(await deployed())) return ctx.skip()
+      const f = await fixture()
+      const insert = `INSERT INTO property_note (property_id, client_id, kind, body) VALUES ($1, $2, 'note', 'x')`
+      expect((await runAs(USERS.ranger, f.seed, insert, [f.kwnProperty, CLIENT_ID])).error).toMatch(/row-level security/)
+      // KWN client-admin passing a VV property: the trigger derives VV, RLS refuses.
+      expect((await runAs(USERS['client-admin'], f.seed, insert, [f.propA, CLIENT_ID])).error).toMatch(/row-level security/)
+    })
+
+    it('entries cannot be edited, only removed — and removal stamps who', async (ctx) => {
+      if (!(await deployed())) return ctx.skip()
+      const f = await fixture()
+      const edit = await runAs(USERS['client-admin'], f.seed, `UPDATE property_note SET body = 'edited' WHERE id = $1`, [NOTE_KWN])
+      expect(edit.error).toMatch(/only removed/)
+      const removed = await runAs(
+        USERS['client-admin'],
+        f.seed,
+        `UPDATE property_note SET removed_at = now() WHERE id = $1 RETURNING removed_by`,
+        [NOTE_KWN],
+      )
+      expect(removed.rows[0]?.removed_by).toBe(USERS['client-admin'])
+    })
+
+    it('nobody can delete a note from the app', async (ctx) => {
+      if (!(await deployed())) return ctx.skip()
+      const f = await fixture()
+      expect((await runAs(USERS['contractor-admin'], f.seed, `DELETE FROM property_note WHERE id IN ${FIXTURE_NOTES}`)).rowCount).toBe(0)
+    })
+
+    it('a stored form is readable only by staff who can see its note', async (ctx) => {
+      if (!(await deployed())) return ctx.skip()
+      const f = await fixture()
+      const read = `SELECT id FROM storage.objects WHERE bucket_id = 'property-documents' AND name = $1`
+      expect((await runAs(USERS['contractor-admin'], f.seed, read, [f.pathB])).rowCount).toBe(1)
+      expect((await runAs(USERS['client-admin'], f.seed, read, [f.pathB])).rowCount).toBe(0)
+      // Scoped to sub-client A; the form belongs to sub-client B.
+      expect((await runAs(USERS['client-staff'], [...f.seed, f.scopeToA], read, [f.pathB])).rowCount).toBe(0)
+      expect((await runAs(USERS.field, f.seed, read, [f.pathB])).rowCount).toBe(0)
+    })
+
+    it('uploads are refused outside the caller’s own client/property path', async (ctx) => {
+      if (!(await deployed())) return ctx.skip()
+      const f = await fixture()
+      const upload = `INSERT INTO storage.objects (bucket_id, name, owner_id) VALUES ('property-documents', $1, $2) RETURNING id`
+      const own = `${CLIENT_ID}/${f.kwnProperty}/rls-upload.pdf`
+      const cross = `${VV_CLIENT_ID}/${f.propA}/rls-upload.pdf`
+      expect((await runAs(USERS['client-admin'], f.seed, upload, [own, USERS['client-admin']])).error).toBeNull()
+      expect((await runAs(USERS['client-admin'], f.seed, upload, [cross, USERS['client-admin']])).error).toMatch(/row-level security/)
+      expect((await runAs(USERS.ranger, f.seed, upload, [own, USERS.ranger])).error).toMatch(/row-level security/)
+    })
+  })
+
 })

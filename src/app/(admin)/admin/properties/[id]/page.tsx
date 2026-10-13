@@ -4,6 +4,8 @@ import { resolveAuditLogs } from '@/lib/audit/resolve'
 import { getCurrentAdminClient } from '@/lib/admin/current-client'
 import { canManageAllocations } from '@/lib/auth/roles'
 import { PropertyDetailClient } from './property-detail-client'
+import type { PropertyNoteView } from './property-notes-section'
+import { PROPERTY_DOCUMENTS_BUCKET } from '@/lib/property-notes/validation'
 
 interface PropertyDetailPageProps {
   params: Promise<{ id: string }>
@@ -155,10 +157,15 @@ export default async function AdminPropertyDetailPage({
       .not('booking.status', 'in', '("Cancelled","Pending Payment")'),
   ])
 
-  // Fetch resolved audit trail (property + strata user links)
+  // Notes & documents (ADR 0031). property_note RLS is staff + tenant +
+  // sub-client scoped; the property above is already pinned to this client.
+  const notes = await loadPropertyNotes(supabase, id)
+
+  // Fetch resolved audit trail (property + strata user links + notes)
   const auditLogs = await resolveAuditLogs(supabase, 'eligible_properties', id, {
     includeChildren: [
       { table: 'strata_user_properties', fkColumn: 'property_id' },
+      { table: 'property_note', fkColumn: 'property_id' },
     ],
   })
 
@@ -188,10 +195,64 @@ export default async function AdminPropertyDetailPage({
       fyUsage={fyUsage ?? []}
       nextExpected={nextExpected}
       authFormSignedUrl={authFormSignedUrl}
+      notes={notes}
       auditLogs={auditLogs}
       canManageAllocations={canManage}
       areas={areas ?? []}
       role={role ?? null}
     />
   )
+}
+
+type ServerSupabase = Awaited<ReturnType<typeof createClient>>
+
+/**
+ * Active notes, newest first, with author names and 1-hour file links. A
+ * failed read returns null (shown as "couldn't load") — never an empty list,
+ * which would read as "no permission-to-enter form on file".
+ */
+async function loadPropertyNotes(
+  supabase: ServerSupabase,
+  propertyId: string,
+): Promise<PropertyNoteView[] | null> {
+  const { data: rows, error } = await supabase
+    .from('property_note')
+    .select('id, kind, body, file_path, file_name, file_size, created_at, created_by')
+    .eq('property_id', propertyId)
+    .is('removed_at', null)
+    .order('created_at', { ascending: false })
+
+  if (error) {
+    console.error('[property notes] load failed:', error.message)
+    return null
+  }
+  if (rows.length === 0) return []
+
+  // Staff names via the DEFINER resolver — a direct profiles read is
+  // RLS-hidden for other staff (council users would see a blank author).
+  const authorIds = Array.from(new Set(rows.map((r) => r.created_by)))
+  const { data: names } = await supabase.rpc('resolve_actor_names', { p_user_ids: authorIds })
+  const authorById = new Map((names ?? []).map((n) => [n.user_id, n.name]))
+
+  const paths = rows.flatMap((r) => (r.file_path ? [r.file_path] : []))
+  const urlByPath = new Map<string, string>()
+  if (paths.length > 0) {
+    const { data: signed } = await supabase.storage
+      .from(PROPERTY_DOCUMENTS_BUCKET)
+      .createSignedUrls(paths, 60 * 60)
+    for (const s of signed ?? []) {
+      if (s.path && s.signedUrl) urlByPath.set(s.path, s.signedUrl)
+    }
+  }
+
+  return rows.map((r) => ({
+    id: r.id,
+    kind: r.kind,
+    body: r.body,
+    file_name: r.file_name,
+    file_size: r.file_size,
+    file_url: r.file_path ? (urlByPath.get(r.file_path) ?? null) : null,
+    created_at: r.created_at,
+    author_name: authorById.get(r.created_by) ?? null,
+  }))
 }
