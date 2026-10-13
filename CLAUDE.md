@@ -149,7 +149,10 @@ Scheduled       → Nothing Presented (field role only)
 Scheduled       → Cancelled       (any staff role pre-cutoff)
 Non-conformance → Rebooked        (any staff role — verifyStaffRole gates the rebook actions)
 Nothing Presented → Rebooked      (any staff role — verifyStaffRole gates the rebook actions)
+Completed ↔ Non-conformance ↔ Nothing Presented  (office correction — contractor-admin `correct_stop_outcome` RPC ONLY, ≤7 days after the stop's date, ADR 0030)
 ```
+
+**Closeout corrections (ADR 0030):** terminal stop + booking statuses stay immutable for every writer EXCEPT `correct_stop_outcome` (SECURITY DEFINER; sets the txn-local `verco.closeout_correction` flag the stop/booking/rollup triggers honour only when `current_user` isn't a PostgREST login role). It withdraws (deletes) the old notice only while `Issued`, raises the new one, re-derives the booking via the rollup, and logs to `stop_outcome_correction`. Resident email is sent by the caller (`ncn_raised`/`np_raised` with `replaces_earlier_notice`, or `closeout_corrected`). Crews never correct their own closeouts; no confirm prompt on the crew's Completed button (deliberate).
 
 **Bookings skip Submitted by design (auto-confirm, 2026-05-18).** Free bookings land directly in Confirmed; paid bookings flip Pending Payment → Confirmed on Stripe success. The Submitted enum value and `Submitted → Confirmed` transition stay as a safety net for any legacy row or future re-introduced manual gate.
 
