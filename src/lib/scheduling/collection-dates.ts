@@ -1,9 +1,9 @@
 /**
  * Pure logic for the generate-collection-dates Edge Function.
  *
- * Keep in sync with supabase/functions/_shared/collection-dates.ts — this is
- * the Node-tested mirror so Vitest can exercise the date math without pulling
- * in Deno or Supabase.
+ * Source of truth. src/lib/scheduling/collection-dates.ts is a generated
+ * mirror (scripts/sync-mirrors.sh) so Vitest can exercise the date math
+ * without Deno or Supabase.
  *
  * Day-of-week convention: 0=Sun, 1=Mon, ..., 6=Sat (matches Postgres EXTRACT(DOW)).
  */
@@ -15,6 +15,12 @@ export interface ScheduleEntry {
   bulk_capacity_limit: number
   anc_capacity_limit: number
   id_capacity_limit: number
+  /**
+   * Which occurrences of this weekday in a month are MUD days (1 = first …
+   * 5 = fifth). NULL/absent = never flag (staff curate MUD days by hand).
+   * collection_schedule.mud_weeks; pool schedules don't have it (ADR 0029).
+   */
+  mud_weeks?: number[] | null
 }
 
 export interface PlannedDate {
@@ -33,6 +39,8 @@ export interface PlannedDateForEntity extends PlannedDate {
   bulk_capacity_limit: number
   anc_capacity_limit: number
   id_capacity_limit: number
+  /** MUD bookings allowed on this date (unpooled areas). Never on a holiday. */
+  for_mud: boolean
 }
 
 /**
@@ -70,6 +78,14 @@ export function dayOfWeek(isoDate: string): number {
 }
 
 /**
+ * Which occurrence of its weekday a date is within its month: days 1–7 are the
+ * first, 8–14 the second … 29–31 the fifth.
+ */
+export function weekOfMonth(isoDate: string): number {
+  return Math.floor((Number(isoDate.slice(8, 10)) - 1) / 7) + 1
+}
+
+/**
  * Given a list of schedule entries (per-area or per-pool) and the window
  * [start, end), expand to one planned date per (entity, matching weekday).
  * Holidays are tagged via the `holidaysByDate` lookup; the caller decides
@@ -102,6 +118,7 @@ export function planDates(
     const isHoliday = holidayName !== null
 
     for (const entry of entries) {
+      const mudDay = !isHoliday && (entry.mud_weeks ?? []).includes(weekOfMonth(isoDate))
       result.push({
         entity_id: entry.id,
         day_of_week: entry.day_of_week,
@@ -111,6 +128,7 @@ export function planDates(
         bulk_capacity_limit: entry.bulk_capacity_limit,
         anc_capacity_limit: entry.anc_capacity_limit,
         id_capacity_limit: entry.id_capacity_limit,
+        for_mud: mudDay,
       })
     }
   }
@@ -131,4 +149,27 @@ export function windowFromToday(today: Date, weeks: number): { start: Date; end:
   const end = new Date(start)
   end.setUTCDate(end.getUTCDate() + weeks * 7)
   return { start, end }
+}
+
+/**
+ * Exclusive end of the holiday list's coverage: 1 January after the last year
+ * whose list reaches December (WA publishes a whole year at a time, so a year
+ * with a December holiday is complete). Null when no year is complete.
+ * Generating past this would create a public holiday as an open collection day.
+ */
+export function holidayCoverageEnd(holidayDates: string[]): string | null {
+  let lastFullYear: number | null = null
+  for (const d of holidayDates) {
+    if (d.slice(5, 7) !== '12') continue
+    const year = Number(d.slice(0, 4))
+    if (lastFullYear === null || year > lastFullYear) lastFullYear = year
+  }
+  return lastFullYear === null ? null : `${lastFullYear + 1}-01-01`
+}
+
+/** The generation window's end, never past the holiday coverage. */
+export function capWindowEnd(end: Date, coverageEnd: string | null): Date {
+  if (coverageEnd === null) return end
+  const cap = new Date(`${coverageEnd}T00:00:00Z`)
+  return cap < end ? cap : end
 }
