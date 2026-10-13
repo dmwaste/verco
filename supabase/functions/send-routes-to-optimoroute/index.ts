@@ -3,7 +3,12 @@ import { cronHandler } from '../_shared/cron-handler.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.100.0'
 import type { Database } from '../_shared/database.types.ts'
 import { addOneDay, awstDateFromUtc } from '../_shared/schedule-transition.ts'
-import { getRoutingApiKey, sendRoutes } from '../_shared/optimoroute.ts'
+import {
+  getDispatchStatus,
+  getRoutingApiKey,
+  type OrDispatchStatus,
+  sendRoutes,
+} from '../_shared/optimoroute.ts'
 import {
   type CancellationSweepResult,
   sweepCancelledOrders,
@@ -23,7 +28,10 @@ import { logSyncRun } from '../_shared/sync-run-log.ts'
  * (MOS-12984, 12/10/2026). ADR 0028.
  *   1. Final cancellation sweep, so a stop cancelled since the :20 sweep is
  *      out of OptimoRoute before the routes go.
- *   2. send_routes(tomorrow) — whatever is planned right now, with customer
+ *   2. Read tomorrow's share state first. A share ops scheduled ahead in the
+ *      OR web UI is the MOS-12984 trap — flagged as an error (Sentry), but
+ *      the send still goes so the phones get the live plan.
+ *   3. send_routes(tomorrow) — whatever is planned right now, with customer
  *      notifications, exactly like the manual share.
  *
  * Sends ONCE. Anything changed after 8pm is re-shared by staff in the OR web
@@ -50,13 +58,27 @@ serve(cronHandler('send-routes-to-optimoroute', async (_req) => {
     errors.push(`sweep: ${err instanceof Error ? err.message : String(err)}`)
   }
 
+  let before: OrDispatchStatus | null = null
   try {
-    send = await sendRoutes(getRoutingApiKey(), date)
+    const apiKey = getRoutingApiKey()
+    try {
+      before = await getDispatchStatus(apiKey, date)
+      if (before.state === 'scheduled') {
+        errors.push(
+          `a share was already scheduled in OptimoRoute for ${before.scheduledForUtc} — ` +
+            'cancel scheduled shares; Verco shares at 8pm (ADR 0028)',
+        )
+      }
+    } catch (err) {
+      // Diagnostic only — never blocks the send.
+      console.error('dispatch status read failed:', err instanceof Error ? err.message : err)
+    }
+    send = await sendRoutes(apiKey, date)
   } catch (err) {
     errors.push(`send: ${err instanceof Error ? err.message : String(err)}`)
   }
 
-  const results = { date, sweep, send, errors }
+  const results = { date, sweep, before, send, errors }
   console.log(JSON.stringify({ event: 'send_routes_to_optimoroute', ...results }))
   await logSyncRun(
     supabase,

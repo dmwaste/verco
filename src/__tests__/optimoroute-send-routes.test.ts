@@ -9,13 +9,23 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 
 type SendRoutes = (apiKey: string, date: string) => Promise<'sent' | 'nothing_to_send'>
+type DispatchStatus = {
+  state: 'not_sent' | 'scheduled' | 'sent'
+  sentAtUtc: string | null
+  scheduledForUtc: string | null
+}
+type GetDispatchStatus = (apiKey: string, date: string) => Promise<DispatchStatus>
 
 const OR_CLIENT = '../../supabase/functions/_shared/optimoroute.ts'
 
 let sendRoutes: SendRoutes
+let getDispatchStatus: GetDispatchStatus
 
 beforeAll(async () => {
-  ;({ sendRoutes } = (await import(/* @vite-ignore */ OR_CLIENT)) as { sendRoutes: SendRoutes })
+  ;({ sendRoutes, getDispatchStatus } = (await import(/* @vite-ignore */ OR_CLIENT)) as {
+    sendRoutes: SendRoutes
+    getDispatchStatus: GetDispatchStatus
+  })
 })
 
 afterEach(() => {
@@ -70,5 +80,33 @@ describe('sendRoutes', () => {
     const { message } = err as Error
     expect(message).toMatch(/send_routes\(2026-10-12\).*HTTP 503/)
     expect(message).not.toContain('k3y')
+  })
+})
+
+describe('getDispatchStatus', () => {
+  it('reads the date’s route share state — a share scheduled ahead freezes the plan', async () => {
+    const fetchMock = stubFetch(200, {
+      success: true,
+      date: '2026-10-12',
+      live: false,
+      routes: { state: 'scheduled', sentAtUtc: null, scheduledForUtc: '2026-10-11T12:00:00Z' },
+      notifications: { state: 'scheduled', sentAtUtc: null, scheduledForUtc: '2026-10-11T12:00:00Z' },
+    })
+
+    await expect(getDispatchStatus('k3y', '2026-10-12')).resolves.toEqual({
+      state: 'scheduled',
+      sentAtUtc: null,
+      scheduledForUtc: '2026-10-11T12:00:00Z',
+    })
+    const [url] = fetchMock.mock.calls[0] as unknown as [string]
+    expect(url).toBe('https://api.optimoroute.com/v1/get_dispatch_status?key=k3y&date=2026-10-12')
+  })
+
+  it('throws on an HTTP error', async () => {
+    stubFetch(500, 'boom')
+
+    await expect(getDispatchStatus('k3y', '2026-10-12')).rejects.toThrow(
+      /get_dispatch_status\(2026-10-12\).*HTTP 500/,
+    )
   })
 })

@@ -39,8 +39,10 @@ function fakeDb(rows: Array<{ id: string; external_order_ref: string }>, fetchEr
     is: (...a: unknown[]) => (db.filters.push(['is', ...a]), select),
     gte: (...a: unknown[]) => (db.filters.push(['gte', ...a]), select),
     order: () => select,
-    range: async () =>
-      fetchError ? { data: null, error: { message: fetchError } } : { data: rows, error: null },
+    range: async (from: number, to: number) =>
+      fetchError
+        ? { data: null, error: { message: fetchError } }
+        : { data: rows.slice(from, to + 1), error: null },
   }
   db.client = {
     from: () => ({
@@ -117,6 +119,31 @@ describe('sweepCancelledOrders', () => {
     })
     // The rejected order stays un-stamped so the next sweep retries it.
     expect(db.stamped).toEqual([['stop-1', 'stop-2']])
+  })
+
+  it('pages past the 1000-row cap and deletes in 500-order batches', async () => {
+    vi.stubGlobal('Deno', { env: { get: () => 'k3y' } })
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      const { orders } = JSON.parse(init!.body as string) as { orders: unknown[] }
+      return new Response(
+        JSON.stringify({ success: true, orders: orders.map(() => ({ success: true })) }),
+        { status: 200 },
+      )
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const rows = Array.from({ length: 1001 }, (_, i) => ({
+      id: `stop-${i}`,
+      external_order_ref: `MOS-${i}-B`,
+    }))
+    const db = fakeDb(rows)
+
+    await expect(sweepCancelledOrders(db.client, '2026-10-12')).resolves.toEqual({
+      candidates: 1001,
+      deleted: 1001,
+      failed: 0,
+    })
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+    expect(db.stamped[0]).toHaveLength(1001)
   })
 
   it('throws when the cancelled-stops read fails', async () => {

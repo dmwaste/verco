@@ -312,6 +312,38 @@ export async function getRoutes(apiKey: string, date: string): Promise<OrRoute[]
   return data.routes ?? []
 }
 
+// A type alias, not an interface, so it stays assignable to Json (sync_log payload).
+export type OrDispatchStatus = {
+  state: 'not_sent' | 'scheduled' | 'sent'
+  sentAtUtc: string | null
+  scheduledForUtc: string | null
+}
+
+/**
+ * Route share state for a date (get_dispatch_status). `scheduled` means a
+ * share was set up ahead in the OR web UI — it carries the routes as they were
+ * then, so the nightly send flags it (ADR 0028).
+ */
+export async function getDispatchStatus(apiKey: string, date: string): Promise<OrDispatchStatus> {
+  const res = await safeFetch(apiKey, 'get_dispatch_status', undefined, `&date=${encodeURIComponent(date)}`)
+  if (!res.ok) {
+    throw new Error(`get_dispatch_status(${date}) failed: HTTP ${res.status}: ${await res.text()}`)
+  }
+  const data = (await res.json()) as {
+    success: boolean
+    message?: string
+    routes?: { state: OrDispatchStatus['state']; sentAtUtc?: string | null; scheduledForUtc?: string | null }
+  }
+  if (!data.success || !data.routes) {
+    throw new Error(`get_dispatch_status(${date}) failed: ${data.message ?? 'unknown error'}`)
+  }
+  return {
+    state: data.routes.state,
+    sentAtUtc: data.routes.sentAtUtc ?? null,
+    scheduledForUtc: data.routes.scheduledForUtc ?? null,
+  }
+}
+
 /**
  * Sends a date's planned routes to the drivers (send_routes) — the API form of
  * ops pressing "Share routes" in the OR web UI. Whole date, every driver: OR
