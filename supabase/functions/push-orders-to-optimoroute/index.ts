@@ -9,7 +9,6 @@ import {
   buildOrderNotes,
   buildServicesSummary,
   groupItemsByStream,
-  num,
   orderTypeLine,
   partitionPushResults,
   planStopChanges,
@@ -17,6 +16,7 @@ import {
   STOP_DURATION_MINUTES,
   STREAM_PRIORITY,
   stopItemKey,
+  stopLocation,
   vehicleFeaturesForStream,
   wasteLocationOrNull,
   type PushFailure,
@@ -206,7 +206,7 @@ serve(cronHandler('push-orders-to-optimoroute', async (_req) => {
         const items = booking.booking_item.filter(
           (i): i is BookingItemRow => i.service !== null,
         )
-        const property = booking.eligible_properties
+        const location = stopLocation(booking, booking.eligible_properties)
         const byStream = new Map<WasteStream, DesiredStop>()
         for (const [stream, streamItems] of groupItemsByStream(items)) {
           byStream.set(stream, {
@@ -216,13 +216,7 @@ serve(cronHandler('push-orders-to-optimoroute', async (_req) => {
             // Items in one stream share a collection date in practice; the
             // first item's date is the stop's date.
             collection_date_id: streamItems[0]!.collection_date_id,
-            address:
-              property?.formatted_address ??
-              property?.address ??
-              booking.geo_address ??
-              booking.location,
-            latitude: num(booking.latitude ?? property?.latitude ?? null),
-            longitude: num(booking.longitude ?? property?.longitude ?? null),
+            ...location,
             services_summary: buildServicesSummary(streamItems),
             waste_location: wasteLocationOrNull(booking.location),
             driver_notes: booking.notes,
