@@ -1,8 +1,9 @@
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.100.0'
-import type { Database, TablesInsert, TablesUpdate } from '../_shared/database.types.ts'
+import type { Database } from '../_shared/database.types.ts'
 import { z } from 'https://esm.sh/zod@3.23.8'
 import { corsHeaders, jsonResponse, optionsResponse, errorResponse } from '../_shared/cors.ts'
+import { attachContact } from '../_shared/contact-attach.ts'
 
 // ── Input validation ─────────────────────────────────────────────────────────
 
@@ -142,72 +143,38 @@ serve(async (req) => {
 
     // ── 3. Verify booking if provided ──────────────────────────────────────
 
+    // The booking's address is the ticket's household for the contact rule (§4).
+    let bookingPropertyId: string | null = null
     if (booking_id) {
       const { data: bookingRow, error: bookingError } = await supabaseService
         .from('booking')
-        .select('id')
+        .select('id, property_id')
         .eq('id', booking_id)
         .single()
 
       if (bookingError || !bookingRow) {
         return errorResponse('Booking not found', 404)
       }
+      bookingPropertyId = bookingRow.property_id
     }
 
-    // ── 4. Upsert contact (by email) ───────────────────────────────────────
+    // ── 4. Attach contact (by email, never rewriting someone else's row) ──
 
-    const { data: existingContact } = await supabaseService
-      .from('contacts')
-      .select('id')
-      .eq('email', contact.email)
-      .maybeSingle()
-
-    let contactId: string
-
-    if (existingContact) {
-      // full_name is a generated column — must write first/last_name.
-      const updateData: TablesUpdate<'contacts'> = {
-        first_name: contact.first_name,
-        last_name: contact.last_name,
-      }
-      if (contact.mobile_e164) {
-        updateData.mobile_e164 = contact.mobile_e164
-      }
-
-      const { error: updateError } = await supabaseService
-        .from('contacts')
-        .update(updateData)
-        .eq('id', existingContact.id)
-
-      if (updateError) {
-        console.error('Contact update error:', updateError)
-        return errorResponse('Failed to update contact', 500)
-      }
-
-      contactId = existingContact.id
-    } else {
-      const insertData: TablesInsert<'contacts'> = {
-        first_name: contact.first_name,
-        last_name: contact.last_name,
-        email: contact.email,
-      }
-      if (contact.mobile_e164) {
-        insertData.mobile_e164 = contact.mobile_e164
-      }
-
-      const { data: newContact, error: insertError } = await supabaseService
-        .from('contacts')
-        .insert(insertData)
-        .select('id')
-        .single()
-
-      if (insertError || !newContact) {
-        console.error('Contact insert error:', insertError)
-        return errorResponse('Failed to create contact', 500)
-      }
-
-      contactId = newContact.id
+    // A ticket used to overwrite whichever contact carried the email, so a
+    // ticket under a shared address (the WMRC office email sat on 278 bookings)
+    // renamed every booking on it (ADR 0027, #631). The ticket's household is
+    // its booking's address; with no booking, only the same person — or a
+    // resident's own single row — is kept. Residents/strata are "self": their
+    // email is pinned to their own auth email above.
+    const attached = await attachContact(supabaseService, contact, {
+      household: bookingPropertyId ? { propertyId: bookingPropertyId } : 'none',
+      enteredBySelf: !isStaff,
+    })
+    if (!attached.ok) {
+      console.error('Contact attach error:', attached.error)
+      return errorResponse(attached.error, 500)
     }
+    const contactId = attached.contactId
 
     // ── 5. Generate display_id with collision retry ────────────────────────
 
