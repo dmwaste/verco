@@ -4,6 +4,8 @@ import {
   awstDateFromUtc,
   fetchAllConfirmedBookings,
   filterBookingsReadyToSchedule,
+  rateLimitRetryAfterMs,
+  remindedOnBothChannels,
   runWithinBudget,
   type BookingWithItemDates,
 } from '@/lib/booking/schedule-transition'
@@ -326,5 +328,106 @@ describe('runWithinBudget', () => {
     })
     expect(result).toEqual({ started: 2, remaining: 0 })
     expect(seen).toEqual(['a', 'b'])
+  })
+
+  // Supabase rate-limits one edge function calling another per request chain.
+  // On 13/10/2026 the 09:00 run hit it after ~60 calls and the call threw
+  // RateLimitError with "Retry after ~52000ms"; the old runner counted every
+  // later booking as failed, so ~60 of a day's reminders went out per tick.
+  function rateLimitedSend(perWindow: number, windowMs: number, completed: number[]) {
+    let windowStart: number | null = null
+    let used = 0
+    return async (n: number) => {
+      const now = Date.now()
+      if (windowStart === null || now >= windowStart + windowMs) {
+        windowStart = now
+        used = 0
+      }
+      if (used >= perWindow) return { retryAfterMs: windowStart + windowMs - now }
+      used++
+      await slowSend()
+      completed.push(n)
+    }
+  }
+
+  it('pauses on a rate limit and resumes when the window reopens instead of failing the rest', async () => {
+    vi.useFakeTimers()
+    const completed: number[] = []
+    const items = Array.from({ length: 244 }, (_, i) => i)
+    const started = Date.now()
+    const done = runWithinBudget(
+      items,
+      { concurrency: 8, deadlineMs: started + BUDGET_MS },
+      rateLimitedSend(60, 60_000, completed),
+    )
+    await vi.runAllTimersAsync()
+    const result = await done
+
+    // Two 60-call windows fit in 110 s; the third would open at 120 s.
+    expect(result).toEqual({ started: 120, remaining: 124 })
+    expect(new Set(completed).size).toBe(120)
+    expect(Date.now() - started).toBeLessThanOrEqual(BUDGET_MS)
+  })
+
+  it('never sleeps past the deadline when the pause outlasts the budget', async () => {
+    vi.useFakeTimers()
+    const started = Date.now()
+    const done = runWithinBudget([1, 2, 3], { concurrency: 2, deadlineMs: started + 10_000 }, async () => ({ retryAfterMs: 60_000 }))
+    await vi.runAllTimersAsync()
+    expect(await done).toEqual({ started: 0, remaining: 3 })
+    expect(Date.now() - started).toBeLessThan(10_000)
+  })
+
+  it('retries the rate-limited item itself, after the pause', async () => {
+    vi.useFakeTimers()
+    const calls: string[] = []
+    let limited = false
+    const done = runWithinBudget(['a', 'b', 'c'], { concurrency: 1, deadlineMs: Date.now() + 60_000 }, async (x) => {
+      calls.push(x)
+      if (x === 'b' && !limited) {
+        limited = true
+        return { retryAfterMs: 5_000 }
+      }
+    })
+    await vi.runAllTimersAsync()
+    expect(await done).toEqual({ started: 3, remaining: 0 })
+    expect(calls).toEqual(['a', 'b', 'b', 'c'])
+  })
+})
+
+describe('rateLimitRetryAfterMs', () => {
+  it('reads retryAfterMs off a RateLimitError', () => {
+    const err = Object.assign(new Error('Rate limit exceeded for function.'), { name: 'RateLimitError', retryAfterMs: 51_986 })
+    expect(rateLimitRetryAfterMs(err)).toBe(51_986)
+  })
+
+  it('falls back to the "Retry after Nms" text the runtime logs', () => {
+    const err = Object.assign(new Error('Rate limit exceeded for function. Retry after 54585ms.'), { name: 'RateLimitError' })
+    expect(rateLimitRetryAfterMs(err)).toBe(54_585)
+  })
+
+  it('defaults to a full minute when the wait is unreadable', () => {
+    const err = Object.assign(new Error('Rate limit exceeded'), { name: 'RateLimitError' })
+    expect(rateLimitRetryAfterMs(err)).toBe(60_000)
+  })
+
+  it('returns null for anything that is not a rate limit', () => {
+    expect(rateLimitRetryAfterMs(new Error('timeout'))).toBeNull()
+    expect(rateLimitRetryAfterMs(new TypeError('fetch failed'))).toBeNull()
+    expect(rateLimitRetryAfterMs('Retry after 100ms')).toBeNull()
+    expect(rateLimitRetryAfterMs(null)).toBeNull()
+  })
+})
+
+describe('remindedOnBothChannels', () => {
+  it('only counts a booking done when email AND sms were sent', () => {
+    const done = remindedOnBothChannels([
+      { booking_id: 'both', channel: 'email' },
+      { booking_id: 'both', channel: 'sms' },
+      { booking_id: 'email-only', channel: 'email' },
+      { booking_id: 'sms-only', channel: 'sms' },
+      { booking_id: null, channel: 'email' },
+    ])
+    expect([...done]).toEqual(['both'])
   })
 })
