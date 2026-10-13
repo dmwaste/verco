@@ -56,6 +56,7 @@ export type NotificationType =
   | 'np_raised'
   | 'completion_survey'
   | 'collection_reminder'
+  | 'closeout_corrected'
 
 /**
  * Per-channel dispatch. notification_log idempotency keys on
@@ -89,10 +90,17 @@ export type NotificationPayload =
   // ("your Green Waste collection is still coming"). Both are display strings.
   // pending_services is additive — the deployed EF safely ignores it until
   // redeploy (body is cast, not strictly validated).
-  | { type: 'ncn_raised'; booking_id: string; ncn_id: string; reason: string; notes?: string; photos?: string[]; contractor_fault?: boolean; stream?: string; pending_services?: string }
-  | { type: 'np_raised'; booking_id: string; np_id: string; notes?: string; photos?: string[]; contractor_fault?: boolean; stream?: string; pending_services?: string }
+  // `replaces_earlier_notice` is set when office staff correct a closeout
+  // NCN ↔ NP (ADR 0030): the resident already holds the other notice, so the
+  // new one says it supersedes it.
+  | { type: 'ncn_raised'; booking_id: string; ncn_id: string; reason: string; notes?: string; photos?: string[]; contractor_fault?: boolean; stream?: string; pending_services?: string; replaces_earlier_notice?: boolean }
+  | { type: 'np_raised'; booking_id: string; np_id: string; notes?: string; photos?: string[]; contractor_fault?: boolean; stream?: string; pending_services?: string; replaces_earlier_notice?: boolean }
   | { type: 'completion_survey'; booking_id: string; survey_token: string }
   | { type: 'collection_reminder'; booking_id: string }
+  // Office corrected an NCN/NP closeout to Completed (ADR 0030) — "please
+  // disregard our earlier notice". `correction_id` (stop_outcome_correction)
+  // is the idempotency reference: a booking can be corrected more than once.
+  | { type: 'closeout_corrected'; booking_id: string; correction_id: string; stream?: string }
 
 /**
  * Alternative input for the "resume a pre-existing queued row" path.

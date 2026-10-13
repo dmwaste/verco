@@ -3,6 +3,7 @@
 import { z } from 'zod'
 import { QuantityEditItemSchema } from '@/lib/booking/schemas'
 import { canonicaliseAuMobile, normalisePhone } from '@/lib/phone'
+import { mistypedEmailDomainMessage } from '@/lib/email'
 import { createClient } from '@/lib/supabase/server'
 import { invokeSendNotification } from '@/lib/notifications/invoke'
 import { isPastCancellationCutoff } from '@/lib/booking/cancellation-cutoff'
@@ -222,6 +223,8 @@ export async function updateContact(
   if (!data.first_name.trim() || !data.last_name.trim() || !data.email.trim()) {
     return { ok: false, error: 'First name, last name, and email are required.' }
   }
+  const mistyped = mistypedEmailDomainMessage(data.email)
+  if (mistyped) return { ok: false, error: mistyped }
 
   const newFirst = data.first_name.trim()
   const newLast = data.last_name.trim()

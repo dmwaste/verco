@@ -13,6 +13,7 @@ import { renderBookingUpdated } from '@/lib/notifications/templates/booking-upda
 import { renderBookingCancelled } from '@/lib/notifications/templates/booking-cancelled'
 import { renderCollectionReminder, renderCollectionReminderSMS } from '@/lib/notifications/templates/collection-reminder'
 import { renderCompletionSurvey } from '@/lib/notifications/templates/completion-survey'
+import { renderCloseoutCorrected } from '@/lib/notifications/templates/closeout-corrected'
 import { renderNcnRaised } from '@/lib/notifications/templates/ncn-raised'
 import { renderNpRaised } from '@/lib/notifications/templates/np-raised'
 import { renderPaymentExpired } from '@/lib/notifications/templates/payment-expired'
@@ -78,6 +79,8 @@ function renderEmail(
       })
     case 'completion_survey':
       return renderCompletionSurvey(booking, APP_URL, 'sample-survey-token')
+    case 'closeout_corrected':
+      return renderCloseoutCorrected(booking, APP_URL, { serviceLabel: 'Bulk Waste' })
   }
 }
 
@@ -97,6 +100,7 @@ function renderSms(
     case 'ncn_raised':
     case 'np_raised':
     case 'completion_survey':
+    case 'closeout_corrected':
       return null
   }
 }

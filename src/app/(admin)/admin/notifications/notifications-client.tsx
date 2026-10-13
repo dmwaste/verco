@@ -21,6 +21,7 @@ const NOTIFICATION_TYPE_LABELS: Record<string, string> = {
   completion_survey: 'Survey',
   payment_reminder: 'Payment Reminder',
   payment_expired: 'Payment Expired',
+  closeout_corrected: 'Closeout Corrected',
 }
 
 const TYPE_OPTIONS = [
@@ -34,6 +35,7 @@ const TYPE_OPTIONS = [
   { value: 'completion_survey', label: 'Survey' },
   { value: 'payment_reminder', label: 'Payment Reminder' },
   { value: 'payment_expired', label: 'Payment Expired' },
+  { value: 'closeout_corrected', label: 'Closeout Corrected' },
 ]
 
 interface NotificationsClientProps {

@@ -1,11 +1,12 @@
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.100.0'
-import type { Database, TablesInsert, TablesUpdate } from '../_shared/database.types.ts'
+import type { Database, TablesInsert } from '../_shared/database.types.ts'
 import { z } from 'https://esm.sh/zod@3.23.8'
 import { corsHeaders, jsonResponse, optionsResponse, errorResponse } from '../_shared/cors.ts'
 import { sendEmail } from '../_shared/sendgrid.ts'
 import { resolveWelcomeLoginBaseUrl } from '../_shared/welcome-login-url.ts'
-import { normaliseEmail, emailMatchPattern } from '../_shared/email.ts'
+import { normaliseEmail, emailMatchPattern, rejectMistypedEmailDomain } from '../_shared/email.ts'
+import { attachContact } from '../_shared/contact-attach.ts'
 
 // ── Role classification ─────────────────────────────────────────────────────
 
@@ -42,7 +43,7 @@ const CreateUserRequest = z
     // Canonicalised on parse: GoTrue lowercases what it stores in auth.users,
     // so a mixed-case address typed into the admin form must be folded here or
     // every downstream lookup disagrees with auth (#575).
-    email: z.string().email().max(320).transform(normaliseEmail),
+    email: z.string().email().max(320).superRefine(rejectMistypedEmailDomain).transform(normaliseEmail),
     mobile_e164: z.string().regex(/^\+614\d{8}$/).optional(),
     role: z.enum(ALL_ROLES),
     contractor_id: z.string().uuid().optional(),
@@ -254,55 +255,26 @@ serve(async (req) => {
       authUserId = newUser.user.id
     }
 
-    // ── 6. Upsert contact ───────────────────────────────────────────────
+    // ── 6. Attach contact (by email, never rewriting someone else's row) ──
 
-    // Same case-insensitive match as the profiles lookup above: 214 contacts
-    // predate canonicalisation with mixed-case addresses, and an exact-match
-    // miss here would silently fork a second contact row for the same person.
-    const { data: existingContacts } = await supabaseService
-      .from('contacts')
-      .select('id')
-      .ilike('email', emailMatchPattern(email))
-      .order('created_at', { ascending: true })
-      .limit(1)
-
-    const existingContact = existingContacts?.[0]
-
-    let contactId: string
-
-    if (existingContact) {
-      // full_name is a generated column — must write first/last_name.
-      const updateData: TablesUpdate<'contacts'> = { first_name, last_name }
-      if (mobile_e164) updateData.mobile_e164 = mobile_e164
-
-      const { error: updateError } = await supabaseService
-        .from('contacts')
-        .update(updateData)
-        .eq('id', existingContact.id)
-
-      if (updateError) {
-        console.error('Contact update error:', updateError)
-        return errorResponse('Failed to update contact.', 500)
-      }
-
-      contactId = existingContact.id
-    } else {
-      const insertData: TablesInsert<'contacts'> = { first_name, last_name, email }
-      if (mobile_e164) insertData.mobile_e164 = mobile_e164
-
-      const { data: newContact, error: insertError } = await supabaseService
-        .from('contacts')
-        .insert(insertData)
-        .select('id')
-        .single()
-
-      if (insertError || !newContact) {
-        console.error('Contact insert error:', insertError)
-        return errorResponse('Failed to create contact.', 500)
-      }
-
-      contactId = newContact.id
+    // This used to overwrite the oldest contact carrying the email, so a login
+    // made under a shared address (the WMRC office email sat on 278 bookings)
+    // renamed every booking on it (ADR 0027, #631). A login has no address of
+    // its own, so a contact used at one address belongs to THAT household, and
+    // one with no bookings may be another person's login: a login only ever
+    // reuses the same person (name + mobile) or gets a new contact — never an
+    // update. The admin creating the login is never "self". Matching is
+    // case-insensitive (214 contacts predate email canonicalisation, #575).
+    const attached = await attachContact(
+      supabaseService,
+      { first_name, last_name, email, mobile_e164 },
+      { household: 'none', enteredBySelf: false },
+    )
+    if (!attached.ok) {
+      console.error('Contact attach error:', attached.error)
+      return errorResponse(attached.error, 500)
     }
+    const contactId = attached.contactId
 
     // ── 7. Upsert profile ───────────────────────────────────────────────
 

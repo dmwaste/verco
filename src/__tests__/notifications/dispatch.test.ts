@@ -573,6 +573,76 @@ describe('dispatch', () => {
     expect(emailCall?.htmlBody).toContain('Complete survey')
   })
 
+  // Office closeout correction (ADR 0030).
+  describe('closeout corrections', () => {
+    it('routes closeout_corrected to the disregard-the-notice template with the service label', async () => {
+      const booking = makeMockBooking({ id: 'b-corr' })
+      const deps = createMockDispatchDeps({ bookings: { 'b-corr': booking } })
+
+      const result = await dispatch(deps, {
+        type: 'closeout_corrected',
+        booking_id: 'b-corr',
+        correction_id: 'corr-1',
+        stream: 'Green Waste',
+      })
+
+      expect(result).toMatchObject({ ok: true, sent: true })
+      const emailCall = deps.sendEmailMock.mock.calls[0]?.[0] as { subject: string; htmlBody: string } | undefined
+      expect(emailCall?.subject).toContain('Update on your collection')
+      expect(emailCall?.htmlBody).toContain('Please disregard the notice we sent you earlier')
+      expect(emailCall?.htmlBody).toContain('Green Waste')
+      // Keyed per correction — a booking can be corrected more than once.
+      expect(deps.writtenLogs[0]?.reference_id).toBe('corr-1')
+    })
+
+    it('does NOT suppress a second correction on the same booking (per-correction key)', async () => {
+      const booking = makeMockBooking({ id: 'b-corr2' })
+      const deps = createMockDispatchDeps({
+        bookings: { 'b-corr2': booking },
+        existingLog: [
+          { booking_id: 'b-corr2', notification_type: 'closeout_corrected', status: 'sent', reference_id: 'corr-a' },
+        ],
+      })
+
+      const result = await dispatch(deps, { type: 'closeout_corrected', booking_id: 'b-corr2', correction_id: 'corr-b' })
+
+      expect('skipped' in result).toBe(false)
+      expect(deps.sendEmailMock).toHaveBeenCalledTimes(1)
+    })
+
+    it('adds the replaces-earlier-notice line to NCN and NP emails only when flagged', async () => {
+      const booking = makeMockBooking({ id: 'b-swap' })
+      const deps = createMockDispatchDeps({ bookings: { 'b-swap': booking } })
+      const line = 'This notice replaces the one we sent you earlier'
+
+      await dispatch(deps, { type: 'ncn_raised', booking_id: 'b-swap', ncn_id: 'n1', reason: 'Building Waste', replaces_earlier_notice: true })
+      await dispatch(deps, { type: 'np_raised', booking_id: 'b-swap', np_id: 'p1', replaces_earlier_notice: true })
+      await dispatch(deps, { type: 'ncn_raised', booking_id: 'b-swap', ncn_id: 'n2', reason: 'Building Waste' })
+      await dispatch(deps, { type: 'np_raised', booking_id: 'b-swap', np_id: 'p2' })
+
+      const bodies = deps.sendEmailMock.mock.calls.map((c) => (c[0] as { htmlBody: string }).htmlBody)
+      expect(bodies[0]).toContain(line)
+      expect(bodies[1]).toContain(line)
+      expect(bodies[2]).not.toContain(line)
+      expect(bodies[3]).not.toContain(line)
+    })
+
+    it('never sends closeout_corrected by SMS, even to an SMS-capable tenant', async () => {
+      const booking = makeMockBooking({
+        id: 'b-corr-sms',
+        client: { ...makeMockBooking().client, twilio_messaging_service_sid: 'MG3247a987de2cd0b550904b7973305780' },
+      })
+      const deps = createMockDispatchDeps({ bookings: { 'b-corr-sms': booking } })
+
+      // Control: the same booking DOES get an SMS for a type with an SMS variant.
+      await dispatch(deps, { type: 'booking_created', booking_id: 'b-corr-sms' })
+      expect(deps.writtenLogs.filter((l) => l.channel === 'sms')).toHaveLength(1)
+
+      await dispatch(deps, { type: 'closeout_corrected', booking_id: 'b-corr-sms', correction_id: 'c' })
+      expect(deps.writtenLogs.filter((l) => l.channel === 'sms')).toHaveLength(1)
+    })
+  })
+
   describe('resume-by-log-id', () => {
     it('resumes a queued log row, sends email, and calls updateLogStatus with sent', async () => {
       const booking = makeMockBooking({ id: 'b-resume', total_charge_cents: 5500 })

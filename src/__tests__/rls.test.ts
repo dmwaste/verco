@@ -1740,6 +1740,86 @@ if (!haveDb) {
         await pg.query('ROLLBACK')
       }
     })
+
+    // --- Office closeout correction (ADR 0030, migration 20261013160000) ------
+    // Each case closes STOP_GENERAL as the crew would (privileged setup; the
+    // rollup flips the booking to Completed), pins it to an in-window date,
+    // then acts as `userId`. Everything rolls back.
+    async function withClosedStop<T>(userId: string, run: () => Promise<T>): Promise<T | 'skip'> {
+      await pg.query('BEGIN')
+      try {
+        const fn = await pg.query<{ f: string | null }>(
+          `SELECT to_regprocedure('public.correct_stop_outcome(uuid,stop_status,text,ncn_reason,text,boolean)')::text AS f`,
+        )
+        const date = await pg.query<{ id: string }>(
+          `SELECT cd.id FROM collection_date cd
+             JOIN collection_area ca ON ca.id = cd.collection_area_id
+            WHERE ca.client_id = $1
+              AND cd.date BETWEEN (now() AT TIME ZONE 'Australia/Perth')::date - 6
+                              AND (now() AT TIME ZONE 'Australia/Perth')::date
+            LIMIT 1`,
+          [CLIENT_ID],
+        )
+        if (!fn.rows[0]?.f || !date.rows[0]) return 'skip' // pre-release remote / no recent date
+        await pg.query(
+          `UPDATE collection_stop SET collection_date_id = $2 WHERE id = $1`,
+          [STOP_GENERAL, date.rows[0].id],
+        )
+        await pg.query(
+          `UPDATE collection_stop SET status = 'Completed', completed_at = now() WHERE id = $1`,
+          [STOP_GENERAL],
+        )
+        await pg.query('SET LOCAL ROLE authenticated')
+        await pg.query(`SELECT set_config('request.jwt.claims', $1, true)`, [
+          JSON.stringify({ sub: userId, role: 'authenticated' }),
+        ])
+        return await run()
+      } finally {
+        await pg.query('ROLLBACK')
+      }
+    }
+
+    it('correction: contractor-admin moves Completed → NCN; booking + notice + log follow', async (ctx) => {
+      if (!ready) return ctx.skip()
+      const out = await withClosedStop(USERS['contractor-admin'], async () => {
+        const r = await pg.query<{ r: { booking_status: string; new_notice_id: string } }>(
+          `SELECT correct_stop_outcome($1::uuid, 'Non-conformance', 'RLS suite', 'Building Waste') AS r`,
+          [STOP_GENERAL],
+        )
+        const notice = await pg.query(`SELECT id FROM non_conformance_notice WHERE id = $1 AND status = 'Issued'`, [
+          r.rows[0]!.r.new_notice_id,
+        ])
+        const log = await pg.query(`SELECT id FROM stop_outcome_correction WHERE collection_stop_id = $1`, [STOP_GENERAL])
+        return { status: r.rows[0]!.r.booking_status, notices: notice.rowCount, logs: log.rowCount }
+      })
+      if (out === 'skip') return ctx.skip()
+      expect(out).toEqual({ status: 'Non-conformance', notices: 1, logs: 1 })
+    })
+
+    for (const role of ['contractor-staff', 'client-admin', 'field'] as const) {
+      it(`correction: ${role} is refused`, async (ctx) => {
+        if (!ready) return ctx.skip()
+        const out = await withClosedStop(USERS[role], () =>
+          pg
+            .query(`SELECT correct_stop_outcome($1::uuid, 'Non-conformance', 'RLS suite', 'Building Waste')`, [STOP_GENERAL])
+            .then(() => 'allowed', (e: Error) => e.message),
+        )
+        if (out === 'skip') return ctx.skip()
+        expect(out).toMatch(/Only a contractor admin/)
+      })
+    }
+
+    it('correction: a closed stop stays immutable outside the RPC, even with the flag forged', async (ctx) => {
+      if (!ready) return ctx.skip()
+      const out = await withClosedStop(USERS['contractor-admin'], async () => {
+        await pg.query(`SELECT set_config('verco.closeout_correction', 'on', true)`)
+        return pg
+          .query(`UPDATE booking SET status = 'Non-conformance' WHERE id = $1`, [STOP_BOOKING])
+          .then((r) => `rows=${r.rowCount}`, (e: Error) => e.message)
+      })
+      if (out === 'skip') return ctx.skip()
+      expect(out).toMatch(/Invalid booking status transition/)
+    })
   })
 
   // ---------------------------------------------------------------------------
@@ -3557,6 +3637,234 @@ if (!haveDb) {
       const user = USERS['client-staff']
       expect(await countAsWithSeed(user, seed, 'SELECT id FROM booking WHERE collection_area_id IN (SELECT id FROM _own_areas)')).toBeGreaterThan(0)
       expect(await countAsWithSeed(user, seed, 'SELECT id FROM booking WHERE collection_area_id NOT IN (SELECT id FROM _own_areas)')).toBe(0)
+    })
+  })
+
+  // ---------------------------------------------------------------------------
+  // ADR 0027 (20261012150000, #631): a staff contact edit never spreads to
+  // another resident's booking. On 05/10 correcting ONE booking's contact via
+  // update_booking_contact rewrote a row shared by 278 WMRC bookings, switching
+  // them all to a strata company's details. Ported from the rolled-back prod
+  // verification in the #629 PR; fixtures are seeded inside each rolled-back
+  // transaction and never committed. Kwinana-scoped client-admin fixture.
+  // ---------------------------------------------------------------------------
+  describe('contact edits never spread (ADR 0027, 20261012150000)', () => {
+    const NO_ROLE_USER = 'aaaaaaaa-0096-4000-8000-000000000096' // never seeded in user_roles
+    const SHARED = '27270027-0001-4000-8000-000000000001'
+    const OWN = '27270027-0002-4000-8000-000000000002'
+    const MUD_ONLY = '27270027-0003-4000-8000-000000000003'
+    const BOOKING_A = '27270027-0101-4000-8000-000000000101'
+    const BOOKING_B = '27270027-0102-4000-8000-000000000102'
+    const SHARED_EMAIL = 'rls-adr27-shared@example.test'
+    const CONTACT_CALL = `SELECT update_booking_contact($1::uuid, $2::text, $3::text, $4::text, $5::text) AS id`
+    const STRATA_CALL = `SELECT upsert_strata_contact_and_link($1::uuid, $2::text, $3::text, $4::text, $5::text) AS r`
+
+    async function impersonate(userId: string) {
+      await pg.query('SET LOCAL ROLE authenticated')
+      await pg.query(`SELECT set_config('request.jwt.claims', $1, true)`, [
+        JSON.stringify({ sub: userId, role: 'authenticated' }),
+      ])
+    }
+
+    // Back to the connection role to read results. Claims cleared so any audit
+    // row stamps changed_by = NULL (changed_by FK-references profiles).
+    async function resetToSetupRole() {
+      await pg.query('RESET ROLE')
+      await pg.query(`SELECT set_config('request.jwt.claims', '{}', true)`)
+    }
+
+    // Two non-MUD Kwinana properties in one collection area.
+    async function twoProperties(): Promise<{ areaId: string; p1: string; p2: string } | null> {
+      const r = await pg.query<{ area_id: string; ids: string[] }>(
+        `SELECT ep.collection_area_id AS area_id, (array_agg(ep.id::text ORDER BY ep.id))[1:2] AS ids
+         FROM eligible_properties ep JOIN collection_area ca ON ca.id = ep.collection_area_id
+         WHERE ca.client_id = $1 AND NOT coalesce(ep.is_mud, false)
+         GROUP BY ep.collection_area_id HAVING count(*) >= 2
+         ORDER BY ep.collection_area_id LIMIT 1`,
+        [CLIENT_ID],
+      )
+      const row = r.rows[0]
+      return row ? { areaId: row.area_id, p1: row.ids[0]!, p2: row.ids[1]! } : null
+    }
+
+    async function seedContact(id: string, email: string, first: string, last: string, mobile: string, daysAgo = 0) {
+      await pg.query(
+        `INSERT INTO contacts (id, email, first_name, last_name, mobile_e164, created_at)
+         VALUES ($1, $2, $3, $4, $5, now() - make_interval(days => $6))`,
+        [id, email, first, last, mobile, daysAgo],
+      )
+    }
+
+    async function seedBooking(id: string, ref: string, contactId: string, propertyId: string, areaId: string) {
+      const r = await pg.query(
+        `INSERT INTO booking (id, ref, type, status, contact_id, property_id, collection_area_id, client_id, contractor_id, fy_id)
+         SELECT $1, $2, 'Residential', 'Confirmed', $3, $4, $5, $6, $7, fy.id FROM financial_year fy WHERE fy.is_current`,
+        [id, ref, contactId, propertyId, areaId, CLIENT_ID, CONTRACTOR_ID],
+      )
+      expect(r.rowCount, 'fixture missing: no current financial_year').toBe(1)
+    }
+
+    async function contactRow(id: string) {
+      const r = await pg.query<{ first_name: string; last_name: string; email: string; mobile_e164: string | null }>(
+        `SELECT first_name, last_name, email, mobile_e164 FROM contacts WHERE id = $1`,
+        [id],
+      )
+      return r.rows[0]
+    }
+
+    it('update_booking_contact forks a new contact when the contact is used at another address; the shared one is untouched', async () => {
+      await pg.query('BEGIN')
+      try {
+        const fx = await twoProperties()
+        expect(fx, 'fixture missing: no Kwinana area with two non-MUD properties').not.toBeNull()
+        if (!fx) return
+        await seedContact(SHARED, SHARED_EMAIL, 'Shared', 'Office', '+61400002701')
+        await seedBooking(BOOKING_A, 'RLS-ADR27-A', SHARED, fx.p1, fx.areaId)
+        await seedBooking(BOOKING_B, 'RLS-ADR27-B', SHARED, fx.p2, fx.areaId)
+        await impersonate(USERS['client-admin'])
+
+        const res = await pg.query<{ id: string }>(CONTACT_CALL, [
+          BOOKING_A, 'Ann', 'Lee', 'rls-adr27-ann@example.test', '+61400002702',
+        ])
+        const forked = res.rows[0]!.id
+        expect(forked).not.toBe(SHARED)
+
+        await resetToSetupRole()
+        expect(await contactRow(SHARED)).toEqual({
+          first_name: 'Shared', last_name: 'Office', email: SHARED_EMAIL, mobile_e164: '+61400002701',
+        })
+        expect(await contactRow(forked)).toEqual({
+          first_name: 'Ann', last_name: 'Lee', email: 'rls-adr27-ann@example.test', mobile_e164: '+61400002702',
+        })
+        const links = await pg.query<{ id: string; contact_id: string }>(
+          `SELECT id, contact_id FROM booking WHERE id IN ($1, $2) ORDER BY ref`,
+          [BOOKING_A, BOOKING_B],
+        )
+        expect(links.rows).toEqual([
+          { id: BOOKING_A, contact_id: forked },
+          { id: BOOKING_B, contact_id: SHARED },
+        ])
+      } finally {
+        await pg.query('ROLLBACK')
+      }
+    })
+
+    it('update_booking_contact forks when the contact is a MUD strata contact', async () => {
+      await pg.query('BEGIN')
+      try {
+        const fx = await twoProperties()
+        expect(fx, 'fixture missing: no Kwinana area with two non-MUD properties').not.toBeNull()
+        if (!fx) return
+        await seedContact(SHARED, SHARED_EMAIL, 'Strata', 'Company', '+61400002701')
+        await seedBooking(BOOKING_A, 'RLS-ADR27-A', SHARED, fx.p1, fx.areaId)
+        await pg.query(`UPDATE eligible_properties SET strata_contact_id = $1 WHERE id = $2`, [SHARED, fx.p2])
+        await impersonate(USERS['client-admin'])
+
+        const res = await pg.query<{ id: string }>(CONTACT_CALL, [
+          BOOKING_A, 'Ann', 'Lee', SHARED_EMAIL, '+61400002702',
+        ])
+        expect(res.rows[0]!.id).not.toBe(SHARED)
+
+        await resetToSetupRole()
+        expect((await contactRow(SHARED))?.first_name).toBe('Strata')
+      } finally {
+        await pg.query('ROLLBACK')
+      }
+    })
+
+    it('update_booking_contact corrects in place a contact used only at this address (same household)', async () => {
+      await pg.query('BEGIN')
+      try {
+        const fx = await twoProperties()
+        expect(fx, 'fixture missing: no Kwinana area with two non-MUD properties').not.toBeNull()
+        if (!fx) return
+        await seedContact(OWN, 'rls-adr27-own@example.test', 'Sam', 'Lee', '+61400002703')
+        await seedBooking(BOOKING_A, 'RLS-ADR27-A', OWN, fx.p1, fx.areaId)
+        await seedBooking(BOOKING_B, 'RLS-ADR27-B', OWN, fx.p1, fx.areaId)
+        await impersonate(USERS['client-admin'])
+
+        const res = await pg.query<{ id: string }>(CONTACT_CALL, [
+          BOOKING_A, 'Ann', 'Lee', 'rls-adr27-own@example.test', '+61400002704',
+        ])
+        expect(res.rows[0]!.id).toBe(OWN)
+
+        await resetToSetupRole()
+        expect(await contactRow(OWN)).toEqual({
+          first_name: 'Ann', last_name: 'Lee', email: 'rls-adr27-own@example.test', mobile_e164: '+61400002704',
+        })
+      } finally {
+        await pg.query('ROLLBACK')
+      }
+    })
+
+    it('update_booking_contact still rejects a caller with no role (NULL-safe gate)', async () => {
+      await pg.query('BEGIN')
+      try {
+        await impersonate(NO_ROLE_USER)
+        let err: Error | null = null
+        try {
+          await pg.query(CONTACT_CALL, [BOOKING_A, 'A', 'B', 'rls-adr27-norole@example.test', null])
+        } catch (e) {
+          err = e as Error
+        }
+        expect(err?.message ?? '').toMatch(/staff roles/i)
+      } finally {
+        await pg.query('ROLLBACK')
+      }
+    })
+
+    it('a strata save never rewrites a contact residents use — it links the MUD-only row with that email', async () => {
+      await pg.query('BEGIN')
+      try {
+        const fx = await twoProperties()
+        expect(fx, 'fixture missing: no Kwinana area with two non-MUD properties').not.toBeNull()
+        if (!fx) return
+        // The resident-used row is the OLDEST with the email, so the old rule
+        // (oldest row wins) would have rewritten it.
+        await seedContact(SHARED, SHARED_EMAIL, 'Shared', 'Office', '+61400002701', 2)
+        await seedBooking(BOOKING_A, 'RLS-ADR27-A', SHARED, fx.p1, fx.areaId)
+        await seedContact(MUD_ONLY, SHARED_EMAIL, 'Old', 'Strata', '+61400002705')
+        await impersonate(USERS['client-admin'])
+
+        const res = await pg.query<{ r: { contact_id: string } }>(STRATA_CALL, [
+          fx.p2, 'Strata', 'Company', '+61400002706', SHARED_EMAIL,
+        ])
+        expect(res.rows[0]!.r.contact_id).toBe(MUD_ONLY)
+
+        await resetToSetupRole()
+        expect(await contactRow(SHARED)).toEqual({
+          first_name: 'Shared', last_name: 'Office', email: SHARED_EMAIL, mobile_e164: '+61400002701',
+        })
+        expect((await contactRow(MUD_ONLY))?.first_name).toBe('Strata')
+        const linked = await pg.query<{ strata_contact_id: string }>(
+          `SELECT strata_contact_id FROM eligible_properties WHERE id = $1`,
+          [fx.p2],
+        )
+        expect(linked.rows[0]!.strata_contact_id).toBe(MUD_ONLY)
+      } finally {
+        await pg.query('ROLLBACK')
+      }
+    })
+
+    it('a strata save with a new email creates and links a contact; saving the same person again reuses it', async () => {
+      await pg.query('BEGIN')
+      try {
+        const fx = await twoProperties()
+        expect(fx, 'fixture missing: no Kwinana area with two non-MUD properties').not.toBeNull()
+        if (!fx) return
+        await impersonate(USERS['client-admin'])
+        const args = [fx.p2, 'New', 'Strata', '+61400002707', 'rls-adr27-new-strata@example.test']
+
+        const first = await pg.query<{ r: { contact_id: string } }>(STRATA_CALL, args)
+        const again = await pg.query<{ r: { contact_id: string } }>(STRATA_CALL, args)
+        expect(again.rows[0]!.r.contact_id).toBe(first.rows[0]!.r.contact_id)
+
+        await resetToSetupRole()
+        const rows = await pg.query(`SELECT id FROM contacts WHERE email = 'rls-adr27-new-strata@example.test'`)
+        expect(rows.rows.length).toBe(1)
+      } finally {
+        await pg.query('ROLLBACK')
+      }
     })
   })
 

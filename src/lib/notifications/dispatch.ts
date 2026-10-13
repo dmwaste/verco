@@ -37,6 +37,7 @@ import {
   type RenderNpRaisedOptions,
 } from './templates/np-raised'
 import { renderCompletionSurvey } from './templates/completion-survey'
+import { renderCloseoutCorrected } from './templates/closeout-corrected'
 import { renderPaymentReminder } from './templates/payment-reminder'
 import { renderPaymentExpired } from './templates/payment-expired'
 import { sanitizePhotoUrls } from './templates/template-helpers'
@@ -362,6 +363,7 @@ function renderTemplate(
         // template's `serviceLabel` option at this envelope boundary.
         serviceLabel: payload.stream,
         pendingServices: payload.pending_services,
+        replacesEarlierNotice: payload.replaces_earlier_notice,
       }
       return renderNcnRaised(booking, appUrl, opts)
     }
@@ -374,6 +376,7 @@ function renderTemplate(
         // template's `serviceLabel` option at this envelope boundary.
         serviceLabel: payload.stream,
         pendingServices: payload.pending_services,
+        replacesEarlierNotice: payload.replaces_earlier_notice,
       }
       return renderNpRaised(booking, appUrl, opts)
     }
@@ -381,6 +384,9 @@ function renderTemplate(
       return renderCompletionSurvey(booking, appUrl, payload.survey_token)
     case 'collection_reminder':
       return renderCollectionReminder(booking, appUrl)
+    case 'closeout_corrected':
+      // Wire key `stream` carries the booked service label(s), as for notices.
+      return renderCloseoutCorrected(booking, appUrl, { serviceLabel: payload.stream })
   }
 }
 
@@ -396,6 +402,8 @@ function idempotencyRef(payload: NotificationPayload): string | null {
   // booking_updated recurs on one booking (once per edit) — key it by edit_ref
   // so a later edit's send isn't suppressed by an earlier one's idempotency row.
   if (payload.type === 'booking_updated') return payload.edit_ref || null
+  // A booking can be corrected more than once (ADR 0030) — key per correction.
+  if (payload.type === 'closeout_corrected') return payload.correction_id || null
   return null
 }
 
@@ -534,6 +542,7 @@ function renderSmsTemplate(
     case 'ncn_raised':
     case 'np_raised':
     case 'completion_survey':
+    case 'closeout_corrected':
       return null
   }
 }

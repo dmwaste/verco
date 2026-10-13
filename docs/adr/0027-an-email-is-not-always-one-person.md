@@ -12,7 +12,13 @@ Verco still finds a booking's contact by email, but a matching email alone no lo
 - **Same household** (the record is used only at this address and isn't a MUD strata contact): it's updated in place, so a partner on a shared email or a new mobile number still corrects the household's record.
 - **Anything else:** the booking gets a **new** contact record of its own.
 
-The same rule applies to staff editing the contact on a booking (if the contact is used at any other address, or is a strata contact, only this booking moves to the new details) and to saving a MUD's strata contact (a record that residents' bookings use is never rewritten from the MUD page). The Verge Valet booking import reuses a record only for the same person and never edits one. A staff member booking on someone's behalf under their *own* email is not "booking for themselves". Support tickets, staff-created logins and the Kwinana importers still match by email the old way, and are being brought under this rule in #631.
+The same rule applies to staff editing the contact on a booking (if the contact is used at any other address, or is a strata contact, only this booking moves to the new details) and to saving a MUD's strata contact (a record that residents' bookings use is never rewritten from the MUD page). The Verge Valet booking import reuses a record only for the same person and never edits one. A staff member booking on someone's behalf under their *own* email is not "booking for themselves".
+
+Support tickets, staff-created logins and the Kwinana importers follow the same rule (#631, 13/10/2026):
+
+- **A support ticket** about a booking treats that booking's address as the household. A ticket with no booking has no address, so it reuses a record only for the same person, or the signed-in resident's own single record.
+- **A staff-created login** has no address of its own, so it never changes an existing record. It reuses a record only for the same person (same name and mobile); otherwise the new user gets a new record. A record used at one address belongs to that household, and one with no bookings may be someone else's login, so neither is ever renamed. The cost: a resident whose only record is shared with others gets a new record for their login, and their profile follows it.
+- **The Kwinana booking importers**, like the Verge Valet one, reuse a record only for the same person and never edit one.
 
 ## Why
 
