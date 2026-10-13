@@ -11,6 +11,8 @@ import { evaluateQuantityEdit } from '../_shared/quantity-edit-decision.ts'
 import { mapEditErrorToStatus } from '../_shared/edit-error-mapping.ts'
 import { canonicaliseAuMobile, isValidPhone, normalisePhone } from '../_shared/phone.ts'
 import { resolveContact } from '../_shared/contact-match.ts'
+import { isWithinResidentHorizon } from '../_shared/booking-horizon.ts'
+import { awstDateFromUtc } from '../_shared/schedule-transition.ts'
 import { emailMatchPattern } from '../_shared/email.ts'
 import { withSentry } from '../_shared/sentry.ts'
 import type { Database } from '../_shared/database.types.ts'
@@ -232,7 +234,7 @@ serve(withSentry('create-booking', async (req) => {
 
     const { data: collDate, error: collDateError } = await supabaseAnon
       .from('collection_date')
-      .select('id, is_open, collection_area_id')
+      .select('id, date, is_open, collection_area_id')
       .eq('id', collection_date_id)
       .single()
 
@@ -278,6 +280,26 @@ serve(withSentry('create-booking', async (req) => {
 
       if (!keepsClosedHeldDate) {
         return jsonResponse({ error: 'Collection date is no longer open for bookings' }, 400)
+      }
+    }
+
+    // The calendar runs ~12 months ahead for MUD bookings (ADR 0029), but
+    // residents — and staff booking on their behalf through this wizard — keep
+    // the 16-week window. An edit may keep its own held date even if staff
+    // moved it further out.
+    if (!isWithinResidentHorizon(collDate.date, awstDateFromUtc(new Date()))) {
+      let keepsHeldDate = false
+      if (replaces) {
+        const { data: replacedBooking } = await supabaseAnon
+          .from('booking')
+          .select('booking_item(collection_date_id)')
+          .eq('id', replaces)
+          .maybeSingle()
+        keepsHeldDate = ((replacedBooking?.booking_item ?? []) as Array<{ collection_date_id: string }>)
+          .some((bi) => bi.collection_date_id === collection_date_id)
+      }
+      if (!keepsHeldDate) {
+        return jsonResponse({ error: 'That collection date is not open for booking yet' }, 400)
       }
     }
 
