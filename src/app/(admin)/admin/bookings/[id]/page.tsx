@@ -109,7 +109,7 @@ export default async function AdminBookingDetailPage({
   // Exception records + linked service tickets for the detail cards. A booking
   // can carry several notice records (one per stream, even both NCN & NP), so
   // fetch all — not maybeSingle.
-  const [ncnRecords, npRecords, bookingTickets] = await Promise.all([
+  const [ncnRecords, npRecords, bookingTickets, closeout] = await Promise.all([
     supabase
       .from('non_conformance_notice')
       .select('id, reason, status, photos, reported_at, collection_stop:collection_stop_id(stream)')
@@ -125,6 +125,7 @@ export default async function AdminBookingDetailPage({
       .select('id, display_id, subject, status, category, created_at')
       .eq('booking_id', id)
       .order('created_at', { ascending: false }),
+    isContractorStaff(userRole) ? loadCloseout(supabase, id) : Promise.resolve(null),
   ])
 
   const exceptions = [
@@ -149,12 +150,11 @@ export default async function AdminBookingDetailPage({
     }))),
   ].sort((a, b) => (a.reported_at < b.reported_at ? 1 : -1))
 
-  const closeout = isContractorStaff(userRole) ? await loadCloseout(supabase, id) : null
-
   // Fetch resolved audit trail (booking + child records)
   const auditLogs = await resolveAuditLogs(supabase, 'booking', id, {
     includeChildren: [
       { table: 'booking_item', fkColumn: 'booking_id' },
+      { table: 'stop_outcome_correction', fkColumn: 'booking_id' },
       ...(booking.contact_id
         ? [{ table: 'contacts', fkColumn: 'id', fkValue: booking.contact_id }]
         : []),

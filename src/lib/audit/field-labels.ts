@@ -164,6 +164,14 @@ export const FIELD_LABELS: Record<string, string> = {
   mattress_closeout_stream: 'Mattress Count Pass',
   is_mattress: 'Counts as Mattress',
 
+  // Stop outcome correction (office closeout correction, ADR 0030)
+  from_status: 'Outcome Before',
+  to_status: 'Outcome After',
+  withdrawn_notice_id: 'Withdrawn Notice',
+  new_notice_id: 'New Notice',
+  corrected_by: 'Corrected By',
+  corrected_at: 'Corrected At',
+
   // Allocation rules / service rules
   category_id: 'Category',
   max_collections: 'Max Collections',
@@ -203,6 +211,7 @@ export const FK_RESOLVE_MAP: Record<string, { table: string; column: string }> =
   user_id: { table: 'profiles', column: 'display_name' },
   created_by: { table: 'profiles', column: 'display_name' },
   reviewed_by: { table: 'profiles', column: 'display_name' },
+  corrected_by: { table: 'profiles', column: 'display_name' },
   category_id: { table: 'category', column: 'name' },
   sub_client_id: { table: 'sub_client', column: 'name' },
 }

@@ -1,6 +1,7 @@
 'use server'
 
 import { z } from 'zod'
+import * as Sentry from '@sentry/nextjs'
 import { QuantityEditItemSchema } from '@/lib/booking/schemas'
 import { canonicaliseAuMobile, normalisePhone } from '@/lib/phone'
 import { mistypedEmailDomainMessage } from '@/lib/email'
@@ -980,7 +981,16 @@ export async function correctStopOutcome(
       .neq('id', v.stopId)
       .eq('status', 'Pending'),
   ])
-  const stream = stop ? serviceLabelFromSummary(stop.services_summary, stop.stream).label : undefined
+  const label = stop ? serviceLabelFromSummary(stop.services_summary, stop.stream) : null
+  if (!label || label.fromFallback) {
+    // Same loud signal as the crew path: a silently-empty summary would quietly
+    // mislabel (or drop) the resident's Service type line. Booking id only.
+    Sentry.captureMessage('Closeout correction notice fell back from services_summary', {
+      level: 'warning',
+      extra: { booking_id: r.booking_id, stop_id: v.stopId, stop_loaded: !!stop },
+    })
+  }
+  const stream = label?.label
   const pendingServices =
     siblings && siblings.length > 0
       ? pendingServicesLabel(siblings)
