@@ -1740,6 +1740,86 @@ if (!haveDb) {
         await pg.query('ROLLBACK')
       }
     })
+
+    // --- Office closeout correction (ADR 0030, migration 20261013160000) ------
+    // Each case closes STOP_GENERAL as the crew would (privileged setup; the
+    // rollup flips the booking to Completed), pins it to an in-window date,
+    // then acts as `userId`. Everything rolls back.
+    async function withClosedStop<T>(userId: string, run: () => Promise<T>): Promise<T | 'skip'> {
+      await pg.query('BEGIN')
+      try {
+        const fn = await pg.query<{ f: string | null }>(
+          `SELECT to_regprocedure('public.correct_stop_outcome(uuid,stop_status,text,ncn_reason,text,boolean)')::text AS f`,
+        )
+        const date = await pg.query<{ id: string }>(
+          `SELECT cd.id FROM collection_date cd
+             JOIN collection_area ca ON ca.id = cd.collection_area_id
+            WHERE ca.client_id = $1
+              AND cd.date BETWEEN (now() AT TIME ZONE 'Australia/Perth')::date - 6
+                              AND (now() AT TIME ZONE 'Australia/Perth')::date
+            LIMIT 1`,
+          [CLIENT_ID],
+        )
+        if (!fn.rows[0]?.f || !date.rows[0]) return 'skip' // pre-release remote / no recent date
+        await pg.query(
+          `UPDATE collection_stop SET collection_date_id = $2 WHERE id = $1`,
+          [STOP_GENERAL, date.rows[0].id],
+        )
+        await pg.query(
+          `UPDATE collection_stop SET status = 'Completed', completed_at = now() WHERE id = $1`,
+          [STOP_GENERAL],
+        )
+        await pg.query('SET LOCAL ROLE authenticated')
+        await pg.query(`SELECT set_config('request.jwt.claims', $1, true)`, [
+          JSON.stringify({ sub: userId, role: 'authenticated' }),
+        ])
+        return await run()
+      } finally {
+        await pg.query('ROLLBACK')
+      }
+    }
+
+    it('correction: contractor-admin moves Completed → NCN; booking + notice + log follow', async (ctx) => {
+      if (!ready) return ctx.skip()
+      const out = await withClosedStop(USERS['contractor-admin'], async () => {
+        const r = await pg.query<{ r: { booking_status: string; new_notice_id: string } }>(
+          `SELECT correct_stop_outcome($1::uuid, 'Non-conformance', 'RLS suite', 'Building Waste') AS r`,
+          [STOP_GENERAL],
+        )
+        const notice = await pg.query(`SELECT id FROM non_conformance_notice WHERE id = $1 AND status = 'Issued'`, [
+          r.rows[0]!.r.new_notice_id,
+        ])
+        const log = await pg.query(`SELECT id FROM stop_outcome_correction WHERE collection_stop_id = $1`, [STOP_GENERAL])
+        return { status: r.rows[0]!.r.booking_status, notices: notice.rowCount, logs: log.rowCount }
+      })
+      if (out === 'skip') return ctx.skip()
+      expect(out).toEqual({ status: 'Non-conformance', notices: 1, logs: 1 })
+    })
+
+    for (const role of ['contractor-staff', 'client-admin', 'field'] as const) {
+      it(`correction: ${role} is refused`, async (ctx) => {
+        if (!ready) return ctx.skip()
+        const out = await withClosedStop(USERS[role], () =>
+          pg
+            .query(`SELECT correct_stop_outcome($1::uuid, 'Non-conformance', 'RLS suite', 'Building Waste')`, [STOP_GENERAL])
+            .then(() => 'allowed', (e: Error) => e.message),
+        )
+        if (out === 'skip') return ctx.skip()
+        expect(out).toMatch(/Only a contractor admin/)
+      })
+    }
+
+    it('correction: a closed stop stays immutable outside the RPC, even with the flag forged', async (ctx) => {
+      if (!ready) return ctx.skip()
+      const out = await withClosedStop(USERS['contractor-admin'], async () => {
+        await pg.query(`SELECT set_config('verco.closeout_correction', 'on', true)`)
+        return pg
+          .query(`UPDATE booking SET status = 'Non-conformance' WHERE id = $1`, [STOP_BOOKING])
+          .then((r) => `rows=${r.rowCount}`, (e: Error) => e.message)
+      })
+      if (out === 'skip') return ctx.skip()
+      expect(out).toMatch(/Invalid booking status transition/)
+    })
   })
 
   // ---------------------------------------------------------------------------
