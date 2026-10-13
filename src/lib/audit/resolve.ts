@@ -330,6 +330,7 @@ export const TABLE_LABELS: Record<string, string> = {
   strata_user_properties: 'MUD property link',
   contacts: 'Contact',
   eligible_properties: 'Property',
+  stop_outcome_correction: 'Closeout correction',
 }
 
 function generateSummary(
