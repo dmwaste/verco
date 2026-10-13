@@ -198,6 +198,14 @@ export async function resolveFkLabels(
         }
       }
     }
+
+    // Staff whose name lives on their linked contact have a NULL
+    // display_name — fill those from the same resolver the actor column uses,
+    // never replacing a label the direct read found.
+    if (spec.table === 'profiles') {
+      const unresolved = ids.filter((id) => !(id in labelMap))
+      Object.assign(labelMap, await resolveActorNames(supabase, unresolved))
+    }
   }
 
   return labelMap
