@@ -71,6 +71,8 @@ describe('isSharedContact', () => {
   it('leaves residents alone', () => {
     expect(isSharedContact('c', 'resident@gmail.com')).toBe(false)
     expect(isSharedContact('c', null)).toBe(false)
+    expect(isSharedContact('c', 'me@notwmrc.com')).toBe(false)
+    expect(isSharedContact('c', 'me@myverco.au.example.com')).toBe(false)
   })
 })
 

@@ -51,6 +51,7 @@ const TIME_BUDGET_MS = 110_000
 // A send that hangs must fail inside the budget, not ride past the 150 s
 // gateway cut-off — it's counted as failed and the 09:20 tick retries it.
 const SEND_TIMEOUT_MS = 20_000
+const DEGRADED_BACKOFF_MS = 2_000
 // Booking ids per `.in()` lookup — keeps the PostgREST GET URL short.
 const ID_CHUNK = 100
 
@@ -97,6 +98,7 @@ serve(cronHandler('send-collection-reminders', async (_req) => {
     invoked: 0,
     failed: 0,
     rate_limited: 0,
+    degraded: 0,
     remaining: 0,
     skipped_no_config: 0,
     skipped_no_date: 0,
@@ -197,6 +199,14 @@ serve(cronHandler('send-collection-reminders', async (_req) => {
           results.rate_limited++
           await res.body?.cancel()
           return { retryAfterMs: Number(res.headers.get('retry-after')) * 1000 || 60_000 }
+        }
+        // SUPABASE_EDGE_RUNTIME_SERVICE_DEGRADED came back on 16 of the 13/10
+        // 09:00 run's sends — transient, so back off briefly and retry in-run
+        // rather than leave the resident to a later tick.
+        if (res.status === 503) {
+          results.degraded++
+          await res.body?.cancel()
+          return { retryAfterMs: DEGRADED_BACKOFF_MS }
         }
         if (!res.ok) {
           results.failed++

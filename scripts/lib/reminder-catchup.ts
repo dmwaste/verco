@@ -27,9 +27,10 @@ export interface CatchupPlan {
 
 // The WMRC office placeholder row that 270+ migrated residents were folded onto.
 export const SHARED_WMRC_CONTACT_ID = '8220f1bc-7c48-4bd1-ab1c-001d756993a5'
-// Operator / council / strata-manager domains entered as a resident's email —
-// the same substring rule as the 12/10 handover's sizing SQL.
-const SHARED_EMAIL_DOMAIN = /(dmwaste|verco\.au|wmrc|magixstrata)/
+// Operator / council / strata-manager domains entered as a resident's email
+// (matched on whole domain labels, so a resident domain merely containing
+// "wmrc" isn't held back).
+const SHARED_EMAIL_DOMAIN = /(^|\.)(dmwaste\.com\.au|dmwastemanagement\.com\.au|verco\.au|magixstrata\.com\.au)$|(^|\.)wmrc\./
 
 export function isSharedContact(id: string, email: string | null): boolean {
   if (id === SHARED_WMRC_CONTACT_ID) return true

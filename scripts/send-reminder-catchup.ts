@@ -118,7 +118,10 @@ async function main() {
     return
   }
 
-  const result = { ok: 0, skipped: 0, failed: 0 }
+  // send-notification returns the EMAIL channel's result, so an email 'skipped'
+  // can still mean the SMS went out — count accepted calls, then verify per
+  // channel in notification_log.
+  const result = { accepted: 0, failed: 0 }
   const failures: string[] = []
   const queue = [...plan.send]
   const worker = async () => {
@@ -130,12 +133,11 @@ async function main() {
           body: JSON.stringify({ type: 'collection_reminder', booking_id: b.id }),
           signal: AbortSignal.timeout(30_000),
         })
-        const body = (await res.json().catch(() => ({}))) as { ok?: boolean; skipped?: boolean; error?: string }
+        const body = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string }
         if (!res.ok || body.ok === false) {
           result.failed++
           failures.push(`${b.ref}: HTTP ${res.status} ${body.error ?? ''}`.trim())
-        } else if (body.skipped) result.skipped++
-        else result.ok++
+        } else result.accepted++
       } catch (err) {
         result.failed++
         failures.push(`${b.ref}: ${err instanceof Error ? err.message : String(err)}`)
@@ -144,7 +146,7 @@ async function main() {
   }
   await Promise.all(Array.from({ length: CONCURRENCY }, worker))
 
-  console.log(`\nSent: ${result.ok} · skipped: ${result.skipped} · failed: ${result.failed}`)
+  console.log(`\nAccepted by send-notification: ${result.accepted} · failed: ${result.failed} (check notification_log for per-channel delivery)`)
   for (const f of failures) console.log(`  FAILED ${f}`)
   if (result.failed > 0) process.exitCode = 1
 }
