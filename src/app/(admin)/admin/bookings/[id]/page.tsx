@@ -3,6 +3,60 @@ import { createClient } from '@/lib/supabase/server'
 import { resolveAuditLogs } from '@/lib/audit/resolve'
 import { BookingDetailClient } from './booking-detail-client'
 import { buildMudContext } from './mud-context'
+import { isContractorStaff } from '@/lib/auth/roles'
+import { awstDateFromUtc } from '@/lib/booking/schedule-transition'
+import type { CloseoutCorrection, CloseoutStop } from './closeout-card'
+
+type SupabaseServerClient = Awaited<ReturnType<typeof createClient>>
+
+/**
+ * Closeout outcomes per collection pass + the office corrections made to them
+ * (ADR 0030). Contractor tier only: stop_outcome_correction RLS is
+ * contractor-only, and councils see the outcome via the booking status and
+ * the exceptions card.
+ */
+async function loadCloseout(supabase: SupabaseServerClient, bookingId: string) {
+  const [{ data: stops }, { data: corrections }] = await Promise.all([
+    supabase
+      .from('collection_stop')
+      .select('id, stream, status, collection_date:collection_date_id(date)')
+      .eq('booking_id', bookingId)
+      .order('stream'),
+    supabase
+      .from('stop_outcome_correction')
+      .select('id, collection_stop_id, from_status, to_status, reason, corrected_by, corrected_at')
+      .eq('booking_id', bookingId)
+      .order('corrected_at', { ascending: false }),
+  ])
+
+  // Staff names via the DEFINER resolver — a direct profiles embed is
+  // RLS-hidden for other staff (renders as blank/"System").
+  const actorIds = [...new Set((corrections ?? []).map((c) => c.corrected_by))]
+  const { data: names } =
+    actorIds.length > 0
+      ? await supabase.rpc('resolve_actor_names', { p_user_ids: actorIds })
+      : { data: [] }
+  const nameById = new Map((names ?? []).map((n) => [n.user_id, n.name]))
+
+  return {
+    todayAwst: awstDateFromUtc(new Date()),
+    stops: (stops ?? []).flatMap((s): CloseoutStop[] => {
+      const date = (s.collection_date as { date: string } | null)?.date
+      return date ? [{ id: s.id, stream: s.stream, status: s.status, collectionDate: date }] : []
+    }),
+    corrections: (corrections ?? []).map(
+      (c): CloseoutCorrection => ({
+        id: c.id,
+        stopId: c.collection_stop_id,
+        fromStatus: c.from_status,
+        toStatus: c.to_status,
+        reason: c.reason,
+        correctedAt: c.corrected_at,
+        correctedByName: nameById.get(c.corrected_by) ?? 'D&M staff',
+      }),
+    ),
+  }
+}
 
 interface BookingDetailPageProps {
   params: Promise<{ id: string }>
@@ -55,7 +109,7 @@ export default async function AdminBookingDetailPage({
   // Exception records + linked service tickets for the detail cards. A booking
   // can carry several notice records (one per stream, even both NCN & NP), so
   // fetch all — not maybeSingle.
-  const [ncnRecords, npRecords, bookingTickets] = await Promise.all([
+  const [ncnRecords, npRecords, bookingTickets, closeout] = await Promise.all([
     supabase
       .from('non_conformance_notice')
       .select('id, reason, status, photos, reported_at, collection_stop:collection_stop_id(stream)')
@@ -71,6 +125,7 @@ export default async function AdminBookingDetailPage({
       .select('id, display_id, subject, status, category, created_at')
       .eq('booking_id', id)
       .order('created_at', { ascending: false }),
+    isContractorStaff(userRole) ? loadCloseout(supabase, id) : Promise.resolve(null),
   ])
 
   const exceptions = [
@@ -99,6 +154,7 @@ export default async function AdminBookingDetailPage({
   const auditLogs = await resolveAuditLogs(supabase, 'booking', id, {
     includeChildren: [
       { table: 'booking_item', fkColumn: 'booking_id' },
+      { table: 'stop_outcome_correction', fkColumn: 'booking_id' },
       ...(booking.contact_id
         ? [{ table: 'contacts', fkColumn: 'id', fkValue: booking.contact_id }]
         : []),
@@ -113,6 +169,7 @@ export default async function AdminBookingDetailPage({
       userRole={userRole}
       exceptions={exceptions}
       tickets={bookingTickets.data ?? []}
+      closeout={closeout}
     />
   )
 }

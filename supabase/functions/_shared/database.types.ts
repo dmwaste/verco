@@ -2481,6 +2481,77 @@ export type Database = {
           },
         ]
       }
+      stop_outcome_correction: {
+        Row: {
+          booking_id: string
+          client_id: string
+          collection_stop_id: string
+          corrected_at: string
+          corrected_by: string
+          from_status: Database["public"]["Enums"]["stop_status"]
+          id: string
+          new_notice_id: string | null
+          reason: string
+          to_status: Database["public"]["Enums"]["stop_status"]
+          withdrawn_notice_id: string | null
+        }
+        Insert: {
+          booking_id: string
+          client_id: string
+          collection_stop_id: string
+          corrected_at?: string
+          corrected_by: string
+          from_status: Database["public"]["Enums"]["stop_status"]
+          id?: string
+          new_notice_id?: string | null
+          reason: string
+          to_status: Database["public"]["Enums"]["stop_status"]
+          withdrawn_notice_id?: string | null
+        }
+        Update: {
+          booking_id?: string
+          client_id?: string
+          collection_stop_id?: string
+          corrected_at?: string
+          corrected_by?: string
+          from_status?: Database["public"]["Enums"]["stop_status"]
+          id?: string
+          new_notice_id?: string | null
+          reason?: string
+          to_status?: Database["public"]["Enums"]["stop_status"]
+          withdrawn_notice_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "stop_outcome_correction_booking_id_fkey"
+            columns: ["booking_id"]
+            isOneToOne: false
+            referencedRelation: "booking"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "stop_outcome_correction_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "client"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "stop_outcome_correction_collection_stop_id_fkey"
+            columns: ["collection_stop_id"]
+            isOneToOne: false
+            referencedRelation: "collection_stop"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "stop_outcome_correction_corrected_by_fkey"
+            columns: ["corrected_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       strata_user_properties: {
         Row: {
           created_at: string
@@ -2744,6 +2815,17 @@ export type Database = {
       collection_area_is_active: {
         Args: { p_area_id: string }
         Returns: boolean
+      }
+      correct_stop_outcome: {
+        Args: {
+          p_contractor_fault?: boolean
+          p_ncn_reason?: Database["public"]["Enums"]["ncn_reason"]
+          p_reason: string
+          p_resident_notes?: string
+          p_stop_id: string
+          p_to_status: Database["public"]["Enums"]["stop_status"]
+        }
+        Returns: Json
       }
       create_booking_with_capacity_check: {
         Args: {

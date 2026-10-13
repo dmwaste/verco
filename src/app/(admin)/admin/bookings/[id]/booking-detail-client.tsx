@@ -30,6 +30,7 @@ import { AuditTimeline } from '@/components/audit-timeline'
 import { ExceptionsCard, type AdminExceptionRecord } from '@/components/admin/exceptions-card'
 import { BookingTicketsCard, type BookingTicket } from '@/components/admin/booking-tickets-card'
 import type { MudContext } from './mud-context'
+import { CloseoutCard, type CloseoutCorrection, type CloseoutStop } from './closeout-card'
 
 type BookingStatus = Database['public']['Enums']['booking_status']
 type AppRole = Database['public']['Enums']['app_role']
@@ -88,6 +89,8 @@ interface BookingDetailClientProps {
   userRole: AppRole | null
   exceptions: AdminExceptionRecord[]
   tickets: BookingTicket[]
+  /** Contractor tier only (ADR 0030); null for council roles. */
+  closeout?: { stops: CloseoutStop[]; corrections: CloseoutCorrection[]; todayAwst: string } | null
 }
 
 // Pencil icon shared across edit buttons
@@ -107,6 +110,7 @@ export function BookingDetailClient({
   userRole,
   exceptions,
   tickets,
+  closeout,
 }: BookingDetailClientProps) {
   const router = useRouter()
   const listSearchParams = useSearchParams()
@@ -1637,6 +1641,15 @@ export function BookingDetailClient({
 
       {/* Activity — right column */}
       <div className="flex min-w-0 flex-col gap-4">
+        {closeout && (
+          <CloseoutCard
+            stops={closeout.stops}
+            corrections={closeout.corrections}
+            bookingStatus={booking.status}
+            userRole={userRole}
+            todayAwst={closeout.todayAwst}
+          />
+        )}
         <ExceptionsCard records={exceptions} />
         <BookingTicketsCard tickets={tickets} />
         {auditLogs.length > 0 && (
