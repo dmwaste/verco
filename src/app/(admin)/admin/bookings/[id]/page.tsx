@@ -6,6 +6,7 @@ import { buildMudContext } from './mud-context'
 import { isContractorStaff } from '@/lib/auth/roles'
 import { awstDateFromUtc } from '@/lib/booking/schedule-transition'
 import type { CloseoutCorrection, CloseoutStop } from './closeout-card'
+import { summariseNotes } from '@/lib/property-notes/validation'
 
 type SupabaseServerClient = Awaited<ReturnType<typeof createClient>>
 
@@ -109,7 +110,7 @@ export default async function AdminBookingDetailPage({
   // Exception records + linked service tickets for the detail cards. A booking
   // can carry several notice records (one per stream, even both NCN & NP), so
   // fetch all — not maybeSingle.
-  const [ncnRecords, npRecords, bookingTickets, closeout] = await Promise.all([
+  const [ncnRecords, npRecords, bookingTickets, closeout, propertyNotes] = await Promise.all([
     supabase
       .from('non_conformance_notice')
       .select('id, reason, status, photos, reported_at, collection_stop:collection_stop_id(stream)')
@@ -126,6 +127,15 @@ export default async function AdminBookingDetailPage({
       .eq('booking_id', id)
       .order('created_at', { ascending: false }),
     isContractorStaff(userRole) ? loadCloseout(supabase, id) : Promise.resolve(null),
+    // Property notes / permission-to-enter forms on file (ADR 0031) — staff +
+    // tenant scoped by property_note RLS; only the kinds, for the banner.
+    booking.property_id
+      ? supabase
+          .from('property_note')
+          .select('kind')
+          .eq('property_id', booking.property_id)
+          .is('removed_at', null)
+      : Promise.resolve({ data: [] as { kind: string }[], error: null }),
   ])
 
   const exceptions = [
@@ -170,6 +180,11 @@ export default async function AdminBookingDetailPage({
       exceptions={exceptions}
       tickets={bookingTickets.data ?? []}
       closeout={closeout}
+      propertyNotesSummary={
+        propertyNotes.error
+          ? 'Property notes couldn’t be checked'
+          : summariseNotes((propertyNotes.data ?? []).map((n) => n.kind))
+      }
     />
   )
 }
