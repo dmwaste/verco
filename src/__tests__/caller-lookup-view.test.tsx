@@ -55,6 +55,21 @@ describe('CallerLookupView', () => {
     expect(screen.getByRole('link', { name: /new booking/i }).getAttribute('href')).toBe('/book?on_behalf=true')
   })
 
+  // /book on the admin host books under the switcher's council, whatever the
+  // caller's council is, so the link says which one it will use.
+  it('on a miss, names the council a new booking will be made under', () => {
+    render(
+      <CallerLookupView
+        query="+61412345678"
+        candidates={['+61412345678']}
+        result={{ ok: true, data: [] }}
+        newBookingClientName="City of Kwinana"
+      />,
+    )
+
+    expect(screen.getByRole('link', { name: /new booking/i }).textContent).toContain('City of Kwinana')
+  })
+
   it('shows a failed lookup as an error, never as "no contact"', () => {
     render(<CallerLookupView query="+61412345678" candidates={['+61412345678']} result={{ ok: false, error: "Couldn't search contacts: statement timeout" }} />)
 

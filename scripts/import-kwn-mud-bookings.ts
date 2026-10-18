@@ -108,6 +108,19 @@ function n(v: number | undefined): number {
   return typeof v === 'number' && Number.isFinite(v) ? v : 0
 }
 
+/**
+ * Refs of rows collected outside the FY every row is stamped with. Allocations
+ * count against the collection's FY, but some councils let a June booking for
+ * July use the booked FY (Dan, 18/10/2026), so the importer never picks one: it
+ * stops and a person decides.
+ */
+export function refsOutsideFy(
+  rows: { ref: string; date: string | null }[],
+  fy: { start_date: string; end_date: string },
+): string[] {
+  return rows.filter((p) => p.date && (p.date < fy.start_date || p.date > fy.end_date)).map((p) => p.ref)
+}
+
 export function parseRecord(r: AirtableRecord): Parsed {
   const f = r.fields
   const bulk = n(f[F.bulk]), green = n(f[F.green])
@@ -184,7 +197,7 @@ async function main() {
   if (!areas || areas.length !== AREA_CODES.length) throw new Error(`collection_area lookup: wanted ${AREA_CODES.length}, found ${areas?.length ?? 0}`)
   const areaById = new Map(areas.map((a) => [a.id as string, a]))
   const areaIds = areas.map((a) => a.id as string)
-  const { data: fy } = await verco.from('financial_year').select('id, start_date').eq('is_current', true).single()
+  const { data: fy } = await verco.from('financial_year').select('id, start_date, end_date').eq('is_current', true).single()
   if (!fy) throw new Error('no current financial_year')
   if (since < (fy.start_date as string)) throw new Error(`--since ${since} predates the current FY (${fy.start_date}); rows would be stamped with the wrong fy_id`)
 
@@ -194,6 +207,13 @@ async function main() {
   if (all.length > 0 && undated.length === all.length) throw new Error('no Airtable row has a parseable Collection Date — check the lookup field id')
   const inWindow = all.filter((p) => p.date && p.date >= since && (!onlyRefs || onlyRefs.has(p.ref)))
   console.log(`Airtable rows: ${all.length}; no collection date: ${undated.length}; with collection date >= ${since}: ${inWindow.length}`)
+  const outsideFy = refsOutsideFy(inWindow, { start_date: fy.start_date as string, end_date: fy.end_date as string })
+  if (outsideFy.length > 0) {
+    throw new Error(
+      `${outsideFy.length} row(s) are collected outside the current FY (${fy.start_date}–${fy.end_date}) and would be stamped with the wrong fy_id: ${outsideFy.join(', ')}. ` +
+        'Decide their FY (collection FY, or the booked FY for councils that allow it), then exclude them with --refs or import them separately.',
+    )
+  }
 
   // Verco state
   type Prop = {
