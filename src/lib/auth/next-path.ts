@@ -9,8 +9,10 @@ const BASE = 'https://verco.invalid'
  *
  * The value is user-controllable, so it is accepted only when it resolves to a
  * path on the current host. Rejected: absolute and protocol-relative URLs,
- * backslashes (browsers read `\` as `/`), and anything the URL parser resolves
- * off-origin (it silently strips tabs/newlines, so `/\t/evil` becomes `//evil`).
+ * backslashes (browsers read `\` as `/`), anything the URL parser resolves
+ * off-origin (it silently strips tabs/newlines, so `/\t/evil` becomes `//evil`),
+ * and any path that only NORMALISES to `//…` — dot segments collapse, so
+ * `/.//evil` parses same-origin yet comes out as the protocol-relative `//evil`.
  * Returns the parsed path + query + hash, never the raw input.
  */
 export function safeNextPath(raw: unknown): string | null {
@@ -23,7 +25,7 @@ export function safeNextPath(raw: unknown): string | null {
   } catch {
     return null
   }
-  if (url.origin !== BASE) return null
+  if (url.origin !== BASE || url.pathname.startsWith('//')) return null
   return `${url.pathname}${url.search}${url.hash}`
 }
 
