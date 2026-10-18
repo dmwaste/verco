@@ -5,7 +5,12 @@ import { useRouter } from 'next/navigation'
 import { sendOtp } from './actions'
 import { VercoButton } from '@/components/ui/verco-button'
 
-export function EmailEntryForm() {
+interface EmailEntryFormProps {
+  /** Validated page to return to after sign-in (VER-316), carried to /auth/verify. */
+  next: string | null
+}
+
+export function EmailEntryForm({ next }: EmailEntryFormProps) {
   const router = useRouter()
   const [email, setEmail] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -26,6 +31,7 @@ export function EmailEntryForm() {
 
     // Encode email in URL so verify page can display it
     const params = new URLSearchParams({ email })
+    if (next) params.set('next', next)
     router.push(`/auth/verify?${params.toString()}`)
   }
 

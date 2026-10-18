@@ -3,8 +3,12 @@ import { resolveAuthHostContext } from './_host-context'
 import { VercoLogo } from '@/components/branding/verco-logo'
 import { TenantBrandMark } from '@/components/branding/tenant-brand-mark'
 
-export default async function AuthPage() {
-  const { brand } = await resolveAuthHostContext()
+interface AuthPageProps {
+  searchParams: Promise<{ next?: string | string[] }>
+}
+
+export default async function AuthPage({ searchParams }: AuthPageProps) {
+  const { brand, next } = await resolveAuthHostContext((await searchParams).next)
 
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-gray-100 px-4">
@@ -34,7 +38,7 @@ export default async function AuthPage() {
         </div>
 
         {/* Form card */}
-        <EmailEntryForm />
+        <EmailEntryForm next={next} />
 
         {/* Powered by */}
         <div className="flex items-center justify-center gap-1.5 pt-8 text-caption text-gray-300">

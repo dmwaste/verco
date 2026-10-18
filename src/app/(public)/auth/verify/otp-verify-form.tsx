@@ -4,6 +4,7 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { sendOtp } from '../actions'
+import { loginPath } from '@/lib/auth/next-path'
 import { VercoButton } from '@/components/ui/verco-button'
 
 type VerifyState = 'idle' | 'verifying' | 'success' | 'error'
@@ -13,9 +14,11 @@ const RESEND_COOLDOWN_SECONDS = 30
 
 interface OtpVerifyFormProps {
   postLoginPath: string
+  /** Validated return path (VER-316), kept if the user goes back to change email. */
+  next: string | null
 }
 
-export function OtpVerifyForm({ postLoginPath }: OtpVerifyFormProps) {
+export function OtpVerifyForm({ postLoginPath, next }: OtpVerifyFormProps) {
   const router = useRouter()
   const searchParams = useSearchParams()
   const email = searchParams.get('email') ?? ''
@@ -181,7 +184,7 @@ export function OtpVerifyForm({ postLoginPath }: OtpVerifyFormProps) {
       {/* Back link */}
       <button
         type="button"
-        onClick={() => router.push('/auth')}
+        onClick={() => router.push(loginPath(next))}
         className="flex items-center gap-1.5 text-body-sm font-medium text-[#8FA5B8]"
       >
         <svg

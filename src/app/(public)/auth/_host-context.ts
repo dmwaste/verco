@@ -12,6 +12,7 @@
 import { headers } from 'next/headers'
 import { createClient } from '@/lib/supabase/server'
 import { isAdminHostname, isFieldHostname } from '@/lib/proxy/hostnames'
+import { safeNextPath } from '@/lib/auth/next-path'
 
 export interface AuthBrandCopy {
   serviceName: string
@@ -30,23 +31,32 @@ export function postLoginPathForHost(host: string): string {
   return '/dashboard'
 }
 
-export async function resolveAuthHostContext(): Promise<{
+/**
+ * `rawNext` is the `?next=` return path (VER-316). It replaces the host's
+ * default landing only when it is a same-host path; `next` is the validated
+ * value (or null) for the pages to carry forward.
+ */
+export async function resolveAuthHostContext(rawNext?: unknown): Promise<{
   brand: AuthBrandCopy
   postLoginPath: string
+  next: string | null
 }> {
   const headerStore = await headers()
   const host = headerStore.get('host') ?? ''
+  const next = safeNextPath(rawNext)
 
   if (isAdminHostname(host)) {
     return {
       brand: { serviceName: 'Verco Admin', contextLabel: 'Operator sign-in', variant: 'verco', logoUrl: null },
-      postLoginPath: '/admin',
+      postLoginPath: next ?? '/admin',
+      next,
     }
   }
   if (isFieldHostname(host)) {
     return {
       brand: { serviceName: 'Verco Crew', contextLabel: 'Field sign-in', variant: 'verco', logoUrl: null },
-      postLoginPath: '/field',
+      postLoginPath: next ?? '/field',
+      next,
     }
   }
 
@@ -76,5 +86,5 @@ export async function resolveAuthHostContext(): Promise<{
     }
   }
 
-  return { brand, postLoginPath: '/dashboard' }
+  return { brand, postLoginPath: next ?? '/dashboard', next }
 }

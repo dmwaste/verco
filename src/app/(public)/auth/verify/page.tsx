@@ -4,8 +4,12 @@ import { resolveAuthHostContext } from '../_host-context'
 import { VercoLogo } from '@/components/branding/verco-logo'
 import { TenantBrandMark } from '@/components/branding/tenant-brand-mark'
 
-export default async function VerifyPage() {
-  const { brand, postLoginPath } = await resolveAuthHostContext()
+interface VerifyPageProps {
+  searchParams: Promise<{ next?: string | string[] }>
+}
+
+export default async function VerifyPage({ searchParams }: VerifyPageProps) {
+  const { brand, postLoginPath, next } = await resolveAuthHostContext((await searchParams).next)
 
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-gray-100 px-4">
@@ -36,7 +40,7 @@ export default async function VerifyPage() {
 
         {/* OTP form card */}
         <Suspense>
-          <OtpVerifyForm postLoginPath={postLoginPath} />
+          <OtpVerifyForm postLoginPath={postLoginPath} next={next} />
         </Suspense>
 
         {/* Powered by */}
