@@ -561,7 +561,7 @@ export function PropertyDetailClient({
                       >
                         <td className="px-5 py-3">
                           <Link
-                            href={`/admin/service-tickets/${t.id}`}
+                            href={`/admin/service-tickets/${t.display_id}`}
                             className="font-[family-name:var(--font-heading)] text-body-sm font-semibold text-[#293F52] hover:underline"
                           >
                             {t.display_id}

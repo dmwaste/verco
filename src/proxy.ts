@@ -14,6 +14,7 @@ import {
   PROXY_OWNED_REQUEST_HEADERS,
 } from '@/lib/proxy/hostnames'
 import { resolveOnBehalfClient } from '@/lib/proxy/resolve-on-behalf-client'
+import { loginPath } from '@/lib/auth/next-path'
 
 type AppRole = Database['public']['Enums']['app_role']
 
@@ -277,9 +278,13 @@ async function handleContractorHost(
     )
   }
 
-  // Everything else under admin/field requires login + matching role.
+  // Everything else under admin/field requires login + matching role. The
+  // requested page rides along as `next` so an expired session doesn't drop
+  // it (VER-316: the Teams call pop carries the caller's number).
   if (!user) {
-    return NextResponse.redirect(new URL('/auth', request.url))
+    return NextResponse.redirect(
+      new URL(loginPath(`${path}${request.nextUrl.search}`), request.url)
+    )
   }
 
   const { data: userRoles } = await supabase
