@@ -68,6 +68,10 @@ describe('canonicaliseAuMobile — ONE mobile detection for UI hint AND store pa
     ['0412.345.678', '+61412345678'], // would otherwise store national format
     ['0061412345678', '+61412345678'],
     ['61412345678', '+61412345678'],
+    // Live leaks found 18/10/2026 — stored raw, so the resident got no SMS:
+    ['412 345 678', '+61412345678'], // typed without the 0 (~45 residents)
+    ['+44 412 345 678', '+61412345678'], // browser autofill, UK region (no UK number is +44 4 + 8)
+    ['+1 0412 345 678', '+61412345678'], // browser autofill, US region (no NANP number starts 0)
   ])('canonicalises %s → %s', (input, expected) => {
     expect(canonicaliseAuMobile(input)).toBe(expected)
   })
@@ -76,6 +80,10 @@ describe('canonicaliseAuMobile — ONE mobile detection for UI hint AND store pa
     ['(08) 9123 4567', 'landline'],
     ['1300 975 707', '1300'],
     ['abc', 'junk'],
+    ['+44 7700 900 123', 'genuine UK mobile'],
+    ['+41 44 123 45 67', 'genuine Swiss (Zurich) number'],
+    ['4123 4567', 'mobile a digit short'],
+    ['4123 456 789', 'mobile a digit long'],
   ])('returns null for %s (%s) so the store path falls back to normalisePhone', (input) => {
     expect(canonicaliseAuMobile(input)).toBeNull()
   })
