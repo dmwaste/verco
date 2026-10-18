@@ -3,6 +3,7 @@ import {
   buildHealthAlert,
   DEFAULT_THRESHOLDS,
   evaluateChannelHealth,
+  findMissingConfirmations,
   findUnhealthyChannels,
   type ChannelWindowStats,
   type HealthThresholds,
@@ -137,5 +138,66 @@ describe('buildHealthAlert', () => {
     const msg = buildHealthAlert(unhealthy, thresholds)
     expect(msg).toContain('SMS')
     expect(msg).toContain('last success: never')
+  })
+})
+
+// ── Missing-confirmation backstop (18/10/2026) ──────────────────────────────
+// A gateway 502 on the create-booking → send-notification hop left two live
+// bookings (MOS-JOZCOM, KWN-2-I2NA9E) with no booking_created row of ANY
+// status. The channel checks above can't see that — nothing was attempted —
+// so the watchdog also diffs live bookings against the log.
+
+describe('findMissingConfirmations', () => {
+  const candidates = [
+    { id: 'b1', ref: 'MOS-JOZCOM' },
+    { id: 'b2', ref: 'KWN-2-I2NA9E' },
+    { id: 'b3', ref: 'SOP-9CMXF4' },
+  ]
+
+  it('returns the refs of bookings with no booking_created row of any status', () => {
+    const missing = findMissingConfirmations(candidates, new Set(['b3']))
+    expect(missing).toEqual(['MOS-JOZCOM', 'KWN-2-I2NA9E'])
+  })
+
+  it('counts a failed row as an attempt — only a total absence is a miss', () => {
+    // The caller writes a `failed` row when every retry is exhausted; that is
+    // visible + retryable from admin, so it must not double-alert here.
+    const missing = findMissingConfirmations(candidates, new Set(['b1', 'b2', 'b3']))
+    expect(missing).toEqual([])
+  })
+
+  it('is empty when there are no candidates', () => {
+    expect(findMissingConfirmations([], new Set())).toEqual([])
+  })
+})
+
+describe('buildHealthAlert — missing confirmations', () => {
+  it('still returns null when channels are healthy and nothing is missing', () => {
+    expect(buildHealthAlert([], thresholds, [])).toBeNull()
+  })
+
+  it('alerts on missing confirmations alone, naming the booking refs', () => {
+    const msg = buildHealthAlert([], thresholds, ['MOS-JOZCOM', 'KWN-2-I2NA9E'])
+    expect(msg).toContain('Verco notification health alert')
+    expect(msg).toContain('2 live booking(s) with no booking_created notification')
+    expect(msg).toContain('MOS-JOZCOM')
+    expect(msg).toContain('KWN-2-I2NA9E')
+  })
+
+  it('appends the missing-confirmation section after the channel section', () => {
+    const unhealthy = findUnhealthyChannels(
+      [stats({ channel: 'sms', sent: 0, failed: 4, lastSuccessAt: null })],
+      thresholds,
+    )
+    const msg = buildHealthAlert(unhealthy, thresholds, ['MOS-JOZCOM'])!
+    expect(msg.indexOf('SMS')).toBeLessThan(msg.indexOf('MOS-JOZCOM'))
+  })
+
+  it('caps the listed refs and says how many more there are', () => {
+    const refs = Array.from({ length: 12 }, (_, i) => `REF-${i + 1}`)
+    const msg = buildHealthAlert([], thresholds, refs)!
+    expect(msg).toContain('REF-10')
+    expect(msg).not.toContain('REF-11')
+    expect(msg).toContain('+2 more')
   })
 })
