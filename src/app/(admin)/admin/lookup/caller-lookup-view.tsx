@@ -2,6 +2,7 @@ import Link from 'next/link'
 import { format } from 'date-fns'
 import { PageHeader } from '@/components/admin/page-header'
 import { Th } from '@/components/admin/th'
+import { Input } from '@/components/admin/form'
 import { StatusBadge } from '@/components/status-badge'
 import { awstDateFromUtc } from '@/lib/booking/schedule-transition'
 import type { Result } from '@/lib/result'
@@ -15,12 +16,14 @@ interface CallerLookupViewProps {
   candidates: string[]
   /** null when there was nothing to look up. */
   result: Result<CallerMatch[]> | null
+  /** The switcher's council. /book books under it, whatever the caller's council is. */
+  newBookingClientName?: string | null
 }
 
 const dayLabel = (yyyymmdd: string) => format(new Date(`${yyyymmdd}T00:00:00`), 'EEE d MMM yyyy')
 
 /** Caller lookup (VER-316) — read-only; the page the Teams call pop opens. */
-export function CallerLookupView({ query, candidates, result }: CallerLookupViewProps) {
+export function CallerLookupView({ query, candidates, result, newBookingClientName }: CallerLookupViewProps) {
   const display = candidates[0] ? formatPhoneDisplay(candidates[0]) : null
   const matches = result?.ok ? result.data : []
 
@@ -63,7 +66,7 @@ export function CallerLookupView({ query, candidates, result }: CallerLookupView
                 href="/book?on_behalf=true"
                 className="inline-flex items-center gap-1.5 rounded-lg bg-[#293F52] px-4 py-2 text-body-sm font-semibold text-white"
               >
-                + New Booking
+                + New Booking{newBookingClientName ? ` — ${newBookingClientName}` : ''}
               </Link>
             </div>
           </div>
@@ -191,13 +194,13 @@ function SearchForm({
 }) {
   return (
     <form role="search" aria-label={label} action={action} className="flex items-center gap-2">
-      <input
+      <Input
         type="search"
         name={name}
         defaultValue={defaultValue}
         placeholder={placeholder}
         aria-label={label}
-        className="w-60 rounded-lg border-[1.5px] border-gray-100 bg-white px-3 py-[7px] text-body-sm text-gray-900 outline-none placeholder:text-gray-300 focus:border-[#293F52]"
+        className="w-60"
       />
       <button
         type="submit"

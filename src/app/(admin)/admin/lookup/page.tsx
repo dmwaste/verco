@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { STAFF_ROLES } from '@/lib/auth/roles'
+import { getCurrentAdminClient } from '@/lib/admin/current-client'
 import { CallerLookupView } from './caller-lookup-view'
 import { loadCallerMatches } from './caller-matches'
 import { phoneLookupCandidates } from './phone-lookup'
@@ -27,6 +28,15 @@ export default async function CallerLookupPage({ searchParams }: CallerLookupPag
   const query = (Array.isArray(phone) ? phone[0] : phone) ?? ''
   const candidates = phoneLookupCandidates(query)
   const result = candidates.length > 0 ? await loadCallerMatches(supabase, candidates) : null
+  // Only a miss offers "+ New Booking", and only it needs the switcher's council.
+  const newBookingClient = result?.ok && result.data.length === 0 ? await getCurrentAdminClient() : null
 
-  return <CallerLookupView query={query} candidates={candidates} result={result} />
+  return (
+    <CallerLookupView
+      query={query}
+      candidates={candidates}
+      result={result}
+      newBookingClientName={newBookingClient?.name ?? null}
+    />
+  )
 }

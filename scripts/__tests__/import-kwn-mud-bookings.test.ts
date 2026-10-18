@@ -1,5 +1,30 @@
 import { describe, it, expect } from 'vitest'
-import { parseRecord, capacityImpact, F, type AirtableRecord } from '../import-kwn-mud-bookings'
+import { parseRecord, capacityImpact, refsOutsideFy, F, type AirtableRecord } from '../import-kwn-mud-bookings'
+
+// Every row is stamped with the current FY, so a row collected outside it must
+// stop the run for a person to decide: allocations count against the FY of the
+// collection, but some councils let a June booking for July use the booked FY
+// (Dan, 18/10/2026). The importer can't tell which applies.
+describe('refsOutsideFy', () => {
+  const fy27 = { start_date: '2026-07-01', end_date: '2027-06-30' }
+
+  it('passes rows collected inside the current FY', () => {
+    expect(refsOutsideFy([{ ref: 'A', date: '2026-11-02' }, { ref: 'B', date: '2027-06-30' }], fy27)).toEqual([])
+  })
+
+  it('names rows collected after the FY ends or before it starts', () => {
+    expect(
+      refsOutsideFy(
+        [{ ref: 'A', date: '2027-07-05' }, { ref: 'B', date: '2026-11-02' }, { ref: 'C', date: '2026-06-15' }],
+        fy27,
+      ),
+    ).toEqual(['A', 'C'])
+  })
+
+  it('ignores undated rows (reported separately)', () => {
+    expect(refsOutsideFy([{ ref: 'A', date: null }], fy27)).toEqual([])
+  })
+})
 
 const BULK = '756932e9-f6da-40e4-bda3-cd63feba0bd0'
 const GREEN = '888fd3d5-64db-43f8-b849-f375796d8610'
