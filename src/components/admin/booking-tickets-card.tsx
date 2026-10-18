@@ -22,7 +22,7 @@ export function BookingTicketsCard({ tickets }: { tickets: BookingTicket[] }) {
         {tickets.map((t) => (
           <Link
             key={t.id}
-            href={`/admin/service-tickets/${t.id}`}
+            href={`/admin/service-tickets/${t.display_id}`}
             className="flex items-center justify-between gap-3 rounded-lg border border-gray-100 p-3 hover:bg-gray-50"
           >
             <div className="min-w-0">
