@@ -4,8 +4,11 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.100.0'
 import type { Database } from '../_shared/database.types.ts'
 import {
   buildHealthAlert,
+  findMissingConfirmations,
   findUnhealthyChannels,
+  MISSING_CONFIRMATION_SETTLE_MINUTES,
   type ChannelWindowStats,
+  type ConfirmationCandidate,
   type HealthThresholds,
   type NotificationChannel,
 } from '../_shared/notification-health.ts'
@@ -17,6 +20,14 @@ import {
  * channel (email, sms) it tallies sends in a trailing window and, if the
  * channel looks unhealthy (failure spike, or fully dark with failures), posts
  * an alert to an ops webhook.
+ *
+ * It also runs the missing-confirmation backstop (18/10/2026): every live
+ * resident/admin booking created in the lookback window and older than
+ * MISSING_CONFIRMATION_SETTLE_MINUTES must have a `booking_created` row of
+ * ANY status. Two live bookings (MOS-JOZCOM, KWN-2-I2NA9E) had none — the
+ * EF→EF hop 502'd before a worker ran, so the channel tallies above saw
+ * nothing. The invoke helper now retries + records a `failed` row; this
+ * catches whatever it can't (create-booking crashing between RPC and notify).
  *
  * ## Why this exists
  *
@@ -45,6 +56,11 @@ import {
  *                                  absent → the check still runs + logs, no POST
  *   NOTIF_HEALTH_WINDOW_HOURS      default 3
  *   NOTIF_HEALTH_FAILURE_THRESHOLD default 3
+ *   NOTIF_HEALTH_MISSING_CONFIRMATION_HOURS
+ *                                  default 24 — lookback for the backstop. A
+ *                                  miss is re-alerted every run until it ages
+ *                                  out or a booking_created row (any status)
+ *                                  exists, i.e. until someone resends it.
  *
  * ## Return contract
  *
@@ -140,6 +156,59 @@ serve(cronHandler('notification-health-check', async (_req) => {
     })
 
     const unhealthy = findUnhealthyChannels(stats, thresholds)
+
+    // 3b. Missing-confirmation backstop. Candidates = live bookings a resident
+    //     or staff member created (created_via resident/admin — rebooks from a
+    //     notice default to 'system' and send booking_updated instead; imports
+    //     are 'legacy'), not Illegal Dumping (never notified, #264), inside the
+    //     lookback and past the settle period. Diffed in JS against the
+    //     booking_created rows in the same window — any status counts as
+    //     attempted. Both reads paginate: PostgREST caps a page at 1,000 rows
+    //     and a silent truncation here would hide the exact bookings we want.
+    const missingLookbackHours = intFromEnv('NOTIF_HEALTH_MISSING_CONFIRMATION_HOURS', 24)
+    const lookbackIso = new Date(Date.now() - missingLookbackHours * 60 * 60 * 1000).toISOString()
+    const settledIso = new Date(
+      Date.now() - MISSING_CONFIRMATION_SETTLE_MINUTES * 60 * 1000,
+    ).toISOString()
+
+    const candidates = await fetchAllPages<ConfirmationCandidate>((from, to) =>
+      supabase
+        .from('booking')
+        .select('id, ref')
+        .in('created_via', ['resident', 'admin'])
+        .in('status', ['Submitted', 'Confirmed', 'Scheduled'])
+        .neq('type', 'Illegal Dumping')
+        .gte('created_at', lookbackIso)
+        .lte('created_at', settledIso)
+        .order('created_at', { ascending: true })
+        .order('id', { ascending: true })
+        .range(from, to),
+    )
+    if (!candidates.ok) {
+      console.error('notification-health-check: candidate bookings query failed', candidates.error)
+      return jsonResponse({ ok: false, error: candidates.error }, 500)
+    }
+
+    const notified = await fetchAllPages<{ booking_id: string | null }>((from, to) =>
+      supabase
+        .from('notification_log')
+        .select('booking_id')
+        .eq('notification_type', 'booking_created')
+        .gte('created_at', lookbackIso)
+        .order('created_at', { ascending: true })
+        .order('id', { ascending: true })
+        .range(from, to),
+    )
+    if (!notified.ok) {
+      console.error('notification-health-check: booking_created log query failed', notified.error)
+      return jsonResponse({ ok: false, error: notified.error }, 500)
+    }
+
+    const notifiedIds = new Set(
+      notified.rows.map((r) => r.booking_id).filter((id): id is string => typeof id === 'string'),
+    )
+    const missingConfirmations = findMissingConfirmations(candidates.rows, notifiedIds)
+
     const summary = {
       window_hours: thresholds.windowHours,
       failure_threshold: thresholds.failureThreshold,
@@ -149,22 +218,27 @@ serve(cronHandler('notification-health-check', async (_req) => {
         failed: s.failed,
       })),
       unhealthy: unhealthy.map((u) => u.channel),
+      missing_confirmation_lookback_hours: missingLookbackHours,
+      missing_confirmation_candidates: candidates.rows.length,
+      missing_confirmations: missingConfirmations.length,
+      missing_confirmation_refs: missingConfirmations,
     }
     console.log('notification-health-check:', JSON.stringify(summary))
 
-    if (unhealthy.length === 0) {
+    if (unhealthy.length === 0 && missingConfirmations.length === 0) {
       return jsonResponse({ ok: true, alerted: false, ...summary }, 200)
     }
 
-    // 4. Unhealthy → alert via the channel-independent webhook.
-    const message = buildHealthAlert(unhealthy, thresholds)!
+    // 4. Unhealthy and/or missing confirmations → alert via the
+    //    channel-independent webhook.
+    const message = buildHealthAlert(unhealthy, thresholds, missingConfirmations)!
     const webhookUrl = Deno.env.get('OPS_ALERT_WEBHOOK_URL')
 
     if (!webhookUrl) {
       // No sink configured. Still surface loudly in the EF logs and report
       // back — but this is a config gap, not a per-run failure, so 200.
       console.warn(
-        'notification-health-check: unhealthy channel(s) detected but ' +
+        'notification-health-check: unhealthy channel(s) / missing confirmation(s) detected but ' +
           'OPS_ALERT_WEBHOOK_URL is not set — no alert sent.\n' +
           message,
       )
@@ -199,7 +273,10 @@ serve(cronHandler('notification-health-check', async (_req) => {
       )
     }
 
-    console.log('notification-health-check: alert sent for', summary.unhealthy)
+    console.log(
+      'notification-health-check: alert sent for',
+      JSON.stringify({ unhealthy: summary.unhealthy, missing_confirmations: summary.missing_confirmations }),
+    )
     return jsonResponse({ ok: true, alerted: true, ...summary }, 200)
   } catch (err) {
     const error = err instanceof Error ? err.message : String(err)
@@ -207,6 +284,28 @@ serve(cronHandler('notification-health-check', async (_req) => {
     return jsonResponse({ ok: false, error: `uncaught: ${error}` }, 500)
   }
 }))
+
+/** PostgREST page size on prod (max-rows); a longer result is silently cut. */
+const PAGE_SIZE = 1000
+
+type PageResult<T> = { data: T[] | null; error: { message: string } | null }
+
+/**
+ * Drain an ordered query page by page. The caller's query MUST carry a stable
+ * `.order()` (created_at, id) — `.range()` without one skips and duplicates
+ * rows across pages (memory supabase-range-pagination-order.md).
+ */
+async function fetchAllPages<T>(
+  page: (from: number, to: number) => PromiseLike<PageResult<T>>,
+): Promise<{ ok: true; rows: T[] } | { ok: false; error: string }> {
+  const rows: T[] = []
+  for (let from = 0; ; from += PAGE_SIZE) {
+    const { data, error } = await page(from, from + PAGE_SIZE - 1)
+    if (error) return { ok: false, error: error.message }
+    rows.push(...(data ?? []))
+    if (!data || data.length < PAGE_SIZE) return { ok: true, rows }
+  }
+}
 
 function jsonResponse(body: unknown, status: number): Response {
   return new Response(JSON.stringify(body), {

@@ -10,46 +10,14 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.100.0'
 import Stripe from 'https://esm.sh/stripe@17.7.0?target=deno'
 import type { Database } from './database.types.ts'
+import { captureWarning } from './sentry.ts'
+import { invokeSendNotification } from './invoke-send-notification.ts'
 
 // Typed against Verco's Database so the reconciliation writes (booking_payment,
 // booking) are checked against the real schema — this is the money path. Derived
 // from createClient<Database> (not SupabaseClient<Database> directly) so it is
 // definitionally identical to what every caller passes in.
 type SupabaseServiceClient = ReturnType<typeof createClient<Database>>
-
-/**
- * Fire-and-forget POST to the send-notification Edge Function. Failures are
- * logged but never thrown — by the time we notify, the booking status has
- * already flipped and must not be reverted.
- */
-async function invokeSendNotification(payload: {
-  type: 'booking_created'
-  booking_id: string
-}): Promise<void> {
-  try {
-    const url = `${Deno.env.get('SUPABASE_URL') ?? ''}/functions/v1/send-notification`
-    const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${serviceKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(payload),
-    })
-    if (!res.ok) {
-      const body = await res.text().catch(() => '(no body)')
-      console.error(
-        `[notifications] send-notification returned ${res.status} for ${payload.type} ${payload.booking_id}: ${body}`
-      )
-    }
-  } catch (err) {
-    console.error(
-      `[notifications] Failed to invoke send-notification for ${payload.type} ${payload.booking_id}:`,
-      err instanceof Error ? err.message : String(err)
-    )
-  }
-}
 
 /**
  * Reconciles a paid (or webhook-delivered) Checkout session onto the booking.
@@ -140,11 +108,14 @@ export async function reconcileCheckoutSession(
   )
 
   // Fire booking_created on the paid path — only when THIS call confirmed the
-  // booking. Mirrors the free-path call in create-booking/index.ts.
+  // booking. Same shared helper as the free path in create-booking/index.ts:
+  // awaited (a bare `void` could be frozen mid-flight once the webhook
+  // returns), retries gateway 5xx, records a `failed` row on final failure,
+  // never throws — the status flip above must not be reverted.
   if (didTransition) {
-    void invokeSendNotification({
-      type: 'booking_created',
-      booking_id: payment.booking_id,
-    })
+    await invokeSendNotification(
+      { type: 'booking_created', booking_id: payment.booking_id },
+      { supabase, captureWarning },
+    )
   }
 }

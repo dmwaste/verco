@@ -202,7 +202,7 @@ const KWN_AREA_NAME_MAP: Record<string, string> = {
 
 // ─── Shared fetch helper ──────────────────────────────────────────────────────
 
-async function airtableFetch<T>(url: string, token: string): Promise<T> {
+export async function airtableFetch<T>(url: string, token: string): Promise<T> {
   let attempt = 0
   while (true) {
     const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } })
