@@ -51,8 +51,12 @@ export function isValidPhone(s: string): boolean {
 /**
  * Canonicalise an AU mobile written in any common form to E.164 (+614…), or null
  * when the input is not an AU mobile. Extends normaliseAuMobile with the written
- * variants it doesn't cover: dot separators, the 00 international prefix, and the
- * redundant national zero after the country code ("+61 0412 …").
+ * variants it doesn't cover: dot separators, the 00 international prefix, the
+ * redundant national zero after the country code ("+61 0412 …"), the leading 0
+ * left off ("412 …"), and a saved 04 mobile that browser autofill re-prefixed for
+ * a UK or US region ("+44 412 …", "+1 0412 …" — neither is a valid UK/NANP
+ * number, so they can only be an AU mobile; 18/10/2026 these were stored raw and
+ * the residents got no SMS).
  * MUST stay the single mobile-detection used by BOTH the UI hint (isSmsCapable)
  * and every store transform — two brains here is how VER-315 happened.
  */
@@ -60,6 +64,8 @@ export function canonicaliseAuMobile(s: string): string | null {
   const v = normalisePhone(s.trim())
     .replace(/^00/, '+') // 0061… → +61…
     .replace(/^(\+?61)0(?=4)/, '$1') // +61 0412… → +61412…
+    .replace(/^(?:\+44(?=4\d{8}$)|\+1(?=04\d{8}$))/, '') // autofill: +44 412… / +1 0412… → 412… / 0412…
+    .replace(/^4\d{8}$/, '0$&') // 412… → 0412…
   return normaliseAuMobile(v)
 }
 
