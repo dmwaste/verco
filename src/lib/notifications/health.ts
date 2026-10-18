@@ -127,28 +127,81 @@ export function findUnhealthyChannels(
 export function buildHealthAlert(
   unhealthy: ChannelHealth[],
   thresholds: HealthThresholds = DEFAULT_THRESHOLDS,
+  missingConfirmationRefs: string[] = [],
 ): string | null {
-  if (unhealthy.length === 0) return null
+  if (unhealthy.length === 0 && missingConfirmationRefs.length === 0) return null
 
-  const lines: string[] = [
-    '🚨 Verco notification health alert',
-    `${unhealthy.length} channel(s) failing over the last ${thresholds.windowHours}h:`,
-    '',
-  ]
+  const lines: string[] = ['🚨 Verco notification health alert']
 
-  for (const ch of unhealthy) {
-    lines.push(`• ${ch.channel.toUpperCase()} — ${ch.reasons.join('; ')}`)
+  if (unhealthy.length > 0) {
+    lines.push(`${unhealthy.length} channel(s) failing over the last ${thresholds.windowHours}h:`, '')
+    for (const ch of unhealthy) {
+      lines.push(`• ${ch.channel.toUpperCase()} — ${ch.reasons.join('; ')}`)
+      lines.push(
+        `    last success: ${ch.lastSuccessAt ?? 'never'}` +
+          (ch.lastErrorMessage ? ` · last error: ${ch.lastErrorMessage}` : ''),
+      )
+    }
+    lines.push('')
     lines.push(
-      `    last success: ${ch.lastSuccessAt ?? 'never'}` +
-        (ch.lastErrorMessage ? ` · last error: ${ch.lastErrorMessage}` : ''),
+      'Check the send-notification Edge Function secrets ' +
+        '(SENDGRID_API_KEY for email, Twilio config for SMS) and the SendGrid/Twilio dashboards.',
     )
   }
 
-  lines.push('')
-  lines.push(
-    'Check the send-notification Edge Function secrets ' +
-      '(SENDGRID_API_KEY for email, Twilio config for SMS) and the SendGrid/Twilio dashboards.',
-  )
+  if (missingConfirmationRefs.length > 0) {
+    if (unhealthy.length > 0) lines.push('')
+    const shown = missingConfirmationRefs.slice(0, MISSING_CONFIRMATION_REFS_SHOWN)
+    const more = missingConfirmationRefs.length - shown.length
+    lines.push(
+      `${missingConfirmationRefs.length} live booking(s) with no booking_created notification ` +
+        '(no log row of any status — the send was never attempted):',
+    )
+    lines.push(`• ${shown.join(', ')}${more > 0 ? ` +${more} more` : ''}`)
+    lines.push(
+      'Confirm the resident was told (resend via the dispatcher) and check the ' +
+        'create-booking / stripe-webhook logs for the create → notify hop.',
+    )
+  }
 
   return lines.join('\n')
+}
+
+// ── Missing-confirmation backstop (18/10/2026) ──────────────────────────────
+//
+// The channel checks above only see ATTEMPTED sends. When the EF→EF hop from
+// create-booking (or checkout-reconcile) to send-notification fails before a
+// worker runs, nothing is attempted and nothing is logged — MOS-JOZCOM and
+// KWN-2-I2NA9E sat Confirmed with no confirmation and no trace. The invoke
+// helper now retries + writes a `failed` row on final failure; this is the
+// backstop for anything it can't catch (e.g. create-booking crashing between
+// the RPC and the notify call).
+
+/** Max booking refs listed in the alert before "+N more". */
+export const MISSING_CONFIRMATION_REFS_SHOWN = 10
+
+/**
+ * Minutes a booking must be old before a missing row counts — gives the
+ * awaited send (3 attempts × ≤10 s + 2 s backoff) and any queued retry time to
+ * land before the watchdog looks.
+ */
+export const MISSING_CONFIRMATION_SETTLE_MINUTES = 15
+
+/** A live booking the watchdog expects a booking_created row for. */
+export interface ConfirmationCandidate {
+  id: string
+  ref: string
+}
+
+/**
+ * Refs of candidate bookings that have NO booking_created notification_log
+ * row of any status. A `failed` row counts as attempted — it is already
+ * visible + retryable on /admin/notifications and must not double-alert here.
+ * Preserves candidate order (caller orders oldest-first).
+ */
+export function findMissingConfirmations(
+  candidates: ConfirmationCandidate[],
+  notifiedBookingIds: ReadonlySet<string>,
+): string[] {
+  return candidates.filter((b) => !notifiedBookingIds.has(b.id)).map((b) => b.ref)
 }
