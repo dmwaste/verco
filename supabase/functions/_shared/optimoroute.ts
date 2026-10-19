@@ -44,12 +44,17 @@ export interface OrOrderInput {
   notes?: string
   /** Resident email — OR stores it on the order (enables OR customer notifications). */
   email?: string
+  /**
+   * create_or_update_orders location fields only. That call can't geocode, and
+   * its schema rejects create_order-only flags (acceptPartialMatch,
+   * acceptMultipleResults) — one bad key fails the whole request (19/10/2026).
+   * Build it with orderLocation (_shared/stops.ts).
+   */
   location: {
     address?: string
     locationName?: string
     latitude?: number
     longitude?: number
-    acceptPartialMatch?: boolean
   }
 }
 

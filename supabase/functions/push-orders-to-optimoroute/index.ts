@@ -13,6 +13,7 @@ import {
   partitionPushResults,
   planStopChanges,
   shouldCancelOrphanStop,
+  splitPushableStops,
   STOP_DURATION_MINUTES,
   STREAM_PRIORITY,
   stopItemKey,
@@ -512,7 +513,11 @@ serve(cronHandler('push-orders-to-optimoroute', async (_req) => {
       // createOrUpdateOrders propagates to the top-level catch (500 + failed
       // sync_log row) with prior batches already stamped.
       for (const batch of chunk(stops, OR_BULK_LIMIT)) {
-        const orders: OrOrderInput[] = batch.map((stop) => ({
+        // A stop with no map pin can't be pushed (the bulk call can't geocode)
+        // and must not ride in the request: it fails on its own so it can't
+        // sink every other stop in the batch (19/10/2026, KWN-4-1MGKF0).
+        const { pushable, unpinned } = splitPushableStops(batch)
+        const orders: OrOrderInput[] = pushable.map(({ stop, location }) => ({
           orderNo: stop.external_order_ref,
           date: stop.collection_date.date,
           duration: STOP_DURATION_MINUTES,
@@ -525,23 +530,15 @@ serve(cronHandler('push-orders-to-optimoroute', async (_req) => {
             typeLineByBooking.get(stop.booking_id) ?? null,
           ),
           email: emailByBooking.get(stop.booking_id),
-          location:
-            stop.latitude !== null && stop.longitude !== null
-              ? {
-                  latitude: Number(stop.latitude),
-                  longitude: Number(stop.longitude),
-                  locationName: stop.address ?? undefined,
-                }
-              : {
-                  address: stop.address ?? undefined,
-                  acceptPartialMatch: true,
-                },
+          location,
         }))
 
-        const { okIds, failures } = partitionPushResults(
-          batch,
+        const pushed = partitionPushResults(
+          pushable.map((p) => p.stop),
           await createOrUpdateOrders(apiKey, orders),
         )
+        const okIds = pushed.okIds
+        const failures = [...unpinned, ...pushed.failures]
 
         if (okIds.length > 0) {
           // external_deleted_at reset: if the hourly sweep deleted this orderNo
