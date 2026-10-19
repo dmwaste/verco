@@ -29,18 +29,18 @@ beforeEach(() => {
 })
 
 /**
- * Regression (13 cronin way anketel, added 15/10/2026): Add Property fired a background
+ * Regression (a hand-added Kwinana property, 15/10/2026): Add Property fired a background
  * "geocode the whole queue" loop instead of geocoding the row it just made, and
  * never said when Google's match was refused. The property sat with no map pin
- * until its booking (KWN-4-1MGKF0) stalled the OptimoRoute push on 19/10.
+ * until its booking stalled the OptimoRoute push on 19/10.
  */
 describe('AddPropertyPanel', () => {
   it('geocodes exactly the new property and says it is pinned', async () => {
     h.invokeEf.mockResolvedValue({ ok: true, data: { total: 1, processed: 1, failed: 0 } })
-    addProperty('13 Cronin Way, Anketell WA 6167')
+    addProperty('7 Fixture Way, Anketell WA 6167')
 
     expect(await screen.findByText(/pinned on the map/)).toBeInTheDocument()
-    expect(h.createProperty).toHaveBeenCalledWith({ collection_area_id: 'a3', address: '13 Cronin Way, Anketell WA 6167' })
+    expect(h.createProperty).toHaveBeenCalledWith({ collection_area_id: 'a3', address: '7 Fixture Way, Anketell WA 6167' })
     expect(h.invokeEf).toHaveBeenCalledTimes(1)
     expect(h.invokeEf).toHaveBeenCalledWith(expect.anything(), 'geocode-properties', { property_ids: ['new-id'] })
     expect(h.onAdded).toHaveBeenCalled()
@@ -64,13 +64,13 @@ describe('AddPropertyPanel', () => {
         processed: 0,
         failed: 0,
         rejected: 1,
-        rejected_samples: [{ id: 'new-id', address: '13 cronin way anketel', google: '13 Cronin Wy, Anketell WA 6167, Australia', reason: 'locality' }],
+        rejected_samples: [{ id: 'new-id', address: '7 fixture way anketel', google: '7 Fixture Wy, Anketell WA 6167, Australia', reason: 'locality' }],
       },
     })
-    addProperty('13 cronin way anketel')
+    addProperty('7 fixture way anketel')
 
     expect(await screen.findByText(/no map pin/i)).toBeInTheDocument()
-    expect(screen.getByText(/13 Cronin Wy, Anketell WA 6167, Australia/)).toBeInTheDocument()
+    expect(screen.getByText(/7 Fixture Wy, Anketell WA 6167, Australia/)).toBeInTheDocument()
     expect(screen.getByText(/crews’ routes/)).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /Fix the address/ })).toHaveAttribute('href', '/admin/properties/new-id')
   })

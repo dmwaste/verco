@@ -610,7 +610,7 @@ describe('orderLocation — the location sent on the bulk OR push', () => {
   })
 
   it('returns null for a stop with no pin — the bulk call cannot geocode an address', () => {
-    expect(orderLocation({ address: '13 cronin way anketel', latitude: null, longitude: null })).toBeNull()
+    expect(orderLocation({ address: '7 fixture way anketel', latitude: null, longitude: null })).toBeNull()
     expect(orderLocation({ address: 'x', latitude: -32.27, longitude: null })).toBeNull()
     expect(orderLocation({ address: 'x', latitude: null, longitude: 115.82 })).toBeNull()
   })
@@ -669,12 +669,12 @@ describe('orderLocation → createOrUpdateOrders wire payload', () => {
 
     await createOrUpdateOrders('k3y', [
       {
-        orderNo: 'KWN-4-1MGKF0-B',
+        orderNo: 'KWN-4-TEST01-B',
         date: '2026-10-22',
         duration: STOP_DURATION_MINUTES,
         priority: STREAM_PRIORITY.general,
         notes: 'Bulk x1',
-        location: orderLocation({ address: '13 Cronin Way', latitude: -32.21, longitude: 115.85 })!,
+        location: orderLocation({ address: '7 Fixture Way', latitude: -32.21, longitude: 115.85 })!,
       },
     ])
 
@@ -684,14 +684,14 @@ describe('orderLocation → createOrUpdateOrders wire payload', () => {
       orders: [
         {
           operation: 'SYNC',
-          orderNo: 'KWN-4-1MGKF0-B',
+          orderNo: 'KWN-4-TEST01-B',
           type: 'P',
           date: '2026-10-22',
           duration: STOP_DURATION_MINUTES,
           priority: STREAM_PRIORITY.general,
           vehicleFeatures: [],
           notes: 'Bulk x1',
-          location: { latitude: -32.21, longitude: 115.85, locationName: '13 Cronin Way' },
+          location: { latitude: -32.21, longitude: 115.85, locationName: '7 Fixture Way' },
         },
       ],
     })

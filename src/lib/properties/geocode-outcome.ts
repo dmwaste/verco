@@ -8,9 +8,9 @@ import { invokeEfWithUserToken } from '@/lib/supabase/invoke-ef-client'
  * bulk push can't geocode — #673). Google's answer is often refused on purpose
  * (`verifyGeocodeResult`: wrong suburb, interstate, suburb-only), and staff
  * must be told when that happens. Before this, Add Property started a queue-wide
- * loop, never looked up its own row, and hid the refusal: 13 cronin way anketel
- * sat unpinned for four days until its booking stalled the OptimoRoute push
- * on 19/10.
+ * loop, never looked up its own row, and hid the refusal: a hand-added Kwinana
+ * property sat unpinned for four days until its booking stalled the OptimoRoute
+ * push on 19/10.
  */
 
 /** The parts of a geocode-properties response the admin UI reads. */

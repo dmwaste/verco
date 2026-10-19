@@ -19,7 +19,7 @@ describe('propertyGeocodeOutcome — one property geocoded by id', () => {
     expect(propertyGeocodeOutcome('p1', ok({ total: 1, processed: 1, failed: 0 }))).toEqual({ kind: 'pinned' })
   })
 
-  // 13 cronin way anketel (KWN-4-1MGKF0, 15/10/2026): Google's answer was refused
+  // A hand-added Kwinana property (15/10/2026): Google's answer was refused
   // and nothing was written. The admin must be told, with what Google matched.
   it('rejected carries what Google matched and why', () => {
     const res = ok({
