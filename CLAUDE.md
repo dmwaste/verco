@@ -302,7 +302,7 @@ pnpm test  |  pnpm test:coverage  |  pnpm test:e2e       # Vitest + Playwright
 pnpm build  |  pnpm start                                # production build
 pnpm supabase migration new <name>                       # new migration
 pnpm supabase db push                                    # push migrations
-pnpm supabase functions deploy <name> --no-verify-jwt    # deploy EF
+pnpm supabase functions deploy <name> --no-verify-jwt --use-api   # deploy EF (--use-api: server-side bundle, no Docker pull)
 pnpm supabase gen types typescript --project-id tfddjmplcizfirxqhotv > src/lib/supabase/types.ts
 # After type gen, strip any CLI warnings the command appends to the file, then
 # regenerate the Deno-importable copy the Edge Functions consume:
