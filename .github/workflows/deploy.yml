@@ -32,6 +32,9 @@ jobs:
   docker:
     name: Build & push image
     needs: ci
+    # Production deploys only ever ship main — a manual run on any other
+    # branch builds CI and stops here.
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -108,6 +111,9 @@ jobs:
   migrations:
     name: Apply Supabase migrations
     needs: ci
+    # Production deploys only ever ship main — a manual run on any other
+    # branch builds CI and stops here.
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     env:
       SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
@@ -164,6 +170,9 @@ jobs:
   edge-functions:
     name: Deploy Edge Functions
     needs: [ci, migrations]
+    # Production deploys only ever ship main — a manual run on any other
+    # branch builds CI and stops here.
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     env:
       SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
@@ -257,6 +266,9 @@ jobs:
   coolify:
     name: Trigger Coolify & verify
     needs: [docker, edge-functions]
+    # Production deploys only ever ship main — a manual run on any other
+    # branch builds CI and stops here.
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
       - name: Trigger Coolify webhook

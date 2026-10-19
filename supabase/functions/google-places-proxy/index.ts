@@ -1,4 +1,5 @@
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts'
+import { googleFetch } from '../_shared/google-fetch.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -40,7 +41,7 @@ serve(async (req) => {
       url.searchParams.set('key', apiKey)
       url.searchParams.set('result_type', 'street_address|route')
 
-      const res = await fetch(url.toString())
+      const res = await googleFetch(url, 'Reverse Geocoding')
       const data = await res.json()
 
       const address = data.results?.[0]?.formatted_address ?? null
@@ -70,7 +71,7 @@ serve(async (req) => {
       url.searchParams.set('place_id', placeId)
       url.searchParams.set('key', apiKey)
 
-      const res = await fetch(url.toString())
+      const res = await googleFetch(url, 'Geocoding')
       const data = await res.json()
 
       if (data.status !== 'OK' && data.status !== 'ZERO_RESULTS') {
@@ -139,7 +140,7 @@ serve(async (req) => {
       url.searchParams.set('radius', String(STATE_BIAS[stateKey].radius))
     }
 
-    const res = await fetch(url.toString())
+    const res = await googleFetch(url, 'Places Autocomplete')
     const data = await res.json()
 
     if (data.status !== 'OK' && data.status !== 'ZERO_RESULTS') {

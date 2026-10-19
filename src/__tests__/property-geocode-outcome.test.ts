@@ -19,7 +19,7 @@ describe('propertyGeocodeOutcome — one property geocoded by id', () => {
     expect(propertyGeocodeOutcome('p1', ok({ total: 1, processed: 1, failed: 0 }))).toEqual({ kind: 'pinned' })
   })
 
-  // 13 cronin way anketel (KWN-4-1MGKF0, 15/10/2026): Google's answer was refused
+  // A hand-added Kwinana property (15/10/2026): Google's answer was refused
   // and nothing was written. The admin must be told, with what Google matched.
   it('rejected carries what Google matched and why', () => {
     const res = ok({
@@ -94,6 +94,26 @@ describe('geocodeProperty', () => {
   it('a network error is a failed lookup, not a thrown promise', async () => {
     h.invokeEf.mockRejectedValue(new TypeError('Failed to fetch'))
     expect(await geocodeProperty({} as never, 'p1')).toEqual({ kind: 'failed', error: 'Failed to fetch' })
+  })
+
+  it('stops waiting after 20 seconds instead of spinning until the EF gives up', async () => {
+    vi.useFakeTimers()
+    try {
+      h.invokeEf.mockReturnValue(new Promise(() => {}))
+      const pending = geocodeProperty({} as never, 'p1')
+      await vi.advanceTimersByTimeAsync(19_999)
+      let settled = false
+      void pending.then(() => { settled = true })
+      await Promise.resolve()
+      expect(settled).toBe(false)
+      await vi.advanceTimersByTimeAsync(1)
+      expect(await pending).toEqual({
+        kind: 'failed',
+        error: expect.stringContaining('took more than 20 seconds'),
+      })
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
 

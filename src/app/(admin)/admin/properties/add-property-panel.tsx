@@ -26,7 +26,7 @@ type Step = 'idle' | 'adding' | 'pinning'
  * answer. A property with no pin can't go into the crews' OptimoRoute routes,
  * so staff are told on the spot when Google's match is refused or the lookup
  * fails. The panel used to start a background loop over the whole queue that
- * never reported the refusal (13 cronin way anketel, 15/10/2026).
+ * never reported the refusal (a hand-added Kwinana property, 15/10/2026).
  */
 export function AddPropertyPanel({ areas, onAdded }: AddPropertyPanelProps) {
   const supabase = createClient()

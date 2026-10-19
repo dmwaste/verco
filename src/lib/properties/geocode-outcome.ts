@@ -8,9 +8,9 @@ import { invokeEfWithUserToken } from '@/lib/supabase/invoke-ef-client'
  * bulk push can't geocode — #673). Google's answer is often refused on purpose
  * (`verifyGeocodeResult`: wrong suburb, interstate, suburb-only), and staff
  * must be told when that happens. Before this, Add Property started a queue-wide
- * loop, never looked up its own row, and hid the refusal: 13 cronin way anketel
- * sat unpinned for four days until its booking stalled the OptimoRoute push
- * on 19/10.
+ * loop, never looked up its own row, and hid the refusal: a hand-added Kwinana
+ * property sat unpinned for four days until its booking stalled the OptimoRoute
+ * push on 19/10.
  */
 
 /** The parts of a geocode-properties response the admin UI reads. */
@@ -79,20 +79,42 @@ export function propertyGeocodeOutcome(
 }
 
 /**
+ * How long staff wait for one pin. The EF's own ceiling is ~150s; past this the
+ * property is already saved, so stop the spinner and say so.
+ */
+export const GEOCODE_WAIT_MS = 20_000
+
+/**
  * Looks up one property's pin and waits for the answer. Never throws: a
- * network error is a failed lookup like any other.
+ * network error or a lookup slower than GEOCODE_WAIT_MS is a failed lookup like
+ * any other.
  */
 export async function geocodeProperty(
   supabase: Parameters<typeof invokeEfWithUserToken>[0],
   propertyId: string,
 ): Promise<PropertyGeocodeOutcome> {
   let res: Result<GeocodeEfResponse>
+  let timer: ReturnType<typeof setTimeout> | undefined
   try {
-    res = await invokeEfWithUserToken<GeocodeEfResponse>(supabase, 'geocode-properties', {
-      property_ids: [propertyId],
-    })
+    res = await Promise.race([
+      invokeEfWithUserToken<GeocodeEfResponse>(supabase, 'geocode-properties', {
+        property_ids: [propertyId],
+      }),
+      new Promise<Result<GeocodeEfResponse>>((resolve) => {
+        timer = setTimeout(
+          () =>
+            resolve({
+              ok: false,
+              error: `it took more than ${GEOCODE_WAIT_MS / 1000} seconds and may still finish; refresh to check`,
+            }),
+          GEOCODE_WAIT_MS,
+        )
+      }),
+    ])
   } catch (err) {
     res = { ok: false, error: err instanceof Error ? err.message : String(err) }
+  } finally {
+    clearTimeout(timer)
   }
   return propertyGeocodeOutcome(propertyId, res)
 }

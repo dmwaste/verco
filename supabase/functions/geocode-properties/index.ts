@@ -9,6 +9,7 @@ import {
   stripPremisePrefix,
   verifyGeocodeResult,
 } from '../_shared/geocode-verify.ts'
+import { googleFetch } from '../_shared/google-fetch.ts'
 
 type RequestBody = {
   // Restrict to these property ids (admin address edit re-geocode, #502).
@@ -225,7 +226,7 @@ serve(withSentry('geocode-properties', async (req) => {
             `country:AU|administrative_area:${SERVICE_STATE}`
           )
 
-          const geoRes = await fetch(geoUrl.toString())
+          const geoRes = await googleFetch(geoUrl, 'Geocoding')
           const geoData = await geoRes.json()
           if (geoData.status !== 'OK' || !geoData.results?.[0]) {
             return {
@@ -297,7 +298,7 @@ serve(withSentry('geocode-properties', async (req) => {
             acUrl.searchParams.set('input', address)
             acUrl.searchParams.set('key', apiKey)
             acUrl.searchParams.set('components', 'country:au')
-            const acRes = await fetch(acUrl.toString())
+            const acRes = await googleFetch(acUrl, 'Places Autocomplete')
             const acData = await acRes.json()
             autocompleteStatus = acData.status ?? 'UNKNOWN'
             autocompletePlaceId = acData.predictions?.[0]?.place_id ?? null
@@ -346,10 +347,12 @@ serve(withSentry('geocode-properties', async (req) => {
             autocompleteStatus,
           }
         } catch (err) {
+          // Backstop for throws outside googleFetch (e.g. reading the reply):
+          // this string reaches staff screens and Sentry, never the key.
           return {
             id: prop.id,
             success: false,
-            error: err instanceof Error ? err.message : String(err),
+            error: (err instanceof Error ? err.message : String(err)).replaceAll(apiKey, '[redacted]'),
           }
         }
       })
