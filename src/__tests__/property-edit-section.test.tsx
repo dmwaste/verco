@@ -96,6 +96,31 @@ describe('PropertyEditSection (#502)', () => {
     expect(screen.getByText(/postcode/)).toBeInTheDocument()
   })
 
+  // 4 Faba Place, Wellard WA 6170 / 3 Ejarup Cl, Beaconsfield WA 6162 already
+  // carry suburb + postcode: Google only knows the suburb, not the street. "Add
+  // the suburb and postcode" sent the office round in circles.
+  it('suburb-only match: says Google could not find the street instead of asking for a postcode', async () => {
+    h.updateAddress.mockResolvedValue({ ok: true, data: { property_id: 'p1', changed: true } })
+    h.invokeEf.mockResolvedValue({
+      ok: true,
+      data: {
+        processed: 0,
+        failed: 0,
+        rejected: 1,
+        rejected_samples: [
+          { id: 'p1', address: '4 Faba Place, Wellard WA 6170', google: 'Wellard WA 6170, Australia', reason: 'granularity' },
+        ],
+      },
+    })
+    render(<PropertyEditSection property={property} areas={areas} bookingStatuses={[]} role="client-admin" />)
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
+    fireEvent.change(screen.getByLabelText('Address'), { target: { value: '4 Faba Place, Wellard WA 6170' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    expect(await screen.findByText(/could only find "Wellard WA 6170, Australia"/)).toBeInTheDocument()
+    expect(screen.queryByText(/postcode/)).not.toBeInTheDocument()
+  })
+
   it('contractor moving area (no live bookings) calls moveEligiblePropertyArea', async () => {
     h.moveArea.mockResolvedValue({ ok: true, data: { property_id: 'p1' } })
     render(<PropertyEditSection property={property} areas={areas} bookingStatuses={['Completed']} role="contractor-staff" />)

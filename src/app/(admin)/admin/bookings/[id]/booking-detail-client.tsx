@@ -20,6 +20,7 @@ import { LOCATION_OPTIONS, MAX_SERVICE_QTY, STAFF_LOCATION_OPTION, type Location
 import { buildQuantityEditItems } from '@/lib/booking/quantity-edit-payload'
 import { canEditCollectionDetails, canEditIdDetails, canEditMudAllocations } from '@/lib/booking/collection-details-edit'
 import { isContractorStaff } from '@/lib/auth/roles'
+import { NON_TERMINAL_BOOKING_STATUSES } from '@/lib/properties/edit-rules'
 import { confirmBooking, cancelBooking, updateContact, updateCollectionDetails, updateIdDetails, updateMudAllocations, updateNotes, updateBookingQuantities } from './actions'
 import { effectiveCapacity, indexPoolDates } from '@/lib/capacity/effective-capacity'
 import { capacityBlocksMove, remainingByCategory, unitsByCategory } from '@/lib/booking/collection-details-edit'
@@ -77,7 +78,7 @@ interface Booking {
   id_waste_types: string[]
   id_volume: string | null
   collection_area: { name: string; code: string }
-  eligible_properties: { formatted_address: string | null; address: string } | null
+  eligible_properties: { formatted_address: string | null; address: string; has_geocode?: boolean } | null
   contact: { first_name: string; last_name: string; full_name: string; mobile_e164: string | null; email: string } | null
   booking_item: BookingItem[]
 }
@@ -206,7 +207,11 @@ export function BookingDetailClient({
   const [allocationResult, setAllocationResult] = useState<string | null>(null)
 
   const area = booking.collection_area as { name: string; code: string }
-  const property = booking.eligible_properties as { formatted_address: string | null; address: string } | null
+  const property = booking.eligible_properties as { formatted_address: string | null; address: string; has_geocode?: boolean } | null
+  // The push to OptimoRoute can't geocode, so an un-pinned property's stops
+  // are held back from the crews' routes (#673). Say so while it can be fixed.
+  const propertyHasNoPin =
+    !!booking.property_id && property?.has_geocode === false && NON_TERMINAL_BOOKING_STATUSES.includes(booking.status)
   const contact = booking.contact as { first_name: string; last_name: string; full_name: string; mobile_e164: string | null; email: string } | null
   const isId = booking.type === 'Illegal Dumping'
   const isMud = booking.type === 'MUD' && mudContext !== null && mudContext !== undefined
@@ -829,6 +834,18 @@ export function BookingDetailClient({
       )}
       <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-3">
       <div className="flex min-w-0 flex-col gap-4 lg:col-span-2">
+
+      {propertyHasNoPin && (
+        <div role="alert" className="flex items-center justify-between gap-3 rounded-xl bg-status-warn-bg px-5 py-3 text-body-sm text-status-warn">
+          <span>
+            <span className="font-semibold">This property has no map pin.</span> Its collection can’t go into the
+            crews’ routes until the address is fixed.
+          </span>
+          <Link href={`/admin/properties/${booking.property_id}`} className="shrink-0 text-xs font-medium hover:underline">
+            Fix the address &rarr;
+          </Link>
+        </div>
+      )}
 
       {/* Property notes / permission-to-enter form on file (ADR 0031) */}
       {propertyNotesSummary && booking.property_id && (

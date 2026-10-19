@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { invokeEfWithUserToken } from '@/lib/supabase/invoke-ef-client'
 import { canMoveArea, moveAreaMessage } from '@/lib/properties/edit-rules'
+import { rejectionExplanation } from '@/lib/properties/geocode-outcome'
 import type { Database } from '@/lib/supabase/types'
 
 type AppRole = Database['public']['Enums']['app_role']
@@ -79,11 +80,7 @@ export function PropertyEditSection({ property, areas, bookingStatuses, role }: 
             // would send a crew to the wrong place — "12 Smith St Perth" came
             // back as Beaconsfield. Tell the admin what Google matched so they
             // can disambiguate the address (postcode is the reliable cue).
-            setNotice(
-              `Address saved, but not geocoded: Google matched it to "${rejection.google}" ` +
-                `(${rejection.reason === 'locality' ? 'a different suburb' : rejection.reason === 'state' ? 'interstate' : 'not a street-level result'}), ` +
-                'so that location was not applied. Add the suburb and postcode to the address and save again.'
-            )
+            setNotice(`Address saved, but not geocoded: ${rejectionExplanation(rejection.google, rejection.reason)}`)
           } else if (!geo.ok || (geo.data.failed ?? 0) > 0) {
             setNotice('Address saved. Geocoding did not complete — use Geocode on the properties list to retry.')
           }
