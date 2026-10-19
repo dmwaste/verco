@@ -105,7 +105,7 @@ export async function geocodeProperty(
           () =>
             resolve({
               ok: false,
-              error: `the map lookup took more than ${GEOCODE_WAIT_MS / 1000} seconds. It may still finish: refresh the page to check, or use Geocode All`,
+              error: `it took more than ${GEOCODE_WAIT_MS / 1000} seconds and may still finish; refresh to check`,
             }),
           GEOCODE_WAIT_MS,
         )

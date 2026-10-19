@@ -347,10 +347,12 @@ serve(withSentry('geocode-properties', async (req) => {
             autocompleteStatus,
           }
         } catch (err) {
+          // Backstop for throws outside googleFetch (e.g. reading the reply):
+          // this string reaches staff screens and Sentry, never the key.
           return {
             id: prop.id,
             success: false,
-            error: err instanceof Error ? err.message : String(err),
+            error: (err instanceof Error ? err.message : String(err)).replaceAll(apiKey, '[redacted]'),
           }
         }
       })
