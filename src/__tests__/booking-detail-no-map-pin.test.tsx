@@ -44,7 +44,7 @@ function makeBooking(overrides: Partial<Booking> = {}): Booking {
     id_waste_types: [],
     id_volume: null,
     collection_area: { name: 'Kwinana 4', code: 'KWN-4' },
-    eligible_properties: { formatted_address: null, address: '13 cronin way anketel', has_geocode: false },
+    eligible_properties: { formatted_address: null, address: '13 cronin way anketel', latitude: null, longitude: null },
     contact: null,
     booking_item: [],
     ...overrides,
@@ -68,9 +68,9 @@ function renderDetail(booking: Booking) {
 }
 
 /**
- * KWN-4-1MGKF0 (22/10/2026) was booked on a property with no map pin. Nothing
- * on the booking said so; the push to OptimoRoute was the first place it
- * surfaced, three days out. Staff looking at the booking must see it.
+ * KWN-4-1MGKF0 (collection 22/10/2026) was booked on a property with no map
+ * pin. Nothing on the booking said so; the OptimoRoute push was the first place
+ * it surfaced, three days out (19/10). Staff looking at the booking must see it.
  */
 describe('admin booking detail: property with no map pin', () => {
   it('warns on an upcoming booking and links to the property to fix it', () => {
@@ -81,8 +81,15 @@ describe('admin booking detail: property with no map pin', () => {
 
   it('stays quiet when the property is pinned', () => {
     renderDetail(makeBooking({
-      eligible_properties: { formatted_address: '13 Cronin Wy, Anketell WA 6167, Australia', address: '13 Cronin Way, Anketell', has_geocode: true },
+      eligible_properties: { formatted_address: '13 Cronin Wy, Anketell WA 6167, Australia', address: '13 Cronin Way, Anketell', latitude: -32.2138173, longitude: 115.8581154 },
     }))
+    expect(screen.queryByText(/no map pin/i)).not.toBeInTheDocument()
+  })
+
+  // The push falls back to the booking's own pin when the property has none
+  // (stopLocation, legacy Airtable imports): that stop IS routable.
+  it('stays quiet when the booking carries its own pin', () => {
+    renderDetail(makeBooking({ latitude: -31.9227826, longitude: 115.8565803 }))
     expect(screen.queryByText(/no map pin/i)).not.toBeInTheDocument()
   })
 

@@ -81,7 +81,7 @@ export default async function AdminBookingDetailPage({
        property_id, collection_area_id, contact_id, client_id,
        latitude, longitude, geo_address, photos, id_waste_types, id_volume,
        collection_area!inner(name, code),
-       eligible_properties:property_id(formatted_address, address, has_geocode),
+       eligible_properties:property_id(formatted_address, address, latitude, longitude),
        contact:contact_id(first_name, last_name, full_name, mobile_e164, email),
        booking_item(
          id, service_id, collection_date_id, no_services, actual_services, is_extra, unit_price_cents, updated_at,

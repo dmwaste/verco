@@ -1,5 +1,10 @@
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+
+const h = vi.hoisted(() => ({ invokeEf: vi.fn() }))
+vi.mock('@/lib/supabase/invoke-ef-client', () => ({ invokeEfWithUserToken: h.invokeEf }))
+
 import {
+  geocodeProperty,
   propertyGeocodeOutcome,
   rejectionExplanation,
   runGeocodeQueue,
@@ -34,10 +39,10 @@ describe('propertyGeocodeOutcome — one property geocoded by id', () => {
   // The EF answers HTTP 500 when any row failed, so the summary arrives as the
   // error body. Read it rather than show raw JSON.
   it('failed reads the per-row error out of the EF 500 body', () => {
-    const body = JSON.stringify({ total: 1, processed: 0, failed: 1, errors: [{ id: 'p1', error: 'Geocode: ZERO_RESULTS' }] })
+    const body = JSON.stringify({ total: 1, processed: 0, failed: 1, errors: [{ id: 'p1', error: 'Geocode: OVER_QUERY_LIMIT' }] })
     expect(propertyGeocodeOutcome('p1', { ok: false, error: body })).toEqual({
       kind: 'failed',
-      error: 'Geocode: ZERO_RESULTS',
+      error: 'Geocode: OVER_QUERY_LIMIT',
     })
   })
 
@@ -52,8 +57,43 @@ describe('propertyGeocodeOutcome — one property geocoded by id', () => {
     })
   })
 
+  // A snapped row got coordinates (the nearest lot Google knows) and has_geocode
+  // = true, so it IS routable.
+  it('pinned when the row snapped to a neighbouring lot', () => {
+    expect(propertyGeocodeOutcome('p1', ok({ total: 1, processed: 1, snapped: 1, failed: 0 }))).toEqual({ kind: 'pinned' })
+  })
+
+  // ZERO_RESULTS is Google's answer, not a hiccup: retrying can't help, the
+  // address has to change.
+  it('Google finding nothing at all is an address to fix, not a lookup to retry', () => {
+    const body = JSON.stringify({ total: 1, processed: 0, failed: 1, errors: [{ id: 'p1', error: 'Geocode: ZERO_RESULTS' }] })
+    expect(propertyGeocodeOutcome('p1', { ok: false, error: body })).toEqual({
+      kind: 'rejected',
+      google: null,
+      reason: 'not-found',
+    })
+  })
+
   it('failed when the EF never saw the row (nothing to geocode)', () => {
-    expect(propertyGeocodeOutcome('p1', ok({ total: 0, processed: 0, failed: 0 })).kind).toBe('failed')
+    expect(propertyGeocodeOutcome('p1', ok({ total: 0, processed: 0, failed: 0 }))).toEqual({
+      kind: 'failed',
+      error: 'nothing was looked up',
+    })
+  })
+})
+
+describe('geocodeProperty', () => {
+  beforeEach(() => { h.invokeEf.mockReset() })
+
+  it('geocodes exactly that property', async () => {
+    h.invokeEf.mockResolvedValue(ok({ total: 1, processed: 1, failed: 0 }))
+    expect(await geocodeProperty({} as never, 'p1')).toEqual({ kind: 'pinned' })
+    expect(h.invokeEf).toHaveBeenCalledWith(expect.anything(), 'geocode-properties', { property_ids: ['p1'] })
+  })
+
+  it('a network error is a failed lookup, not a thrown promise', async () => {
+    h.invokeEf.mockRejectedValue(new TypeError('Failed to fetch'))
+    expect(await geocodeProperty({} as never, 'p1')).toEqual({ kind: 'failed', error: 'Failed to fetch' })
   })
 })
 
@@ -72,6 +112,12 @@ describe('rejectionExplanation', () => {
     expect(text).toMatch(/could only find/)
     expect(text).toMatch(/street/)
     expect(text).not.toMatch(/postcode/)
+  })
+
+  it('nothing found at all', () => {
+    const text = rejectionExplanation(null, 'not-found')
+    expect(text).toMatch(/couldn’t find this address/)
+    expect(text).not.toMatch(/"null"/)
   })
 
   it('interstate', () => {

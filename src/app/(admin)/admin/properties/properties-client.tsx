@@ -231,13 +231,14 @@ export function PropertiesClient({ clientId, isContractorAdmin, canManageAllocat
             ? `, ${rejected} rejected (Google matched a different suburb or couldn’t find the street — open the property and correct its address)`
             : '')
       )
-      void queryClient.invalidateQueries({ queryKey: ['admin-properties'] })
-      void queryClient.invalidateQueries({ queryKey: ['ungeocoded-count'] })
     } catch (err) {
       console.error('[geocode-properties] unexpected error:', err)
       setGeocodeResult('Geocoding failed')
     } finally {
       setIsGeocoding(false)
+      // Earlier chunks may have written pins even when a later call failed.
+      void queryClient.invalidateQueries({ queryKey: ['admin-properties'] })
+      void queryClient.invalidateQueries({ queryKey: ['ungeocoded-count'] })
     }
   }
 

@@ -29,10 +29,10 @@ beforeEach(() => {
 })
 
 /**
- * Regression (KWN-4-1MGKF0, 15/10/2026): Add Property fired a background
+ * Regression (13 cronin way anketel, added 15/10/2026): Add Property fired a background
  * "geocode the whole queue" loop instead of geocoding the row it just made, and
- * never said when Google's match was refused. "13 cronin way anketel" sat with
- * no map pin until its booking stalled the OptimoRoute push four days later.
+ * never said when Google's match was refused. The property sat with no map pin
+ * until its booking (KWN-4-1MGKF0) stalled the OptimoRoute push on 19/10.
  */
 describe('AddPropertyPanel', () => {
   it('geocodes exactly the new property and says it is pinned', async () => {
@@ -82,6 +82,27 @@ describe('AddPropertyPanel', () => {
     expect(await screen.findByText(/no map pin/i)).toBeInTheDocument()
     expect(screen.getByText(/Google Places API key not configured/)).toBeInTheDocument()
     expect(screen.getByText(/Geocode All/)).toBeInTheDocument()
+  })
+
+  it('Google finding nothing says to fix the address, not to retry', async () => {
+    h.invokeEf.mockResolvedValue({
+      ok: false,
+      error: JSON.stringify({ total: 1, processed: 0, failed: 1, errors: [{ id: 'new-id', error: 'Geocode: ZERO_RESULTS' }] }),
+    })
+    addProperty('4 Fabba Plce, Welard')
+
+    expect(await screen.findByText(/no map pin/i)).toBeInTheDocument()
+    expect(screen.getByText(/couldn’t find this address/)).toBeInTheDocument()
+    expect(screen.queryByText(/Geocode All/)).not.toBeInTheDocument()
+  })
+
+  it('a create call that throws shows an error instead of failing silently', async () => {
+    h.createProperty.mockRejectedValue(new TypeError('Failed to fetch'))
+    addProperty('4 Faba Place, Wellard WA 6170')
+
+    expect(await screen.findByText(/Couldn’t add the property/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Add' })).toBeEnabled()
+    expect(h.invokeEf).not.toHaveBeenCalled()
   })
 
   it('shows the create error and never calls the geocoder', async () => {

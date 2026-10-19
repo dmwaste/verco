@@ -121,6 +121,32 @@ describe('PropertyEditSection (#502)', () => {
     expect(screen.queryByText(/postcode/)).not.toBeInTheDocument()
   })
 
+  it('a geocoder error shows the real reason and still closes the editor (the address is saved)', async () => {
+    h.updateAddress.mockResolvedValue({ ok: true, data: { property_id: 'p1', changed: true } })
+    h.invokeEf.mockResolvedValue({
+      ok: false,
+      error: JSON.stringify({ total: 1, processed: 0, failed: 1, errors: [{ id: 'p1', error: 'Geocode: OVER_QUERY_LIMIT' }] }),
+    })
+    render(<PropertyEditSection property={property} areas={areas} bookingStatuses={[]} role="client-admin" />)
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
+    fireEvent.change(screen.getByLabelText('Address'), { target: { value: '12A Smith St, Wellard' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    expect(await screen.findByText(/OVER_QUERY_LIMIT/)).toBeInTheDocument()
+    await waitFor(() => expect(h.refresh).toHaveBeenCalled())
+  })
+
+  it('a network error on the re-geocode is reported, not thrown', async () => {
+    h.updateAddress.mockResolvedValue({ ok: true, data: { property_id: 'p1', changed: true } })
+    h.invokeEf.mockRejectedValue(new TypeError('Failed to fetch'))
+    render(<PropertyEditSection property={property} areas={areas} bookingStatuses={[]} role="client-admin" />)
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
+    fireEvent.change(screen.getByLabelText('Address'), { target: { value: '12A Smith St, Wellard' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    expect(await screen.findByText(/Failed to fetch/)).toBeInTheDocument()
+  })
+
   it('contractor moving area (no live bookings) calls moveEligiblePropertyArea', async () => {
     h.moveArea.mockResolvedValue({ ok: true, data: { property_id: 'p1' } })
     render(<PropertyEditSection property={property} areas={areas} bookingStatuses={['Completed']} role="contractor-staff" />)

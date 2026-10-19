@@ -1,4 +1,5 @@
 import type { Result } from '@/lib/result'
+import { invokeEfWithUserToken } from '@/lib/supabase/invoke-ef-client'
 
 /**
  * Reading `geocode-properties` results for the admin UI.
@@ -8,7 +9,8 @@ import type { Result } from '@/lib/result'
  * (`verifyGeocodeResult`: wrong suburb, interstate, suburb-only), and staff
  * must be told when that happens. Before this, Add Property started a queue-wide
  * loop, never looked up its own row, and hid the refusal: 13 cronin way anketel
- * sat unpinned for four days until its booking stalled the 22/10 push.
+ * sat unpinned for four days until its booking stalled the OptimoRoute push
+ * on 19/10.
  */
 
 /** The parts of a geocode-properties response the admin UI reads. */
@@ -25,7 +27,9 @@ export interface GeocodeEfResponse {
 
 export type PropertyGeocodeOutcome =
   | { kind: 'pinned' }
-  | { kind: 'rejected'; google: string; reason: string }
+  /** Google's answer can't be used: the ADDRESS needs fixing (retrying won't help). */
+  | { kind: 'rejected'; google: string | null; reason: string }
+  /** The lookup itself didn't complete: retrying may help. */
   | { kind: 'failed'; error: string }
 
 /**
@@ -65,26 +69,50 @@ export function propertyGeocodeOutcome(
   }
   const rejected = body.rejected_samples?.find((s) => s.id === propertyId)
   if (rejected) return { kind: 'rejected', google: rejected.google, reason: rejected.reason }
+  // Snapped rows count as processed: they got coordinates, so they have a pin.
   if ((body.processed ?? 0) > 0) return { kind: 'pinned' }
   const error = body.errors?.find((e) => e.id === propertyId)?.error
+  // Google answering "nothing found" is about the address, not the lookup.
+  if (error?.startsWith('Geocode: ZERO_RESULTS')) return { kind: 'rejected', google: null, reason: 'not-found' }
   if (error) return { kind: 'failed', error }
-  return { kind: 'failed', error: 'the map lookup did not find this property' }
+  return { kind: 'failed', error: 'nothing was looked up' }
+}
+
+/**
+ * Looks up one property's pin and waits for the answer. Never throws: a
+ * network error is a failed lookup like any other.
+ */
+export async function geocodeProperty(
+  supabase: Parameters<typeof invokeEfWithUserToken>[0],
+  propertyId: string,
+): Promise<PropertyGeocodeOutcome> {
+  let res: Result<GeocodeEfResponse>
+  try {
+    res = await invokeEfWithUserToken<GeocodeEfResponse>(supabase, 'geocode-properties', {
+      property_ids: [propertyId],
+    })
+  } catch (err) {
+    res = { ok: false, error: err instanceof Error ? err.message : String(err) }
+  }
+  return propertyGeocodeOutcome(propertyId, res)
 }
 
 /**
  * Why Google's match was refused and what to fix. Shared by Add Property and
  * the property page's address edit so staff get the same advice in both places.
  */
-export function rejectionExplanation(google: string, reason: string): string {
+export function rejectionExplanation(google: string | null, reason: string): string {
   switch (reason) {
+    case 'not-found':
+      return 'Google couldn’t find this address at all, so no location was used. Check the street name, number and suburb.'
     case 'locality':
-      return `Google matched it to "${google}", a different suburb, so that location wasn't used. Check the spelling of the street and suburb and add the postcode.`
+      return `Google matched it to "${google}", a different suburb, so that location wasn’t used. Check the spelling of the street and suburb and add the postcode.`
     case 'state':
-      return `Google matched it to "${google}", interstate, so that location wasn't used. Add the suburb and postcode.`
+      return `Google matched it to "${google}", interstate, so that location wasn’t used. Add the suburb and postcode.`
     case 'granularity':
-      return `Google could only find "${google}", not the street itself, so no location was used. Check the street name and number. If they're right, the street may be too new for Google Maps.`
+      return `Google could only find "${google}", not the street itself, so no location was used. Check the street name and number. If they’re right, the street may be too new for Google Maps.`
     default:
-      return `Google matched it to "${google}", so that location wasn't used.`
+      return `Google matched it to "${google}", so that location wasn’t used.`
   }
 }
 
@@ -104,24 +132,22 @@ export interface GeocodeQueueSummary {
  * so "processed > 0" is not progress. Treating it as progress kept the old
  * loop going for 100 calls per click and hid every refused address.
  */
+const GEOCODE_CHUNK = 500
+
 export async function runGeocodeQueue(
   invoke: (body: { limit: number }) => Promise<Result<GeocodeEfResponse>>,
-  {
-    chunk = 500,
-    maxIterations = 100,
-    onProgress,
-  }: { chunk?: number; maxIterations?: number; onProgress?: (geocoded: number) => void } = {},
+  { maxIterations = 100, onProgress }: { maxIterations?: number; onProgress?: (geocoded: number) => void } = {},
 ): Promise<Result<GeocodeQueueSummary>> {
   let geocoded = 0
   let last: GeocodeEfResponse = {}
   for (let i = 0; i < maxIterations; i++) {
-    const res = await invoke({ limit: chunk })
+    const res = await invoke({ limit: GEOCODE_CHUNK })
     const body = efSummary(res)
     if (!body) return { ok: false, error: res.ok ? 'no response from the map lookup' : efErrorText(res.error) }
     last = body
     const leftQueue = (body.processed ?? 0) - (body.snapped ?? 0)
     geocoded += Math.max(0, leftQueue)
-    if ((body.total ?? 0) < chunk || leftQueue <= 0) break
+    if ((body.total ?? 0) < GEOCODE_CHUNK || leftQueue <= 0) break
     onProgress?.(geocoded)
   }
   return { ok: true, data: { geocoded, rejected: last.rejected ?? 0, failed: last.failed ?? 0 } }

@@ -21,6 +21,7 @@ import { buildQuantityEditItems } from '@/lib/booking/quantity-edit-payload'
 import { canEditCollectionDetails, canEditIdDetails, canEditMudAllocations } from '@/lib/booking/collection-details-edit'
 import { isContractorStaff } from '@/lib/auth/roles'
 import { NON_TERMINAL_BOOKING_STATUSES } from '@/lib/properties/edit-rules'
+import { stopLocation } from '@/lib/stops/stops'
 import { confirmBooking, cancelBooking, updateContact, updateCollectionDetails, updateIdDetails, updateMudAllocations, updateNotes, updateBookingQuantities } from './actions'
 import { effectiveCapacity, indexPoolDates } from '@/lib/capacity/effective-capacity'
 import { capacityBlocksMove, remainingByCategory, unitsByCategory } from '@/lib/booking/collection-details-edit'
@@ -78,7 +79,7 @@ interface Booking {
   id_waste_types: string[]
   id_volume: string | null
   collection_area: { name: string; code: string }
-  eligible_properties: { formatted_address: string | null; address: string; has_geocode?: boolean } | null
+  eligible_properties: { formatted_address: string | null; address: string; latitude: number | null; longitude: number | null } | null
   contact: { first_name: string; last_name: string; full_name: string; mobile_e164: string | null; email: string } | null
   booking_item: BookingItem[]
 }
@@ -207,11 +208,15 @@ export function BookingDetailClient({
   const [allocationResult, setAllocationResult] = useState<string | null>(null)
 
   const area = booking.collection_area as { name: string; code: string }
-  const property = booking.eligible_properties as { formatted_address: string | null; address: string; has_geocode?: boolean } | null
-  // The push to OptimoRoute can't geocode, so an un-pinned property's stops
-  // are held back from the crews' routes (#673). Say so while it can be fixed.
+  const property = booking.eligible_properties as { formatted_address: string | null; address: string; latitude: number | null; longitude: number | null } | null
+  // The push to OptimoRoute can't geocode, so a stop with no pin is held back
+  // from the crews' routes (#673). Same rule as the push (stopLocation: the
+  // property's pin, else the booking's own). Say so while it can be fixed.
+  const stopPin = stopLocation(booking, property)
   const propertyHasNoPin =
-    !!booking.property_id && property?.has_geocode === false && NON_TERMINAL_BOOKING_STATUSES.includes(booking.status)
+    !!booking.property_id &&
+    NON_TERMINAL_BOOKING_STATUSES.includes(booking.status) &&
+    (stopPin.latitude === null || stopPin.longitude === null)
   const contact = booking.contact as { first_name: string; last_name: string; full_name: string; mobile_e164: string | null; email: string } | null
   const isId = booking.type === 'Illegal Dumping'
   const isMud = booking.type === 'MUD' && mudContext !== null && mudContext !== undefined
