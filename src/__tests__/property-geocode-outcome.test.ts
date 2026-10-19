@@ -95,6 +95,26 @@ describe('geocodeProperty', () => {
     h.invokeEf.mockRejectedValue(new TypeError('Failed to fetch'))
     expect(await geocodeProperty({} as never, 'p1')).toEqual({ kind: 'failed', error: 'Failed to fetch' })
   })
+
+  it('stops waiting after 20 seconds instead of spinning until the EF gives up', async () => {
+    vi.useFakeTimers()
+    try {
+      h.invokeEf.mockReturnValue(new Promise(() => {}))
+      const pending = geocodeProperty({} as never, 'p1')
+      await vi.advanceTimersByTimeAsync(19_999)
+      let settled = false
+      void pending.then(() => { settled = true })
+      await Promise.resolve()
+      expect(settled).toBe(false)
+      await vi.advanceTimersByTimeAsync(1)
+      expect(await pending).toEqual({
+        kind: 'failed',
+        error: expect.stringContaining('took more than 20 seconds'),
+      })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 })
 
 describe('rejectionExplanation', () => {

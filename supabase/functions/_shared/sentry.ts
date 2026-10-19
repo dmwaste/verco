@@ -10,8 +10,8 @@
 // across reused runtimes. PII is scrubbed before send — Sentry stores telemetry
 // in the EU, and council resident data must not leave Australia. Mirrors the
 // Next.js scrubber (src/lib/sentry/scrub.ts).
-import * as Sentry from "https://esm.sh/@sentry/deno@8?target=deno";
-import type { ErrorEvent, EventHint } from "https://esm.sh/@sentry/deno@8?target=deno";
+import * as Sentry from "https://esm.sh/@sentry/deno@8.55.2?target=deno";
+import type { ErrorEvent, EventHint } from "https://esm.sh/@sentry/deno@8.55.2?target=deno";
 
 // ── PII scrubbing (mirror of src/lib/sentry/scrub.ts) ──
 const EMAIL_RE = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
