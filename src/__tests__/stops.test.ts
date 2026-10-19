@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   planStopChanges,
   buildOrderNo,
@@ -8,7 +8,9 @@ import {
   canStopTransition,
   computeRollup,
   groupItemsByStream,
+  NO_PIN_PUSH_ERROR,
   num,
+  orderLocation,
   orderTypeLine,
   partitionPushResults,
   payloadDiffers,
@@ -17,6 +19,7 @@ import {
   STREAM_SUFFIX,
   servicesSummariesEqual,
   shouldCancelOrphanStop,
+  splitPushableStops,
   stopItemKey,
   stopLocation,
   vehicleFeaturesForStream,
@@ -577,6 +580,123 @@ describe('partitionPushResults — positional match of OR results to stops', () 
   it('is empty-safe', () => {
     expect(partitionPushResults([], [])).toEqual({ okIds: [], failures: [] })
   })
+})
+
+describe('orderLocation — the location sent on the bulk OR push', () => {
+  // create_or_update_orders location fields (OR API v1.37) — see orderLocation.
+  const BULK_LOCATION_FIELDS = [
+    'locationNo',
+    'locationName',
+    'address',
+    'latitude',
+    'longitude',
+    'checkInTime',
+    'notes',
+  ]
+
+  it('sends the pin and the address as the location name', () => {
+    expect(
+      orderLocation({ address: '13 Leda Blvd, Wellard WA', latitude: '-32.27', longitude: '115.82' }),
+    ).toEqual({ latitude: -32.27, longitude: 115.82, locationName: '13 Leda Blvd, Wellard WA' })
+  })
+
+  it('only ever uses fields the bulk endpoint accepts', () => {
+    for (const address of ['13 Leda Blvd', null]) {
+      const location = orderLocation({ address, latitude: -32.27, longitude: 115.82 })
+      expect(location).not.toBeNull()
+      for (const key of Object.keys(location!)) expect(BULK_LOCATION_FIELDS).toContain(key)
+      expect(location).not.toHaveProperty('acceptPartialMatch')
+    }
+  })
+
+  it('returns null for a stop with no pin — the bulk call cannot geocode an address', () => {
+    expect(orderLocation({ address: '13 cronin way anketel', latitude: null, longitude: null })).toBeNull()
+    expect(orderLocation({ address: 'x', latitude: -32.27, longitude: null })).toBeNull()
+    expect(orderLocation({ address: 'x', latitude: null, longitude: 115.82 })).toBeNull()
+  })
+
+  it('returns null for a non-numeric pin rather than sending NaN (serialises to null)', () => {
+    expect(orderLocation({ address: 'x', latitude: 'abc', longitude: '115.82' })).toBeNull()
+  })
+})
+
+describe('splitPushableStops — one un-pinned stop must not sink the batch', () => {
+  const stop = (id: string, latitude: number | null, longitude: number | null) => ({
+    id,
+    external_order_ref: `REF-${id}`,
+    address: `${id} Example St`,
+    latitude,
+    longitude,
+  })
+
+  it('keeps pinned stops in order with their location, fails only the un-pinned ones', () => {
+    const { pushable, unpinned } = splitPushableStops([
+      stop('s1', -32.1, 115.8),
+      stop('s2', null, null),
+      stop('s3', -32.2, 115.9),
+    ])
+    expect(pushable.map((p) => p.stop.id)).toEqual(['s1', 's3'])
+    expect(pushable[1]!.location).toEqual({ latitude: -32.2, longitude: 115.9, locationName: 's3 Example St' })
+    expect(unpinned).toEqual([{ id: 's2', orderRef: 'REF-s2', error: NO_PIN_PUSH_ERROR }])
+  })
+
+
+  it('passes an all-pinned batch through untouched', () => {
+    const { pushable, unpinned } = splitPushableStops([stop('s1', -32.1, 115.8)])
+    expect(pushable).toHaveLength(1)
+    expect(unpinned).toEqual([])
+  })
+})
+
+describe('orderLocation → createOrUpdateOrders wire payload', () => {
+  // The OR client is Deno-only (excluded from tsc) — loaded via a runtime
+  // import path like optimoroute-send-routes.test.ts; fetch stubbed at the
+  // network boundary.
+  const OR_CLIENT = '../../supabase/functions/_shared/optimoroute.ts'
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('posts a SYNC order whose location carries only bulk-endpoint fields', async () => {
+    const { createOrUpdateOrders } = (await import(/* @vite-ignore */ OR_CLIENT)) as {
+      createOrUpdateOrders: (apiKey: string, orders: unknown[]) => Promise<unknown[]>
+    }
+    const fetchMock = vi.fn(async () =>
+      new Response(JSON.stringify({ success: true, orders: [{ success: true }] }), { status: 200 }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    await createOrUpdateOrders('k3y', [
+      {
+        orderNo: 'KWN-4-1MGKF0-B',
+        date: '2026-10-22',
+        duration: STOP_DURATION_MINUTES,
+        priority: STREAM_PRIORITY.general,
+        notes: 'Bulk x1',
+        location: orderLocation({ address: '13 Cronin Way', latitude: -32.21, longitude: 115.85 })!,
+      },
+    ])
+
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
+    expect(url).toBe('https://api.optimoroute.com/v1/create_or_update_orders?key=k3y')
+    expect(JSON.parse(init.body as string)).toEqual({
+      orders: [
+        {
+          operation: 'SYNC',
+          orderNo: 'KWN-4-1MGKF0-B',
+          type: 'P',
+          date: '2026-10-22',
+          duration: STOP_DURATION_MINUTES,
+          priority: STREAM_PRIORITY.general,
+          vehicleFeatures: [],
+          notes: 'Bulk x1',
+          location: { latitude: -32.21, longitude: 115.85, locationName: '13 Cronin Way' },
+        },
+      ],
+    })
+  })
+
 })
 
 describe('planStopChanges — pass-1 diff (#486 reschedule revive)', () => {

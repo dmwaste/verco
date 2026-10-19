@@ -44,12 +44,11 @@ export interface OrOrderInput {
   notes?: string
   /** Resident email — OR stores it on the order (enables OR customer notifications). */
   email?: string
+  /** Pin required — the bulk call can't geocode. Build with orderLocation (_shared/stops.ts). */
   location: {
-    address?: string
+    latitude: number
+    longitude: number
     locationName?: string
-    latitude?: number
-    longitude?: number
-    acceptPartialMatch?: boolean
   }
 }
 

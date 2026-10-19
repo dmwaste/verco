@@ -511,3 +511,55 @@ export function partitionPushResults(
   }
   return { okIds, failures }
 }
+
+/** The OptimoRoute order location the bulk push sends. */
+export interface OrderLocation {
+  latitude: number
+  longitude: number
+  locationName?: string
+}
+
+/** The collection_stop fields orderLocation reads. */
+export interface OrderLocationSource {
+  address: string | null
+  latitude: number | string | null
+  longitude: number | string | null
+}
+
+/** last_push_error for a stop held back because it has no map pin. */
+export const NO_PIN_PUSH_ERROR =
+  'No map pin - geocode the property (fix its address in admin); OptimoRoute cannot geocode on push'
+
+/**
+ * The location for a stop's OptimoRoute order, or null when the stop has no
+ * usable pin. create_or_update_orders (the bulk SYNC call) cannot geocode an
+ * address — locations must carry latitude/longitude — and its schema rejects
+ * geocoding flags like acceptPartialMatch (create_order-only). A schema
+ * rejection fails the WHOLE request, so an address-only order must never be
+ * sent: on 19/10/2026 two un-geocoded KWN-4 stops blocked every push for 17h.
+ */
+export function orderLocation(stop: OrderLocationSource): OrderLocation | null {
+  const latitude = num(stop.latitude)
+  const longitude = num(stop.longitude)
+  if (latitude === null || longitude === null) return null
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null
+  return { latitude, longitude, locationName: stop.address ?? undefined }
+}
+
+/**
+ * Splits a push batch into stops OptimoRoute can take (with their location)
+ * and un-pinned stops, which fail on their own with NO_PIN_PUSH_ERROR instead
+ * of riding along and sinking the batch (see orderLocation). Order is preserved.
+ */
+export function splitPushableStops<
+  T extends OrderLocationSource & { id: string; external_order_ref: string },
+>(stops: ReadonlyArray<T>): { pushable: Array<{ stop: T; location: OrderLocation }>; unpinned: PushFailure[] } {
+  const pushable: Array<{ stop: T; location: OrderLocation }> = []
+  const unpinned: PushFailure[] = []
+  for (const stop of stops) {
+    const location = orderLocation(stop)
+    if (location) pushable.push({ stop, location })
+    else unpinned.push({ id: stop.id, orderRef: stop.external_order_ref, error: NO_PIN_PUSH_ERROR })
+  }
+  return { pushable, unpinned }
+}
