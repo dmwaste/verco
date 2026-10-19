@@ -201,7 +201,7 @@ describe('admin booking page — property notes banner', () => {
     id_waste_types: [],
     id_volume: null,
     collection_area: { name: 'KWN-1', code: 'KWN-1' },
-    eligible_properties: { formatted_address: '23 Leda Blvd, Wellard WA 6170', address: '23 Leda Blvd' },
+    eligible_properties: { formatted_address: '23 Leda Blvd, Wellard WA 6170', address: '23 Leda Blvd', latitude: -32.2, longitude: 115.8 },
     contact: { first_name: 'Jo', last_name: 'Bloggs', full_name: 'Jo Bloggs', mobile_e164: '+61412345678', email: 'jo@example.com' },
     booking_item: [],
   } as unknown as Booking

@@ -62,7 +62,7 @@ function makeMudBooking(overrides: Partial<Booking> = {}): Booking {
     id_waste_types: [],
     id_volume: null,
     collection_area: { name: 'VV-COT', code: 'VV-COT' },
-    eligible_properties: { formatted_address: '1/20 Strata Way, Coogee WA 6166', address: '1/20 Strata Way' },
+    eligible_properties: { formatted_address: '1/20 Strata Way, Coogee WA 6166', address: '1/20 Strata Way', latitude: -32.2, longitude: 115.8 },
     contact: { first_name: 'Sam', last_name: 'Strata', full_name: 'Sam Strata', mobile_e164: '+61412345678', email: 'sam@example.com' },
     booking_item: [
       {
