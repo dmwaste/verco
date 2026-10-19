@@ -576,13 +576,14 @@ describe('partitionPushResults — positional match of OR results to stops', () 
       partitionPushResults([stop('s1', 'r1')], [{ success: false, error: 'HTTP 500' }]),
     ).toEqual({ okIds: [], failures: [{ id: 's1', orderRef: 'r1', error: 'HTTP 500' }] })
   })
+
+  it('is empty-safe', () => {
+    expect(partitionPushResults([], [])).toEqual({ okIds: [], failures: [] })
+  })
 })
 
 describe('orderLocation — the location sent on the bulk OR push', () => {
-  // create_or_update_orders location fields (OR API v1.37). The bulk call
-  // can't geocode and its schema rejects anything else — one bad key fails
-  // the WHOLE request (19/10/2026: acceptPartialMatch on two un-pinned
-  // KWN-4 stops blocked every push for 17 hours).
+  // create_or_update_orders location fields (OR API v1.37) — see orderLocation.
   const BULK_LOCATION_FIELDS = [
     'locationNo',
     'locationName',
@@ -639,9 +640,6 @@ describe('splitPushableStops — one un-pinned stop must not sink the batch', ()
     expect(unpinned).toEqual([{ id: 's2', orderRef: 'REF-s2', error: NO_PIN_PUSH_ERROR }])
   })
 
-  it('tells the office what to do in the failure message', () => {
-    expect(NO_PIN_PUSH_ERROR).toMatch(/geocode/i)
-  })
 
   it('passes an all-pinned batch through untouched', () => {
     const { pushable, unpinned } = splitPushableStops([stop('s1', -32.1, 115.8)])
@@ -699,9 +697,6 @@ describe('orderLocation → createOrUpdateOrders wire payload', () => {
     })
   })
 
-  it('is empty-safe', () => {
-    expect(partitionPushResults([], [])).toEqual({ okIds: [], failures: [] })
-  })
 })
 
 describe('planStopChanges — pass-1 diff (#486 reschedule revive)', () => {

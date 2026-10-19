@@ -519,6 +519,13 @@ export interface OrderLocation {
   locationName?: string
 }
 
+/** The collection_stop fields orderLocation reads. */
+export interface OrderLocationSource {
+  address: string | null
+  latitude: number | string | null
+  longitude: number | string | null
+}
+
 /** last_push_error for a stop held back because it has no map pin. */
 export const NO_PIN_PUSH_ERROR =
   'No map pin - geocode the property (fix its address in admin); OptimoRoute cannot geocode on push'
@@ -531,11 +538,7 @@ export const NO_PIN_PUSH_ERROR =
  * rejection fails the WHOLE request, so an address-only order must never be
  * sent: on 19/10/2026 two un-geocoded KWN-4 stops blocked every push for 17h.
  */
-export function orderLocation(stop: {
-  address: string | null
-  latitude: number | string | null
-  longitude: number | string | null
-}): OrderLocation | null {
+export function orderLocation(stop: OrderLocationSource): OrderLocation | null {
   const latitude = num(stop.latitude)
   const longitude = num(stop.longitude)
   if (latitude === null || longitude === null) return null
@@ -546,16 +549,10 @@ export function orderLocation(stop: {
 /**
  * Splits a push batch into stops OptimoRoute can take (with their location)
  * and un-pinned stops, which fail on their own with NO_PIN_PUSH_ERROR instead
- * of riding along and sinking the batch. Order is preserved.
+ * of riding along and sinking the batch (see orderLocation). Order is preserved.
  */
 export function splitPushableStops<
-  T extends {
-    id: string
-    external_order_ref: string
-    address: string | null
-    latitude: number | string | null
-    longitude: number | string | null
-  },
+  T extends OrderLocationSource & { id: string; external_order_ref: string },
 >(stops: ReadonlyArray<T>): { pushable: Array<{ stop: T; location: OrderLocation }>; unpinned: PushFailure[] } {
   const pushable: Array<{ stop: T; location: OrderLocation }> = []
   const unpinned: PushFailure[] = []

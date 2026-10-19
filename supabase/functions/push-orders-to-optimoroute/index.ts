@@ -513,9 +513,7 @@ serve(cronHandler('push-orders-to-optimoroute', async (_req) => {
       // createOrUpdateOrders propagates to the top-level catch (500 + failed
       // sync_log row) with prior batches already stamped.
       for (const batch of chunk(stops, OR_BULK_LIMIT)) {
-        // A stop with no map pin can't be pushed (the bulk call can't geocode)
-        // and must not ride in the request: it fails on its own so it can't
-        // sink every other stop in the batch (19/10/2026, KWN-4-1MGKF0).
+        // Un-pinned stops never ride in the request — see orderLocation.
         const { pushable, unpinned } = splitPushableStops(batch)
         const orders: OrOrderInput[] = pushable.map(({ stop, location }) => ({
           orderNo: stop.external_order_ref,
@@ -533,12 +531,11 @@ serve(cronHandler('push-orders-to-optimoroute', async (_req) => {
           location,
         }))
 
-        const pushed = partitionPushResults(
+        const { okIds, failures: orFailures } = partitionPushResults(
           pushable.map((p) => p.stop),
           await createOrUpdateOrders(apiKey, orders),
         )
-        const okIds = pushed.okIds
-        const failures = [...unpinned, ...pushed.failures]
+        const failures = [...unpinned, ...orFailures]
 
         if (okIds.length > 0) {
           // external_deleted_at reset: if the hourly sweep deleted this orderNo
