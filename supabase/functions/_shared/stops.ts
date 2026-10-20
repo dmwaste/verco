@@ -557,7 +557,9 @@ export function shouldCancelOrphanStop(args: {
 }
 
 /**
- * Booking-status rollup over a booking's stop statuses — exception wins.
+ * Booking-status rollup over a booking's stop statuses — exception wins, except
+ * for an Illegal Dumping job (one clean-up across its bulk + derived ancillary
+ * stops, #593): any Completed stop makes it Completed (migration 20261020022434).
  * Mirrors rollup_booking_status_from_stops' status arithmetic; the DB trigger
  * is authoritative, this exists for tests and UI display. Since migration
  * 20260827030000 the DB trigger ALSO holds the rollup while a booked stream
@@ -570,11 +572,13 @@ export function shouldCancelOrphanStop(args: {
  */
 export function computeRollup(
   statuses: StopStatus[],
+  bookingType?: string,
 ): 'Completed' | 'Non-conformance' | 'Nothing Presented' | null {
   if (statuses.length === 0) return null
   if (statuses.some((s) => s === 'Pending')) return null
   const live = statuses.filter((s) => s !== 'Cancelled')
   if (live.length === 0) return null
+  if (bookingType === 'Illegal Dumping' && live.includes('Completed')) return 'Completed'
   if (live.some((s) => s === 'Non-conformance')) return 'Non-conformance'
   if (live.some((s) => s === 'Nothing Presented')) return 'Nothing Presented'
   return 'Completed'
