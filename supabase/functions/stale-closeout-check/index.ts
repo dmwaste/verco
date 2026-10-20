@@ -3,6 +3,9 @@ import { cronHandler } from '../_shared/cron-handler.ts'
 import { captureWarning } from '../_shared/sentry.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.100.0'
 import type { Database } from '../_shared/database.types.ts'
+import { jsonResponse } from '../_shared/cors.ts'
+import { intFromEnv } from '../_shared/env.ts'
+import { fetchAllPages } from '../_shared/postgrest-pages.ts'
 import { awstDateFromUtc } from '../_shared/schedule-transition.ts'
 import {
   buildStaleCloseoutAlert,
@@ -87,13 +90,6 @@ const SOURCE = 'stale-closeout-check'
 const CLOSED_OUT_STATUSES = ['Completed', 'Non-conformance', 'Nothing Presented'] as const
 
 const STOP_SELECT = 'id, booking_id, status, collection_date!inner(date, collection_area_id, collection_area!inner(code))'
-
-function intFromEnv(name: string, fallback: number): number {
-  const raw = Deno.env.get(name)
-  if (!raw) return fallback
-  const n = Number.parseInt(raw, 10)
-  return Number.isFinite(n) && n > 0 ? n : fallback
-}
 
 serve(cronHandler(SOURCE, async (req) => {
   const sinkConfig: OpsAlertConfig = {
@@ -264,32 +260,4 @@ serve(cronHandler(SOURCE, async (req) => {
 function readFailed(what: string, error: string): Response {
   console.error(`${SOURCE}: ${what} query failed`, error)
   return jsonResponse({ ok: false, error: `${what} query failed: ${error}` }, 500)
-}
-
-/** PostgREST page size on prod (max-rows); a longer result is silently cut. */
-const PAGE_SIZE = 1000
-
-type PageResult<T> = { data: T[] | null; error: { message: string } | null }
-
-/**
- * Drain an ordered query page by page. The caller's query MUST carry a stable
- * `.order()` — `.range()` without one skips and duplicates rows across pages.
- */
-async function fetchAllPages<T>(
-  page: (from: number, to: number) => PromiseLike<PageResult<T>>,
-): Promise<{ ok: true; rows: T[] } | { ok: false; error: string }> {
-  const rows: T[] = []
-  for (let from = 0; ; from += PAGE_SIZE) {
-    const { data, error } = await page(from, from + PAGE_SIZE - 1)
-    if (error) return { ok: false, error: error.message }
-    rows.push(...(data ?? []))
-    if (!data || data.length < PAGE_SIZE) return { ok: true, rows }
-  }
-}
-
-function jsonResponse(body: unknown, status: number): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { 'Content-Type': 'application/json' },
-  })
 }

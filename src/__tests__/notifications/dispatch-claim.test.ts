@@ -36,7 +36,7 @@ import { makeMockBooking } from './fixtures'
 const BOOKING_ID = 'b-claim-1'
 const NOW = Date.parse('2026-10-20T03:00:00Z')
 
-type StoredRow = SendClaimRow & { id: string; created_at: string; error_message?: string }
+type StoredRow = SendClaimRow & { id: string; status: string; created_at: string; error_message?: string }
 
 /**
  * notification_log stand-in. `claimStore` enforces the partial unique key the
@@ -46,7 +46,7 @@ type StoredRow = SendClaimRow & { id: string; created_at: string; error_message?
 function makeLog(initial: Array<Partial<StoredRow>> = []) {
   const rows: StoredRow[] = []
   let seq = 0
-  const add = (row: SendClaimRow, createdAt = NOW): StoredRow => {
+  const add = (row: SendClaimRow & { status: string }, createdAt = NOW): StoredRow => {
     const stored = { ...row, id: `log-${++seq}`, created_at: new Date(createdAt).toISOString() }
     rows.push(stored)
     return stored
@@ -141,7 +141,7 @@ function harness(opts: {
   )
   const deps = {
     loadBooking: async (id: string) => (id === booking.id ? booking : null),
-    claimSend: opts.claimSend ?? ((row: NotificationLogRow) => claimNotificationSend(log.claimStore, row, NOW)),
+    claimSend: opts.claimSend ?? ((row: Omit<NotificationLogRow, 'status'>) => claimNotificationSend(log.claimStore, row, NOW)),
     writeLog: log.writeLog,
     updateLogStatus: log.updateLogStatus,
     sendEmail,
@@ -349,7 +349,7 @@ describe('dispatch — resume-by-log-id honours the row channel (#671)', () => {
 })
 
 describe('claimNotificationSend', () => {
-  const ROW: NotificationLogRow = {
+  const ROW: SendClaimRow = {
     booking_id: BOOKING_ID,
     contact_id: 'c1',
     client_id: 'client-1',
@@ -357,7 +357,6 @@ describe('claimNotificationSend', () => {
     notification_type: 'booking_created',
     reference_id: null,
     to_address: 'jane@example.test',
-    status: 'queued',
   }
 
   it('claims a free key with a queued row', async () => {
