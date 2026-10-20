@@ -402,6 +402,38 @@ export function idAncillaryStop<
 }
 
 /**
+ * Adds an ID job's derived ancillary stop to its per-stream desired stops (the
+ * push EF's pass-1 builder). No-op unless the booking has an illegal_dumping
+ * stop, ancillary items ticked, and no real ancillary stop already.
+ */
+export function withIdAncillaryStop<
+  S extends { stream: WasteStream; services_summary: ServiceSummaryEntry[]; external_order_ref: string },
+>(
+  byStream: Map<WasteStream, S>,
+  booking: { ref: string; type: string; id_waste_types: readonly string[] | null },
+): Map<WasteStream, S> {
+  const idStop = byStream.get('illegal_dumping')
+  if (!idStop || byStream.has('ancillary')) return byStream
+  const ancStop = idAncillaryStop(idStop, booking.ref, idAncillaryTypes(booking.type, booking.id_waste_types))
+  if (ancStop) byStream.set('ancillary', ancStop)
+  return byStream
+}
+
+/**
+ * OptimoRoute emails the order's contact (~30 min away, receipt) per ORDER. An
+ * ID job's contact already gets them for its illegal_dumping order, so its
+ * derived ancillary order carries no email: one job, one set of emails.
+ */
+export function orderEmail(
+  stream: WasteStream,
+  bookingType: string | undefined,
+  email: string | undefined,
+): string | undefined {
+  if (stream === 'ancillary' && bookingType === 'Illegal Dumping') return undefined
+  return email
+}
+
+/**
  * The stop keys a booking item keeps alive in the pass-1 orphan check: its own
  * (date, stream), plus the derived ancillary stop's for an ID item with
  * ancillary ticks. Without the second key a live, rescheduled ID booking's

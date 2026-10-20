@@ -9,11 +9,12 @@ import {
   buildOrderNotes,
   buildServicesSummary,
   groupItemsByStream,
-  idAncillaryStop,
   idAncillaryTypes,
   idWasteItemsLine,
   itemStopKeys,
+  orderEmail,
   orderTypeLine,
+  withIdAncillaryStop,
   partitionPushResults,
   planStopChanges,
   shouldCancelOrphanStop,
@@ -231,13 +232,7 @@ serve(cronHandler('push-orders-to-optimoroute', async (_req) => {
         }
         // #593: an ID job's ticked mattresses / e-waste / whitegoods go to the
         // ancillary truck as their own stop, derived from the ID pass.
-        const idStop = byStream.get('illegal_dumping')
-        const idAncillary = idAncillaryTypes(booking.type, booking.id_waste_types)
-        if (idStop && !byStream.has('ancillary')) {
-          const ancStop = idAncillaryStop(idStop, booking.ref, idAncillary)
-          if (ancStop) byStream.set('ancillary', ancStop)
-        }
-        desired.set(booking.id, byStream)
+        desired.set(booking.id, withIdAncillaryStop(byStream, booking))
       }
 
       const STOP_COLUMNS =
@@ -498,6 +493,7 @@ serve(cronHandler('push-orders-to-optimoroute', async (_req) => {
       const emailByBooking = new Map<string, string>()
       const typeLineByBooking = new Map<string, string>()
       const itemsLineByBooking = new Map<string, string>()
+      const typeByBooking = new Map<string, string>()
       if (bookingIds.length > 0) {
         const bookingRows = await fetchAll<{
           id: string
@@ -517,6 +513,7 @@ serve(cronHandler('push-orders-to-optimoroute', async (_req) => {
         )
         for (const b of bookingRows) {
           if (b.contact?.email) emailByBooking.set(b.id, b.contact.email)
+          typeByBooking.set(b.id, b.type)
           const typeLine = orderTypeLine(bookingTypeTag(b.type, b.property?.unit_count))
           if (typeLine) typeLineByBooking.set(b.id, typeLine)
           const itemsLine = idWasteItemsLine(b.type, b.id_waste_types)
@@ -549,7 +546,7 @@ serve(cronHandler('push-orders-to-optimoroute', async (_req) => {
             typeLineByBooking.get(stop.booking_id) ?? null,
             itemsLineByBooking.get(stop.booking_id) ?? null,
           ),
-          email: emailByBooking.get(stop.booking_id),
+          email: orderEmail(stop.stream, typeByBooking.get(stop.booking_id), emailByBooking.get(stop.booking_id)),
           location,
         }))
 

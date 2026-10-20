@@ -7,9 +7,11 @@ import {
   idAncillaryTypes,
   idWasteItemsLine,
   itemStopKeys,
+  orderEmail,
   shouldCancelOrphanStop,
   stopItemKey,
   vehicleFeaturesForStream,
+  withIdAncillaryStop,
   type ServiceSummaryEntry,
   type WasteStream,
 } from '@/lib/stops/stops'
@@ -146,6 +148,12 @@ describe('itemStopKeys — which stops a booking item keeps alive (pass-1 orphan
 })
 
 describe('idWasteItemsLine — what was ticked, for the OptimoRoute notes', () => {
+  it('uses the same label staff see for every ID waste type (id-options.ts parity)', () => {
+    for (const t of ID_WASTE_TYPES) {
+      expect(idWasteItemsLine('Illegal Dumping', [t])).toBe(idWasteTypeLabel(t))
+    }
+  })
+
   it('lists every ticked item with the labels staff see', () => {
     expect(idWasteItemsLine('Illegal Dumping', ['General / Mixed', 'Mattress'])).toBe(
       `${idWasteTypeLabel('General / Mixed')}, Mattress`,
@@ -170,5 +178,53 @@ describe('idWasteItemsLine — what was ticked, for the OptimoRoute notes', () =
       'Items: Mattress, E-Waste',
       'Services: Illegal dumping x1',
     ])
+  })
+})
+
+describe('withIdAncillaryStop — the push EF\'s pass-1 builder', () => {
+  const idBooking = { ref: 'KWN-4-TEST01', type: 'Illegal Dumping', id_waste_types: ['General / Mixed', 'Mattress'] }
+
+  it('adds the ancillary stop to an ID job with ancillary items ticked', () => {
+    const byStream = withIdAncillaryStop(new Map([['illegal_dumping' as WasteStream, idStop]]), idBooking)
+    expect([...byStream.keys()]).toEqual(['illegal_dumping', 'ancillary'])
+    expect(byStream.get('ancillary')!.services_summary).toEqual([{ name: 'Mattress', qty: 1 }])
+  })
+
+  it('leaves an ID job with only bulk ticked alone', () => {
+    const byStream = withIdAncillaryStop(new Map([['illegal_dumping' as WasteStream, idStop]]), {
+      ...idBooking,
+      id_waste_types: ['General / Mixed'],
+    })
+    expect([...byStream.keys()]).toEqual(['illegal_dumping'])
+  })
+
+  it('never replaces a real ancillary stop', () => {
+    const real = { ...idStop, stream: 'ancillary' as WasteStream, services_summary: [{ name: 'E-Waste', qty: 2 }] }
+    const byStream = withIdAncillaryStop(
+      new Map<WasteStream, typeof idStop>([['illegal_dumping', idStop], ['ancillary', real]]),
+      idBooking,
+    )
+    expect(byStream.get('ancillary')).toBe(real)
+  })
+
+  it('leaves a residential booking alone', () => {
+    const bulk = { ...idStop, stream: 'general' as WasteStream }
+    const byStream = withIdAncillaryStop(new Map([['general' as WasteStream, bulk]]), {
+      ref: 'KWN-4-TEST01',
+      type: 'Residential',
+      id_waste_types: ['Mattress'],
+    })
+    expect([...byStream.keys()]).toEqual(['general'])
+  })
+})
+
+describe('orderEmail — one set of OptimoRoute emails per job', () => {
+  it('leaves the email off an ID job\'s ancillary order', () => {
+    expect(orderEmail('ancillary', 'Illegal Dumping', 'officer@example.com')).toBeUndefined()
+  })
+
+  it('keeps it on the ID job\'s own order and on every other booking\'s orders', () => {
+    expect(orderEmail('illegal_dumping', 'Illegal Dumping', 'officer@example.com')).toBe('officer@example.com')
+    expect(orderEmail('ancillary', 'Residential', 'resident@example.com')).toBe('resident@example.com')
   })
 })
