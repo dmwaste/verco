@@ -1,7 +1,7 @@
 # Verco v2 — Technical Specification
 
-**Version:** 1.1  
-**Date:** 2026-03-26 (last reconciled 2026-07-04 — see Change Log)  
+**Version:** 1.3  
+**Date:** 2026-03-26 (last reconciled 2026-10-20 — see Change Log)  
 **Status:** APPROVED — implementation basis for Claude Code  
 **Companion docs:** `VERCO_V2_PRD.md`, `CLAUDE.md`
 
@@ -15,6 +15,7 @@ Reconciles this spec with what actually shipped (the original 2026-03-26 text de
 |---|---|---|
 | 2026-07-04 | 1.1 | **Survey system reconciled to as-built (§13).** The `booking.status → Completed` DB trigger was **dropped** — survey rows are created by the field closeout action (`maybeCreateCompletionSurvey`), and public token access goes through anon-callable `SECURITY DEFINER` RPCs `get_survey_by_token(text)` / `submit_survey_by_token(text, jsonb)` (migration `20260704000000`), replacing the `/api/survey` route + direct `booking_survey` access (which RLS blocked for anon). Survey questions are a **fixed code constant** (`src/lib/survey/questions.ts`), not loaded from `client_survey_config` (defined but unwired — deferred). `tenant_*` names throughout are the legacy names; the shipped schema uses `client_*` (see §7 rename table). Shipped as PRs #284 / #285 / #287 / #288. |
 | 2026-10-20 | 1.2 | **Notifications are claimed before sending (§10 `send-notification`, ADR 0035).** The dispatcher inserts the attempt as a `queued` `notification_log` row under the partial unique index `notification_log_send_claim_key` (migration `20261020060309`), sends, then settles that row — a retried call hits `23505` and skips instead of sending twice. Staff may insert a `failed` `booking_created` row under their own JWT (`notification_log_staff_insert_failed`, tenant-pinned) so an unreachable send shows on `/admin/notifications` with Retry. **Watchdogs alert through one Teams channel (§10, §16, ADR 0033):** `notification-health-check` and the new daily `stale-closeout-check` (migration `20261020051532`, ADR 0034) post via `_shared/ops-alert.ts`; `OPS_ALERT_WEBHOOK_URL` and friends added to §16. **pnpm pinned to 9.15.9 (§1)** via `packageManager` (#602). Shipped as PRs #682–#689, #692 (release #693). |
+| 2026-10-20 | 1.3 | **Reconciled with the as-built system (post-#694 audit).** **§1:** CRM row — the Attio sync was never built and its columns were dropped (migration `20260702113000`); no CRM is live (HubSpot designed, pure mappers only). Tenant resolution names `src/proxy.ts` (also the §2 tree); Email / SMS rows name SendGrid and Twilio (`_shared/sendgrid.ts`, `_shared/twilio.ts`) instead of the never-built `send-email` EF and `tenant.sms_sender_id` (the sender is routed by `client.twilio_messaging_service_sid`). **§3 `notification_log`:** added `reference_id` (`20260610120000`), the SendGrid delivery columns `delivery_status` / `delivery_updated_at` / `delivery_detail` + their CHECK (`20260530133303`), the `status` CHECK (`20260409000000`), indexes `idx_notification_log_booking_type_status` (`20260516030000`), `idx_notification_log_to_address` (`20260530133303`) and the partial unique send-claim index `notification_log_send_claim_key` (`20261020060309`). **§6.2:** `notification_log` policy list — `notification_log_select` (staff, sub-client narrowed, `20260930030000`), `notification_log_staff_insert_failed` (`20261020060309`), no UPDATE/DELETE policy (service-role EFs + the `retry_notification_log` DEFINER RPC, `20260702100000`). **§10:** `nightly-sync-to-dm-ops` marked retired (ADR 0015, `20260823120000`) and dropped from the cron members list, which now carries each job's schedule; `send-routes-to-optimoroute` added (ADR 0028, `20261013100000`); `send-collection-reminders` trigger corrected to the four ticks (`20261020015939`); `send-email` / `send-sms` marked never built (no directory, no git history). **§16:** regenerated from `.env.example` plus every `Deno.env.get` / `process.env` read — dropped `STRIPE_PUBLISHABLE_KEY`, `ATTIO_API_KEY`, `SMS_API_KEY` (nothing reads them), added the SendGrid / Twilio / OptimoRoute / `APP_URL` / `SITE_URL` / `DEFAULT_FROM_EMAIL` / script-only vars, moved `DM_OPS_*` to a dormant note. Version line bumped (the 1.2 row landed without one). |
 
 ---
 
@@ -31,12 +32,12 @@ Reconciles this spec with what actually shipped (the original 2026-03-26 text de
 | Backend | Supabase (separate AU project) | ap-southeast-2, new project — not the prototype project |
 | Auth | Supabase Auth (email OTP) | Carry forward — no passwords |
 | Payments | Stripe | Single D&M account |
-| SMS | Existing provider (config in `tenant.sms_sender_id`) | |
-| Email | Existing `send-email` Edge Function | |
-| CRM | Attio | Contact + ticket sync |
+| SMS | Twilio (`_shared/twilio.ts`) | One D&M account (`TWILIO_ACCOUNT_SID` / `TWILIO_AUTH_TOKEN`, §16); the sender is chosen per tenant by `client.twilio_messaging_service_sid` (one Messaging Service per registered alpha sender, routed in `_shared/dispatch.ts`); the admin-editable `client.sms_sender_id` is the display label, not the routing key |
+| Email | SendGrid (`_shared/sendgrid.ts`) | Rendered and sent inside `send-notification` / `notify-ticket-response`; delivery events come back through `sendgrid-webhook`. The planned `send-email` EF was never built (§10) |
+| CRM | None | The Attio contact + ticket sync was never built; its columns were dropped 02/07/2026 (migration `20260702113000`). A HubSpot sync was designed 29/05/2026 (`docs/superpowers/specs/2026-05-29-verco-hubspot-sync-design.md`) but only the pure mappers in `src/lib/hubspot/` exist — no Edge Function, secret or cron |
 | Testing | Vitest + Testing Library + Playwright | Unit + E2E |
 | Deployment | Coolify on BinaryLane | Self-hosted, AU data residency, standard Node container |
-| Tenant resolution | Next.js middleware (Node) | No edge runtime required — runs in container |
+| Tenant resolution | `src/proxy.ts` (Next.js 16's rename of middleware; the exported function is `proxy`) | No edge runtime required — runs in container |
 | Package manager | pnpm 9.15.9 (`packageManager` pin) | Replace mixed npm/bun. The pin keeps CI, Docker and Dependabot on a pnpm that still honours `pnpm.overrides` — pnpm 11+ strips every transitive security pin from the lockfile (#602; CI job "Lockfile Security Pins" names them) |
 
 ---
@@ -95,7 +96,7 @@ verco-v2/
 │   ├── tenant/
 │   │   └── resolve.ts               # Tenant resolution from hostname
 │   └── utils/
-├── middleware.ts                    # Tenant resolution + auth guards
+├── proxy.ts                         # Tenant resolution + auth guards (Next 16: was middleware.ts)
 ├── supabase/
 │   ├── migrations/                  # Sequential SQL migrations
 │   └── functions/                   # Edge Functions
@@ -731,10 +732,38 @@ CREATE TABLE notification_log (
   notification_type     text NOT NULL,
   to_address            text NOT NULL,
   status                text NOT NULL DEFAULT 'sent',
+                        -- CHECK (status IN ('queued','sent','failed')) — migration 20260409000000.
+                        -- SEND result only: queued = claimed / in flight, sent / failed = settled.
   error_message         text,
-  created_at            timestamptz NOT NULL DEFAULT now()
+  created_at            timestamptz NOT NULL DEFAULT now(),
+  -- SendGrid Event Webhook delivery lifecycle, written by `sendgrid-webhook`
+  -- (migration 20260530133303, VER-188). Separate from `status` so a delivery
+  -- event can never re-trigger a send.
+  delivery_status       text,               -- CHECK NULL or delivered/opened/deferred/bounced/dropped/spam
+  delivery_updated_at   timestamptz,
+  delivery_detail       text,               -- bounce / drop reason when SendGrid provides one
+  -- Per-notice idempotency discriminator (migration 20260610120000): ncn_id /
+  -- np_id / edit_ref / correction_id / ticket_response id. NULL for types keyed
+  -- per booking (e.g. booking_created).
+  reference_id          uuid
 );
 CREATE INDEX idx_notification_log_booking ON notification_log(booking_id);
+-- "already sent X for booking Y?" anti-join (migration 20260516030000)
+CREATE INDEX idx_notification_log_booking_type_status
+  ON notification_log (booking_id, notification_type, status);
+-- sendgrid-webhook correlates an event to the newest email row for that recipient (20260530133303)
+CREATE INDEX idx_notification_log_to_address
+  ON notification_log (to_address, created_at DESC) WHERE channel = 'email';
+-- Send claim (ADR 0035, #671, migration 20261020060309): the dispatcher inserts
+-- its row as 'queued' BEFORE sending, so at most one queued-or-sent row exists
+-- per (booking, type, channel, reference). NULLS NOT DISTINCT makes a NULL
+-- reference (booking-level types) and a NULL booking (a ticket reply with no
+-- booking) real key values. A 23505 here means another dispatch is sending or
+-- has sent → skip. 'failed' rows sit outside the predicate and never block a retry.
+CREATE UNIQUE INDEX notification_log_send_claim_key
+  ON notification_log (booking_id, notification_type, channel, reference_id)
+  NULLS NOT DISTINCT
+  WHERE status IN ('queued', 'sent');
 ```
 
 #### `booking_survey`
@@ -1179,6 +1208,50 @@ CREATE POLICY ncn_field_insert ON non_conformance_notice FOR INSERT
     AND has_role('field')
   );
 
+-- NOTIFICATION_LOG: the four staff roles read their accessible clients' rows, narrowed to
+-- their sub-client when scoped (migration 20260930030000 replaced the 20260326 policy).
+-- Residents, field and ranger have NO SELECT policy — a resident never reads the log.
+CREATE POLICY notification_log_select ON notification_log FOR SELECT
+  USING (
+    client_id IN (SELECT accessible_client_ids())
+    AND (SELECT current_user_role()) = ANY (ARRAY['client-admin','client-staff','contractor-admin','contractor-staff']::app_role[])
+    AND (
+      (SELECT current_user_sub_client_id()) IS NULL
+      OR booking_id IN (
+        SELECT b.id FROM booking b
+         WHERE b.collection_area_id IN (
+           SELECT ca.id FROM collection_area ca
+            WHERE ca.sub_client_id = (SELECT current_user_sub_client_id()))
+      )
+    )
+  );
+
+-- NOTIFICATION_LOG: the ONLY app-role write (ADR 0035, migration 20261020060309). A staff
+-- member's own JWT (server actions never hold the service role, Red Line #3) may record a
+-- `failed` `booking_created` row when send-notification is unreachable, so the miss shows on
+-- /admin/notifications with Retry. Pinned to status 'failed' (cannot forge a 'sent' row or take
+-- a send claim), type 'booking_created', a non-NULL booking the caller can already see under
+-- their own booking RLS (sub-client narrowing included), in an accessible client.
+CREATE POLICY notification_log_staff_insert_failed ON notification_log FOR INSERT
+  WITH CHECK (
+    status = 'failed'
+    AND notification_type = 'booking_created'
+    AND booking_id IS NOT NULL
+    AND (SELECT current_user_role()) = ANY (ARRAY['client-admin','client-staff','contractor-admin','contractor-staff']::app_role[])
+    AND client_id IN (SELECT accessible_client_ids())
+    AND EXISTS (
+      SELECT 1 FROM booking b
+       WHERE b.id = notification_log.booking_id
+         AND b.client_id = notification_log.client_id
+    )
+  );
+
+-- NOTIFICATION_LOG: no UPDATE or DELETE policy for any role. Sends, settles and delivery
+-- events are written under the service role inside Edge Functions (send-notification,
+-- notify-ticket-response, sendgrid-webhook, handle-expired-payments); the admin Retry button
+-- flips failed → queued through the SECURITY DEFINER RPC `retry_notification_log`, which is
+-- staff-gated and tenant-guarded (migrations 20260413082000, 20260702080000, 20260702100000).
+
 -- AUDIT_LOG: client-admin sees own client, contractor-admin sees all their clients
 CREATE POLICY audit_log_select ON audit_log FOR SELECT
   USING (
@@ -1549,28 +1622,23 @@ There is no `verify-payment` function. A paid session is reconciled by whichever
 - **Status codes:** `400` malformed/ambiguous payload · `401` missing bearer, or a user JWT whose role is not permitted (bad/absent **credentials**) · `403` valid caller, but the target booking is outside their tenant **scope** · `200` in every dispatch outcome (sent / skipped / failed — fire-and-forget) · `500` only on an uncaught crash.
 - **Side effects:** Renders + sends email (SendGrid) and SMS (Twilio) directly via `_shared/`, writing `notification_log` **claim-first** (ADR 0035, migration `20261020060309`): the dispatcher inserts the attempt as `queued` under the partial unique index `notification_log_send_claim_key` on `(booking_id, notification_type, channel, reference_id)` (`NULLS NOT DISTINCT`, `WHERE status IN ('queued','sent')`), sends, then settles that same row to `sent` / `failed`. A `23505` on the claim means another dispatch is sending or has sent, so the caller skips — a retried EF→EF call (gateway 504, caller abort) can't send twice. `failed` rows sit outside the predicate, so a failure never blocks the next attempt; a `queued` claim older than 10 minutes (`STALE_CLAIM_AFTER_MS`) is released by the next dispatch so a resend can go out. Still per channel: email and SMS claim separately. `reference_id` (notice id, `edit_ref`, correction id, ticket-reply id) is part of the key so per-notice types notify once per notice; booking-level types such as `booking_created` dedupe per booking.
 
-### `send-email`
-- **Auth:** Internal (service role)
-- **Legacy:** lower-level template sender; `send-notification` is the current single entry point for transactional notifications (it renders + sends directly, not through this EF).
-- **Input:** `{ template, to, booking_id?, tenant_id?, data }`
-- **Templates:** `booking_created`, `booking_updated`, `booking_cancelled`, `place_out_reminder`, `ncn_raised`, `np_raised`, `collection_completed`, `refund_confirmed`
-- **Side effects:** Sends email, inserts `notification_log`
-
-### `send-sms`
-- **Auth:** Internal (service role)
-- **Legacy:** see `send-notification` (the current transactional entry point).
-- **Input:** `{ template, to_e164, booking_id?, tenant_id?, data }`
-- **Templates:** `booking_created`, `place_out_reminder`
-- **Side effects:** Sends SMS, inserts `notification_log`
+### `send-email` / `send-sms` — never built
+The original design split sending into two lower-level template EFs. Neither was ever created (no directory under `supabase/functions/`, no git history): `send-notification` renders and sends email (SendGrid, `_shared/sendgrid.ts`) and SMS (Twilio, `_shared/twilio.ts`) directly and is the single entry point for transactional notifications; `notify-ticket-response` does the same for ticket replies.
 
 ### Cron Edge Functions — shared contract
-Every pg_cron-invoked EF is entered via `serve(cronHandler('<name>', handler))` (`_shared/cron-handler.ts`): Sentry (exceptions **and** 5xx responses) + auth. pg_cron sends the public anon/publishable key as a routing bearer (it cannot reach the service key) **plus** `X-Cron-Secret`, read at run time from Supabase Vault (`cron_ef_secret`, injected into every job command by migration `20260822090000`); the EF compares it to its `CRON_SECRET` secret. A proven service-role bearer is also accepted (CLI). `pull-optimoroute-routes` additionally admits contractor staff JWTs for the admin "Refresh routes" button. Fail-closed; a rejected request carrying our own routing key raises a Sentry warning. Members: `auto-close-notices`, `generate-collection-dates`, `handle-expired-payments`, `nightly-sync-to-dm-ops`, `notification-health-check`, `push-orders-to-optimoroute`, `pull-optimoroute-routes`, `send-collection-reminders`, `stale-closeout-check`, `sync-completions-to-optimoroute`, `sync-optimoroute-cancellations`, `transition-scheduled`. The two watchdogs (`notification-health-check`, `stale-closeout-check`) alert ONLY through `sendOpsAlert` (`_shared/ops-alert.ts`, ADR 0033) — one Teams Workflows webhook, counts/refs/admin links only, a Sentry warning when the sink is unset or fails; setup + test alert in `docs/runbooks/ops-alerts.md`.
+Every pg_cron-invoked EF is entered via `serve(cronHandler('<name>', handler))` (`_shared/cron-handler.ts`): Sentry (exceptions **and** 5xx responses) + auth. pg_cron sends the public anon/publishable key as a routing bearer (it cannot reach the service key) **plus** `X-Cron-Secret`, read at run time from Supabase Vault (`cron_ef_secret`, injected into every job command by migration `20260822090000`); the EF compares it to its `CRON_SECRET` secret. A proven service-role bearer is also accepted (CLI). `pull-optimoroute-routes` additionally admits contractor staff JWTs for the admin "Refresh routes" button. Fail-closed; a rejected request carrying our own routing key raises a Sentry warning. Members (each scheduled by a migration under `supabase/migrations/`, UTC): `auto-close-notices` (`0 18 * * *`), `generate-collection-dates` (`0 19 * * *`), `handle-expired-payments` (`5 * * * *`), `notification-health-check` (`15 */3 * * *`), `push-orders-to-optimoroute` (`10 * * * *`, hourly since `20260827020000`), `pull-optimoroute-routes` (`50 */4 * * *`), `send-collection-reminders` (`0,10,20 1 * * *` plus `send-collection-reminders-last` at `30 1 * * *`, `20261020015939`), `send-routes-to-optimoroute` (`0 12 * * *`, `20261013100000`), `stale-closeout-check` (`35 1 * * *`, `20261020051532`), `sync-completions-to-optimoroute` (`*/5 * * * *`), `sync-optimoroute-cancellations` (`20 * * * *`), `transition-scheduled` (`25 7 * * *`). `close-imminent-dates` (`30 18 * * *`) is pure SQL, not an EF. `nightly-sync-to-dm-ops` still enters via `cronHandler` but has had no cron job since migration `20260823120000` (ADR 0015, see below); `aggregate-bug-reports` was unscheduled by `20260514070000` and no EF of that name remains. The two watchdogs (`notification-health-check`, `stale-closeout-check`) alert ONLY through `sendOpsAlert` (`_shared/ops-alert.ts`, ADR 0033) — one Teams Workflows webhook, counts/refs/admin links only, a Sentry warning when the sink is unset or fails; setup + test alert in `docs/runbooks/ops-alerts.md`.
 
 ### `send-collection-reminders`
 - **Auth:** Cron (see shared contract)
-- **Trigger:** pg_cron, daily at 01:00 UTC
+- **Trigger:** pg_cron, four ticks — 01:00 / 01:10 / 01:20 UTC (`send-collection-reminders`, body `{"last_tick": false}`) and 01:30 UTC (`send-collection-reminders-last`, `{"last_tick": true}`), migration `20261020015939`. Each tick fans out with `runWithinBudget` under the 150 s edge deadline and skips rows already sent; a non-final tick returns 207 when work remains and only the last tick returns 500 (ADR 0032)
 - **Logic:** Find all bookings where `collection_date = today + place_out_hours_before` (per-client) AND no reminder yet in `notification_log`
 - **Side effects:** Dispatches the reminder template via `send-notification` (email + SMS, per-channel idempotency)
+
+### `send-routes-to-optimoroute`
+- **Auth:** Cron (see shared contract). Service role inside — the pre-send sweep stamps `collection_stop.external_deleted_at`
+- **Trigger:** pg_cron, daily at 12:00 UTC (20:00 AWST), migration `20261013100000` — after the hourly `push-orders-to-optimoroute` (`:10`) and `sync-optimoroute-cancellations` (`:20`) ticks
+- **Logic (ADR 0028):** one final cancellation sweep (`sweepCancelledOrders`, so a stop cancelled since the `:20` sweep is out of OR before the routes go), read tomorrow's share state (a share ops scheduled ahead in the OR web app is the 12/10/2026 frozen-plan trap — flagged to Sentry, but the send still goes so the phones get the live plan), then OR `send_routes` for tomorrow with customer notifications, exactly like the manual share
+- **Side effects:** Sends ONCE; anything changed after 8pm is re-shared by staff in the OR web app, Verco never re-sends. A sweep failure doesn't stop the send (the crews still need their routes); either failure returns 500 for Sentry. Run logged via `logSyncRun`
 
 ### `notification-health-check`
 - **Auth:** Cron (see shared contract). `{ "test_alert": true }` through the same gate skips the checks and sends only the runbook's labelled test card
@@ -1597,12 +1665,10 @@ Every pg_cron-invoked EF is entered via `serve(cronHandler('<name>', handler))` 
 - **Output:** `{ processed, failed, total, … }` — stable shape on every path (the admin "Geocode All" loop keys off `total === 0`)
 - **Side effects:** Updates `eligible_properties.formatted_address`, `google_place_id`, `latitude`, `longitude`, `has_geocode`
 
-### `nightly-sync-to-dm-ops`
-- **Auth:** Service role (cron)
-- **Trigger:** Supabase cron, daily at 20:00 AWST (12:00 UTC)
-- **Logic:** Aggregate attended bookings (`status IN ('Completed','Non-conformance','Nothing Presented')`) grouped by `collection_area.dm_job_code + collection_date + client_id`
-- **Output:** Upserts aggregate records into DM-Ops Supabase project via service role key
-- **Side effects:** Inserts/updates `booked_collection` in DM-Ops DB keyed on `dm_job_code + date`
+### `nightly-sync-to-dm-ops` — RETIRED (ADR 0015)
+- **Status:** Dormant. The EF is still deployed and still enters via `cronHandler`, but its cron job was unscheduled by migration `20260823120000` (23/08/2026) and nothing calls it. It never completed a run: the `DM_OPS_SUPABASE_URL` / `DM_OPS_SUPABASE_SERVICE_ROLE_KEY` secrets were never set, and DM-Ops' `booked_collection` table grew a different shape from the aggregate payload (`dm_job_code + collection_date + client_id` → attended count).
+- **Replacement:** DM-Ops **pulls** the read-only `dmops_export.collection_daily_v1` / `stop_daily_v1` views over `postgres_fdw` (migration `20261014010000`, role `dmops_reader`, counts and codes only, no resident PII; PR #659). Red Line #6 stands: Verco application code never writes to DM-Ops tables.
+- **Reviving it** needs a payload redesigned against DM-Ops' real schema, the two secrets, and a new scheduling migration — never just re-schedule the old job.
 
 ---
 
@@ -1790,43 +1856,55 @@ The public `submitSurvey` server action validates responses against `SURVEY_QUES
 
 ## 16. Environment Variables
 
+Regenerated 2026-10-20 from `.env.example` (the authoritative manifest) plus every `Deno.env.get(...)` under `supabase/functions/` and `process.env.*` under `src/` + `scripts/`. A variable nothing reads is not listed.
+
 ```bash
-# Supabase (Verco project)
+# ── Next.js app — PUBLIC, baked into the client bundle at `next build` ──
+# Passed as Docker build-args by deploy.yml and written to ENV in the builder stage;
+# changing one needs a rebuild — setting it in Coolify's runtime env does nothing.
 NEXT_PUBLIC_SUPABASE_URL=
 NEXT_PUBLIC_SUPABASE_ANON_KEY=
-SUPABASE_SERVICE_ROLE_KEY=          # Edge Functions ONLY (Red Line #3) — never in the Next.js image or Coolify env
+NEXT_PUBLIC_GIT_SHA=                # set by CI from the commit SHA; surfaced by /api/health (release identity)
+NEXT_PUBLIC_SENTRY_DSN=             # empty = Sentry fully off; PII scrubbed before send (src/lib/sentry/scrub.ts)
+SENTRY_ORG= SENTRY_PROJECT= SENTRY_AUTH_TOKEN=   # build-time only (withSentryConfig source-map upload); GitHub Actions secrets, not in the runtime image
 
-# Stripe
-STRIPE_PUBLISHABLE_KEY=
-STRIPE_SECRET_KEY=                  # server/edge only
-STRIPE_WEBHOOK_SECRET=              # edge only
+# ── Next.js app — SERVER-ONLY, Coolify env panel (no rebuild) ──
+ADMIN_SUBDOMAIN_ENFORCED=           # "true" → the proxy 308s {tenant}/admin/* and /field/* to admin.verco.au / field.verco.au; default off
+DISABLE_SURVEY_EMAIL=               # "true" pauses survey-row creation + the completion_survey email on stop closeout (E1 kill-switch)
+# Dev-only, never set on prod: LOCAL_DEV_CLIENT_SLUG (pins the dev tenant in src/proxy.ts), DEBUG_PROXY=1 (proxy tracing).
 
-# Attio
-ATTIO_API_KEY=                      # edge only
-
-# Google Places
-GOOGLE_PLACES_API_KEY=              # edge only
-
-# Cron → Edge Function auth (#517)
-CRON_SECRET=                        # edge only; twin lives in Supabase Vault as `cron_ef_secret`
-
-# Observability
-SENTRY_DSN=                         # edge only (EF secret)
-NEXT_PUBLIC_SENTRY_DSN=             # app; Docker build-arg
-SENTRY_ORG= SENTRY_PROJECT= SENTRY_AUTH_TOKEN=   # build-time only (source-map upload), GitHub Actions secrets
+# ── Edge Functions ONLY — `supabase secrets set --project-ref tfddjmplcizfirxqhotv` ──
+# Never in the Next.js image, Coolify env or any file under src/ (Red Line #3 — deploy.yml greps for the service key).
+SUPABASE_URL= SUPABASE_ANON_KEY= SUPABASE_SERVICE_ROLE_KEY=   # platform-injected; the service key is read only inside supabase/functions/
+STRIPE_SECRET_KEY=                  # create-checkout, handle-expired-payments, process-refund, stripe-webhook
+STRIPE_WEBHOOK_SECRET=              # stripe-webhook HMAC verification. No publishable key exists — Stripe runs entirely in EFs (Checkout redirect)
+SENDGRID_API_KEY=                   # _shared/sendgrid.ts — every outbound email
+SENDGRID_WEBHOOK_VERIFICATION_KEY=  # sendgrid-webhook — Event Webhook signature → notification_log.delivery_*
+DEFAULT_FROM_EMAIL=                 # send-notification + notify-ticket-response fallback sender (default noreply@verco.au). .env.example still spells it SENDGRID_FROM_EMAIL
+TWILIO_ACCOUNT_SID= TWILIO_AUTH_TOKEN=   # _shared/twilio.ts — SMS; the Messaging Service SID is per tenant (client.twilio_messaging_service_sid), not env
+OPTIMOROUTE_API_KEY=                # _shared/optimoroute.ts — push-orders / pull-routes / sync-cancellations / sync-completions / send-routes EFs
+GOOGLE_PLACES_API_KEY=              # google-places-proxy, geocode-properties
+CRON_SECRET=                        # _shared/cron-handler.ts; twin lives in Supabase Vault as `cron_ef_secret` (#517)
+SENTRY_DSN= SENTRY_ENVIRONMENT=     # _shared/sentry.ts (EF SDK); unset = off
+APP_URL=                            # send-notification, notify-ticket-response — base for links in resident emails (default https://verco.au)
+SITE_URL=                           # create-user — welcome-email login base for contractor office staff with no tenant host (default https://verco.au)
 
 # Ops alerts — every watchdog EF (ADR 0033; setup + test: docs/runbooks/ops-alerts.md)
-OPS_ALERT_WEBHOOK_URL=              # edge only; signed Teams Workflows webhook — a password, never in git. Unset = no alert + a Sentry warning every run
-OPS_ALERT_WEBHOOK_FORMAT=           # edge only; `teams` (default, Adaptive Card) or `slack` (`{ text }`)
-NOTIF_HEALTH_WINDOW_HOURS= NOTIF_HEALTH_FAILURE_THRESHOLD= NOTIF_HEALTH_MISSING_CONFIRMATION_HOURS=   # edge only; notification-health-check tuning (defaults 3 / 3 / 24)
-STALE_CLOSEOUT_THRESHOLD_DAYS=      # edge only; stale-closeout-check — days past collection before an un-closed stop counts as stale (default 3)
+OPS_ALERT_WEBHOOK_URL=              # signed Teams Workflows webhook — a password, never in git. Unset = no alert + a Sentry warning every run
+OPS_ALERT_WEBHOOK_FORMAT=           # `teams` (default, Adaptive Card) or `slack` (`{ text }`)
+NOTIF_HEALTH_WINDOW_HOURS= NOTIF_HEALTH_FAILURE_THRESHOLD= NOTIF_HEALTH_MISSING_CONFIRMATION_HOURS=   # notification-health-check tuning (defaults 3 / 3 / 24)
+STALE_CLOSEOUT_THRESHOLD_DAYS=      # stale-closeout-check — days past collection before an un-closed stop counts as stale (default 3)
 
-# SMS Provider
-SMS_API_KEY=                        # edge only
+# ── Dormant — read only by the retired `nightly-sync-to-dm-ops` EF (ADR 0015); never set on prod, not required ──
+# DM_OPS_SUPABASE_URL= DM_OPS_SUPABASE_SERVICE_ROLE_KEY=
 
-# DM-Ops sync (nightly aggregate)
-DM_OPS_SUPABASE_URL=                # edge only
-DM_OPS_SUPABASE_SERVICE_ROLE_KEY=   # edge only
+# ── Ops / import scripts only (local shell, never deployed) ──
+AIRTABLE_TOKEN=                     # scripts/import-vv-properties.ts, scripts/airtable-vv-hygiene.ts (read on the three Verge Valet bases)
+GOOGLE_GEOCODING_API_KEY=           # import-script geocoding (SUB + VIC)
+# scripts/ also read NEXT_PUBLIC_SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY from the local shell for one-off imports.
+
+# Removed from this list 2026-10-20 — nothing reads them: STRIPE_PUBLISHABLE_KEY, ATTIO_API_KEY (Attio dropped,
+# migration 20260702113000), SMS_API_KEY (SMS is Twilio).
 ```
 
 ---

@@ -1,7 +1,7 @@
 # Verco v2 — Product Requirements Document
 
-**Version:** 1.1  
-**Date:** 2026-03-26 (last reconciled 2026-07-04 — see Change Log)  
+**Version:** 1.2  
+**Date:** 2026-03-26 (last reconciled 2026-10-20 — see Change Log)  
 **Author:** Dan Taylor (D&M Waste Management) + Claude (technical co-author)  
 **Status:** APPROVED — basis for TECH_SPEC  
 
@@ -14,6 +14,7 @@ Reconciles this PRD with what actually shipped (the original 2026-03-26 text des
 | Date | Ver | Change |
 |---|---|---|
 | 2026-07-04 | 1.1 | **Survey system reconciled to as-built (§11).** Public access is token-gated via anon-callable `SECURITY DEFINER` RPCs (not a DB trigger). Survey questions are a **fixed shared set** (code constant), not per-tenant configurable (that is deferred). Added and shipped: admin surveys module (`/admin/surveys`), dashboard survey feed, standalone `/survey/*` layout, and a `DISABLE_SURVEY_EMAIL` kill-switch. `booking_survey` is keyed by `client_id` (not `tenant_id`). Shipped as PRs #284 / #285 / #287 / #288. |
+| 2026-10-20 | 1.2 | **OptimoRoute is a live integration, not future scope (§1.2, §7.3, §13.7, §15).** Stops are pushed to OptimoRoute hourly once a collection date locks at T-3, ops plan routes in the OR web app, the planned sequences are pulled back onto Verco's stops, Verco itself shares tomorrow's routes with the crews at 8pm AWST after a final cancellation sweep, and every terminal closeout (Completed / Non-conformance / Nothing Presented) is reported to OR as `success`. Only OR *driver-app* usage stays out of scope — crews work in Verco's field UI. Sources: migrations `20260610010400`, `20260827020000`, `20260705010000`, `20261013100000`; EFs `push-orders-to-optimoroute`, `pull-optimoroute-routes`, `sync-completions-to-optimoroute`, `send-routes-to-optimoroute`; ADRs 0018, 0028. **DM-Ops feed reconciled (§6.4, §13.5):** the nightly aggregate push (`nightly-sync-to-dm-ops`) never completed a run and was retired 23/08/2026 (ADR 0015, migration `20260823120000`); DM-Ops now pulls two read-only views in the `dmops_export` schema over `postgres_fdw` (migration `20261014010000`, #659). **CRM (§12, §13.7):** the Attio sync was never built and its columns were dropped (migration `20260702113000`); no CRM integration is live. **§13.3** tenant resolution names `src/proxy.ts`. |
 
 ---
 
@@ -26,7 +27,7 @@ Verco is a white-labelled, multi-tenant SaaS platform for managing residential b
 ### 1.2 What Verco Is Not
 
 - **Not** a general waste management system
-- **Not** a route optimisation tool (OptimoRoute integration is future scope)
+- **Not** a route optimisation tool — routing happens in OptimoRoute; Verco sends it the jobs, pulls the planned sequence back and shares the routes with the crews (§7.3)
 - **Not** a billing or invoicing platform (Xero integration lives in DM-Ops)
 - **Not** a native mobile app (PWA only in v2)
 
@@ -278,9 +279,9 @@ Each `collection_date` has three independent capacity buckets:
 
 Capacity check and booking insert are wrapped in a serialisable transaction in the `create-booking` Edge Function. A Postgres advisory lock keyed on `collection_date_id` prevents race conditions under concurrent bookings.
 
-### 6.4 Attended Collections (for CPPH sync)
+### 6.4 Attended Collections (for the DM-Ops feed)
 
-For DM-Ops CPPH analytics, "attended" = bookings where `status IN ('Completed', 'Non-conformance', 'Nothing Presented')`. The nightly aggregate sync to DM-Ops uses this definition, grouped by `job_id + area_id + collection_date`.
+For DM-Ops CPPH analytics, "attended" = bookings where `status IN ('Completed', 'Non-conformance', 'Nothing Presented')`. DM-Ops reads this through the read-only `dmops_export.collection_daily_v1` / `stop_daily_v1` views (migration `20261014010000`), pulled over `postgres_fdw` on DM-Ops' own schedule — attended units per day × job × area × council × OptimoRoute run, counts and codes only, no resident PII. The views copy `get_client_monthly_report`'s counting rules so the feed and the monthly invoice statement tie by construction. The original nightly aggregate push (`nightly-sync-to-dm-ops`) never completed a run and was retired on 23/08/2026 (ADR 0015).
 
 ---
 
@@ -306,9 +307,19 @@ Per booking line:
 
 Contact details (name, mobile, email) are **never** included on run sheets. `field` and `ranger` roles receive no resident PII. All PII suppression is enforced at RLS level.
 
-### 7.3 Future Integration
+### 7.3 OptimoRoute Integration (as-built)
 
-OptimoRoute integration is **out of scope for v2**. The data model includes a nullable `crew_id` column on `booking` for future crew assignment. (The original `optimo_stop_id` placeholder was dropped 02/07/2026 — the shipped OR sync keys stops on `collection_stop.external_order_ref` instead.)
+OptimoRoute (OR) is a **live** integration — route planning and sequencing happen there, but the crews never use the OR driver app. The division of labour (ADRs 0018, 0028):
+
+| Step | Who / when | Mechanism |
+|---|---|---|
+| Jobs reach OR | Verco, **hourly** (`push-orders-to-optimoroute`, cron `10 * * * *`, migration `20260827020000`) | Once a collection date hard-locks at T-3, each booking × waste stream becomes a `collection_stop`; new or changed stops are pushed as OR orders (`collection_stop.external_order_ref`), and an unchanged stop is never re-sent. A date move cancels the vacated day's stop immediately, and the hourly sweep (`sync-optimoroute-cancellations`, cron `20 * * * *`) deletes the OR order within the hour. |
+| Routes are planned | Ops, in the OR web app | Verco does not plan routes. |
+| Plan comes back | Verco (`pull-optimoroute-routes`, cron `50 */4 * * *`, plus the admin "Refresh routes" button) | Truck, sequence and ETA are stamped onto the pending stops; terminal stops keep the sequence they were worked in. |
+| Crews get their routes | **Verco, 8pm AWST, once** (`send-routes-to-optimoroute`, cron `0 12 * * *`, migration `20261013100000`) | A final cancellation sweep, then OR's own `send_routes` for tomorrow — residents get the same OR notifications a manual share produced. Changes after 8pm are re-shared by staff in OR; Verco never re-sends. |
+| Closeouts flow back | Verco (`sync-completions-to-optimoroute`, every 5 min, migration `20260705010000`) | Every terminal closeout (Completed / Non-conformance / Nothing Presented) is reported to OR as `success` so OR advances its route and fires its own customer messages. Verco stays the source of truth for the real outcome; outcome status is never pulled *from* OR. |
+
+**Still out of scope:** OR driver-app usage — crews run their sheet and close out in Verco's field UI (§2.3 PII rules apply). The `collection_stop` row is the frozen as-dispatched record; a later booking correction never rewrites it (ADR 0009). The nullable `crew_id` column on `booking` is unused — crew attribution comes from the stop's OR `driver_serial`. (The original `optimo_stop_id` placeholder was dropped 02/07/2026, migration `20260702113000`.)
 
 ---
 
@@ -456,7 +467,7 @@ The `booking_enquiry` table is renamed conceptually to **service tickets** in v2
 - Status: `open`, `in_progress`, `waiting_on_customer`, `resolved`, `closed`
 - SLA tracking per tenant + priority (from `sla_config`)
 - Internal notes (staff only, not visible to resident)
-- Attio CRM sync (contact + ticket upsert)
+- No CRM sync — the planned Attio contact + ticket upsert was never built and its columns were dropped 02/07/2026 (migration `20260702113000`); a HubSpot sync is designed (`docs/superpowers/specs/2026-05-29-verco-hubspot-sync-design.md`) but only its pure mappers (`src/lib/hubspot/`) exist, with no Edge Function, secret or cron
 
 ---
 
@@ -484,7 +495,7 @@ Contractor          (D&M, future third-party contractors)
 ### 13.3 Hosting
 
 - **Platform:** Coolify (self-hosted) on BinaryLane
-- **Tenant resolution:** Next.js middleware running in Node container — no edge runtime required
+- **Tenant resolution:** `src/proxy.ts` (Next.js 16's rename of middleware) running in the Node container — no edge runtime required
 - **Deployment model:** Shared multi-tenant — `contractor_id` is the top-level isolation key
 - **Multi-contractor isolation:** RLS enforced at DB level — no contractor can see another's data
 
@@ -503,7 +514,7 @@ Residents never select their sub-client or collection area manually — the addr
 | Integration | Mechanism |
 |---|---|
 | Contractor/client/booking management | DM-Ops holds a live Supabase client pointed at Verco DB |
-| CPPH analytics | Nightly aggregate sync: `dm_job_code + date + attended_count` → DM-Ops via `nightly-sync-to-dm-ops` Edge Function |
+| CPPH analytics | DM-Ops **pulls** the read-only `dmops_export.collection_daily_v1` / `stop_daily_v1` views over `postgres_fdw` (migration `20261014010000`, role `dmops_reader`, counts and codes only — see §6.4). The nightly `nightly-sync-to-dm-ops` push was retired 23/08/2026 (ADR 0015); Verco never writes to DM-Ops |
 | Refund approval | Verco-internal — a Verco admin approves in the admin Refunds page (`process-refund` Edge Function). Not a DM-Ops action. |
 
 ### 13.6 Payment
@@ -518,10 +529,10 @@ Residents never select their sub-client or collection area manually — the addr
 | Service | Purpose | Scope |
 |---|---|---|
 | Stripe | Resident payment processing | v2 |
-| Attio CRM | Contact + ticket sync | v2 |
+| CRM | None — Attio dropped (migration `20260702113000`); HubSpot designed, not built | — |
 | Google Places | Address autocomplete proxy | v2 |
 | SMS provider | Booking + reminder SMS | v2 |
-| OptimoRoute | Route optimisation + crew assignment | Future |
+| OptimoRoute | Route planning: hourly order push, 4-hourly plan pull, 8pm route share, completion sync (§7.3) | v2 — live |
 
 ---
 
@@ -545,7 +556,7 @@ Residents never select their sub-client or collection area manually — the addr
 
 The following are explicitly excluded from v2:
 
-- OptimoRoute integration
+- OptimoRoute driver-app usage (crews work in Verco's field UI; the order push / plan pull / 8pm share / completion sync in §7.3 are live)
 - Stripe Connect (multi-operator payments)
 - Native mobile app (iOS/Android)
 - Cross-tenant benchmarking / analytics
