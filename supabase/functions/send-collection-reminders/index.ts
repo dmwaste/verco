@@ -7,6 +7,7 @@ import {
   fetchAllConfirmedBookings,
   rateLimitRetryAfterMs,
   remindedOnBothChannels,
+  reminderRunStatus,
   runWithinBudget,
 } from '../_shared/schedule-transition.ts'
 
@@ -36,11 +37,14 @@ import {
  * reopens instead of failing the booking. One tick clears ~120; the four
  * ticks cover a ~480-booking day.
  *
- * Returns HTTP 500 if any per-booking invocation fails OR the time budget ran
- * out with candidates still unsent (`remaining` > 0), so Sentry sees it and the
- * next tick picks up the rest. The dispatcher is fire-and-forget at the EF
- * level (failures return 200 with `{ok:false}`), so this cron's HTTP-status
- * check captures network-level failures specifically.
+ * Returns 200 when every candidate was sent; 207 when some weren't (a send
+ * failed or the time budget ran out, `remaining` > 0) but a later tick today
+ * retries them; 500 when the LAST tick (09:30) still leaves some unsent, or the
+ * run throws (`reminderRunStatus`). Sentry reports 5xx only, so it alerts on a
+ * real miss, not on a busy morning handing work to the next tick (19/10/2026).
+ * The dispatcher is fire-and-forget at the EF level (failures return 200 with
+ * `{ok:false}`), so this cron's HTTP-status check captures network-level
+ * failures specifically.
  */
 
 // Sends run CONCURRENCY at a time and stop starting at TIME_BUDGET_MS after the
@@ -226,15 +230,19 @@ serve(cronHandler('send-collection-reminders', async (_req) => {
       }
     })
     results.remaining = run.remaining
+    const status = reminderRunStatus(results, new Date(startedAt))
     if (run.remaining > 0) {
-      console.error(`Time budget spent: ${run.remaining} of ${toSend.length} reminders not sent (next tick retries them)`)
+      console.error(
+        status === 500
+          ? `Time budget spent on the last tick: ${run.remaining} of ${toSend.length} reminders not sent (run scripts/send-reminder-catchup.ts)`
+          : `Time budget spent: ${run.remaining} of ${toSend.length} reminders not sent (next tick retries them)`,
+      )
     }
 
     console.log(JSON.stringify({ event: 'send_collection_reminders', ...results }))
 
-    const ok = results.failed === 0 && results.remaining === 0
-    return new Response(JSON.stringify({ ok, ...results }), {
-      status: ok ? 200 : 500,
+    return new Response(JSON.stringify({ ok: status === 200, ...results }), {
+      status,
       headers: { 'Content-Type': 'application/json' },
     })
   } catch (err) {

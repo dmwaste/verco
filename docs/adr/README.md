@@ -35,3 +35,4 @@ An ADR — "architecture decision record" — is a short record of a decision we
 | [0029](0029-mud-bookings-twelve-months-ahead-residents-keep-sixteen-weeks.md) | Staff can book MUD collections 12 months ahead; residents keep 16 weeks; a booking's FY is its collection date's | 13/10/2026 | Accepted |
 | [0030](0030-office-corrects-a-wrong-closeout-within-seven-days.md) | The office can correct a crew's wrong closeout within 7 days; the crew's buttons stay one-tap | 13/10/2026 | Accepted |
 | [0031](0031-property-notes-are-staff-only-and-never-deleted.md) | Property notes and permission-to-enter forms are staff-only, scoped to each council, and never deleted | 13/10/2026 | Accepted |
+| [0032](0032-a-busy-reminder-morning-is-not-an-outage.md) | A busy reminder morning is not an outage: only the last run of the day raises the alarm | 20/10/2026 | Accepted |
