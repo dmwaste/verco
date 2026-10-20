@@ -209,8 +209,8 @@ export function PropertiesClient({ clientId, isContractorAdmin, canManageAllocat
 
     // The EF geocodes rows where google_place_id IS NULL, one Google call each,
     // bounded by Supabase's ~150s wall clock, so runGeocodeQueue drives it in
-    // chunks (mirroring scripts/run-geocode-loop.ts) and stops once a call saw
-    // the whole queue or moved nothing out of it.
+    // chunks, walking the queue once by id so rows Google refused or snapped
+    // don't hide the rows behind them.
     try {
       const result = await runGeocodeQueue(
         (body) => invokeEfWithUserToken<GeocodeEfResponse>(supabase, 'geocode-properties', body),

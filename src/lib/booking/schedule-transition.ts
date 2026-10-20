@@ -221,12 +221,6 @@ export function remindedOnBothChannels(rows: Array<{ booking_id: string | null; 
   return done
 }
 
-// 09:30 AWST, the last of the four reminder ticks (`0,10,20,30 1 * * *` UTC,
-// migration 20261013030000). Keep in step with that schedule: if a tick moves
-// later, move this too, or the old last tick will alert on work a later tick
-// would have finished.
-const LAST_REMINDER_TICK_AWST_MINUTES = 9 * 60 + 30
-
 /**
  * HTTP status for a send-collection-reminders run:
  *   200 — every candidate was sent.
@@ -241,14 +235,15 @@ const LAST_REMINDER_TICK_AWST_MINUTES = 9 * 60 + 30
  * reminded all 188 — so Sentry cried wolf every busy day. Only the last tick
  * can tell a real miss.
  *
- * "Last" is judged on the AWST clock at the start of the run, so a manual run
- * after 09:30 AWST (nothing left to retry it) also alerts.
+ * `lastTick` comes from the cron job itself (`{"last_tick": false}` on the
+ * earlier ticks, `true` on the last — migration 20261020015939), so the
+ * schedule lives in one place. A run without the flag (manual, or a tick added
+ * later without it) counts as the last: it alerts rather than hides a miss.
  */
 export function reminderRunStatus(
   run: { failed: number; remaining: number },
-  startedAt: Date,
+  lastTick: boolean,
 ): 200 | 207 | 500 {
   if (run.failed === 0 && run.remaining === 0) return 200
-  const awstMinutes = (startedAt.getUTCHours() * 60 + startedAt.getUTCMinutes() + 8 * 60) % (24 * 60)
-  return awstMinutes >= LAST_REMINDER_TICK_AWST_MINUTES ? 500 : 207
+  return lastTick ? 500 : 207
 }

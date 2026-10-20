@@ -41,15 +41,25 @@ describe('googleFetch', () => {
     expect(fetchMock).toHaveBeenCalledWith(geocodeUrl().toString())
   })
 
-  it('rethrows a network failure without the URL or the key', async () => {
+  it('rethrows a network failure with its cause but without the URL or the key', async () => {
     const leaky = new TypeError(`error sending request for url (${geocodeUrl().toString()}): connection refused`)
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(leaky))
 
     const err = await googleFetch(geocodeUrl(), 'Geocoding').catch((e: unknown) => e)
     expect(err).toBeInstanceOf(Error)
-    expect((err as Error).message).toBe('Google Geocoding request failed: TypeError')
+    expect((err as Error).message).toBe(
+      'Google Geocoding request failed: error sending request for url ([Google URL]): connection refused',
+    )
     expect((err as Error).message).not.toContain(KEY)
     expect((err as Error).message).not.toContain('maps.googleapis.com')
+    expect((err as Error).message).not.toContain('Fixture Way')
+  })
+
+  it('redacts the key even when the error quotes it outside the full URL', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError(`bad query key=${KEY}: dns error`)))
+
+    const err = await googleFetch(geocodeUrl(), 'Geocoding').catch((e: unknown) => e)
+    expect((err as Error).message).toBe('Google Geocoding request failed: bad query key=[redacted]: dns error')
   })
 
   it('handles a non-Error rejection', async () => {

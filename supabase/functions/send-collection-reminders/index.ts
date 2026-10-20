@@ -39,8 +39,9 @@ import {
  *
  * Returns 200 when every candidate was sent; 207 when some weren't (a send
  * failed or the time budget ran out, `remaining` > 0) but a later tick today
- * retries them; 500 when the LAST tick (09:30) still leaves some unsent, or the
- * run throws (`reminderRunStatus`). Sentry reports 5xx only, so it alerts on a
+ * retries them; 500 when the LAST tick (the cron sends `last_tick`; a run
+ * without it counts as last) still leaves some unsent, or the run throws
+ * (`reminderRunStatus`). Sentry reports 5xx only, so it alerts on a
  * real miss, not on a busy morning handing work to the next tick (19/10/2026).
  * The dispatcher is fire-and-forget at the EF level (failures return 200 with
  * `{ok:false}`), so this cron's HTTP-status check captures network-level
@@ -86,13 +87,17 @@ function earliestCollectionDate(booking: BookingRow): string | null {
   return dates.sort()[0] ?? null
 }
 
-serve(cronHandler('send-collection-reminders', async (_req) => {
+serve(cronHandler('send-collection-reminders', async (req) => {
   const supabaseUrl = Deno.env.get('SUPABASE_URL')!
   const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
   const supabase = createClient<Database>(supabaseUrl, serviceRoleKey)
 
   const startedAt = Date.now()
   const today = awstDateFromUtc(new Date(startedAt))
+  // The cron says which tick this is (migration 20261020015939). No flag, or an
+  // unreadable body, counts as the last tick: alert rather than hide a miss.
+  const body: { last_tick?: unknown } = await req.json().catch(() => ({}))
+  const lastTick = body?.last_tick !== false
 
   const results = {
     today_awst: today,
@@ -230,7 +235,7 @@ serve(cronHandler('send-collection-reminders', async (_req) => {
       }
     })
     results.remaining = run.remaining
-    const status = reminderRunStatus(results, new Date(startedAt))
+    const status = reminderRunStatus(results, lastTick)
     if (run.remaining > 0) {
       console.error(
         status === 500
