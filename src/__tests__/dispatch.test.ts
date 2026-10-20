@@ -58,12 +58,13 @@ interface Harness {
 }
 
 /**
- * Deps mock with a real per-(booking,type,channel,ref) idempotency ledger:
- * a successful email `writeLog` records the key that a later `isAlreadySent`
- * checks — exactly how notification_log gates a repeat send in prod.
+ * Deps mock with a real per-(booking,type,channel,ref) claim ledger: a claim
+ * holds its key until it settles as `failed` — exactly how the partial unique
+ * index on notification_log gates a repeat send in prod (#671).
  */
 function makeHarness(booking: BookingForDispatch = makeBooking()): Harness {
-  const sentKeys = new Set<string>()
+  const heldKeys = new Set<string>()
+  const claimKeys = new Map<string, string>()
   const emailSends: SendEmailParams[] = []
   const smsSends: SendSMSParams[] = []
   const key = (bookingId: string, type: string, channel: string, ref: string | null | undefined) =>
@@ -71,14 +72,15 @@ function makeHarness(booking: BookingForDispatch = makeBooking()): Harness {
 
   const deps: DispatchDeps = {
     loadBooking: async () => booking,
-    isAlreadySent: async (bookingId, type, channel, ref) =>
-      sentKeys.has(key(bookingId, type, channel, ref)),
-    writeLog: async (row: NotificationLogRow) => {
-      if (row.status === 'sent') {
-        sentKeys.add(key(row.booking_id, row.notification_type, row.channel, row.reference_id))
-      }
-      return 'log-1'
+    claimSend: async (row: NotificationLogRow) => {
+      const k = key(row.booking_id, row.notification_type, row.channel, row.reference_id)
+      if (heldKeys.has(k)) return { outcome: 'held', by: 'sent' }
+      heldKeys.add(k)
+      const id = `log-${claimKeys.size + 1}`
+      claimKeys.set(id, k)
+      return { outcome: 'claimed', id }
     },
+    writeLog: async () => 'log-unclaimed',
     sendEmail: async (params) => {
       emailSends.push(params)
       return { ok: true }
@@ -88,7 +90,10 @@ function makeHarness(booking: BookingForDispatch = makeBooking()): Harness {
       return { ok: true }
     },
     loadNotificationLog: async () => null,
-    updateLogStatus: async () => {},
+    updateLogStatus: async (id, status) => {
+      const k = claimKeys.get(id)
+      if (k && status === 'failed') heldKeys.delete(k)
+    },
     loadRefundAmountCents: async () => null,
     appUrl: 'https://verco.au',
     defaultFromEmail: 'bookings@verco.au',

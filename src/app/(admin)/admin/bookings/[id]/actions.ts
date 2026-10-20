@@ -444,11 +444,13 @@ export async function updateCollectionDetails(
   // the collection has been dispatched or already happened, so a "your booking
   // date is now <past date>" email would only confuse. Reached only when
   // something actually changed (the no-op case returns earlier). Fire-and-forget.
+  // edit_ref must be a uuid: it is stored as notification_log.reference_id (uuid),
+  // the per-edit idempotency + send-claim key (#671).
   if (current.status === 'Confirmed') {
     await invokeSendNotification(supabase, {
       type: 'booking_updated',
       booking_id: bookingId,
-      edit_ref: new Date().toISOString(),
+      edit_ref: crypto.randomUUID(),
     })
   }
 
@@ -679,14 +681,15 @@ export async function updateBookingQuantities(
   // snapshot + a refund line so money moving back is explained (#388). Only
   // surface a refund when one actually went through: 'initiated' → processed,
   // 'queued' → pending review; 'failed'/'none' show no refund line. edit_ref
-  // makes the idempotency key unique per edit. We pass the refund_request_id
+  // (a uuid — it is stored as notification_log.reference_id) makes the
+  // idempotency key unique per edit. We pass the refund_request_id
   // (not the amount) — send-notification derives the DISPLAYED cents from that
   // row so the figure can't be forged. Fire-and-forget.
   const refundStatus = refundStateToNotificationStatus(refundState)
   await invokeSendNotification(supabase, {
     type: 'booking_updated',
     booking_id: bookingId,
-    edit_ref: new Date().toISOString(),
+    edit_ref: crypto.randomUUID(),
     ...(refundStatus && refundRequestId
       ? { refund_status: refundStatus, refund_request_id: refundRequestId }
       : {}),

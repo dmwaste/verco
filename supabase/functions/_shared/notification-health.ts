@@ -155,7 +155,7 @@ export function buildHealthAlert(
     const more = missingConfirmationRefs.length - shown.length
     lines.push(
       `${missingConfirmationRefs.length} live booking(s) with no booking_created notification ` +
-        '(no log row of any status — the send was never attempted):',
+        '(no sent or failed log row — the send was never attempted, or never finished):',
     )
     lines.push(`• ${shown.join(', ')}${more > 0 ? ` +${more} more` : ''}`)
     lines.push(
@@ -194,9 +194,26 @@ export interface ConfirmationCandidate {
 }
 
 /**
- * Refs of candidate bookings that have NO booking_created notification_log
- * row of any status. A `failed` row counts as attempted — it is already
- * visible + retryable on /admin/notifications and must not double-alert here.
+ * Booking ids with a SETTLED booking_created row — `sent` or `failed`. A
+ * `queued` row is a send claim (#671) taken before the dispatcher sends; one
+ * still `queued` on a booking past the settle period belongs to a dispatcher
+ * that died mid-send, so that booking is still unconfirmed and must alert.
+ */
+export function settledConfirmationBookingIds(
+  rows: ReadonlyArray<{ booking_id: string | null; status: string }>,
+): Set<string> {
+  const ids = new Set<string>()
+  for (const r of rows) {
+    if (r.booking_id && (r.status === 'sent' || r.status === 'failed')) ids.add(r.booking_id)
+  }
+  return ids
+}
+
+/**
+ * Refs of candidate bookings that have NO settled booking_created
+ * notification_log row (see settledConfirmationBookingIds). A `failed` row
+ * counts as attempted — it is already visible + retryable on
+ * /admin/notifications and must not double-alert here.
  * Preserves candidate order (caller orders oldest-first).
  */
 export function findMissingConfirmations(

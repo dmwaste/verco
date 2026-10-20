@@ -49,6 +49,11 @@ vi.mock('@/lib/supabase/server', () => ({
 
 import { updateCollectionDetails } from '@/app/(admin)/admin/bookings/[id]/actions'
 
+// edit_ref becomes notification_log.reference_id (a uuid column) — the per-edit
+// idempotency + send-claim key (#671). An ISO timestamp failed that insert, so
+// every booking_updated email went out unlogged (prod had zero rows).
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
 interface FetchCall { url: string; body: Record<string, unknown> }
 let fetchCalls: FetchCall[] = []
 
@@ -79,7 +84,7 @@ describe('updateCollectionDetails — resident notification gate', () => {
     expect(notify).toHaveLength(1)
     expect(notify[0]!.body.type).toBe('booking_updated')
     expect(notify[0]!.body.booking_id).toBe(B1)
-    expect((notify[0]!.body.edit_ref as string).length).toBeGreaterThan(0)
+    expect(notify[0]!.body.edit_ref).toMatch(UUID_RE)
   })
 
   it('does NOT notify on a #378 Completed date correction (contractor override)', async () => {

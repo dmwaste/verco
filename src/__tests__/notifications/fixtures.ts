@@ -19,6 +19,7 @@ import type {
   NotificationLogRow,
   SendEmailParams,
   SendEmailResult,
+  SendClaim,
   SendSMSParams,
   SendSMSResult,
 } from '@/lib/notifications/dispatch'
@@ -143,8 +144,9 @@ export interface MockDispatchState {
   /** Bookings keyed by id. Return null from loadBooking if missing. */
   bookings?: Record<string, BookingForDispatch>
   /**
-   * Existing notification_log rows — the idempotency check reads this.
-   * Structure: list of `{booking_id, notification_type, channel, status}`.
+   * Existing notification_log rows — the send claim checks this (#671): a
+   * `queued` or `sent` row on the same (booking, type, channel, reference_id)
+   * key holds it, exactly like the partial unique index in prod.
    * `channel` defaults to 'email' when omitted (back-compat with older tests).
    */
   existingLog?: Array<{
@@ -172,6 +174,7 @@ export interface MockDispatchState {
     notification_type: NotificationType
     status: 'queued' | 'sent' | 'failed'
     to_address: string
+    channel?: NotificationChannel
   }>
   /**
    * Authoritative refund_request amounts keyed by `${refund_request_id}:${booking_id}`
@@ -188,9 +191,15 @@ export interface MockDispatchDeps extends DispatchDeps {
   sendEmailMock: ReturnType<typeof vi.fn>
   /** Spy on all sendSMS calls. */
   sendSMSMock: ReturnType<typeof vi.fn>
-  /** Spy on all writeLog calls. */
+  /** Spy on all claimSend calls. */
+  claimSendMock: ReturnType<typeof vi.fn>
+  /** Spy on all writeLog calls (the unclaimed fallback only). */
   writeLogMock: ReturnType<typeof vi.fn>
-  /** All notification_log rows that would have been written in this run. */
+  /**
+   * All notification_log rows written in this run — a claim row is pushed as
+   * `queued` and settled in place by updateLogStatus, so after dispatch each
+   * entry holds its final status.
+   */
   writtenLogs: NotificationLogRow[]
   /** Spy on all updateLogStatus calls. */
   updateLogStatusMock: ReturnType<typeof vi.fn>
@@ -216,7 +225,33 @@ export function createMockDispatchDeps(
     return state.smsResult ?? { ok: true as const, messageSid: 'SM-mock' }
   })
 
-  const updateLogStatusMock = vi.fn(async () => {})
+  // Claim rows get ids `log-N` (their index in writtenLogs, 1-based); settling
+  // one updates it in place. Other ids (resume-path rows) are left to the spy.
+  const updateLogStatusMock = vi.fn(
+    async (id: string, status: 'sent' | 'failed', errorMessage?: string, toAddress?: string) => {
+      const match = /^log-(\d+)$/.exec(id)
+      const row = match ? writtenLogs[Number(match[1]) - 1] : undefined
+      if (!row) return
+      row.status = status
+      if (errorMessage !== undefined) row.error_message = errorMessage
+      if (toAddress !== undefined) row.to_address = toAddress
+    },
+  )
+
+  // Emulates the partial unique index notification_log_send_claim_key.
+  const claimSendMock = vi.fn(async (row: NotificationLogRow): Promise<SendClaim> => {
+    const holder = [...(state.existingLog ?? []), ...writtenLogs].find(
+      (e) =>
+        e.booking_id === row.booking_id &&
+        e.notification_type === row.notification_type &&
+        (e.channel ?? 'email') === row.channel &&
+        (e.reference_id ?? null) === (row.reference_id ?? null) &&
+        (e.status === 'queued' || e.status === 'sent'),
+    )
+    if (holder) return { outcome: 'held', by: holder.status === 'sent' ? 'sent' : 'queued' }
+    writtenLogs.push({ ...row, status: 'queued' })
+    return { outcome: 'claimed', id: `log-${writtenLogs.length}` }
+  })
 
   const loadRefundAmountCentsMock = vi.fn(
     async (refundRequestId: string, bookingId: string) => {
@@ -231,25 +266,7 @@ export function createMockDispatchDeps(
     loadBooking: async (booking_id: string) => {
       return state.bookings?.[booking_id] ?? null
     },
-    isAlreadySent: async (
-      booking_id: string,
-      type: NotificationType,
-      channel: NotificationChannel,
-      referenceId?: string | null,
-    ) => {
-      return (
-        state.existingLog?.some(
-          (e) =>
-            e.booking_id === booking_id &&
-            e.notification_type === type &&
-            (e.channel ?? 'email') === channel &&
-            e.status === 'sent' &&
-            // Mirrors the EF: a reference id narrows the key; without one
-            // the match stays booking-level.
-            (!referenceId || e.reference_id === referenceId)
-        ) ?? false
-      )
-    },
+    claimSend: claimSendMock,
     writeLog: writeLogMock,
     sendEmail: sendEmailMock,
     sendSMS: sendSMSMock,
@@ -261,6 +278,7 @@ export function createMockDispatchDeps(
     appUrl: 'https://verco.test',
     defaultFromEmail: 'noreply@verco.test',
     writtenLogs,
+    claimSendMock,
     writeLogMock,
     sendEmailMock,
     sendSMSMock,
