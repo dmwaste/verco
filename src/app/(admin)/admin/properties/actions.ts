@@ -5,7 +5,7 @@ import { rejectMistypedEmailDomain } from '@/lib/email'
 import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { canMarkRegistered } from '@/lib/mud/state-machine'
-import { canonicaliseAuMobile, isValidPhone, normalisePhone } from '@/lib/mud/validation'
+import { canonicaliseAuMobile, isValidPhone, normalisePhone, PHONE_INVALID_MESSAGE } from '@/lib/mud/validation'
 import type { Database } from '@/lib/supabase/types'
 import type { Result } from '@/lib/result'
 import { validateStaffRole } from '@/lib/auth/server'
@@ -41,7 +41,7 @@ const strataContactSchema = z.object({
     .trim()
     .min(6, 'Enter a valid phone number')
     .max(25)
-    .refine(isValidPhone, 'Enter a valid phone number')
+    .refine(isValidPhone, PHONE_INVALID_MESSAGE)
     .transform((v) => canonicaliseAuMobile(v) ?? normalisePhone(v)),
   email: z.string().trim().email('Invalid email').max(255).superRefine(rejectMistypedEmailDomain),
 })

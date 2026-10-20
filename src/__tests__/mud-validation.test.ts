@@ -12,7 +12,6 @@ describe('isValidPhone — accepts every real AU phone format, rejects junk (VER
     ['0412345678', 'mobile'],
     ['08 91234567', 'landline, spaced'],
     ['(08) 9123 4567', 'landline, bracketed'],
-    ['9123 4567', 'bare 8-digit local'],
     ['1300 975 707', '1300 service line'],
     ['1800123456', '1800 service line'],
     ['+61891234567', 'international'],
@@ -35,6 +34,53 @@ describe('isValidPhone — accepts every real AU phone format, rejects junk (VER
 
   it('accepts exactly 15 digits (upper boundary)', () => {
     expect(isValidPhone('123456789012345')).toBe(true)
+  })
+})
+
+// #668: a number that looks Australian but has the wrong digit count used to
+// pass the loose 6–15-digit rule, was stored raw, and the resident got no SMS.
+describe('isValidPhone — an Australian-looking number must have the right length (#668)', () => {
+  it.each([
+    ['0413 12345', 'mobile a digit short'],
+    ['0404 1234567', 'mobile a digit long'],
+    ['+61 412 3456', '+61 mobile two digits short'],
+    ['+61 0412 345 6789', '+61 0… mobile a digit long'],
+    ['+61 08 9123 456', '+61 0… landline a digit short'],
+    ['61 412 345 6789', '61 mobile without +, a digit long'],
+    ['0061 412 345 67', '0061 mobile a digit short'],
+    ['4123 456 789', 'mobile with no 0, a digit long'],
+    ['4123 4567', 'mobile with no 0, a digit short'],
+    ['9385 1234', '8-digit local number, area code left off'],
+    ['08 9123 456', 'landline a digit short'],
+    ['(08) 9123 45678', 'landline a digit long'],
+    ['1300 975 70', '1300 a digit short'],
+    ['1800 123 4567', '1800 a digit long'],
+    ['13 12 345', '13 number a digit long'],
+  ])('rejects %s (%s)', (input) => {
+    expect(isValidPhone(input)).toBe(false)
+  })
+
+  it.each([
+    ['0412 345 678', 'mobile'],
+    ['412 345 678', 'mobile with no 0 (#667 canonicalises it)'],
+    ['+61 412 345 678', '+61 mobile'],
+    ['+61 0412 345 678', '+61 mobile with the national 0 kept'],
+    ['61412345678', '61 mobile without +'],
+    ['0061 412 345 678', '0061 mobile'],
+    ['+44 412 345 678', 'UK-region autofill of an AU mobile'],
+    ['+1 0412 345 678', 'US-region autofill of an AU mobile'],
+    ['(08) 9123 4567', 'landline'],
+    ['02 9876 5432', 'Sydney landline'],
+    ['+61 8 9123 4567', '+61 landline'],
+    ['+61 08 9123 4567', '+61 landline with the national 0 kept'],
+    ['1300 975 707', '1300'],
+    ['1800 123 456', '1800'],
+    ['13 12 34', '13 number'],
+    ['+44 7700 900123', 'genuine UK mobile'],
+    ['+31 6 1234 5678', 'genuine Dutch mobile'],
+    ['+1 212 555 0123', 'genuine US number'],
+  ])('still accepts %s (%s)', (input) => {
+    expect(isValidPhone(input)).toBe(true)
   })
 })
 

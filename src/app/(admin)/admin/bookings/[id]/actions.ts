@@ -3,7 +3,7 @@
 import { z } from 'zod'
 import * as Sentry from '@sentry/nextjs'
 import { QuantityEditItemSchema } from '@/lib/booking/schemas'
-import { canonicaliseAuMobile, normalisePhone } from '@/lib/phone'
+import { canonicaliseAuMobile, isValidPhone, normalisePhone, PHONE_INVALID_MESSAGE } from '@/lib/phone'
 import { mistypedEmailDomainMessage } from '@/lib/email'
 import { createClient } from '@/lib/supabase/server'
 import { invokeSendNotification } from '@/lib/notifications/invoke'
@@ -259,6 +259,12 @@ export async function updateContact(
     current.mobile_e164 === newMobile
   ) {
     return { ok: true, data: undefined }
+  }
+
+  // Same gate as the booking forms (#668), on a number this edit changes only: a
+  // contact already on file with a bad one can still have its name fixed.
+  if (rawMobile && newMobile !== current?.mobile_e164 && !isValidPhone(rawMobile)) {
+    return { ok: false, error: PHONE_INVALID_MESSAGE }
   }
 
   // contacts has SELECT-only RLS by design (BR-0031/#452) — writes go through
