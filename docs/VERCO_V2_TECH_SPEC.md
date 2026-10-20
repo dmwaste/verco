@@ -14,6 +14,7 @@ Reconciles this spec with what actually shipped (the original 2026-03-26 text de
 | Date | Ver | Change |
 |---|---|---|
 | 2026-07-04 | 1.1 | **Survey system reconciled to as-built (§13).** The `booking.status → Completed` DB trigger was **dropped** — survey rows are created by the field closeout action (`maybeCreateCompletionSurvey`), and public token access goes through anon-callable `SECURITY DEFINER` RPCs `get_survey_by_token(text)` / `submit_survey_by_token(text, jsonb)` (migration `20260704000000`), replacing the `/api/survey` route + direct `booking_survey` access (which RLS blocked for anon). Survey questions are a **fixed code constant** (`src/lib/survey/questions.ts`), not loaded from `client_survey_config` (defined but unwired — deferred). `tenant_*` names throughout are the legacy names; the shipped schema uses `client_*` (see §7 rename table). Shipped as PRs #284 / #285 / #287 / #288. |
+| 2026-10-20 | 1.2 | **Notifications are claimed before sending (§10 `send-notification`, ADR 0035).** The dispatcher inserts the attempt as a `queued` `notification_log` row under the partial unique index `notification_log_send_claim_key` (migration `20261020060309`), sends, then settles that row — a retried call hits `23505` and skips instead of sending twice. Staff may insert a `failed` `booking_created` row under their own JWT (`notification_log_staff_insert_failed`, tenant-pinned) so an unreachable send shows on `/admin/notifications` with Retry. **Watchdogs alert through one Teams channel (§10, §16, ADR 0033):** `notification-health-check` and the new daily `stale-closeout-check` (migration `20261020051532`, ADR 0034) post via `_shared/ops-alert.ts`; `OPS_ALERT_WEBHOOK_URL` and friends added to §16. **pnpm pinned to 9.15.9 (§1)** via `packageManager` (#602). Shipped as PRs #682–#689, #692 (release #693). |
 
 ---
 
@@ -21,7 +22,7 @@ Reconciles this spec with what actually shipped (the original 2026-03-26 text de
 
 | Layer | Technology | Rationale |
 |---|---|---|
-| Framework | Next.js 15 (App Router) | Server components for server-side pricing, middleware for tenant + auth routing, ISR for public pages |
+| Framework | Next.js 16 (App Router) | Server components for server-side pricing, the proxy (`src/proxy.ts`, Next 16's rename of middleware) for tenant + auth routing, ISR for public pages |
 | Language | TypeScript 5 (strict mode) | Strict null checks on — prototype had this off |
 | Styling | Tailwind CSS 4 | |
 | UI Components | shadcn/ui (Radix primitives) | Carry forward from prototype |
@@ -36,7 +37,7 @@ Reconciles this spec with what actually shipped (the original 2026-03-26 text de
 | Testing | Vitest + Testing Library + Playwright | Unit + E2E |
 | Deployment | Coolify on BinaryLane | Self-hosted, AU data residency, standard Node container |
 | Tenant resolution | Next.js middleware (Node) | No edge runtime required — runs in container |
-| Package manager | pnpm | Replace mixed npm/bun |
+| Package manager | pnpm 9.15.9 (`packageManager` pin) | Replace mixed npm/bun. The pin keeps CI, Docker and Dependabot on a pnpm that still honours `pnpm.overrides` — pnpm 11+ strips every transitive security pin from the lockfile (#602; CI job "Lockfile Security Pins" names them) |
 
 ---
 
@@ -1546,7 +1547,7 @@ There is no `verify-payment` function. A paid session is reconciled by whichever
 - **Tenant-scope gate:** the dispatcher loads the booking with the **service-role** client (RLS-bypassing) to read contact + branding, so the role check is *not* a tenant gate. A user-JWT caller must additionally pass `authorizeNotificationDispatch` — their **own** RLS must be able to read the target booking (`booking_*_select`, incl. sub-client narrowing), resolved log-id-first to match the dispatcher. This blocks a council-A staffer from firing a council-B-branded (and potentially forged-refund) notification at a council-B resident. Service-role callers short-circuit the gate.
 - **Refund amount is DB-derived:** a `booking_updated` payload carries `refund_request_id` (opaque identity) + `refund_status`, never a cents figure. The displayed amount is looked up from the `refund_request` row keyed by `(refund_request_id, booking_id)` — a row belonging to a *different* booking yields no refund line.
 - **Status codes:** `400` malformed/ambiguous payload · `401` missing bearer, or a user JWT whose role is not permitted (bad/absent **credentials**) · `403` valid caller, but the target booking is outside their tenant **scope** · `200` in every dispatch outcome (sent / skipped / failed — fire-and-forget) · `500` only on an uncaught crash.
-- **Side effects:** Renders + sends email (SendGrid) and SMS (Twilio) directly via `_shared/`, writes `notification_log` with per-channel idempotency on `(booking_id, type, channel)`.
+- **Side effects:** Renders + sends email (SendGrid) and SMS (Twilio) directly via `_shared/`, writing `notification_log` **claim-first** (ADR 0035, migration `20261020060309`): the dispatcher inserts the attempt as `queued` under the partial unique index `notification_log_send_claim_key` on `(booking_id, notification_type, channel, reference_id)` (`NULLS NOT DISTINCT`, `WHERE status IN ('queued','sent')`), sends, then settles that same row to `sent` / `failed`. A `23505` on the claim means another dispatch is sending or has sent, so the caller skips — a retried EF→EF call (gateway 504, caller abort) can't send twice. `failed` rows sit outside the predicate, so a failure never blocks the next attempt; a `queued` claim older than 10 minutes (`STALE_CLAIM_AFTER_MS`) is released by the next dispatch so a resend can go out. Still per channel: email and SMS claim separately. `reference_id` (notice id, `edit_ref`, correction id, ticket-reply id) is part of the key so per-notice types notify once per notice; booking-level types such as `booking_created` dedupe per booking.
 
 ### `send-email`
 - **Auth:** Internal (service role)
@@ -1563,13 +1564,26 @@ There is no `verify-payment` function. A paid session is reconciled by whichever
 - **Side effects:** Sends SMS, inserts `notification_log`
 
 ### Cron Edge Functions — shared contract
-Every pg_cron-invoked EF is entered via `serve(cronHandler('<name>', handler))` (`_shared/cron-handler.ts`): Sentry (exceptions **and** 5xx responses) + auth. pg_cron sends the public anon/publishable key as a routing bearer (it cannot reach the service key) **plus** `X-Cron-Secret`, read at run time from Supabase Vault (`cron_ef_secret`, injected into every job command by migration `20260822090000`); the EF compares it to its `CRON_SECRET` secret. A proven service-role bearer is also accepted (CLI). `pull-optimoroute-routes` additionally admits contractor staff JWTs for the admin "Refresh routes" button. Fail-closed; a rejected request carrying our own routing key raises a Sentry warning. Members: `auto-close-notices`, `generate-collection-dates`, `handle-expired-payments`, `nightly-sync-to-dm-ops`, `notification-health-check`, `push-orders-to-optimoroute`, `pull-optimoroute-routes`, `send-collection-reminders`, `sync-completions-to-optimoroute`, `sync-optimoroute-cancellations`, `transition-scheduled`.
+Every pg_cron-invoked EF is entered via `serve(cronHandler('<name>', handler))` (`_shared/cron-handler.ts`): Sentry (exceptions **and** 5xx responses) + auth. pg_cron sends the public anon/publishable key as a routing bearer (it cannot reach the service key) **plus** `X-Cron-Secret`, read at run time from Supabase Vault (`cron_ef_secret`, injected into every job command by migration `20260822090000`); the EF compares it to its `CRON_SECRET` secret. A proven service-role bearer is also accepted (CLI). `pull-optimoroute-routes` additionally admits contractor staff JWTs for the admin "Refresh routes" button. Fail-closed; a rejected request carrying our own routing key raises a Sentry warning. Members: `auto-close-notices`, `generate-collection-dates`, `handle-expired-payments`, `nightly-sync-to-dm-ops`, `notification-health-check`, `push-orders-to-optimoroute`, `pull-optimoroute-routes`, `send-collection-reminders`, `stale-closeout-check`, `sync-completions-to-optimoroute`, `sync-optimoroute-cancellations`, `transition-scheduled`. The two watchdogs (`notification-health-check`, `stale-closeout-check`) alert ONLY through `sendOpsAlert` (`_shared/ops-alert.ts`, ADR 0033) — one Teams Workflows webhook, counts/refs/admin links only, a Sentry warning when the sink is unset or fails; setup + test alert in `docs/runbooks/ops-alerts.md`.
 
 ### `send-collection-reminders`
 - **Auth:** Cron (see shared contract)
 - **Trigger:** pg_cron, daily at 01:00 UTC
 - **Logic:** Find all bookings where `collection_date = today + place_out_hours_before` (per-client) AND no reminder yet in `notification_log`
 - **Side effects:** Dispatches the reminder template via `send-notification` (email + SMS, per-channel idempotency)
+
+### `notification-health-check`
+- **Auth:** Cron (see shared contract). `{ "test_alert": true }` through the same gate skips the checks and sends only the runbook's labelled test card
+- **Trigger:** pg_cron, every 3 hours (`15 */3 * * *`)
+- **Logic:** Over the trailing `NOTIF_HEALTH_WINDOW_HOURS` (default 3) flags any channel whose failed sends reach `NOTIF_HEALTH_FAILURE_THRESHOLD` (default 3), and any live resident/admin booking with no settled `booking_created` confirmation inside `NOTIF_HEALTH_MISSING_CONFIRMATION_HOURS` (default 24) — a lone stranded `queued` claim counts as unconfirmed
+- **Side effects:** One ops alert via `sendOpsAlert` (`_shared/ops-alert.ts`, ADR 0033): counts, channel names, booking refs and an admin link, never contact PII. Returns 500 when a warranted alert fails to deliver (pg_cron records it); a healthy run with `OPS_ALERT_WEBHOOK_URL` unset returns 200 and raises a Sentry warning
+
+### `stale-closeout-check`
+- **Auth:** Cron (see shared contract). `{ "dry_run": true }` returns the alert it would send without posting; `{ "test_alert": true }` sends the labelled test card
+- **Trigger:** pg_cron, daily at 01:35 UTC (09:35 AWST), migration `20261020051532`
+- **Logic (ADR 0034; pure `_shared/stale-closeouts.ts`, mirrored to `src/lib/ops/stale-closeouts.ts`):** names, once, the collection day exactly `STALE_CLOSEOUT_THRESHOLD_DAYS` (default 3) ago that still has dispatched stops not closed out, plus any booking still waiting for collection with no open crew stop; on Mondays restates the whole standing backlog per area even when nothing new went stale. Staleness keys off the stop's dispatched date (ADR 0009)
+- **Output:** `{ ok, alerted, dry_run, trigger: null | 'newly_stale' | 'weekly_backlog', newly_stale, … }` — `alert_text` carries the exact message on a dry run
+- **Side effects:** One ops alert via `sendOpsAlert` — area codes, counts, dates and fixed admin links (Worklist / Full backlog) only. Reads only; `cron.unschedule('stale-closeout-check')` turns it off with nothing to unwind. The admin dashboard's "Stuck closeouts (N)" strip (contractor staff only, `src/lib/ops/stale-closeouts.ts`) links to the same Full backlog list without waiting for the alert, but counts `Scheduled` bookings by their booked collection date, so N can differ from the alert's stop-based counts after a date move (ADR 0009: the stop is the dispatched record, the booking the corrected intent)
 
 ### `google-places-proxy`
 - **Auth:** Bearer JWT
@@ -1800,6 +1814,12 @@ CRON_SECRET=                        # edge only; twin lives in Supabase Vault as
 SENTRY_DSN=                         # edge only (EF secret)
 NEXT_PUBLIC_SENTRY_DSN=             # app; Docker build-arg
 SENTRY_ORG= SENTRY_PROJECT= SENTRY_AUTH_TOKEN=   # build-time only (source-map upload), GitHub Actions secrets
+
+# Ops alerts — every watchdog EF (ADR 0033; setup + test: docs/runbooks/ops-alerts.md)
+OPS_ALERT_WEBHOOK_URL=              # edge only; signed Teams Workflows webhook — a password, never in git. Unset = no alert + a Sentry warning every run
+OPS_ALERT_WEBHOOK_FORMAT=           # edge only; `teams` (default, Adaptive Card) or `slack` (`{ text }`)
+NOTIF_HEALTH_WINDOW_HOURS= NOTIF_HEALTH_FAILURE_THRESHOLD= NOTIF_HEALTH_MISSING_CONFIRMATION_HOURS=   # edge only; notification-health-check tuning (defaults 3 / 3 / 24)
+STALE_CLOSEOUT_THRESHOLD_DAYS=      # edge only; stale-closeout-check — days past collection before an un-closed stop counts as stale (default 3)
 
 # SMS Provider
 SMS_API_KEY=                        # edge only
