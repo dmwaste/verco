@@ -71,14 +71,18 @@ export type {
  *
  * ## Flow
  *
- *   1. Reject the resume-by-log-id variant (Phase 4 feature, stubbed here)
- *   2. Idempotency check — skip if a `sent` row already exists
- *   3. Load the booking — short-circuit with clean error if not found,
+ *   1. Resume-by-log-id variant: re-send ONE existing row on its own channel
+ *   2. Load the booking — short-circuit with clean error if not found,
  *      write nothing to notification_log (avoids FK violation on client_id)
+ *   3. Claim the per-channel key — insert a `queued` row under the partial
+ *      unique index `notification_log_send_claim_key` (#671). A `queued` or
+ *      `sent` row already holding the key means another dispatch is sending
+ *      or has sent → skip. The claim is taken BEFORE sending, so a retried
+ *      EF→EF call (504 / abort after the dispatcher started) can't send twice.
  *   4. Validate the contact has an email address
  *   5. Render the template for this notification type
  *   6. Call sendEmail
- *   7. Write notification_log row (sent or failed)
+ *   7. Settle the claim row to `sent` or `failed`
  *   8. Emit structured console.log per contract in templates/types.ts
  *   9. Return DispatchResult
  *
@@ -97,22 +101,19 @@ export interface DispatchDeps {
   /** Load full booking context; return null if not found. */
   loadBooking: (booking_id: string) => Promise<BookingForDispatch | null>
   /**
-   * Check idempotency — returns true if `(booking_id, type, channel)` already
-   * has a `sent` row in `notification_log`. Per-channel: a successful email
-   * does NOT block the SMS for the same notification.
-   *
-   * `referenceId` (ncn_id / np_id) narrows the key for types that can
-   * legitimately recur per booking (one notice per waste-stream stop) —
-   * implementations must match on it when provided so a second stream's
-   * notice is never suppressed by the first stream's send.
+   * Claim the `(booking_id, type, channel, reference_id)` key before sending
+   * (#671) — the EF wires `claimNotificationSend` over notification_log.
+   * Per-channel: a sent email does NOT block the SMS for the same
+   * notification. `reference_id` (ncn_id / np_id / edit_ref / correction_id)
+   * is part of the key for types that legitimately recur per booking, so a
+   * second stream's notice is never suppressed by the first stream's send.
    */
-  isAlreadySent: (
-    booking_id: string,
-    type: NotificationType,
-    channel: NotificationChannel,
-    referenceId?: string | null,
-  ) => Promise<boolean>
-  /** Insert a notification_log row; return the new id on success, null on failure. */
+  claimSend: (row: NotificationLogRow) => Promise<SendClaim>
+  /**
+   * Insert a notification_log row; return the new id on success, null on
+   * failure. Used only when a claim could not be taken at all (claimSend
+   * returned `error`) — the send still goes out, logged the pre-#671 way.
+   */
   writeLog: (row: NotificationLogRow) => Promise<string | null>
   /** Send an email via SendGrid (or a mock). Never throws. */
   sendEmail: (params: SendEmailParams) => Promise<SendEmailResult>
@@ -128,6 +129,8 @@ export interface DispatchDeps {
     notification_type: NotificationType
     status: 'queued' | 'sent' | 'failed'
     to_address: string
+    /** The row's channel — a resumed SMS row re-sends the SMS. Absent = email. */
+    channel?: NotificationChannel
   } | null>
   /** Update an existing notification_log row's status (for the resume path). */
   updateLogStatus: (id: string, status: 'sent' | 'failed', errorMessage?: string, toAddress?: string) => Promise<void>
@@ -144,6 +147,136 @@ export interface DispatchDeps {
   appUrl: string
   /** Fallback from-address when the client has no reply_to_email configured */
   defaultFromEmail: string
+}
+
+// ── Send claim (#671) ──────────────────────────────────────────────────────
+
+/**
+ * Result of claiming a send key. `held` = a `queued` (in flight) or `sent` row
+ * already holds it → skip. `error` = the claim couldn't be written for another
+ * reason (DB blip, a reference id that isn't a uuid) → the dispatcher sends
+ * unclaimed, exactly as it did before #671, rather than drop the message.
+ */
+export type SendClaim =
+  | { outcome: 'claimed'; id: string }
+  | { outcome: 'held'; by: 'queued' | 'sent' }
+  | { outcome: 'error'; error: string }
+
+/** The `queued` / `sent` row currently holding a key. */
+export interface ClaimHolder {
+  id: string
+  status: string
+  created_at: string
+}
+
+/**
+ * A notification_log row as far as the claim cares. Wider than
+ * NotificationLogRow so non-dispatcher senders (notify-ticket-response: free-
+ * text `ticket_response` type, booking may be NULL) claim the same way.
+ */
+export interface SendClaimRow {
+  booking_id: string | null
+  contact_id: string | null
+  client_id: string
+  channel: string
+  notification_type: string
+  to_address: string
+  status: string
+  reference_id?: string | null
+}
+
+/**
+ * The three notification_log operations a claim needs. EFs wire them to
+ * PostgREST (`_shared/notification-claim-store.ts`); tests wire them to an
+ * in-memory log with the same unique key.
+ */
+export interface SendClaimStore {
+  /** INSERT the row as `queued`. `conflict` = unique violation (23505) on the claim key. */
+  insertClaim: (row: SendClaimRow) => Promise<{ id: string } | { conflict: true } | { error: string }>
+  /** The queued/sent row holding the row's key, or null if none. */
+  findHolder: (row: SendClaimRow) => Promise<ClaimHolder | null | { error: string }>
+  /** Flip a still-`queued` row to `failed`. true only when THIS call flipped it. */
+  releaseClaim: (id: string, reason: string) => Promise<boolean>
+}
+
+/**
+ * A `queued` claim older than this belongs to a dispatcher that died: the
+ * whole dispatch is a few seconds, the edge runtime kills a request long
+ * before 10 minutes, and the watchdog only looks after 15. Releasing it lets a
+ * resend (watchdog alert → "resend via the dispatcher") go out instead of being
+ * skipped as "in flight" forever. Staleness keys off created_at — a row requeued
+ * by the admin Retry RPC keeps its original created_at, so a concurrent fresh
+ * dispatch of the same key could take it over; nothing fires one in practice.
+ */
+export const STALE_CLAIM_AFTER_MS = 10 * 60 * 1000
+
+/**
+ * Claim a send key atomically: insert a `queued` row; on a unique violation,
+ * see who holds the key. Two rounds at most — the second covers a holder that
+ * settled to `failed` between our insert and our lookup, or a stale claim we
+ * just released.
+ */
+export async function claimNotificationSend(
+  store: SendClaimStore,
+  row: SendClaimRow,
+  nowMs: number = Date.now(),
+): Promise<SendClaim> {
+  for (let round = 0; round < 2; round++) {
+    const inserted = await store.insertClaim({ ...row, status: 'queued' })
+    if ('id' in inserted) return { outcome: 'claimed', id: inserted.id }
+    if ('error' in inserted) return { outcome: 'error', error: inserted.error }
+
+    const holder = await store.findHolder(row)
+    if (holder && 'error' in holder) return { outcome: 'error', error: holder.error }
+    if (!holder) continue
+    if (holder.status === 'sent') return { outcome: 'held', by: 'sent' }
+
+    const age = nowMs - Date.parse(holder.created_at)
+    if (!(age > STALE_CLAIM_AFTER_MS)) return { outcome: 'held', by: 'queued' }
+
+    // Stale: the dispatcher that took it died. Release it (history keeps the
+    // row, now `failed`) and try once more; if another dispatch got there
+    // first, the next insert conflicts with ITS fresh claim and we stay held.
+    await store.releaseClaim(holder.id, 'Dispatch did not finish — claim released by a later dispatch')
+  }
+  return { outcome: 'held', by: 'queued' }
+}
+
+/**
+ * Australian mobile in E.164 (+614…). `mobile_e164` may also hold a landline
+ * or 1300 number since VER-315 — Twilio rejects those, so they never get an
+ * SMS (or a `failed` SMS row).
+ */
+export function isSmsDeliverable(mobile: string | null | undefined): mobile is string {
+  return typeof mobile === 'string' && /^\+614\d{8}$/.test(mobile)
+}
+
+/** An open send: skip it (`held`), or send and then settle its log row. */
+type OpenSend =
+  | { held: true; by: 'queued' | 'sent' }
+  | { held: false; settle: (status: 'sent' | 'failed', errorMessage?: string) => Promise<string | null> }
+
+/**
+ * Claim the row's key and hand back how to record the outcome: an UPDATE of the
+ * claim row, or — when no claim could be written — the pre-#671 INSERT.
+ */
+async function openSend(deps: DispatchDeps, row: NotificationLogRow): Promise<OpenSend> {
+  const claim = await deps.claimSend(row)
+  if (claim.outcome === 'held') return { held: true, by: claim.by }
+  if (claim.outcome === 'claimed') {
+    return {
+      held: false,
+      settle: async (status, errorMessage) => {
+        await deps.updateLogStatus(claim.id, status, errorMessage)
+        return claim.id
+      },
+    }
+  }
+  console.error(`[notifications] send claim failed (${row.channel} ${row.notification_type}): ${claim.error} — sending unclaimed`)
+  return {
+    held: false,
+    settle: (status, errorMessage) => deps.writeLog({ ...row, status, error_message: errorMessage }),
+  }
 }
 
 /**
@@ -214,14 +347,21 @@ export async function dispatch(
         return { ok: true, skipped: true }
       }
 
+      const syntheticPayload: NotificationPayload = buildResumablePayload(logRow.notification_type, logRow.booking_id)
+
+      // A row is one channel's attempt: retrying a failed SMS row re-sends the
+      // SMS. (Before #671 every resume sent an EMAIL, so retrying an SMS row
+      // emailed the resident again and never texted them.)
+      if (logRow.channel === 'sms') {
+        return await resumeSms(deps, logId, logRow.notification_type, booking, syntheticPayload, log)
+      }
+
       if (!booking.contact || !booking.contact.email) {
         const error = `Booking ${logRow.booking_id} has no contact email`
         await deps.updateLogStatus(logId, 'failed', error)
         log({ type: logRow.notification_type, booking_id: logRow.booking_id, status: 'failed', error, sendgrid_status: null })
         return { ok: false, error, log_id: logId }
       }
-
-      const syntheticPayload: NotificationPayload = buildResumablePayload(logRow.notification_type, logRow.booking_id)
 
       let rendered: { subject: string; html: string }
       try {
@@ -423,30 +563,51 @@ async function dispatchEmail(
   baseLog: { booking_id: string; type: NotificationType },
   log: (extras: Record<string, unknown>) => void,
 ): Promise<DispatchResult> {
-  // 1. Idempotency check (email channel only)
-  const alreadySent = await deps.isAlreadySent(payload.booking_id, payload.type, 'email', idempotencyRef(payload))
-  if (alreadySent) {
-    log({ ...baseLog, status: 'skipped', sendgrid_status: null })
+  // 1. Claim the email key (#671). Held = another dispatch is sending or has
+  //    sent this email → skip. The claim row becomes this attempt's log row.
+  const send = await openSend(deps, {
+    booking_id: booking.id,
+    contact_id: booking.contact?.id ?? null,
+    client_id: booking.client_id,
+    channel: 'email',
+    notification_type: payload.type,
+    reference_id: idempotencyRef(payload),
+    to_address: booking.contact?.email || 'unknown',
+    status: 'queued',
+  })
+  if (send.held) {
+    log({ ...baseLog, status: 'skipped', ...(send.by === 'queued' ? { reason: 'in_flight' } : {}), sendgrid_status: null })
     return { ok: true, skipped: true }
   }
 
+  // A throw from here on (refund lookup, a template bug outside the render
+  // guard) must not strand our claim as `queued` — settle it, then let
+  // dispatch()'s crash guard report it as before.
+  try {
+    return await sendClaimedEmail(deps, payload, booking, baseLog, log, send.settle)
+  } catch (err) {
+    const error = err instanceof Error ? err.message : String(err)
+    await send.settle('failed', `crashed: ${error}`).catch(() => null)
+    throw err
+  }
+}
+
+/** Steps 2–5 of the email path, run once the email claim is held by us. */
+async function sendClaimedEmail(
+  deps: DispatchDeps,
+  payload: NotificationPayload,
+  booking: BookingForDispatch,
+  baseLog: { booking_id: string; type: NotificationType },
+  log: (extras: Record<string, unknown>) => void,
+  settle: (status: 'sent' | 'failed', errorMessage?: string) => Promise<string | null>,
+): Promise<DispatchResult> {
   // 2. Validate contact email — if the booking has no contact at all, OR
   // the contact has no email, the email path can't proceed. SMS may still
   // be eligible (separate contact field), so we record this failure and
   // return; the caller still runs dispatchSms after.
   if (!booking.contact || !booking.contact.email) {
     const error = `Booking ${payload.booking_id} has no contact email`
-    const logId = await deps.writeLog({
-      booking_id: booking.id,
-      contact_id: booking.contact?.id ?? null,
-      client_id: booking.client_id,
-      channel: 'email',
-      notification_type: payload.type,
-      reference_id: idempotencyRef(payload),
-      to_address: 'unknown',
-      status: 'failed',
-      error_message: error,
-    })
+    const logId = await settle('failed', error)
     log({ ...baseLog, status: 'failed', error, sendgrid_status: null })
     return { ok: false, error, log_id: logId ?? undefined }
   }
@@ -468,17 +629,7 @@ async function dispatchEmail(
     rendered = renderTemplate(payload, booking, deps.appUrl, renderContext)
   } catch (renderErr) {
     const error = renderErr instanceof Error ? renderErr.message : String(renderErr)
-    const logId = await deps.writeLog({
-      booking_id: booking.id,
-      contact_id: booking.contact.id,
-      client_id: booking.client_id,
-      channel: 'email',
-      notification_type: payload.type,
-      reference_id: idempotencyRef(payload),
-      to_address: booking.contact.email,
-      status: 'failed',
-      error_message: `Template render failed: ${error}`,
-    })
+    const logId = await settle('failed', `Template render failed: ${error}`)
     log({ ...baseLog, status: 'failed', error: `render: ${error}`, sendgrid_status: null })
     return { ok: false, error, log_id: logId ?? undefined }
   }
@@ -493,18 +644,8 @@ async function dispatchEmail(
     htmlBody: rendered.html,
   })
 
-  // 5. Write notification_log
-  const logId = await deps.writeLog({
-    booking_id: booking.id,
-    contact_id: booking.contact.id,
-    client_id: booking.client_id,
-    channel: 'email',
-    notification_type: payload.type,
-    reference_id: idempotencyRef(payload),
-    to_address: booking.contact.email,
-    status: sendResult.ok ? 'sent' : 'failed',
-    error_message: sendResult.ok ? undefined : sendResult.error,
-  })
+  // 5. Settle the claim row (sent / failed)
+  const logId = await settle(sendResult.ok ? 'sent' : 'failed', sendResult.ok ? undefined : sendResult.error)
 
   log({
     ...baseLog,
@@ -556,7 +697,8 @@ function renderSmsTemplate(
  *      they are skipped with a structured log instead of attempted-and-failed
  *   3. Tenant has a `twilio_messaging_service_sid` (`MG…`) configured
  *   4. The notification type has an SMS variant (renderSmsTemplate returns non-null)
- *   5. Idempotency: no prior `sent` row exists for `(booking_id, type, 'sms')`
+ *   5. The `(booking_id, type, 'sms', reference_id)` claim is free — no
+ *      `queued` (in flight) or `sent` row holds it (#671)
  *
  * Failures are recorded in notification_log (channel='sms') and emit a
  * structured log line, but do NOT change the email dispatch result. Never
@@ -595,35 +737,41 @@ async function dispatchSms(
   // VER-315: mobile_e164 may hold a landline/1300 (valid contact data, not SMS-able).
   // Stored mobiles are canonicalised E.164 (+614…) on every write path, so anything
   // else here is a non-mobile — skip cleanly rather than fail at Twilio per send.
-  if (!/^\+614\d{8}$/.test(booking.contact.mobile_e164)) {
+  const mobile = booking.contact.mobile_e164
+  if (!isSmsDeliverable(mobile)) {
     smsLog({ status: 'skipped', reason: 'not_sms_capable', twilio_status: null })
     return
   }
 
+  // Set while our claim is open, so a throw mid-send can settle it as failed
+  // instead of stranding it `queued`.
+  let unsettled: ((status: 'sent' | 'failed', errorMessage?: string) => Promise<string | null>) | null = null
   try {
-    const alreadySent = await deps.isAlreadySent(payload.booking_id, payload.type, 'sms', idempotencyRef(payload))
-    if (alreadySent) {
-      smsLog({ status: 'skipped', twilio_status: null })
-      return
-    }
-
-    const sendResult = await deps.sendSMS({
-      to: booking.contact.mobile_e164,
-      body: rendered.body,
-      messagingServiceSid: booking.client.twilio_messaging_service_sid,
-    })
-
-    await deps.writeLog({
+    // Claim the SMS key (#671) — independent of the email claim.
+    const send = await openSend(deps, {
       booking_id: booking.id,
       contact_id: booking.contact.id,
       client_id: booking.client_id,
       channel: 'sms',
       notification_type: payload.type,
       reference_id: idempotencyRef(payload),
-      to_address: booking.contact.mobile_e164,
-      status: sendResult.ok ? 'sent' : 'failed',
-      error_message: sendResult.ok ? undefined : sendResult.error,
+      to_address: mobile,
+      status: 'queued',
     })
+    if (send.held) {
+      smsLog({ status: 'skipped', ...(send.by === 'queued' ? { reason: 'in_flight' } : {}), twilio_status: null })
+      return
+    }
+    unsettled = send.settle
+
+    const sendResult = await deps.sendSMS({
+      to: mobile,
+      body: rendered.body,
+      messagingServiceSid,
+    })
+
+    unsettled = null
+    await send.settle(sendResult.ok ? 'sent' : 'failed', sendResult.ok ? undefined : sendResult.error)
 
     smsLog({
       status: sendResult.ok ? 'sent' : 'failed',
@@ -632,8 +780,55 @@ async function dispatchSms(
     })
   } catch (err) {
     const error = err instanceof Error ? err.message : String(err)
+    if (unsettled) await unsettled('failed', `crashed: ${error}`).catch(() => null)
     smsLog({ status: 'failed', error: `crashed: ${error}`, twilio_status: null })
   }
+}
+
+/**
+ * Resume path for an SMS row (#671): re-render the SMS and send it to the
+ * contact's current mobile, settling the SAME row. Fails the row with a reason
+ * when SMS is no longer possible rather than falling back to email.
+ */
+async function resumeSms(
+  deps: DispatchDeps,
+  logId: string,
+  type: NotificationType,
+  booking: BookingForDispatch,
+  payload: NotificationPayload,
+  log: (extras: Record<string, unknown>) => void,
+): Promise<DispatchResult> {
+  const base = { type, booking_id: booking.id, channel: 'sms' }
+  const mobile = booking.contact?.mobile_e164
+  const messagingServiceSid = booking.client.twilio_messaging_service_sid
+  const rendered = renderSmsTemplate(payload, booking)
+
+  if (!isSmsDeliverable(mobile) || !messagingServiceSid || !rendered) {
+    const why = !isSmsDeliverable(mobile)
+      ? 'the contact has no SMS-capable mobile'
+      : !messagingServiceSid
+        ? 'the council has no SMS sender configured'
+        : `${type} has no SMS version`
+    const error = `Cannot resend SMS: ${why}`
+    await deps.updateLogStatus(logId, 'failed', error)
+    log({ ...base, status: 'failed', error, twilio_status: null })
+    return { ok: false, error, log_id: logId }
+  }
+
+  const sendResult = await deps.sendSMS({ to: mobile, body: rendered.body, messagingServiceSid })
+  await deps.updateLogStatus(
+    logId,
+    sendResult.ok ? 'sent' : 'failed',
+    sendResult.ok ? undefined : sendResult.error,
+    mobile,
+  )
+  log({
+    ...base,
+    status: sendResult.ok ? 'sent' : 'failed',
+    twilio_status: sendResult.ok ? 'accepted' : null,
+    ...(sendResult.ok ? {} : { error: sendResult.error }),
+  })
+  return sendResult.ok ? { ok: true, sent: true, log_id: logId } : { ok: false, error: sendResult.error, log_id: logId }
 }
 
 // ── Resume payload builder ────────────────────────────────────────────────

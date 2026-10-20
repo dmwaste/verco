@@ -1,4 +1,5 @@
 import { test, expect, type Page, type Route } from '@playwright/test'
+import { PHONE_INVALID_MESSAGE } from '../../src/lib/phone'
 
 // ── Test data ────────────────────────────────────────────
 
@@ -768,5 +769,67 @@ test.describe('Booking Flow', () => {
     for (const description of suggestions) {
       await expect(page.getByRole('button', { name: description })).toBeInViewport({ ratio: 1 })
     }
+  })
+})
+
+// ── Contact phone validation (#668 / #684) ───────────────────────────────
+// The confirm step's Phone field runs ContactSchema client-side (zod via
+// react-hook-form) BEFORE any verification code is requested. An
+// Australian-looking number with the wrong digit count used to pass, was
+// stored raw, and the resident silently got no SMS. The message is imported
+// from the one-brain phone module so this spec cannot drift from the copy
+// residents actually see. Runs for real in CI: /book is public, every call it
+// makes is browser-side and mocked by setupMocks.
+test.describe('Contact phone validation (#668)', () => {
+  function confirmStepUrl(): string {
+    const params = new URLSearchParams({
+      property_id: TEST_PROPERTY.id,
+      collection_area_id: TEST_PROPERTY.collection_area_id,
+      address: TEST_PROPERTY.formatted_address,
+      items: 'svc-general:1',
+      total_cents: '0',
+      collection_date_id: TEST_COLLECTION_DATE.id,
+      location: 'Front Verge',
+    })
+    return `/book/confirm?${params.toString()}`
+  }
+
+  async function fillContact(page: Page, phone: string) {
+    await page.getByPlaceholder('First name').fill('Jane')
+    await page.getByPlaceholder('Last name').fill('Smith')
+    await page.getByPlaceholder('Email address').fill('jane@example.com')
+    await page.getByPlaceholder(/Phone number/).fill(phone)
+  }
+
+  test('a 9-digit mobile is rejected with the exact message and no code is sent', async ({ page }) => {
+    await setupMocks(page)
+    const otpRequests: string[] = []
+    page.on('request', (req) => {
+      if (req.url().includes('/auth/v1/otp')) otpRequests.push(req.url())
+    })
+
+    await page.goto(confirmStepUrl())
+    await expect(page.getByText('Confirm Your Booking')).toBeVisible()
+    await fillContact(page, '041234567')
+    await page.getByRole('button', { name: 'Confirm Booking' }).click()
+
+    await expect(page.getByText(PHONE_INVALID_MESSAGE)).toBeVisible()
+    // Validation fails before onSubmit runs: no OTP step, no code requested.
+    await expect(page.getByText('Verify Email')).toHaveCount(0)
+    expect(otpRequests).toEqual([])
+  })
+
+  test('a valid 10-digit mobile is accepted and the verification step opens', async ({ page }) => {
+    await setupMocks(page)
+
+    await page.goto(confirmStepUrl())
+    await expect(page.getByText('Confirm Your Booking')).toBeVisible()
+    await fillContact(page, '0412 345 678')
+    // A recognised mobile is auto-formatted as the resident types.
+    await expect(page.getByPlaceholder(/Phone number/)).toHaveValue('0412 345 678')
+    await page.getByRole('button', { name: 'Confirm Booking' }).click()
+
+    await expect(page.getByText('Verify Email')).toBeVisible()
+    await expect(page.getByText(PHONE_INVALID_MESSAGE)).toHaveCount(0)
   })
 })

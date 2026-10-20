@@ -13,6 +13,7 @@ import {
   MUD_MIN_UNIT_COUNT,
   isValidPhone,
   isSmsCapable,
+  PHONE_INVALID_MESSAGE,
   type CollectionCadence,
 } from '@/lib/mud/validation'
 import { FieldLabel, Input, Select, Textarea } from '@/components/admin/form'
@@ -125,8 +126,10 @@ export function MudEditForm({ property, strataContact, onCancel }: MudEditFormPr
         setError('Strata contact first and last name are required if any contact field is filled.')
         return
       }
-      if (!isValidPhone(contactMobile)) {
-        setError('Strata contact phone must be a valid phone number.')
+      // Only a number this edit changes must pass (#668): a contact on file with
+      // a wrong-length one can still have its name or email fixed.
+      if (contactMobile.trim() !== (strataContact?.mobile_e164 ?? '') && !isValidPhone(contactMobile)) {
+        setError(`Strata contact phone: ${PHONE_INVALID_MESSAGE}`)
         return
       }
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contactEmail.trim())) {

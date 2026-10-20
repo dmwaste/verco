@@ -34,11 +34,15 @@ const MODULE = '../../supabase/functions/_shared/invoke-send-notification.ts'
 
 let invokeSendNotification: Invoke
 let RETRY_DELAYS_MS: readonly number[]
+let MAX_RATE_LIMIT_WAIT_MS: number
 
 beforeAll(async () => {
-  ;({ invokeSendNotification, RETRY_DELAYS_MS } = (await import(/* @vite-ignore */ MODULE)) as {
+  ;({ invokeSendNotification, RETRY_DELAYS_MS, MAX_RATE_LIMIT_WAIT_MS } = (await import(
+    /* @vite-ignore */ MODULE
+  )) as {
     invokeSendNotification: Invoke
     RETRY_DELAYS_MS: readonly number[]
+    MAX_RATE_LIMIT_WAIT_MS: number
   })
 })
 
@@ -53,8 +57,19 @@ interface FakeDb {
   bookingReads: number
 }
 
-/** Minimal fake of the two query shapes the helper issues on final failure. */
-function fakeDb(opts: { bookingError?: string } = {}): FakeDb {
+const MOBILE = '+61400000001'
+const MG_SID = 'MG00000000000000000000000000000001'
+
+/** Minimal fake of the query shapes the helper issues on final failure. */
+function fakeDb(
+  opts: {
+    bookingError?: string
+    /** Contact mobile + tenant Messaging Service → the booking would also text. */
+    sms?: boolean
+    /** Channels that already have a booking_created row (the dispatcher ran). */
+    existingChannels?: string[]
+  } = {},
+): FakeDb {
   const db: FakeDb = { client: null, inserted: [], bookingReads: 0 }
   db.client = {
     from: (table: string) => {
@@ -66,7 +81,12 @@ function fakeDb(opts: { bookingError?: string } = {}): FakeDb {
             db.bookingReads += 1
             if (opts.bookingError) return { data: null, error: { message: opts.bookingError } }
             return {
-              data: { client_id: CLIENT_ID, contact_id: CONTACT_ID, contact: { email: EMAIL } },
+              data: {
+                client_id: CLIENT_ID,
+                contact_id: CONTACT_ID,
+                contact: { email: EMAIL, mobile_e164: opts.sms ? MOBILE : null },
+                client: { twilio_messaging_service_sid: opts.sms ? MG_SID : null },
+              },
               error: null,
             }
           },
@@ -74,12 +94,17 @@ function fakeDb(opts: { bookingError?: string } = {}): FakeDb {
         return chain
       }
       if (table === 'notification_log') {
-        return {
-          insert: async (row: Record<string, unknown>) => {
-            db.inserted.push(row)
+        const existing = (opts.existingChannels ?? []).map((channel) => ({ channel }))
+        const chain = {
+          select: () => chain,
+          eq: () => chain,
+          then: (resolve: (v: unknown) => void) => resolve({ data: existing, error: null }),
+          insert: async (rows: Record<string, unknown> | Array<Record<string, unknown>>) => {
+            db.inserted.push(...(Array.isArray(rows) ? rows : [rows]))
             return { error: null }
           },
         }
+        return chain
       }
       throw new Error(`unexpected table ${table}`)
     },
@@ -87,17 +112,28 @@ function fakeDb(opts: { bookingError?: string } = {}): FakeDb {
   return db
 }
 
+type Step = number | Error | { status: number; headers: Record<string, string> }
+
 /** fetch stub that walks a scripted list of responses (number = HTTP status, Error = throw). */
-function scriptedFetch(script: Array<number | Error>) {
+function scriptedFetch(script: Step[]) {
   const calls: Array<{ url: string; init: RequestInit | undefined }> = []
   const fetchImpl = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
     calls.push({ url: String(url), init })
     const step = script[calls.length - 1]
     if (step === undefined) throw new Error('fetch called more times than scripted')
     if (step instanceof Error) throw step
-    return new Response(step >= 200 && step < 300 ? '{"ok":true}' : 'gateway error', { status: step })
+    const { status, headers } = typeof step === 'number' ? { status: step, headers: {} } : step
+    return new Response(status >= 200 && status < 300 ? '{"ok":true}' : 'gateway error', { status, headers })
   }) as unknown as typeof fetch
   return { fetchImpl, calls }
+}
+
+/** The edge runtime's EF→EF throttle error (duck-typed on name, CLAUDE.md §11). */
+function rateLimitError(retryAfterMs: number): Error {
+  const err = new Error(`Rate limit exceeded. Retry after ${retryAfterMs}ms`) as Error & { retryAfterMs: number }
+  err.name = 'RateLimitError'
+  err.retryAfterMs = retryAfterMs
+  return err
 }
 
 function makeDeps(db: FakeDb, fetchImpl: typeof fetch) {
@@ -236,6 +272,108 @@ describe('invokeSendNotification — non-transient failure', () => {
 
     expect(outcome.ok).toBe(false)
     expect(db.inserted).toHaveLength(0)
+    expect(captureWarning).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('invokeSendNotification — record every channel the booking would use (#671)', () => {
+  it('writes a failed SMS row too when the contact can be texted', async () => {
+    const db = fakeDb({ sms: true })
+    const { fetchImpl } = scriptedFetch([503, 503, 503])
+    const { deps, captureWarning } = makeDeps(db, fetchImpl)
+
+    await invokeSendNotification({ type: 'booking_created', booking_id: BOOKING_ID }, deps)
+
+    expect(db.inserted.map((r) => r.channel)).toEqual(['email', 'sms'])
+    expect(db.inserted[1]).toMatchObject({
+      channel: 'sms',
+      to_address: MOBILE,
+      status: 'failed',
+      notification_type: 'booking_created',
+      booking_id: BOOKING_ID,
+    })
+    const extra = captureWarning.mock.calls[0]![1] as Record<string, unknown>
+    expect(extra).toMatchObject({ failed_channels: ['email', 'sms'] })
+    expect(JSON.stringify(extra)).not.toContain(MOBILE)
+  })
+
+  it('does not write an SMS row when the tenant has no Messaging Service', async () => {
+    const db = fakeDb()
+    const { fetchImpl } = scriptedFetch([503, 503, 503])
+    const { deps } = makeDeps(db, fetchImpl)
+
+    await invokeSendNotification({ type: 'booking_created', booking_id: BOOKING_ID }, deps)
+
+    expect(db.inserted.map((r) => r.channel)).toEqual(['email'])
+  })
+
+  it('leaves a channel alone when the dispatcher already logged it (a 504 after it started)', async () => {
+    const db = fakeDb({ sms: true, existingChannels: ['email'] })
+    const { fetchImpl } = scriptedFetch([504, 504, 504])
+    const { deps } = makeDeps(db, fetchImpl)
+
+    await invokeSendNotification({ type: 'booking_created', booking_id: BOOKING_ID }, deps)
+
+    expect(db.inserted.map((r) => r.channel)).toEqual(['sms'])
+  })
+
+  it('writes nothing when both channels already have a row, but still warns Sentry', async () => {
+    const db = fakeDb({ sms: true, existingChannels: ['email', 'sms'] })
+    const { fetchImpl } = scriptedFetch([504, 504, 504])
+    const { deps, captureWarning } = makeDeps(db, fetchImpl)
+
+    await invokeSendNotification({ type: 'booking_created', booking_id: BOOKING_ID }, deps)
+
+    expect(db.inserted).toHaveLength(0)
+    expect(captureWarning).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('invokeSendNotification — honour the throttle (#671, CLAUDE.md §11)', () => {
+  it('waits the Retry-After a 429 asks for instead of the fixed backoff', async () => {
+    const db = fakeDb()
+    const { fetchImpl } = scriptedFetch([{ status: 429, headers: { 'retry-after': '2' } }, 200])
+    const { deps, sleeps } = makeDeps(db, fetchImpl)
+
+    const outcome = await invokeSendNotification({ type: 'booking_created', booking_id: BOOKING_ID }, deps)
+
+    expect(outcome).toEqual({ ok: true, attempts: 2 })
+    expect(sleeps).toEqual([2000])
+  })
+
+  it('waits a RateLimitError\'s retryAfterMs', async () => {
+    const db = fakeDb()
+    const { fetchImpl } = scriptedFetch([rateLimitError(3000), 200])
+    const { deps, sleeps } = makeDeps(db, fetchImpl)
+
+    const outcome = await invokeSendNotification({ type: 'booking_created', booking_id: BOOKING_ID }, deps)
+
+    expect(outcome).toEqual({ ok: true, attempts: 2 })
+    expect(sleeps).toEqual([3000])
+  })
+
+  it('never waits less than the normal backoff', async () => {
+    const db = fakeDb()
+    const { fetchImpl } = scriptedFetch([rateLimitError(10), 200])
+    const { deps, sleeps } = makeDeps(db, fetchImpl)
+
+    await invokeSendNotification({ type: 'booking_created', booking_id: BOOKING_ID }, deps)
+
+    expect(sleeps).toEqual([RETRY_DELAYS_MS[0]])
+  })
+
+  it('records the failure at once when the throttle outlasts the wait budget (never holds the booking)', async () => {
+    const db = fakeDb()
+    const { fetchImpl, calls } = scriptedFetch([rateLimitError(MAX_RATE_LIMIT_WAIT_MS + 1)])
+    const { deps, sleeps, captureWarning } = makeDeps(db, fetchImpl)
+
+    const outcome = await invokeSendNotification({ type: 'booking_created', booking_id: BOOKING_ID }, deps)
+
+    expect(outcome).toMatchObject({ ok: false, attempts: 1, status: null })
+    expect(calls).toHaveLength(1)
+    expect(sleeps).toEqual([])
+    expect(db.inserted).toHaveLength(1)
+    expect(String(db.inserted[0]!.error_message)).toMatch(/rate limit/i)
     expect(captureWarning).toHaveBeenCalledTimes(1)
   })
 })

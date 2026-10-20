@@ -7,6 +7,7 @@ import {
   LOCATION_OPTIONS,
   STAFF_LOCATION_OPTION,
 } from '@/lib/booking/schemas'
+import { PHONE_INVALID_MESSAGE } from '@/lib/phone'
 
 describe('normaliseAuMobile', () => {
   it('converts local format 04XXXXXXXX to E.164', () => {
@@ -169,6 +170,30 @@ describe('ContactSchema', () => {
       const result = ContactSchema.safeParse({ ...validContact, mobile: junk })
       expect(result.success, `should reject "${junk}"`).toBe(false)
     }
+  })
+
+  // #668 — a hard field error, not the soft "can't receive SMS" hint.
+  it.each(['0413 12345', '0404 1234567', '+61 412 3456', '4123 456 789', '9385 1234'])(
+    'rejects the wrong-length number %s with the check-your-number message',
+    (mobile) => {
+      const result = ContactSchema.safeParse({ ...validContact, mobile })
+      expect(result.success).toBe(false)
+      if (!result.success) {
+        expect(result.error.issues).toEqual([
+          expect.objectContaining({ path: ['mobile'], message: PHONE_INVALID_MESSAGE }),
+        ])
+      }
+    },
+  )
+
+  it.each([
+    ['412 345 678', '+61412345678'],
+    ['+44 412 345 678', '+61412345678'],
+    ['+1 0412 345 678', '+61412345678'],
+  ])('still stores the #667 shape %s as %s', (mobile, stored) => {
+    const result = ContactSchema.safeParse({ ...validContact, mobile })
+    expect(result.success).toBe(true)
+    if (result.success) expect(result.data.mobile).toBe(stored)
   })
 })
 

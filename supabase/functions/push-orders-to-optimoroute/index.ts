@@ -22,8 +22,8 @@ import {
   STOP_DURATION_MINUTES,
   STREAM_PRIORITY,
   stopLocation,
+  stopWasteLocation,
   vehicleFeaturesForStream,
-  wasteLocationOrNull,
   type PushFailure,
   type ServiceSummaryEntry,
   type StopItem,
@@ -225,7 +225,7 @@ serve(cronHandler('push-orders-to-optimoroute', async (_req) => {
             collection_date_id: streamItems[0]!.collection_date_id,
             ...location,
             services_summary: buildServicesSummary(streamItems),
-            waste_location: wasteLocationOrNull(booking.location),
+            waste_location: stopWasteLocation(booking.type, booking.location),
             driver_notes: booking.notes,
             external_order_ref: buildOrderNo(booking.ref, stream),
           })

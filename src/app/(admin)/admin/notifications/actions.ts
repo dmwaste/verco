@@ -24,6 +24,15 @@ export async function retryNotification(logId: string): Promise<Result<void>> {
   })
 
   if (rpcError) {
+    // 23505 = notification_log_send_claim_key (#671): another row for the same
+    // notification + channel is already sent or sending, so re-queueing this
+    // one would send the resident a second copy.
+    if (rpcError.code === '23505') {
+      return {
+        ok: false,
+        error: 'This notification has already gone out (or is sending now), so there is nothing to retry.',
+      }
+    }
     return { ok: false, error: rpcError.message }
   }
 

@@ -9,7 +9,7 @@ import { classifyCreator, CREATOR_STAFF_ROLES } from '../_shared/classify-creato
 import { evaluateEditGuard, mayKeepClosedHeldDate } from '../_shared/edit-guard.ts'
 import { evaluateQuantityEdit } from '../_shared/quantity-edit-decision.ts'
 import { mapEditErrorToStatus } from '../_shared/edit-error-mapping.ts'
-import { canonicaliseAuMobile, isValidPhone, normalisePhone } from '../_shared/phone.ts'
+import { canonicaliseAuMobile, isValidPhone, normalisePhone, PHONE_INVALID_MESSAGE } from '../_shared/phone.ts'
 import { resolveContact } from '../_shared/contact-match.ts'
 import { isWithinResidentHorizon } from '../_shared/booking-horizon.ts'
 import { awstDateFromUtc } from '../_shared/schedule-transition.ts'
@@ -44,7 +44,7 @@ const ContactInput = z.object({
     .trim()
     .min(6, 'Enter a valid phone number')
     .max(25)
-    .refine(isValidPhone, 'Enter a valid phone number')
+    .refine(isValidPhone, PHONE_INVALID_MESSAGE)
     .transform((v) => canonicaliseAuMobile(v) ?? normalisePhone(v)),
 })
 
@@ -124,7 +124,10 @@ serve(withSentry('create-booking', async (req) => {
     const parsed = CreateBookingRequest.safeParse(body)
 
     if (!parsed.success) {
-      return jsonResponse({ error: parsed.error.message }, 400)
+      // A bundle cached before #668 checks phones loosely, so a wrong-length number
+      // is first rejected here: answer with the words its form shows as the error.
+      const phoneIssue = parsed.error.issues.find((i) => i.path.join('.') === 'contact.mobile_e164')
+      return jsonResponse({ error: phoneIssue?.message ?? parsed.error.message }, 400)
     }
 
     const { property_id, collection_area_id, collection_date_id, location, notes, contact, items, replaces, swap, terms_accepted, inline_edit, expected_items } = parsed.data

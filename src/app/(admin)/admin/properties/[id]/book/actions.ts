@@ -4,7 +4,7 @@ import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { checkMudAllowance } from '@/lib/mud/allowance'
 import { MUD_UNITS_PER_SERVICE, isMudCollectionDate } from '@/lib/mud/capacity'
-import { invokeSendNotification } from '@/lib/notifications/invoke'
+import { invokeBookingCreated } from '@/lib/notifications/invoke'
 import type { Result } from '@/lib/result'
 import { validateStaffRole } from '@/lib/auth/server'
 import { getCurrentAdminClient } from '@/lib/admin/current-client'
@@ -244,12 +244,11 @@ export async function createMudBooking(
   const result = rpcResult as { booking_id: string; ref: string }
 
   // Fire booking_created to the strata contact (email + SMS — per-channel
-  // idempotency per memory feedback-multi-channel-idempotency.md).
-  // Fire-and-forget; failure is logged but does not block the booking.
-  void invokeSendNotification(supabase, {
-    type: 'booking_created',
-    booking_id: result.booking_id,
-  })
+  // idempotency per memory feedback-multi-channel-idempotency.md). Awaited +
+  // retried; a final failure leaves `failed` rows on /admin/notifications and a
+  // Sentry warning but never fails the booking, which is already committed
+  // (#671 — a bare `void` here dropped confirmations on a gateway blip).
+  await invokeBookingCreated(supabase, result.booking_id)
 
   revalidatePath(`/admin/properties/${input.property_id}`)
   revalidatePath('/admin/bookings')

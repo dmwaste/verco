@@ -30,7 +30,7 @@ export const MUD_MIN_UNIT_COUNT = 1
  * single-brain module (src/lib/phone.ts ← _shared/phone.ts) shared with the
  * resident booking flow (#457); re-exported here for existing consumers.
  */
-export { normalisePhone, isValidPhone, canonicaliseAuMobile, isSmsCapable } from '@/lib/phone'
+export { normalisePhone, isValidPhone, canonicaliseAuMobile, isSmsCapable, PHONE_INVALID_MESSAGE } from '@/lib/phone'
 
 // NOTE: the strata contact schema lives in the upsertStrataContact server action
 // (app/(admin)/admin/properties/actions.ts) — the single validating write path.

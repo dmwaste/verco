@@ -75,7 +75,9 @@ export type NotificationPayload =
   | { type: 'booking_created'; booking_id: string }
   // Fired on a resident-meaningful edit to a Confirmed booking (quantity change,
   // date/location change). `edit_ref` is the per-edit idempotency discriminator
-  // — booking_updated recurs on one booking (unlike created/cancelled), so a
+  // and MUST be a uuid (it is stored as notification_log.reference_id; an ISO
+  // timestamp left every send unlogged until #671) — booking_updated recurs on
+  // one booking (unlike created/cancelled), so a
   // fixed (booking_id, type, channel) key would swallow every edit after the
   // first. `refund_request_id`/`refund_status` render the refund block when a
   // reduction sent money back (mirrors booking_cancelled's block). The refund

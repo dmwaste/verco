@@ -3,11 +3,10 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.100.0'
 import type { Database } from '../_shared/database.types.ts'
 import { withSentry } from '../_shared/sentry.ts'
 import { isServiceRoleBearer } from '../_shared/service-role-auth.ts'
-import { dispatch } from '../_shared/dispatch.ts'
+import { claimNotificationSend, dispatch } from '../_shared/dispatch.ts'
 import type {
   BookingForDispatch,
   DispatchDeps,
-  NotificationChannel,
   NotificationDispatchInput,
   NotificationLogRow,
   NotificationType,
@@ -16,6 +15,7 @@ import type {
   SendSMSParams,
   SendSMSResult,
 } from '../_shared/dispatch.ts'
+import { notificationClaimStore } from '../_shared/notification-claim-store.ts'
 import { sendEmail as sendgridSendEmail } from '../_shared/sendgrid.ts'
 import { sendSMS as twilioSendSMS } from '../_shared/twilio.ts'
 import {
@@ -212,6 +212,9 @@ serve(withSentry('send-notification', async (req) => {
     return jsonResponse({ ok: false, error: authz.error }, authz.status)
   }
 
+  // ── Send-claim store over notification_log (#671) ──────────────────────
+  const claimStore = notificationClaimStore(supabaseService)
+
   // ── Wire up DispatchDeps with real implementations ─────────────────────
   const deps: DispatchDeps = {
     loadBooking: async (booking_id: string): Promise<BookingForDispatch | null> => {
@@ -339,26 +342,12 @@ serve(withSentry('send-notification', async (req) => {
       }
     },
 
-    isAlreadySent: async (
-      booking_id: string,
-      type: NotificationType,
-      channel: NotificationChannel,
-      referenceId?: string | null,
-    ): Promise<boolean> => {
-      // Per-notice key when a reference id is supplied (ncn_id / np_id) —
-      // the stop model raises one notice per waste stream, so a booking can
-      // legitimately have several same-type sends.
-      let query = supabaseService
-        .from('notification_log')
-        .select('id')
-        .eq('booking_id', booking_id)
-        .eq('notification_type', type)
-        .eq('channel', channel)
-        .eq('status', 'sent')
-      if (referenceId) query = query.eq('reference_id', referenceId)
-      const { data } = await query.limit(1)
-      return Array.isArray(data) && data.length > 0
-    },
+    // Atomic per-channel claim (#671): the `queued` row is inserted under the
+    // partial unique index notification_log_send_claim_key
+    // (booking_id, notification_type, channel, reference_id) WHERE status IN
+    // (queued, sent), so a retried or concurrent dispatch for the same key
+    // conflicts (23505) instead of sending a second copy.
+    claimSend: (row: NotificationLogRow) => claimNotificationSend(claimStore, row),
 
     writeLog: async (row: NotificationLogRow): Promise<string | null> => {
       const { data, error } = await supabaseService
@@ -386,7 +375,7 @@ serve(withSentry('send-notification', async (req) => {
     loadNotificationLog: async (id: string) => {
       const { data, error } = await supabaseService
         .from('notification_log')
-        .select('booking_id, notification_type, status, to_address')
+        .select('booking_id, notification_type, status, to_address, channel')
         .eq('id', id)
         .maybeSingle()
       if (error || !data) return null
@@ -395,6 +384,7 @@ serve(withSentry('send-notification', async (req) => {
         notification_type: data.notification_type as NotificationType,
         status: data.status as 'queued' | 'sent' | 'failed',
         to_address: data.to_address as string,
+        channel: data.channel === 'sms' ? 'sms' : 'email',
       }
     },
 

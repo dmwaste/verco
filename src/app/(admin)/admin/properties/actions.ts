@@ -5,7 +5,7 @@ import { rejectMistypedEmailDomain } from '@/lib/email'
 import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { canMarkRegistered } from '@/lib/mud/state-machine'
-import { canonicaliseAuMobile, isValidPhone, normalisePhone } from '@/lib/mud/validation'
+import { canonicaliseAuMobile, isValidPhone, normalisePhone, PHONE_INVALID_MESSAGE } from '@/lib/mud/validation'
 import type { Database } from '@/lib/supabase/types'
 import type { Result } from '@/lib/result'
 import { validateStaffRole } from '@/lib/auth/server'
@@ -36,12 +36,13 @@ const strataContactSchema = z.object({
   // landlines/1300 → formatting-stripped. canonicaliseAuMobile is the SAME mobile
   // detection the UI hint uses — one brain, so hint and stored value can't disagree.
   // VER-315.
+  // isValidPhone (#668) is checked in upsertStrataContact, only on a number the
+  // save changes — see there.
   mobile_e164: z
     .string()
     .trim()
     .min(6, 'Enter a valid phone number')
     .max(25)
-    .refine(isValidPhone, 'Enter a valid phone number')
     .transform((v) => canonicaliseAuMobile(v) ?? normalisePhone(v)),
   email: z.string().trim().email('Invalid email').max(255).superRefine(rejectMistypedEmailDomain),
 })
@@ -66,6 +67,20 @@ export async function upsertStrataContact(
   }
 
   const supabase = await createClient()
+
+  // Same gate as the booking forms (#668), on a number this save changes only,
+  // like updateContact: a strata contact already on file with a wrong-length
+  // number (one of the 91 left for staff, 18/10/2026) can still have its name
+  // or email fixed.
+  const { data: property } = await supabase
+    .from('eligible_properties')
+    .select('strata_contact:strata_contact_id(mobile_e164)')
+    .eq('id', parsed.data.property_id)
+    .maybeSingle()
+  const storedMobile = (property?.strata_contact as { mobile_e164: string | null } | null)?.mobile_e164 ?? null
+  if (parsed.data.mobile_e164 !== storedMobile && !isValidPhone(input.mobile_e164)) {
+    return { ok: false, error: PHONE_INVALID_MESSAGE }
+  }
 
   const { data, error } = await supabase.rpc('upsert_strata_contact_and_link', {
     p_property_id: parsed.data.property_id,

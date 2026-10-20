@@ -6,6 +6,8 @@ import { z } from 'https://esm.sh/zod@3.23.8'
 import { jsonResponse, optionsResponse } from '../_shared/cors.ts'
 import { sendEmail } from '../_shared/sendgrid.ts'
 import { withSentry } from '../_shared/sentry.ts'
+import { claimNotificationSend } from '../_shared/dispatch.ts'
+import { notificationClaimStore } from '../_shared/notification-claim-store.ts'
 import { renderTicketResponse, shouldNotifyResident } from '../_shared/templates/ticket-response.ts'
 import { buildBookingPortalUrl } from '../_shared/templates/template-helpers.ts'
 import type { ClientBranding } from '../_shared/templates/types.ts'
@@ -14,7 +16,7 @@ import type { ClientBranding } from '../_shared/templates/types.ts'
  * notify-ticket-response Edge Function
  *
  * Emails the resident when a staff member posts a PUBLIC reply on their
- * service ticket. Fire-and-forget from the admin ticket UI (see
+ * service ticket. Called from the admin ticket UI with retries (see
  * src/lib/notifications/invoke-ticket-response.ts).
  *
  * Deliberately NOT routed through the booking-centric send-notification
@@ -26,8 +28,13 @@ import type { ClientBranding } from '../_shared/templates/types.ts'
  * is additionally tenant-checked against the ticket's client (accessible_
  * client_ids) — role alone is not tenant isolation (CLAUDE.md §4/§12).
  *
- * Returns 200 on every non-catastrophic path (sent/failed/skipped/no_email)
- * so a fire-and-forget caller is never broken; 401 auth, 400 bad input,
+ * Idempotent per reply (#671): the send is claimed first (a `queued` row under
+ * notification_log_send_claim_key, keyed on reference_id = the reply id), so
+ * the admin page can retry and offer Resend without ever double-sending.
+ *
+ * Returns 200 on every non-catastrophic path (sent/failed/skipped/no_email;
+ * skipped carries reason already_sent | in_flight | not_staff | internal_note)
+ * so the caller can tell staff what happened; 401 auth, 400 bad input,
  * 403 tenant mismatch, 404 missing row, 500 only on crash.
  */
 
@@ -107,6 +114,9 @@ serve(withSentry('notify-ticket-response', async (req) => {
     Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
   )
 
+  // Set once this request holds the reply's send claim, cleared once settled.
+  let openClaimId: string | null = null
+
   try {
     // 1. Load the response row.
     const { data: response, error: respErr } = await supabase
@@ -159,20 +169,6 @@ serve(withSentry('notify-ticket-response', async (req) => {
       }
     }
 
-    // 4. Idempotency — a prior `sent` row for this exact response blocks re-send.
-    const { data: existing } = await supabase
-      .from('notification_log')
-      .select('id')
-      .eq('reference_id', ticket_response_id)
-      .eq('notification_type', 'ticket_response')
-      .eq('channel', 'email')
-      .eq('status', 'sent')
-      .maybeSingle()
-    if (existing) {
-      log({ status: 'skipped', reason: 'already_sent' })
-      return jsonResponse({ status: 'skipped', reason: 'already_sent' })
-    }
-
     // 5. Load the resident contact.
     const { data: contact, error: contactErr } = await supabase
       .from('contacts')
@@ -198,24 +194,50 @@ serve(withSentry('notify-ticket-response', async (req) => {
     const appUrl = Deno.env.get('APP_URL') ?? 'https://verco.au'
     const defaultFrom = Deno.env.get('DEFAULT_FROM_EMAIL') ?? 'noreply@verco.au'
 
-    // No email → record a failed log row (nullable booking_id), return no_email.
+    // 7. Claim the send (#671): this reply's log row goes in as `queued` under
+    //    notification_log_send_claim_key BEFORE we send, so a retried or
+    //    resent invoke (the admin page retries gateway failures and offers a
+    //    Resend button) can never email the resident twice. Replaces the old
+    //    "is there a sent row?" check, which couldn't see a send in flight.
+    const logRow = {
+      booking_id: ticket.booking_id,
+      contact_id: contact.id,
+      client_id: ticket.client_id,
+      channel: 'email',
+      notification_type: 'ticket_response',
+      reference_id: ticket_response_id,
+      to_address: contact.email || 'unknown',
+    }
+    const claim = await claimNotificationSend(notificationClaimStore(supabase), { ...logRow, status: 'queued' })
+    if (claim.outcome === 'held') {
+      const reason = claim.by === 'sent' ? 'already_sent' : 'in_flight'
+      log({ status: 'skipped', reason })
+      return jsonResponse({ status: 'skipped', reason })
+    }
+    if (claim.outcome === 'error') {
+      // Never a new way to lose a reply: send unclaimed, log the old way.
+      console.error(`notify-ticket-response: send claim failed (${claim.error}) — sending unclaimed`)
+    }
+    openClaimId = claim.outcome === 'claimed' ? claim.id : null
+
+    // Record this attempt's outcome on the claim row (or, unclaimed, a new row).
+    const settle = async (status: 'sent' | 'failed', errorMessage: string | null) => {
+      const id = openClaimId
+      openClaimId = null
+      const { error } = id
+        ? await supabase.from('notification_log').update({ status, error_message: errorMessage }).eq('id', id)
+        : await supabase.from('notification_log').insert({ ...logRow, status, error_message: errorMessage })
+      if (error) console.error(`notify-ticket-response: notification_log write failed: ${error.message}`)
+    }
+
+    // No email → the attempt is a failed row (nullable booking_id), return no_email.
     if (!contact.email) {
-      await supabase.from('notification_log').insert({
-        booking_id: ticket.booking_id,
-        contact_id: contact.id,
-        client_id: ticket.client_id,
-        channel: 'email',
-        notification_type: 'ticket_response',
-        reference_id: ticket_response_id,
-        to_address: 'unknown',
-        status: 'failed',
-        error_message: 'Contact has no email',
-      })
+      await settle('failed', 'Contact has no email')
       log({ status: 'no_email' })
       return jsonResponse({ status: 'no_email' })
     }
 
-    // 7. Build the tenant-host ticket URL + render.
+    // 8. Build the tenant-host ticket URL + render.
     const ticketUrl = buildBookingPortalUrl(
       { slug: client.slug, custom_domain: client.custom_domain },
       `/contact/tickets/${encodeURIComponent(ticket.display_id)}`,
@@ -236,7 +258,7 @@ serve(withSentry('notify-ticket-response', async (req) => {
       ticketUrl,
     })
 
-    // 8. Send.
+    // 9. Send.
     const sendResult = await sendEmail({
       to: { email: contact.email, name: contact.full_name },
       from: {
@@ -247,18 +269,8 @@ serve(withSentry('notify-ticket-response', async (req) => {
       htmlBody: html,
     })
 
-    // 9. Log the attempt (booking_id may be NULL).
-    await supabase.from('notification_log').insert({
-      booking_id: ticket.booking_id,
-      contact_id: contact.id,
-      client_id: ticket.client_id,
-      channel: 'email',
-      notification_type: 'ticket_response',
-      reference_id: ticket_response_id,
-      to_address: contact.email,
-      status: sendResult.ok ? 'sent' : 'failed',
-      error_message: sendResult.ok ? null : sendResult.error,
-    })
+    // 10. Settle the claim row (booking_id may be NULL).
+    await settle(sendResult.ok ? 'sent' : 'failed', sendResult.ok ? null : (sendResult.error ?? 'SendGrid send failed'))
 
     log({ status: sendResult.ok ? 'sent' : 'failed', ...(sendResult.ok ? {} : { error: sendResult.error }) })
     return jsonResponse({
@@ -267,6 +279,14 @@ serve(withSentry('notify-ticket-response', async (req) => {
     })
   } catch (err) {
     const error = err instanceof Error ? err.message : String(err)
+    // Don't strand our claim as `queued` (it would block a Resend for 10 min).
+    if (openClaimId) {
+      await supabase
+        .from('notification_log')
+        .update({ status: 'failed', error_message: `crashed: ${error}` })
+        .eq('id', openClaimId)
+        .then(({ error: e }) => e && console.error(`notify-ticket-response: could not settle claim: ${e.message}`))
+    }
     log({ status: 'error', error: `crashed: ${error}` })
     return jsonResponse({ status: 'error', error }, 500)
   }

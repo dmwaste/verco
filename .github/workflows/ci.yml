@@ -15,7 +15,9 @@ on:
 
 env:
   NODE_VERSION: '24'
-  PNPM_VERSION: '9'
+  # No PNPM_VERSION: pnpm/action-setup reads the exact version from
+  # package.json "packageManager" (and errors if both are set). That one pin
+  # is what keeps Dependabot on a pnpm that still honours pnpm.overrides (#602).
 
 jobs:
   build:
@@ -25,8 +27,6 @@ jobs:
       - uses: actions/checkout@v7
 
       - uses: pnpm/action-setup@v6
-        with:
-          version: ${{ env.PNPM_VERSION }}
 
       - uses: actions/setup-node@v6
         with:
@@ -47,8 +47,6 @@ jobs:
       - uses: actions/checkout@v7
 
       - uses: pnpm/action-setup@v6
-        with:
-          version: ${{ env.PNPM_VERSION }}
 
       - uses: actions/setup-node@v6
         with:
@@ -66,8 +64,6 @@ jobs:
       - uses: actions/checkout@v7
 
       - uses: pnpm/action-setup@v6
-        with:
-          version: ${{ env.PNPM_VERSION }}
 
       - uses: actions/setup-node@v6
         with:
@@ -85,8 +81,6 @@ jobs:
       - uses: actions/checkout@v7
 
       - uses: pnpm/action-setup@v6
-        with:
-          version: ${{ env.PNPM_VERSION }}
 
       - uses: actions/setup-node@v6
         with:
@@ -118,8 +112,6 @@ jobs:
       - uses: actions/checkout@v7
 
       - uses: pnpm/action-setup@v6
-        with:
-          version: ${{ env.PNPM_VERSION }}
 
       - uses: actions/setup-node@v6
         with:
@@ -166,6 +158,23 @@ jobs:
             exit 1
           fi
           echo "Types are up to date."
+
+  lockfile-overrides:
+    name: Lockfile Security Pins
+    runs-on: ubuntu-latest
+    # Runs WITHOUT `pnpm install` on purpose: when the lockfile has lost the
+    # pnpm.overrides block, every install-based job dies with an opaque
+    # ERR_PNPM_LOCKFILE_CONFIG_MISMATCH. This job names the dropped security
+    # pins instead (#602). Reads only repo files — no github.event.* inputs.
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Verify pnpm-lock.yaml carries every package.json override
+        run: node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/check-lockfile-overrides.ts
 
   template-sync:
     name: Notification Template Mirror
@@ -227,8 +236,6 @@ jobs:
       - uses: actions/checkout@v7
 
       - uses: pnpm/action-setup@v6
-        with:
-          version: ${{ env.PNPM_VERSION }}
 
       - run: pnpm install --frozen-lockfile
 

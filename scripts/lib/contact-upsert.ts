@@ -3,7 +3,8 @@
 // Follows the same pattern as area-map.ts / verco-upsert.ts.
 
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { canonicaliseAuMobile, normalisePhone } from '../../src/lib/phone'
+import { canonicaliseAuMobile, isValidPhone, normalisePhone } from '../../src/lib/phone'
+import { maskPhone } from './phone-repair'
 import { resolveContact } from '../../src/lib/contacts/contact-match'
 import { emailMatchPattern, normaliseEmail } from '../../src/lib/email'
 
@@ -28,6 +29,19 @@ export type ContactUpsertResult = {
   contactId: string | null
   created: boolean
   error: string | null
+  /** The import's phone failed isValidPhone, so the contact was stored with none. */
+  phoneRejected: boolean
+}
+
+/**
+ * Importer phone gate (#668): a number the booking forms would reject is stored
+ * as no number and reported, never saved raw. 72 Airtable contacts came in a
+ * digit short or long, and those residents silently got no SMS.
+ */
+const isRejectedPhone = (mobileE164: string) => !!mobileE164 && !isValidPhone(mobileE164)
+
+function reportRejectedPhone(contact: string, mobileE164: string) {
+  console.warn(`  ⚠ contact ${contact} stored with no phone: ${maskPhone(mobileE164)} is not a valid number (#668) — check it with the resident`)
 }
 
 /**
@@ -45,7 +59,7 @@ export async function upsertContact(
   },
   dryRun: boolean,
 ): Promise<ContactUpsertResult> {
-  if (!opts.email?.trim()) return { contactId: null, created: false, error: null }
+  if (!opts.email?.trim()) return { contactId: null, created: false, error: null, phoneRejected: false }
 
   const email = opts.email.trim().toLowerCase()
 
@@ -56,18 +70,24 @@ export async function upsertContact(
     .limit(1)
     .maybeSingle()
 
-  if (existing) return { contactId: (existing as { id: string }).id, created: false, error: null }
+  if (existing) return { contactId: (existing as { id: string }).id, created: false, error: null, phoneRejected: false }
 
-  if (dryRun) return { contactId: null, created: false, error: null }
+  const phoneRejected = isRejectedPhone(opts.mobileE164)
+  if (dryRun) {
+    if (phoneRejected) reportRejectedPhone('(dry run)', opts.mobileE164)
+    return { contactId: null, created: false, error: null, phoneRejected }
+  }
 
   const { data: created, error } = await verco
     .from('contacts')
-    .insert({ first_name: opts.firstName, last_name: opts.lastName, email, mobile_e164: opts.mobileE164 })
+    .insert({ first_name: opts.firstName, last_name: opts.lastName, email, mobile_e164: phoneRejected ? null : opts.mobileE164 })
     .select('id')
     .single()
 
-  if (error) return { contactId: null, created: false, error: error.message }
-  return { contactId: (created as { id: string }).id, created: true, error: null }
+  if (error) return { contactId: null, created: false, error: error.message, phoneRejected }
+  const contactId = (created as { id: string }).id
+  if (phoneRejected) reportRejectedPhone(contactId, opts.mobileE164)
+  return { contactId, created: true, error: null, phoneRejected }
 }
 
 /**
@@ -89,7 +109,7 @@ export async function resolveResidentContact(
     .ilike('email', emailMatchPattern(email))
     .order('created_at', { ascending: true })
     .limit(50)
-  if (error) return { contactId: null, created: false, error: error.message }
+  if (error) return { contactId: null, created: false, error: error.message, phoneRejected: false }
 
   const resolution = resolveContact(
     (rows ?? []).map((r: { id: string; first_name: string | null; last_name: string | null; mobile_e164: string | null }) => ({
@@ -101,13 +121,16 @@ export async function resolveResidentContact(
     { first_name: opts.firstName, last_name: opts.lastName, mobile_e164: opts.mobileE164 },
     false,
   )
-  if (resolution.action === 'reuse') return { contactId: resolution.contactId, created: false, error: null }
+  if (resolution.action === 'reuse') return { contactId: resolution.contactId, created: false, error: null, phoneRejected: false }
 
+  const phoneRejected = isRejectedPhone(opts.mobileE164)
   const { data: created, error: insertError } = await verco
     .from('contacts')
-    .insert({ first_name: opts.firstName, last_name: opts.lastName, email, mobile_e164: opts.mobileE164 || null })
+    .insert({ first_name: opts.firstName, last_name: opts.lastName, email, mobile_e164: phoneRejected ? null : opts.mobileE164 || null })
     .select('id')
     .single()
-  if (insertError) return { contactId: null, created: false, error: insertError.message }
-  return { contactId: (created as { id: string }).id, created: true, error: null }
+  if (insertError) return { contactId: null, created: false, error: insertError.message, phoneRejected }
+  const contactId = (created as { id: string }).id
+  if (phoneRejected) reportRejectedPhone(contactId, opts.mobileE164)
+  return { contactId, created: true, error: null, phoneRejected }
 }

@@ -70,6 +70,11 @@ vi.mock('@/lib/supabase/server', () => ({
 
 import { updateBookingQuantities } from '@/app/(admin)/admin/bookings/[id]/actions'
 
+// edit_ref becomes notification_log.reference_id (a uuid column) — the per-edit
+// idempotency + send-claim key (#671). An ISO timestamp failed that insert, so
+// every booking_updated email went out unlogged (prod had zero rows).
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
 interface FetchCall { url: string; body: Record<string, unknown> }
 let fetchCalls: FetchCall[] = []
 let efResponse: { ok: boolean; status?: number; payload: Record<string, unknown> }
@@ -200,8 +205,7 @@ describe('updateBookingQuantities — booking_updated notification payload per r
     // refund_request row (money-integrity hardening) — the payload must never
     // carry a forgeable cents figure.
     expect('refund_cents' in body).toBe(false)
-    expect(typeof body.edit_ref).toBe('string')
-    expect((body.edit_ref as string).length).toBeGreaterThan(0)
+    expect(body.edit_ref).toMatch(UUID_RE)
   })
 
   it("queued → refund_status 'pending_review' + refund_request_id (Pending row awaits approval)", async () => {
@@ -212,7 +216,7 @@ describe('updateBookingQuantities — booking_updated notification payload per r
     expect(body.refund_status).toBe('pending_review')
     expect(body.refund_request_id).toBe('refund-1')
     expect('refund_cents' in body).toBe(false)
-    expect((body.edit_ref as string).length).toBeGreaterThan(0)
+    expect(body.edit_ref).toMatch(UUID_RE)
   })
 
   it('failed → no refund fields (no Pending row exists, so nothing to show)', async () => {
@@ -225,7 +229,7 @@ describe('updateBookingQuantities — booking_updated notification payload per r
     expect('refund_cents' in body).toBe(false)
     // The resident is still notified their booking changed — just without a
     // refund line — so edit_ref must be present to key idempotency.
-    expect((body.edit_ref as string).length).toBeGreaterThan(0)
+    expect(body.edit_ref).toMatch(UUID_RE)
   })
 
   it('none → no refund fields (free-quota change, nothing owed)', async () => {
@@ -236,7 +240,7 @@ describe('updateBookingQuantities — booking_updated notification payload per r
     expect('refund_status' in body).toBe(false)
     expect('refund_request_id' in body).toBe(false)
     expect('refund_cents' in body).toBe(false)
-    expect((body.edit_ref as string).length).toBeGreaterThan(0)
+    expect(body.edit_ref).toMatch(UUID_RE)
   })
 })
 

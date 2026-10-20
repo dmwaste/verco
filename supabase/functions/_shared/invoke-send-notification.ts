@@ -11,19 +11,13 @@
 // and the caller returned 200, so Sentry saw nothing. Two live bookings
 // (MOS-JOZCOM 13/10, KWN-2-I2NA9E 01/10) lost their confirmation that way.
 //
-// Contract:
-//   - AWAITED by the caller (never bare `void`): the edge runtime may freeze a
-//     dangling promise once the handler returns.
-//   - Retries transient gateway failures (429/502/503/504 or a thrown fetch)
-//     twice, backing off 500 ms then 1,500 ms. Safe: the dispatcher's
-//     idempotency key skips when a `sent` row already exists per channel.
-//   - On FINAL failure writes a `failed` notification_log row (status
-//     'failed', error_message = 'invoke: HTTP 503' etc.) so the miss shows on
-//     /admin/notifications and can be retried from there (the resume-by-log-id
-//     path re-renders from the booking and only skips on `sent`), and reports a
-//     PII-free Sentry warning (ids + HTTP status only).
-//   - NEVER throws and never changes the booking: by the time we notify, the
-//     booking is committed and must not be reverted.
+// Contract: see ./notify-retry.ts — retries (claim-guarded, so a 504 retry
+// can't double-send, #671), honours retry-after, records a `failed` row per
+// channel + a PII-free Sentry warning on final failure, never throws. This
+// file only supplies the EF side: the service-role bearer from the EF env and
+// the service-role client for the failure rows. The caller AWAITS it (never
+// bare `void`): the edge runtime may freeze a dangling promise once the
+// handler returns.
 //
 // Dependencies are injected (Supabase client, Sentry reporter, fetch, sleep)
 // so Vitest can load this Deno module through a runtime-only import without
@@ -31,14 +25,21 @@
 
 import type { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2.100.0'
 import type { Database } from './database.types.ts'
+import {
+  FAILURE_TARGET_SELECT,
+  invokeBookingCreatedWithRetry,
+  toFailureTarget,
+  type BookingCreatedPayload,
+  type FailureLog,
+  type InvokeOutcome,
+} from './notify-retry.ts'
 
-export type BookingCreatedPayload = {
-  type: 'booking_created'
-  booking_id: string
-}
+export { MAX_RATE_LIMIT_WAIT_MS, RETRY_DELAYS_MS, RETRYABLE_STATUSES } from './notify-retry.ts'
+export type { BookingCreatedPayload } from './notify-retry.ts'
+export type InvokeSendNotificationOutcome = InvokeOutcome
 
 export interface InvokeSendNotificationDeps {
-  /** Service-role client — used only to record the failed row on final failure. */
+  /** Service-role client — used only to record the failed rows on final failure. */
   supabase: SupabaseClient<Database>
   /** `captureWarning` from `./sentry.ts` (injected so tests need no Sentry). */
   captureWarning: (message: string, extra?: Record<string, unknown>) => void
@@ -49,19 +50,6 @@ export interface InvokeSendNotificationDeps {
   serviceRoleKey?: string
 }
 
-export type InvokeSendNotificationOutcome =
-  | { ok: true; attempts: number }
-  | { ok: false; attempts: number; status: number | null; error: string }
-
-/** Backoff before retry 1 and retry 2 (ms). Two retries → three attempts. */
-export const RETRY_DELAYS_MS: readonly number[] = [500, 1500]
-
-/** Gateway / throttle statuses worth a retry. Anything else is final. */
-export const RETRYABLE_STATUSES: ReadonlySet<number> = new Set([429, 502, 503, 504])
-
-/** Per-attempt cap so a hung gateway can't hold create-booking to the 150 s edge limit. */
-const ATTEMPT_TIMEOUT_MS = 10_000
-
 const defaultSleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
 
 function envOr(name: string, injected: string | undefined): string {
@@ -70,134 +58,44 @@ function envOr(name: string, injected: string | undefined): string {
   return typeof Deno !== 'undefined' ? (Deno.env.get(name) ?? '') : ''
 }
 
-type Attempt =
-  | { kind: 'ok' }
-  | { kind: 'http'; status: number; body: string }
-  | { kind: 'thrown'; error: string }
+/** notification_log access for the failure rows, under the service-role client. */
+function failureLog(supabase: SupabaseClient<Database>): FailureLog {
+  return {
+    loadTarget: async (bookingId) => {
+      const { data, error } = await supabase
+        .from('booking')
+        .select(FAILURE_TARGET_SELECT)
+        .eq('id', bookingId)
+        .maybeSingle()
+      if (error || !data) return { error: error?.message ?? 'not found' }
+      return toFailureTarget(data)
+    },
+    loggedChannels: async (bookingId) => {
+      const { data, error } = await supabase
+        .from('notification_log')
+        .select('channel')
+        .eq('booking_id', bookingId)
+        .eq('notification_type', 'booking_created')
+      if (error) return { error: error.message }
+      return new Set((data ?? []).map((r) => r.channel))
+    },
+    insertFailed: async (rows) => {
+      const { error } = await supabase.from('notification_log').insert(rows)
+      return { error: error?.message ?? null }
+    },
+  }
+}
 
 export async function invokeSendNotification(
   payload: BookingCreatedPayload,
   deps: InvokeSendNotificationDeps,
 ): Promise<InvokeSendNotificationOutcome> {
-  const fetchImpl = deps.fetch ?? fetch
-  const sleep = deps.sleep ?? defaultSleep
-  const url = `${envOr('SUPABASE_URL', deps.supabaseUrl)}/functions/v1/send-notification`
-  const serviceKey = envOr('SUPABASE_SERVICE_ROLE_KEY', deps.serviceRoleKey)
-
-  const maxAttempts = RETRY_DELAYS_MS.length + 1
-  let last: Attempt = { kind: 'thrown', error: 'not attempted' }
-
-  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    last = await attemptOnce(fetchImpl, url, serviceKey, payload)
-    if (last.kind === 'ok') return { ok: true, attempts: attempt }
-
-    const retryable = last.kind === 'thrown' || RETRYABLE_STATUSES.has(last.status)
-    const delay = RETRY_DELAYS_MS[attempt - 1]
-    if (!retryable || delay === undefined) {
-      return await recordFinalFailure(payload, deps, attempt, last)
-    }
-    console.warn(
-      `[notifications] send-notification ${describe(last)} for ${payload.type} ${payload.booking_id} — retry ${attempt}/${RETRY_DELAYS_MS.length} in ${delay}ms`,
-    )
-    await sleep(delay)
-  }
-
-  // Unreachable: the loop returns on success or on the last attempt.
-  return await recordFinalFailure(payload, deps, maxAttempts, last)
-}
-
-async function attemptOnce(
-  fetchImpl: typeof fetch,
-  url: string,
-  serviceKey: string,
-  payload: BookingCreatedPayload,
-): Promise<Attempt> {
-  try {
-    const res = await fetchImpl(url, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${serviceKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(ATTEMPT_TIMEOUT_MS),
-    })
-    if (res.ok) return { kind: 'ok' }
-    const body = await res.text().catch(() => '(no body)')
-    return { kind: 'http', status: res.status, body: body.slice(0, 500) }
-  } catch (err) {
-    return { kind: 'thrown', error: err instanceof Error ? err.message : String(err) }
-  }
-}
-
-function describe(a: Attempt): string {
-  if (a.kind === 'http') return `returned HTTP ${a.status}`
-  if (a.kind === 'thrown') return `threw (${a.error})`
-  return 'succeeded'
-}
-
-/**
- * Final failure: leave a `failed` notification_log row + a Sentry warning.
- * Every step is guarded — this must never throw back into a money path.
- */
-async function recordFinalFailure(
-  payload: BookingCreatedPayload,
-  deps: InvokeSendNotificationDeps,
-  attempts: number,
-  last: Attempt,
-): Promise<InvokeSendNotificationOutcome> {
-  const status = last.kind === 'http' ? last.status : null
-  const error =
-    last.kind === 'http' ? `invoke: HTTP ${last.status}` : `invoke: ${last.kind === 'thrown' ? last.error : 'unknown'}`
-
-  console.error(
-    `[notifications] send-notification ${describe(last)} for ${payload.type} ${payload.booking_id} after ${attempts} attempt(s)` +
-      (last.kind === 'http' ? `: ${last.body}` : ''),
-  )
-
-  let logged = false
-  try {
-    const { data: booking, error: readErr } = await deps.supabase
-      .from('booking')
-      .select('client_id, contact_id, contact:contact_id ( email )')
-      .eq('id', payload.booking_id)
-      .maybeSingle()
-
-    if (readErr || !booking) {
-      console.error(
-        `[notifications] could not load booking ${payload.booking_id} to record the failed send: ${readErr?.message ?? 'not found'}`,
-      )
-    } else {
-      const contact = booking.contact as { email: string | null } | null
-      const { error: insertErr } = await deps.supabase.from('notification_log').insert({
-        booking_id: payload.booking_id,
-        contact_id: booking.contact_id,
-        client_id: booking.client_id,
-        channel: 'email',
-        notification_type: payload.type,
-        to_address: contact?.email ?? 'unknown',
-        status: 'failed',
-        error_message: error,
-      })
-      if (insertErr) {
-        console.error(`[notifications] failed to write notification_log row: ${insertErr.message}`)
-      } else {
-        logged = true
-      }
-    }
-  } catch (err) {
-    console.error(
-      `[notifications] recording the failed send threw: ${err instanceof Error ? err.message : String(err)}`,
-    )
-  }
-
-  // Ids + status only — never contact fields (Sentry is EU-hosted).
-  deps.captureWarning('booking_created invoke failed', {
-    booking_id: payload.booking_id,
-    http_status: status,
-    attempts,
-    notification_log_written: logged,
+  return await invokeBookingCreatedWithRetry(payload, {
+    url: `${envOr('SUPABASE_URL', deps.supabaseUrl)}/functions/v1/send-notification`,
+    bearer: envOr('SUPABASE_SERVICE_ROLE_KEY', deps.serviceRoleKey),
+    fetch: deps.fetch ?? fetch,
+    sleep: deps.sleep ?? defaultSleep,
+    captureWarning: deps.captureWarning,
+    failureLog: failureLog(deps.supabase),
   })
-
-  return { ok: false, attempts, status, error }
 }

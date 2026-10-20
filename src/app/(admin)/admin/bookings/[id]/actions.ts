@@ -3,7 +3,7 @@
 import { z } from 'zod'
 import * as Sentry from '@sentry/nextjs'
 import { QuantityEditItemSchema } from '@/lib/booking/schemas'
-import { canonicaliseAuMobile, normalisePhone } from '@/lib/phone'
+import { canonicaliseAuMobile, isValidPhone, normalisePhone, PHONE_INVALID_MESSAGE } from '@/lib/phone'
 import { mistypedEmailDomainMessage } from '@/lib/email'
 import { createClient } from '@/lib/supabase/server'
 import { invokeSendNotification } from '@/lib/notifications/invoke'
@@ -261,6 +261,12 @@ export async function updateContact(
     return { ok: true, data: undefined }
   }
 
+  // Same gate as the booking forms (#668), on a number this edit changes only: a
+  // contact already on file with a bad one can still have its name fixed.
+  if (rawMobile && newMobile !== current?.mobile_e164 && !isValidPhone(rawMobile)) {
+    return { ok: false, error: PHONE_INVALID_MESSAGE }
+  }
+
   // contacts has SELECT-only RLS by design (BR-0031/#452) — writes go through
   // the SECURITY DEFINER RPC, which re-gates on staff role and scopes the
   // contact via this booking's tenant (+ sub-client narrowing).
@@ -438,11 +444,13 @@ export async function updateCollectionDetails(
   // the collection has been dispatched or already happened, so a "your booking
   // date is now <past date>" email would only confuse. Reached only when
   // something actually changed (the no-op case returns earlier). Fire-and-forget.
+  // edit_ref must be a uuid: it is stored as notification_log.reference_id (uuid),
+  // the per-edit idempotency + send-claim key (#671).
   if (current.status === 'Confirmed') {
     await invokeSendNotification(supabase, {
       type: 'booking_updated',
       booking_id: bookingId,
-      edit_ref: new Date().toISOString(),
+      edit_ref: crypto.randomUUID(),
     })
   }
 
@@ -673,14 +681,15 @@ export async function updateBookingQuantities(
   // snapshot + a refund line so money moving back is explained (#388). Only
   // surface a refund when one actually went through: 'initiated' → processed,
   // 'queued' → pending review; 'failed'/'none' show no refund line. edit_ref
-  // makes the idempotency key unique per edit. We pass the refund_request_id
+  // (a uuid — it is stored as notification_log.reference_id) makes the
+  // idempotency key unique per edit. We pass the refund_request_id
   // (not the amount) — send-notification derives the DISPLAYED cents from that
   // row so the figure can't be forged. Fire-and-forget.
   const refundStatus = refundStateToNotificationStatus(refundState)
   await invokeSendNotification(supabase, {
     type: 'booking_updated',
     booking_id: bookingId,
-    edit_ref: new Date().toISOString(),
+    edit_ref: crypto.randomUUID(),
     ...(refundStatus && refundRequestId
       ? { refund_status: refundStatus, refund_request_id: refundRequestId }
       : {}),
