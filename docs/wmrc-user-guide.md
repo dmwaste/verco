@@ -293,6 +293,7 @@ When you click the submit button, a **Terms & Conditions** dialog appears before
 **Free booking path:** You're redirected to `/booking/<ref>?success=true` — the booking detail page with a green success banner.
 
 **Paid booking path:** You're redirected to **Stripe Checkout** (Stripe's hosted payment page).
+
 - Use the test card from §1 above.
 - After successful payment, you return to `/booking/<ref>?success=true`.
 - A green "Payment received — confirming your booking…" banner shows briefly while the system catches the Stripe webhook and flips the status to **Confirmed**.
@@ -500,12 +501,14 @@ If you're not already signed in, visit `vvtest.verco.au/auth` and complete the O
 The admin dashboard has six visible regions:
 
 **Top bar (left to right):**
+
 - **VERCO logo** — your home anchor; click to return to `/admin`
 - **Tenant selector pill** (e.g. *"Verge Valet"* with a green dot) — only visible if you have access to more than one tenant. WMRC head-office client-admins see all 9 sub-councils; a Cottesloe-only client-admin won't see a switcher at all.
 - **Global search box** — search bookings by reference (e.g. `COT-E88PNN`), address, or contact name. Hits any booking your role can see.
 - **Avatar initials** (top right) — your account menu
 
 **Sidebar (left), grouped into sections:**
+
 - **GENERAL** — Dashboard (where you are)
 - **OPERATIONS** — Bookings, Collection Dates, Properties, MUDs, Illegal Dumping (§4.8), Allocations _(and **Run Sheets**, which is **D&M-contractor-only** — council staff won't see it)_
 - **EXCEPTIONS** — Non-Conformance, Nothing Presented
@@ -546,6 +549,7 @@ This is the workhorse screen. Click **Bookings** in the sidebar — you land on 
 ![The bookings list — searchable and filterable by status, area, type, service, and collection-date range, with sortable columns. Addresses show, resident names do not (they're on the detail page).](screenshots/22-admin-bookings-list.png)
 
 **Filter strip** (top of the table):
+
 - Search box — by ref, address, or contact name
 - **All Statuses** dropdown — narrow to a single status (Confirmed, Pending Payment, Cancelled, Non-conformance, Nothing Presented, Scheduled, Submitted, Completed, Rebooked)
 - **All Areas** dropdown — narrow to a single sub-client area (CAM-A, COT, MOS, PEP, FRE-N, FRE-S, SUB, VIN, SOP, VIC, KWN-1, KWN-2 …)
@@ -586,6 +590,7 @@ The *"Showing X of Y"* count updates live as you filter.
 | <span class="tl tl-p"></span> **Rebooked** | A follow-up booking has been created after an NCN/NP |
 
 **Top-right actions:**
+
 - **Export CSV** — downloads the current filtered table as a CSV. Useful for ad-hoc reports.
 - **+ New Booking** — opens the booking wizard pre-loaded with admin context. See **§4.6 for the strata path**; otherwise the wizard is identical to the resident flow in Part A, with one difference noted in §4.4.
 
@@ -629,6 +634,7 @@ The page has the following sections, stacked top-to-bottom:
 #### SERVICES (with pencil icon to edit)
 
 A list of every service line, each with a **status pill**:
+
 - **Included** (green) — comes out of the resident's FY allocation, no charge
 - **$X.XX** (orange) — an "extra" line beyond the allocation, paid via Stripe
 - A "Total charged" row at the bottom sums the extras
@@ -636,6 +642,7 @@ A list of every service line, each with a **status pill**:
 #### ACTIVITY (audit timeline)
 
 Every change to this booking, oldest at the top:
+
 - "Status changed to Confirmed" — when the booking was confirmed
 - "Service item created" — when each service line was added
 - "0 fields updated" — system housekeeping events (often duplicated; safe to ignore for now)
@@ -674,6 +681,7 @@ If they don't have the reference:
 3. The list narrows live
 
 If you find nothing:
+
 - Check the **status filter** isn't accidentally set to a single status. Reset to "All Statuses".
 - Check the **area filter** — they may live in a sub-council you're narrowed away from (sub-client scoping per §4.2).
 - Check whether they signed up with a **different email** than they're quoting now. Email is the identity anchor; a typo at sign-up creates a "phantom" account they can't access. Look at Service Tickets for prior history under any email.
@@ -707,6 +715,7 @@ Most bookings auto-confirm now (free path → Confirmed immediately; paid path �
 ![The cancellation confirmation dialog over the (redacted) booking detail — *"Cancel this booking? This action cannot be undone."* with Keep Booking / Cancel Booking.](screenshots/26-admin-cancel-dialog.png)
 
 What happens after cancellation:
+
 - Booking status flips to **Cancelled**
 - If the resident paid for extras, a **Refund Request** is auto-created in the Refunds queue (see §4.5). The refund is **not automatic** — someone has to approve it.
 - A "booking cancelled" notification email is sent to the resident.
@@ -716,6 +725,7 @@ What happens after cancellation:
 Residents lose the ability to cancel at **3:30pm AWST the day before collection** (they are told 3:00pm — the extra 30 minutes is a grace window). After that, the cancel button is hidden from their dashboard. Field crew are already on the road or about to be.
 
 **Staff can still cancel post-cutoff**, but the policy expectation is:
+
 - **Don't cancel within 24h of collection unless there's a genuine operational reason** (e.g. weather closure, address error). Doing so doesn't refund the resident automatically — you'll need to manually approve a refund or note in the audit trail why no refund applies.
 - **Document the reason in the booking notes before cancelling** (use the pencil icon next to COLLECTION DETAILS). The audit trail captures the cancellation actor, but not the *why* — notes give the why.
 - The same Cancel Booking button works post-cutoff for staff. The DB trigger that blocks resident cancellations has a staff bypass.
@@ -740,6 +750,7 @@ Both flow into your queue if the resident **disputes** them.
 ![The Non-Conformance list — columns for booking, address, area, reason, photos, status, and who reported it. (Empty here — notices appear once field crews raise them.)](screenshots/27-admin-ncn-list.png)
 
 **Filter strip:**
+
 - Search box — by booking ref, address, reason
 - **All Statuses** dropdown — Issued / Disputed / Under Review / Resolved / Rescheduled / Closed
 - **All Reasons** dropdown — e.g. Oversized, Contamination, Incorrect Location, Asbestos, Hazardous
@@ -819,6 +830,7 @@ A **MUD** is any property where verge collections can't be arranged by individua
 ![The MUDs list — the Contact Made / Registered / Inactive / Not Set status cards, plus addresses, MUD codes, units, status, cadence and the **Auth form** column. (Strata-contact names are **redacted here for privacy**.)](screenshots/30-admin-muds-list.png)
 
 Status cards at the top:
+
 - **Contact Made** — strata manager identified + contacted, but onboarding not yet complete
 - **Registered** — fully onboarded; **this is the only status you can book on behalf of**
 - **Inactive** — flagged as not currently subscribed (e.g. opted out, demolished)
@@ -860,6 +872,7 @@ Done from the **Properties** page (`/admin/properties`), not from the MUDs list.
 #### d) PII handling on MUDs
 
 The **strata contact** name + email + mobile sit in the MUDs table because admins need them. They are **never** exposed to:
+
 - Field crew (`field` role) — they see the address, the items to collect and the waste-location notes (plus any booking notes), never the contact
 - Rangers (`ranger` role) — same restriction
 - Other residents in the building — who don't have visibility into who their strata manager is via this app
@@ -1028,6 +1041,7 @@ A: Don't — at least, not yourself. The bookings stay in the system as part of 
 
 **Q: I can't see my dummy booking on the dashboard.**
 A: Two common causes:
+
 - You're signed in with a different email than the one you used to book. Sign out and back in.
 - The booking is **Pending Payment** — those appear on the dashboard but in a separate section. Look for the orange banner.
 
