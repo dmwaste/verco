@@ -9,6 +9,10 @@ import { awstWeekRange } from '@/lib/date/awst-week'
 import { OPEN_INVESTIGATION_STATUSES } from '@/lib/exceptions/status'
 import { StatusBadge } from '@/components/status-badge'
 import { surveyDisplayRef } from '@/lib/survey/legacy'
+import { isContractorStaff } from '@/lib/auth/roles'
+import { awstDateFromUtc } from '@/lib/booking/schedule-transition'
+import { DEFAULT_STALE_THRESHOLD_DAYS, staleCutoffDate } from '@/lib/ops/stale-closeouts'
+import { StuckCloseoutsCallout } from './stuck-closeouts-callout'
 
 /** Shared height for every half-width dashboard tile so all rows line up. */
 const HALF_CARD = 'flex h-96 flex-col rounded-xl bg-white p-5 shadow-sm'
@@ -52,14 +56,16 @@ export default async function AdminDashboardPage() {
   // reminder view (v_mud_next_expected) reads public-SELECT eligible_properties
   // and is NOT tenant-scoped by RLS, so it must be filtered by these ids in app
   // code or it leaks other tenants' MUDs (VER-280).
-  const [{ data: fy }, tenantMudIds] = await Promise.all([
+  const [{ data: fy }, tenantMudIds, { data: role }] = await Promise.all([
     supabase
       .from('financial_year')
       .select('id, label')
       .eq('is_current', true)
       .single(),
     getTenantMudPropertyIds(clientId),
+    supabase.rpc('current_user_role'),
   ])
+  const isContractor = isContractorStaff(role)
 
   // Parallel data fetches. booking/service_ticket queries are RLS-scoped, but
   // contractor users can see ALL their clients via RLS — so the stat cards must
@@ -129,7 +135,18 @@ export default async function AdminDashboardPage() {
     .gte('date', weekMonday)
     .lte('date', weekSunday)
     .eq('collection_area.client_id', clientId)
+  // Stuck closeouts (#575): Scheduled bookings 3+ days past their collection
+  // date, with exactly the filter the callout's link opens (the daily Teams
+  // alert's "Full backlog" too), so the count matches the list. Contractor-only:
+  // only crews can close a stop out, so this is D&M's worklist, not a council's.
+  const stuckCutoff = staleCutoffDate(awstDateFromUtc(now), DEFAULT_STALE_THRESHOLD_DAYS)
+  const stuckQuery = supabase
+    .from('booking')
+    .select('id, booking_item!inner(collection_date!inner(date))', { count: 'exact', head: true })
+    .eq('status', 'Scheduled')
+    .lte('booking_item.collection_date.date', stuckCutoff)
   if (clientId) {
+    stuckQuery.eq('client_id', clientId)
     completedQuery.eq('client_id', clientId)
     ncnQuery.eq('client_id', clientId)
     npQuery.eq('client_id', clientId)
@@ -162,6 +179,7 @@ export default async function AdminDashboardPage() {
     weekDatesResult,
     mudRemindersResult,
     recentSurveysResult,
+    stuckResult,
   ] = await Promise.all([
     completedQuery,
     ncnQuery,
@@ -197,8 +215,10 @@ export default async function AdminDashboardPage() {
       .order('next_expected_date', { ascending: true, nullsFirst: false })
       .limit(20),
     recentSurveysQuery,
+    isContractor ? stuckQuery : null,
   ])
 
+  const stuckCount = stuckResult?.count ?? 0
   const openExceptions = (ncnResult.count ?? 0) + (npResult.count ?? 0)
 
   // Merge the two open-investigation lists (NCN + NP), newest first, cap 6.
@@ -355,6 +375,12 @@ export default async function AdminDashboardPage() {
           </Link>
         </div>
       </div>
+
+      {stuckCount > 0 && (
+        <div className="px-7 pt-5">
+          <StuckCloseoutsCallout count={stuckCount} cutoffDate={stuckCutoff} />
+        </div>
+      )}
 
       {/* Stat cards — each links to its drill-down page (the numbers are
           summaries of queues staff act on, not decoration). */}
