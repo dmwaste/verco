@@ -119,8 +119,8 @@ describe('geocodeProperty', () => {
 
 describe('rejectionExplanation', () => {
   it('different suburb: names the match and asks for the postcode', () => {
-    const text = rejectionExplanation('7 Vincent St, Mount Lawley WA 6050, Australia', 'locality')
-    expect(text).toContain('7 Vincent St, Mount Lawley WA 6050, Australia')
+    const text = rejectionExplanation('7 Fixture Way, Mount Lawley WA 6050, Australia', 'locality')
+    expect(text).toContain('7 Fixture Way, Mount Lawley WA 6050, Australia')
     expect(text).toMatch(/different suburb/)
     expect(text).toMatch(/postcode/)
   })
@@ -153,31 +153,42 @@ describe('runGeocodeQueue — the Geocode All / import loop', () => {
   // property that really had no pin.
   it('stops after one call when that call covered the whole queue', async () => {
     const invoke = vi.fn().mockResolvedValue(
-      ok({ total: 31, processed: 26, snapped: 26, failed: 0, rejected: 5 }),
+      ok({ total: 31, processed: 26, snapped: 26, failed: 0, rejected: 5, last_id: 'id-31' }),
     )
     const res = await runGeocodeQueue(invoke)
     expect(invoke).toHaveBeenCalledTimes(1)
-    expect(invoke).toHaveBeenCalledWith({ limit: 500 })
+    expect(invoke).toHaveBeenCalledWith({ limit: 500, after_id: null })
     expect(res).toEqual({ ok: true, data: { geocoded: 0, rejected: 5, failed: 0 } })
   })
 
-  it('keeps going while full chunks move rows out of the queue, then reports what is left', async () => {
+  it('walks the queue by cursor and adds up every chunk', async () => {
     const invoke = vi
       .fn()
-      .mockResolvedValueOnce(ok({ total: 500, processed: 500, snapped: 0, failed: 0, rejected: 0 }))
-      .mockResolvedValueOnce(ok({ total: 120, processed: 100, snapped: 3, failed: 0, rejected: 20 }))
+      .mockResolvedValueOnce(ok({ total: 500, processed: 490, snapped: 0, failed: 2, rejected: 8, last_id: 'id-500' }))
+      .mockResolvedValueOnce(ok({ total: 120, processed: 100, snapped: 3, failed: 0, rejected: 20, last_id: 'id-620' }))
     const res = await runGeocodeQueue(invoke)
     expect(invoke).toHaveBeenCalledTimes(2)
-    expect(res).toEqual({ ok: true, data: { geocoded: 597, rejected: 20, failed: 0 } })
+    expect(invoke).toHaveBeenNthCalledWith(2, { limit: 500, after_id: 'id-500' })
+    expect(res).toEqual({ ok: true, data: { geocoded: 587, rejected: 28, failed: 2 } })
   })
 
-  it('stops when a full chunk moved nothing out of the queue (only stuck rows left)', async () => {
-    const invoke = vi.fn().mockResolvedValue(
-      ok({ total: 500, processed: 480, snapped: 480, failed: 0, rejected: 20 }),
-    )
+  // 500+ stuck rows used to fill the first oldest-first chunk, move nothing,
+  // and stop the loop before it reached any newer row.
+  it('moves past a full chunk of stuck rows to the rows behind them', async () => {
+    const invoke = vi
+      .fn()
+      .mockResolvedValueOnce(ok({ total: 500, processed: 480, snapped: 480, failed: 0, rejected: 20, last_id: 'id-500' }))
+      .mockResolvedValueOnce(ok({ total: 4, processed: 4, snapped: 0, failed: 0, last_id: 'id-504' }))
+    const res = await runGeocodeQueue(invoke)
+    expect(invoke).toHaveBeenCalledTimes(2)
+    expect(res).toEqual({ ok: true, data: { geocoded: 4, rejected: 20, failed: 0 } })
+  })
+
+  it('stops after one full chunk when the EF sends no cursor (pre-cursor EF)', async () => {
+    const invoke = vi.fn().mockResolvedValue(ok({ total: 500, processed: 500, snapped: 0, failed: 0 }))
     const res = await runGeocodeQueue(invoke)
     expect(invoke).toHaveBeenCalledTimes(1)
-    expect(res).toEqual({ ok: true, data: { geocoded: 0, rejected: 20, failed: 0 } })
+    expect(res).toEqual({ ok: true, data: { geocoded: 500, rejected: 0, failed: 0 } })
   })
 
   it('reads failed rows out of the EF 500 body instead of failing the whole run', async () => {
@@ -194,7 +205,7 @@ describe('runGeocodeQueue — the Geocode All / import loop', () => {
   })
 
   it('still honours the iteration backstop', async () => {
-    const invoke = vi.fn().mockResolvedValue(ok({ total: 500, processed: 500, snapped: 0, failed: 0, rejected: 0 }))
+    const invoke = vi.fn().mockResolvedValue(ok({ total: 500, processed: 500, snapped: 0, failed: 0, rejected: 0, last_id: 'id' }))
     await runGeocodeQueue(invoke, { maxIterations: 3 })
     expect(invoke).toHaveBeenCalledTimes(3)
   })

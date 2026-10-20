@@ -434,43 +434,26 @@ describe('remindedOnBothChannels', () => {
 })
 
 describe('reminderRunStatus', () => {
-  // Cron ticks: 01:00/01:10/01:20/01:30 UTC = 09:00–09:30 AWST.
-  const at0900 = new Date('2026-10-19T01:00:00Z')
-  const at0910 = new Date('2026-10-19T01:10:00Z')
-  const at0930 = new Date('2026-10-19T01:30:00Z')
-
-  it('returns 200 for a clean run on any tick', () => {
-    expect(reminderRunStatus({ failed: 0, remaining: 0 }, at0900)).toBe(200)
-    expect(reminderRunStatus({ failed: 0, remaining: 0 }, at0930)).toBe(200)
+  // The cron sends last_tick: false on the 09:00/09:10/09:20 ticks and true on
+  // the 09:30 tick (migration 20261020015939); a run without it counts as last.
+  it('returns 200 when every candidate was sent, on any tick', () => {
+    expect(reminderRunStatus({ failed: 0, remaining: 0 }, false)).toBe(200)
+    expect(reminderRunStatus({ failed: 0, remaining: 0 }, true)).toBe(200)
   })
 
   it('returns 207 when the budget ran out before the last tick (19/10 09:00: remaining 68)', () => {
-    expect(reminderRunStatus({ failed: 0, remaining: 68 }, at0900)).toBe(207)
+    expect(reminderRunStatus({ failed: 0, remaining: 68 }, false)).toBe(207)
   })
 
   it('returns 207 when a send failed before the last tick (19/10 09:10: failed 1)', () => {
-    expect(reminderRunStatus({ failed: 1, remaining: 0 }, at0910)).toBe(207)
+    expect(reminderRunStatus({ failed: 1, remaining: 0 }, false)).toBe(207)
   })
 
   it('returns 500 when the last tick leaves reminders unsent', () => {
-    expect(reminderRunStatus({ failed: 0, remaining: 3 }, at0930)).toBe(500)
+    expect(reminderRunStatus({ failed: 0, remaining: 3 }, true)).toBe(500)
   })
 
   it('returns 500 when a send fails on the last tick', () => {
-    expect(reminderRunStatus({ failed: 1, remaining: 0 }, at0930)).toBe(500)
-  })
-
-  it('treats a late-firing 09:30 tick as the last tick', () => {
-    expect(reminderRunStatus({ failed: 1, remaining: 0 }, new Date('2026-10-19T01:30:04Z'))).toBe(500)
-  })
-
-  it('returns 500 for a manual run after the ticks (no tick left today)', () => {
-    // 14:00 AWST
-    expect(reminderRunStatus({ failed: 0, remaining: 5 }, new Date('2026-10-19T06:00:00Z'))).toBe(500)
-  })
-
-  it('judges the tick on the AWST clock, not UTC (01:00 AWST still has the 09:00 ticks ahead)', () => {
-    // 17:00 UTC on 18/10 = 01:00 AWST on 19/10
-    expect(reminderRunStatus({ failed: 0, remaining: 5 }, new Date('2026-10-18T17:00:00Z'))).toBe(207)
+    expect(reminderRunStatus({ failed: 1, remaining: 0 }, true)).toBe(500)
   })
 })

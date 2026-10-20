@@ -23,6 +23,8 @@ export interface GeocodeEfResponse {
   snapped?: number
   errors?: Array<{ id: string; error: string }>
   rejected_samples?: Array<{ id: string; address: string; google: string; reason: string }>
+  /** Cursor for the next chunk; only when the call sent `after_id`. */
+  last_id?: string | null
 }
 
 export type PropertyGeocodeOutcome =
@@ -148,29 +150,35 @@ export interface GeocodeQueueSummary {
 }
 
 /**
- * Drives `geocode-properties { limit }` over the whole un-geocoded queue in
- * chunks (the EF has a ~150s wall clock). Stops as soon as a call saw the whole
- * queue or moved nothing out of it. Snapped rows stay in the queue by design,
- * so "processed > 0" is not progress. Treating it as progress kept the old
- * loop going for 100 calls per click and hid every refused address.
+ * Drives `geocode-properties { limit, after_id }` over the whole un-geocoded
+ * queue in chunks (the EF has a ~150s wall clock), walking it once by id. Rows
+ * Google refuses or snaps stay in the queue by design (#508); an oldest-first
+ * read used to hand them back first on every chunk, so 500+ of them stopped the
+ * loop before it ever reached a newer row. The cursor moves past them instead:
+ * each row is tried once per click.
  */
 const GEOCODE_CHUNK = 500
 
 export async function runGeocodeQueue(
-  invoke: (body: { limit: number }) => Promise<Result<GeocodeEfResponse>>,
+  invoke: (body: { limit: number; after_id: string | null }) => Promise<Result<GeocodeEfResponse>>,
   { maxIterations = 100, onProgress }: { maxIterations?: number; onProgress?: (geocoded: number) => void } = {},
 ): Promise<Result<GeocodeQueueSummary>> {
   let geocoded = 0
-  let last: GeocodeEfResponse = {}
+  let rejected = 0
+  let failed = 0
+  let afterId: string | null = null
   for (let i = 0; i < maxIterations; i++) {
-    const res = await invoke({ limit: GEOCODE_CHUNK })
+    const res = await invoke({ limit: GEOCODE_CHUNK, after_id: afterId })
     const body = efSummary(res)
     if (!body) return { ok: false, error: res.ok ? 'no response from the map lookup' : efErrorText(res.error) }
-    last = body
-    const leftQueue = (body.processed ?? 0) - (body.snapped ?? 0)
-    geocoded += Math.max(0, leftQueue)
-    if ((body.total ?? 0) < GEOCODE_CHUNK || leftQueue <= 0) break
+    geocoded += Math.max(0, (body.processed ?? 0) - (body.snapped ?? 0))
+    rejected += body.rejected ?? 0
+    failed += body.failed ?? 0
+    // A short chunk means the walk reached the end. No cursor means an EF that
+    // predates it, which would hand back the same rows: stop either way.
+    if ((body.total ?? 0) < GEOCODE_CHUNK || !body.last_id) break
+    afterId = body.last_id
     onProgress?.(geocoded)
   }
-  return { ok: true, data: { geocoded, rejected: last.rejected ?? 0, failed: last.failed ?? 0 } }
+  return { ok: true, data: { geocoded, rejected, failed } }
 }

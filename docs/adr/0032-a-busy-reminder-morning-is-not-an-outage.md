@@ -11,9 +11,9 @@ The collection-reminder job runs four times each morning: 9:00, 9:10, 9:20 and 9
 
 Supabase limits how fast one of our server functions can call another, so each run can send about 120 reminders. On any day busier than that, handing the rest to the next run is how the system is meant to work. Until now every hand-over counted as a failure. On 19/10/2026 the 9:00 and 9:10 runs both raised a high-priority Sentry error, yet the 9:20 and 9:30 runs reminded all 188 residents. An alarm that goes off on every busy day trains people to ignore it, and then a real miss gets ignored too.
 
-Only the 9:30 run can tell a real miss from a hand-over, because nothing runs after it. So that's the only run that alerts. A run started by hand after 9:30 alerts too, since nothing is left to retry it. A resident who would miss out still raises the alarm, about half an hour later than before.
+Only the 9:30 run can tell a real miss from a hand-over, because nothing runs after it. So that's the only run that alerts. A resident who would miss out still raises the alarm, about half an hour later than before.
 
-The 9:30 time is written into the code. If the schedule changes, that time must change with it.
+The schedule itself says which run is last: the 9:00, 9:10 and 9:20 runs are told "not the last run", and the 9:30 run is told "last run". A run that isn't told either way (one started by hand, or a run someone adds later and forgets to label) is treated as the last run, so it alerts rather than hides a miss. Changing the schedule never needs a code change.
 
 ## What this changed from the original plan
 

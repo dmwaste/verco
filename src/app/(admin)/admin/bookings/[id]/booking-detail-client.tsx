@@ -213,8 +213,8 @@ export function BookingDetailClient({
   // from the crews' routes (#673). Same rule as the push (stopLocation: the
   // property's pin, else the booking's own). Say so while it can be fixed.
   const stopPin = stopLocation(booking, property)
-  const propertyHasNoPin =
-    !!booking.property_id &&
+  // Illegal Dumping bookings have no property: their own pin is the stop's pin.
+  const stopHasNoPin =
     NON_TERMINAL_BOOKING_STATUSES.includes(booking.status) &&
     (stopPin.latitude === null || stopPin.longitude === null)
   const contact = booking.contact as { first_name: string; last_name: string; full_name: string; mobile_e164: string | null; email: string } | null
@@ -840,7 +840,7 @@ export function BookingDetailClient({
       <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-3">
       <div className="flex min-w-0 flex-col gap-4 lg:col-span-2">
 
-      {propertyHasNoPin && (
+      {stopHasNoPin && booking.property_id && (
         <div role="alert" className="flex items-center justify-between gap-3 rounded-xl bg-status-warn-bg px-5 py-3 text-body-sm text-status-warn">
           <span>
             <span className="font-semibold">This property has no map pin.</span> Its collection can’t go into the
@@ -849,6 +849,12 @@ export function BookingDetailClient({
           <Link href={`/admin/properties/${booking.property_id}`} className="shrink-0 text-xs font-medium hover:underline">
             Fix the address &rarr;
           </Link>
+        </div>
+      )}
+      {stopHasNoPin && !booking.property_id && (
+        <div role="alert" className="rounded-xl bg-status-warn-bg px-5 py-3 text-body-sm text-status-warn">
+          <span className="font-semibold">This booking has no map pin.</span> It can’t go into the crews’ routes
+          until a location is set{canEditId ? ': edit the collection details below and drop a pin.' : '.'}
         </div>
       )}
 

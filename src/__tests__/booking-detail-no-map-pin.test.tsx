@@ -97,4 +97,17 @@ describe('admin booking detail: property with no map pin', () => {
     renderDetail(makeBooking({ status: 'Completed' }))
     expect(screen.queryByText(/no map pin/i)).not.toBeInTheDocument()
   })
+
+  // Illegal Dumping bookings have no property; the push uses the booking's own
+  // pin, so a missing one holds the stop back just the same.
+  it('warns on an Illegal Dumping booking with no pin of its own', () => {
+    renderDetail(makeBooking({ type: 'Illegal Dumping', property_id: null, eligible_properties: null }))
+    expect(screen.getByText(/This booking has no map pin/i)).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: /Fix the address/ })).not.toBeInTheDocument()
+  })
+
+  it('stays quiet on an Illegal Dumping booking with its own pin', () => {
+    renderDetail(makeBooking({ type: 'Illegal Dumping', property_id: null, eligible_properties: null, latitude: -32.2, longitude: 115.8 }))
+    expect(screen.queryByText(/no map pin/i)).not.toBeInTheDocument()
+  })
 })
