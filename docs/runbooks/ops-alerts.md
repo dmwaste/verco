@@ -11,7 +11,7 @@ Some background jobs watch for silent failures. When one finds a problem, it pos
 | `notification-health-check` | Every 3 hours | Email or SMS sends failing, and bookings that never got a confirmation |
 | `stale-closeout-check` | Daily, 09:35 | Stops still not closed out 3 days after collection, and bookings that never reached the crews (#575) — see [Stale-closeout alert](#stale-closeout-alert) |
 
-Until #576 that channel was never connected. The watchdog found problems and had nowhere to say them. Now, if the channel is missing or broken, Sentry shows a warning on every run until it's fixed.
+Until #576 that channel was never connected. The watchdog found problems and had nowhere to say them. Now a missing or malformed link raises a Sentry warning on every run until it's fixed, and a link Teams refuses raises one on every run that tries to post. A quiet, healthy run doesn't probe the link, so after any change in Teams send the test alert (step 3) rather than waiting for a real one.
 
 Alerts carry counts, channel names (email/SMS), council area codes and booking refs, plus a link into admin. They never include resident names, emails or phone numbers, and any that slip into a provider error message are blanked out before sending.
 
@@ -86,7 +86,7 @@ select status_code, content from net._http_response where id = <request_id>;
 ## Day to day
 
 - **A real alert** has a red title, e.g. "🚨 Verco notification health alert". It says what failed and links to the admin notification log. A missing confirmation repeats every 3 hours until someone resends it (or it's a day old).
-- **If the channel breaks later**, the watchdog returns an error to the scheduler, and Sentry shows a warning starting `notification-health-check: ops alert not sent — …` (or `stale-closeout-check: …`). Fix it with the table above.
+- **If the channel breaks later**, the next run that has something to say returns an error to the scheduler, and Sentry shows a warning starting `notification-health-check: ops alert not sent — …` (or `stale-closeout-check: …`). Healthy runs don't test the link, so after changing anything in Teams, send the test alert (step 3). Fix it with the table above.
 - **Until step 2 is done**, Sentry shows `notification-health-check: the watchdog cannot alert — OPS_ALERT_WEBHOOK_URL is not set` every 3 hours. That is deliberate and stops once the link is set.
 - **To move alerts to another channel or replace a leaked link:** create a new workflow (step 1), set the secret again (step 2), test (step 3), then delete the old workflow in Teams.
 
@@ -103,10 +103,10 @@ Crews close out every stop in the field app. A stop nobody closes out is unbille
 **What it says:**
 
 - **Newly stale:** each council area with stops from that day still open, e.g. `CAM-B: 50 of 50 stops still open, 0 closed out`. A whole area at 0 closed out usually means that council's crews have stopped closing out in the app, not that 50 collections were missed.
-- **Not dispatched:** a booking still waiting for collection with no open crew job. Either none was ever created, or a date change cancelled the old job and the new one never appeared, or one of its waste types was never sent out. That's a system fault (the OptimoRoute push), not a crew one. Raise a GitHub issue.
+- **Not dispatched:** a booking still waiting for collection with no open crew job. Either none was ever created, or a date change cancelled the old job and the new one never appeared, or one of its waste types was never sent out and the rest are already closed out. That's a system fault (the OptimoRoute push), not a crew one. Raise a GitHub issue.
 - **Standing backlog:** everything 3+ days old still open, per area, with the date range and how many stops that area *did* close out since then. `0 closed out since …` means the area has gone dark.
 
-**What to do:** open **Worklist** (the bookings from that day still open) or **Full backlog** (everything stale). You don't have to wait for the alert: while anything is stale, the admin dashboard shows a **Stuck closeouts (N)** strip to D&M staff (not council staff) that opens the same Full backlog list. Admin shows one client at a time, so switch client to see Kwinana vs Verge Valet councils. Then get the crew or supervisor to close the stops out in the field app (only crews can close a stop out). Once they do, the stops drop off the backlog.
+**What to do:** open **Worklist** (the bookings from that day still open) or **Full backlog** (everything stale). You don't have to wait for the alert: while anything is stale, the admin dashboard shows a **Stuck closeouts (N)** strip to D&M staff (not council staff) that opens the same Full backlog list. The strip counts stale bookings by their booked collection date, so after a date change its number can differ from the alert's stop counts; the list behind it is the same. Admin shows one client at a time, so switch client to see Kwinana vs Verge Valet councils. Then get the crew or supervisor to close the stops out in the field app (only crews can close a stop out). Once they do, the stops drop off the backlog.
 
 **Check what it would say today, without posting** (Supabase **SQL Editor**):
 

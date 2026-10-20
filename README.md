@@ -15,7 +15,7 @@ White-labelled, multi-tenant SaaS platform for managing residential bulk verge c
 | Backend | Supabase (AU, ap-southeast-2) |
 | Auth | Supabase Auth (email OTP) |
 | Payments | Stripe |
-| Package manager | pnpm |
+| Package manager | pnpm 9.15.9 (pinned via `packageManager` in `package.json`) |
 | Testing | Vitest + Testing Library + Playwright |
 | Maps | Leaflet + OpenStreetMap |
 | Hosting | Coolify on BinaryLane |
@@ -26,6 +26,8 @@ White-labelled, multi-tenant SaaS platform for managing residential bulk verge c
 git clone <repo-url> && cd verco
 pnpm install
 ```
+
+pnpm is pinned to 9.15.9 (`packageManager` in `package.json`; `corepack enable` gives you exactly that version). Newer pnpm (11+) ignores `pnpm.overrides` and silently strips the transitive security pins from `pnpm-lock.yaml`, so CI's `Lockfile Security Pins` job names any dropped pin; restore them with `pnpm install --no-frozen-lockfile` on the pinned pnpm and commit the lockfile (#602).
 
 Copy `.env.example` to `.env.local` and fill in (Stripe is handled entirely by Edge Functions — no publishable key in the app):
 
@@ -71,3 +73,4 @@ Secrets are caught in two places:
 - [Admin Design System](docs/admin-design-system.md) — tokens, shared components, status pills (read before touching an admin page)
 - [Decision log (ADRs)](docs/adr/README.md) — plain-English record of settled product/engineering calls
 - [Deploy runbook](docs/runbooks/deploy.md) — how a release reaches prod, secrets map, rollback
+- [Ops alerts runbook](docs/runbooks/ops-alerts.md) — the Teams channel the watchdogs post to: one-time setup, the test alert, what each alert means and what to do
