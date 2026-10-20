@@ -18,7 +18,9 @@ FROM node:24-alpine AS deps
 RUN apk add --no-cache libc6-compat
 WORKDIR /app
 
-RUN corepack enable && corepack prepare pnpm@9 --activate
+# Keep in step with package.json "packageManager" — corepack otherwise
+# downloads that exact version mid-build.
+RUN corepack enable && corepack prepare pnpm@9.15.9 --activate
 
 COPY package.json pnpm-lock.yaml ./
 RUN pnpm install --frozen-lockfile
@@ -27,7 +29,9 @@ RUN pnpm install --frozen-lockfile
 FROM node:24-alpine AS builder
 WORKDIR /app
 
-RUN corepack enable && corepack prepare pnpm@9 --activate
+# Keep in step with package.json "packageManager" — corepack otherwise
+# downloads that exact version mid-build.
+RUN corepack enable && corepack prepare pnpm@9.15.9 --activate
 
 ARG NEXT_PUBLIC_SUPABASE_URL
 ARG NEXT_PUBLIC_SUPABASE_ANON_KEY
