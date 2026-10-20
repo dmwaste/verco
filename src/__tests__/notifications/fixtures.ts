@@ -239,7 +239,7 @@ export function createMockDispatchDeps(
   )
 
   // Emulates the partial unique index notification_log_send_claim_key.
-  const claimSendMock = vi.fn(async (row: NotificationLogRow): Promise<SendClaim> => {
+  const claimSendMock = vi.fn(async (row: Omit<NotificationLogRow, 'status'>): Promise<SendClaim> => {
     const holder = [...(state.existingLog ?? []), ...writtenLogs].find(
       (e) =>
         e.booking_id === row.booking_id &&

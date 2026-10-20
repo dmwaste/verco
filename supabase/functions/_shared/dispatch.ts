@@ -107,8 +107,9 @@ export interface DispatchDeps {
    * notification. `reference_id` (ncn_id / np_id / edit_ref / correction_id)
    * is part of the key for types that legitimately recur per booking, so a
    * second stream's notice is never suppressed by the first stream's send.
+   * The row goes in as `queued` — the store sets that, callers pass no status.
    */
-  claimSend: (row: NotificationLogRow) => Promise<SendClaim>
+  claimSend: (row: Omit<NotificationLogRow, 'status'>) => Promise<SendClaim>
   /**
    * Insert a notification_log row; return the new id on success, null on
    * failure. Used only when a claim could not be taken at all (claimSend
@@ -181,7 +182,6 @@ export interface SendClaimRow {
   channel: string
   notification_type: string
   to_address: string
-  status: string
   reference_id?: string | null
 }
 
@@ -191,7 +191,7 @@ export interface SendClaimRow {
  * in-memory log with the same unique key.
  */
 export interface SendClaimStore {
-  /** INSERT the row as `queued`. `conflict` = unique violation (23505) on the claim key. */
+  /** INSERT the row as `queued` (the store sets the status). `conflict` = unique violation (23505) on the claim key. */
   insertClaim: (row: SendClaimRow) => Promise<{ id: string } | { conflict: true } | { error: string }>
   /** The queued/sent row holding the row's key, or null if none. */
   findHolder: (row: SendClaimRow) => Promise<ClaimHolder | null | { error: string }>
@@ -222,7 +222,7 @@ export async function claimNotificationSend(
   nowMs: number = Date.now(),
 ): Promise<SendClaim> {
   for (let round = 0; round < 2; round++) {
-    const inserted = await store.insertClaim({ ...row, status: 'queued' })
+    const inserted = await store.insertClaim(row)
     if ('id' in inserted) return { outcome: 'claimed', id: inserted.id }
     if ('error' in inserted) return { outcome: 'error', error: inserted.error }
 
@@ -260,7 +260,7 @@ type OpenSend =
  * Claim the row's key and hand back how to record the outcome: an UPDATE of the
  * claim row, or — when no claim could be written — the pre-#671 INSERT.
  */
-async function openSend(deps: DispatchDeps, row: NotificationLogRow): Promise<OpenSend> {
+async function openSend(deps: DispatchDeps, row: Omit<NotificationLogRow, 'status'>): Promise<OpenSend> {
   const claim = await deps.claimSend(row)
   if (claim.outcome === 'held') return { held: true, by: claim.by }
   if (claim.outcome === 'claimed') {
@@ -573,7 +573,6 @@ async function dispatchEmail(
     notification_type: payload.type,
     reference_id: idempotencyRef(payload),
     to_address: booking.contact?.email || 'unknown',
-    status: 'queued',
   })
   if (send.held) {
     log({ ...baseLog, status: 'skipped', ...(send.by === 'queued' ? { reason: 'in_flight' } : {}), sendgrid_status: null })
@@ -756,7 +755,6 @@ async function dispatchSms(
       notification_type: payload.type,
       reference_id: idempotencyRef(payload),
       to_address: mobile,
-      status: 'queued',
     })
     if (send.held) {
       smsLog({ status: 'skipped', ...(send.by === 'queued' ? { reason: 'in_flight' } : {}), twilio_status: null })

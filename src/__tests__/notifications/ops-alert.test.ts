@@ -25,6 +25,7 @@ import {
   type OpsAlert,
   type OpsAlertConfig,
 } from '@/lib/notifications/ops-alert'
+import { ADMIN_HOSTNAME_PROD } from '@/lib/proxy/hostnames'
 
 // 20/10/2026 15:15 AWST
 const NOW = new Date('2026-10-20T07:15:00.000Z')
@@ -52,6 +53,12 @@ function send(config: Partial<OpsAlertConfig>, fetchImpl: typeof fetch = okFetch
   )
   return { promise, captureWarning }
 }
+
+describe('ADMIN_ORIGIN', () => {
+  it('tracks ADMIN_HOSTNAME_PROD in src/lib/proxy/hostnames.ts (the Deno boundary stops ops-alert.ts importing it)', () => {
+    expect(ADMIN_ORIGIN).toBe(`https://${ADMIN_HOSTNAME_PROD}`)
+  })
+})
 
 describe('parseOpsAlertFormat', () => {
   it('defaults to teams when unset or blank', () => {

@@ -2,7 +2,6 @@ import { describe, it, expect } from 'vitest'
 import { dispatch, type DispatchDeps } from '@/lib/notifications/dispatch'
 import type {
   BookingForDispatch,
-  NotificationLogRow,
   SendEmailParams,
   SendSMSParams,
 } from '@/lib/notifications/templates/types'
@@ -72,7 +71,7 @@ function makeHarness(booking: BookingForDispatch = makeBooking()): Harness {
 
   const deps: DispatchDeps = {
     loadBooking: async () => booking,
-    claimSend: async (row: NotificationLogRow) => {
+    claimSend: async (row) => {
       const k = key(row.booking_id, row.notification_type, row.channel, row.reference_id)
       if (heldKeys.has(k)) return { outcome: 'held', by: 'sent' }
       heldKeys.add(k)
