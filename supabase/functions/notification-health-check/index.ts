@@ -8,6 +8,7 @@ import {
   findMissingConfirmations,
   findUnhealthyChannels,
   MISSING_CONFIRMATION_SETTLE_MINUTES,
+  settledConfirmationBookingIds,
   type ChannelWindowStats,
   type ConfirmationCandidate,
   type HealthThresholds,
@@ -34,8 +35,9 @@ import {
  *
  * It also runs the missing-confirmation backstop (18/10/2026): every live
  * resident/admin booking created in the lookback window and older than
- * MISSING_CONFIRMATION_SETTLE_MINUTES must have a `booking_created` row of
- * ANY status. Two live bookings (MOS-JOZCOM, KWN-2-I2NA9E) had none — the
+ * MISSING_CONFIRMATION_SETTLE_MINUTES must have a `sent` or `failed`
+ * `booking_created` row (a `queued` send claim left by a dispatcher that died
+ * mid-send doesn't count, #671). Two live bookings (MOS-JOZCOM, KWN-2-I2NA9E) had none — the
  * EF→EF hop 502'd before a worker ran, so the channel tallies above saw
  * nothing. The invoke helper now retries + records a `failed` row; this
  * catches whatever it can't (create-booking crashing between RPC and notify).
@@ -84,7 +86,7 @@ import {
  *   NOTIF_HEALTH_MISSING_CONFIRMATION_HOURS
  *                                  default 24 — lookback for the backstop. A
  *                                  miss is re-alerted every run until it ages
- *                                  out or a booking_created row (any status)
+ *                                  out or a sent/failed booking_created row
  *                                  exists, i.e. until someone resends it.
  *
  * ## Return contract
@@ -204,8 +206,8 @@ serve(cronHandler(SOURCE, async (req) => {
     //     notice default to 'system' and send booking_updated instead; imports
     //     are 'legacy'), not Illegal Dumping (never notified, #264), inside the
     //     lookback and past the settle period. Diffed in JS against the
-    //     booking_created rows in the same window — any status counts as
-    //     attempted. Both reads paginate: PostgREST caps a page at 1,000 rows
+    //     booking_created rows in the same window — a sent or failed row
+    //     counts as attempted (a lone `queued` claim does not, #671). Both reads paginate: PostgREST caps a page at 1,000 rows
     //     and a silent truncation here would hide the exact bookings we want.
     const missingLookbackHours = intFromEnv('NOTIF_HEALTH_MISSING_CONFIRMATION_HOURS', 24)
     const lookbackIso = new Date(Date.now() - missingLookbackHours * 60 * 60 * 1000).toISOString()
@@ -231,10 +233,10 @@ serve(cronHandler(SOURCE, async (req) => {
       return jsonResponse({ ok: false, error: candidates.error }, 500)
     }
 
-    const notified = await fetchAllPages<{ booking_id: string | null }>((from, to) =>
+    const notified = await fetchAllPages<{ booking_id: string | null; status: string }>((from, to) =>
       supabase
         .from('notification_log')
-        .select('booking_id')
+        .select('booking_id, status')
         .eq('notification_type', 'booking_created')
         .gte('created_at', lookbackIso)
         .order('created_at', { ascending: true })
@@ -246,9 +248,9 @@ serve(cronHandler(SOURCE, async (req) => {
       return jsonResponse({ ok: false, error: notified.error }, 500)
     }
 
-    const notifiedIds = new Set(
-      notified.rows.map((r) => r.booking_id).filter((id): id is string => typeof id === 'string'),
-    )
+    // Only sent/failed rows count: a booking whose only row is a stranded
+    // `queued` send claim (#671) was never confirmed.
+    const notifiedIds = settledConfirmationBookingIds(notified.rows)
     const missingConfirmations = findMissingConfirmations(candidates.rows, notifiedIds)
 
     const summary = {

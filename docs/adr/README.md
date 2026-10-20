@@ -38,3 +38,4 @@ An ADR — "architecture decision record" — is a short record of a decision we
 | [0032](0032-a-busy-reminder-morning-is-not-an-outage.md) | A busy reminder morning is not an outage: only the last run of the day raises the alarm | 20/10/2026 | Accepted |
 | [0033](0033-ops-alerts-land-in-one-teams-channel.md) | Ops alerts land in one Teams channel, and a missing channel is itself an alert | 20/10/2026 | Accepted |
 | [0034](0034-stale-closeouts-named-once-backlog-restated-mondays.md) | Stale closeouts are named once; the open backlog is restated on Mondays | 20/10/2026 | Accepted |
+| [0035](0035-notifications-claimed-before-sending.md) | A notification is claimed before it is sent, so a retry can't send it twice | 20/10/2026 | Accepted |

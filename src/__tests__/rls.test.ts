@@ -4030,4 +4030,108 @@ if (!haveDb) {
     })
   })
 
+  // ---------------------------------------------------------------------------
+  // #671 — notification_log send claim + staff-recorded booking_created misses
+  // (20261020060309). The partial unique index makes the dispatcher's `queued`
+  // claim atomic; the INSERT policy lets the admin MUD booking action leave a
+  // `failed` booking_created row under the staff member's own JWT — and nothing
+  // else (no `sent`/`queued`, no other type, no other tenant, no field/resident).
+  // ---------------------------------------------------------------------------
+  describe('notification_log send claim + staff failed-row insert (#671)', () => {
+    async function deployed(): Promise<boolean> {
+      const r = await pg.query(
+        `SELECT 1 FROM pg_policies WHERE tablename = 'notification_log' AND policyname = 'notification_log_staff_insert_failed'`,
+      )
+      return (r.rowCount ?? 0) > 0
+    }
+
+    async function bookingOf(clientId: string): Promise<string> {
+      const r = await pg.query<{ id: string }>(
+        `SELECT id FROM booking WHERE client_id = $1 ORDER BY created_at DESC LIMIT 1`,
+        [clientId],
+      )
+      return r.rows[0]!.id
+    }
+
+    /** INSERT as `userId` (fixture role forced active), rolled back. Returns the SQLSTATE or null. */
+    async function insertAs(userId: string, row: Record<string, unknown>): Promise<string | null> {
+      await pg.query('BEGIN')
+      try {
+        await pg.query(`UPDATE user_roles SET is_active = true WHERE user_id = $1`, [userId])
+        await pg.query(`SET LOCAL ROLE authenticated`)
+        await pg.query(`SELECT set_config('request.jwt.claims', $1, true)`, [
+          JSON.stringify({ sub: userId, role: 'authenticated' }),
+        ])
+        const cols = Object.keys(row)
+        await pg.query(
+          `INSERT INTO notification_log (${cols.join(', ')}) VALUES (${cols.map((_, i) => `$${i + 1}`).join(', ')})`,
+          Object.values(row),
+        )
+        return null
+      } catch (e) {
+        return (e as { code?: string }).code ?? 'error'
+      } finally {
+        await pg.query('ROLLBACK')
+      }
+    }
+
+    const failedRow = (bookingId: string, clientId: string, extra: Record<string, unknown> = {}) => ({
+      booking_id: bookingId,
+      client_id: clientId,
+      channel: 'email',
+      notification_type: 'booking_created',
+      to_address: 'rls-probe@example.test',
+      status: 'failed',
+      error_message: 'invoke: rls probe',
+      ...extra,
+    })
+
+    it('staff may record a failed booking_created row for their own tenant', async (ctx) => {
+      if (!(await deployed())) return ctx.skip()
+      const kwn = await bookingOf(CLIENT_ID)
+      expect(await insertAs(USERS['contractor-admin'], failedRow(kwn, CLIENT_ID))).toBeNull()
+      expect(await insertAs(USERS['client-staff'], failedRow(kwn, CLIENT_ID, { channel: 'sms' }))).toBeNull()
+    })
+
+    it('staff can never write a sent or queued row (no forged sends, no claim squatting)', async (ctx) => {
+      if (!(await deployed())) return ctx.skip()
+      const kwn = await bookingOf(CLIENT_ID)
+      expect(await insertAs(USERS['contractor-admin'], failedRow(kwn, CLIENT_ID, { status: 'sent' }))).toBe('42501')
+      expect(await insertAs(USERS['contractor-admin'], failedRow(kwn, CLIENT_ID, { status: 'queued' }))).toBe('42501')
+      expect(
+        await insertAs(USERS['contractor-admin'], failedRow(kwn, CLIENT_ID, { notification_type: 'booking_cancelled' })),
+      ).toBe('42501')
+    })
+
+    it('is tenant-scoped: no other client, no booking/client mismatch', async (ctx) => {
+      if (!(await deployed())) return ctx.skip()
+      const vv = await bookingOf(VV_CLIENT_ID)
+      expect(await insertAs(USERS['client-staff'], failedRow(vv, VV_CLIENT_ID))).toBe('42501')
+      expect(await insertAs(USERS['client-staff'], failedRow(vv, CLIENT_ID))).toBe('42501')
+    })
+
+    it('field and resident can never insert', async (ctx) => {
+      if (!(await deployed())) return ctx.skip()
+      const kwn = await bookingOf(CLIENT_ID)
+      expect(await insertAs(USERS.field, failedRow(kwn, CLIENT_ID))).toBe('42501')
+      expect(await insertAs(USERS.resident, failedRow(kwn, CLIENT_ID))).toBe('42501')
+    })
+
+    it('one queued-or-sent row per key: a second claim conflicts, a failed row never does', async (ctx) => {
+      if (!(await deployed())) return ctx.skip()
+      const kwn = await bookingOf(CLIENT_ID)
+      const ref = '00000000-0000-4000-8000-0000000006a1'
+      const claim = `INSERT INTO notification_log (booking_id, client_id, channel, notification_type, to_address, status, reference_id)
+                     VALUES ($1, $2, $3, 'ncn_raised', 'rls-probe', $4, $5)`
+      await pg.query('BEGIN')
+      try {
+        await pg.query(claim, [kwn, CLIENT_ID, 'email', 'queued', ref])
+        await pg.query(claim, [kwn, CLIENT_ID, 'sms', 'queued', ref])
+        await pg.query(claim, [kwn, CLIENT_ID, 'email', 'failed', ref])
+        await expect(pg.query(claim, [kwn, CLIENT_ID, 'email', 'sent', ref])).rejects.toMatchObject({ code: '23505' })
+      } finally {
+        await pg.query('ROLLBACK')
+      }
+    })
+  })
 })

@@ -8,6 +8,11 @@
  * notification_log row and no Sentry event (MOS-JOZCOM, KWN-2-I2NA9E). A bare
  * `void` also lets the edge runtime freeze the fetch mid-flight once the
  * handler returns.
+ *
+ * #671 extends the guard to `src/`: the admin MUD booking path still called the
+ * one-shot `invokeSendNotification` with a bare `void`, so a gateway blip lost
+ * the strata contact's confirmation the same way. Server code that fires
+ * booking_created now awaits `invokeBookingCreated` (retry + failed row).
  */
 import { describe, expect, it } from 'vitest'
 import { readFileSync, readdirSync, statSync } from 'node:fs'
@@ -24,10 +29,25 @@ function walk(dir: string): string[] {
   })
 }
 
-const files = walk(FUNCTIONS_DIR).map((f) => ({
-  path: relative(ROOT, f),
-  text: readFileSync(f, 'utf8'),
-}))
+const read = (f: string) => ({ path: relative(ROOT, f), text: readFileSync(f, 'utf8') })
+
+const files = walk(FUNCTIONS_DIR).map(read)
+
+// Server-side app code: everything under src/ except tests. (Client
+// components fire their own EF calls from the browser — no runtime freeze —
+// so only send-notification invokers are matched, not every `void invoke…`.)
+function walkSource(dir: string): string[] {
+  return readdirSync(dir).flatMap((name) => {
+    const full = join(dir, name)
+    if (statSync(full).isDirectory()) return name === '__tests__' ? [] : walkSource(full)
+    return /\.tsx?$/.test(full) ? [full] : []
+  })
+}
+
+const srcFiles = walkSource(join(ROOT, 'src')).map(read)
+
+const MUD_ACTION = 'src/app/(admin)/admin/properties/[id]/book/actions.ts'
+
 
 describe('booking_created invoke paths', () => {
   it('defines invokeSendNotification only in the shared helper', () => {
@@ -51,5 +71,26 @@ describe('booking_created invoke paths', () => {
       'supabase/functions/_shared/checkout-reconcile.ts',
       'supabase/functions/create-booking/index.ts',
     ])
+  })
+
+  it('has no bare `void` send-notification invoke anywhere in src/', () => {
+    const offenders = srcFiles
+      .filter((f) => /void\s+invoke(SendNotification|BookingCreated)\b/.test(f.text))
+      .map((f) => f.path)
+    expect(offenders).toEqual([])
+  })
+
+  it('the admin MUD booking path awaits the retrying booking_created helper', () => {
+    const text = srcFiles.find((f) => f.path === MUD_ACTION)?.text ?? ''
+    expect(text).toMatch(/await invokeBookingCreated\(/)
+    expect(text).not.toMatch(/type: 'booking_created'/)
+  })
+
+  it('src/ fires booking_created only through invokeBookingCreated', () => {
+    const offenders = srcFiles
+      .filter((f) => f.path !== 'src/lib/notifications/invoke.ts')
+      .filter((f) => /invokeSendNotification\([^)]*type:\s*'booking_created'/.test(f.text))
+      .map((f) => f.path)
+    expect(offenders).toEqual([])
   })
 })

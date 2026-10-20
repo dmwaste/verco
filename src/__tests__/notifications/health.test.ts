@@ -5,6 +5,7 @@ import {
   evaluateChannelHealth,
   findMissingConfirmations,
   findUnhealthyChannels,
+  settledConfirmationBookingIds,
   type ChannelWindowStats,
   type HealthThresholds,
 } from '@/lib/notifications/health'
@@ -171,6 +172,29 @@ describe('findMissingConfirmations', () => {
   })
 })
 
+// #671: a send now claims its key with a `queued` row BEFORE it sends. A
+// dispatcher that dies mid-send strands that claim — it is a row, but nothing
+// was confirmed — so it must still read as missing here (every candidate is
+// already past the 15-minute settle, far longer than any live send).
+describe('settledConfirmationBookingIds', () => {
+  it('counts sent and failed rows as settled', () => {
+    const ids = settledConfirmationBookingIds([
+      { booking_id: 'b1', status: 'sent' },
+      { booking_id: 'b2', status: 'failed' },
+    ])
+    expect([...ids].sort()).toEqual(['b1', 'b2'])
+  })
+
+  it('does not count a stranded queued claim — that booking is still unconfirmed', () => {
+    const ids = settledConfirmationBookingIds([{ booking_id: 'b1', status: 'queued' }])
+    expect(findMissingConfirmations([{ id: 'b1', ref: 'KWN-4-TEST01' }], ids)).toEqual(['KWN-4-TEST01'])
+  })
+
+  it('ignores rows with no booking', () => {
+    expect(settledConfirmationBookingIds([{ booking_id: null, status: 'sent' }]).size).toBe(0)
+  })
+})
+
 describe('buildHealthAlert — missing confirmations', () => {
   it('still returns null when channels are healthy and nothing is missing', () => {
     expect(buildHealthAlert([], thresholds, [])).toBeNull()
@@ -180,6 +204,7 @@ describe('buildHealthAlert — missing confirmations', () => {
     const msg = buildHealthAlert([], thresholds, ['MOS-JOZCOM', 'KWN-2-I2NA9E'])
     expect(msg).toContain('Verco notification health alert')
     expect(msg).toContain('2 live booking(s) with no booking_created notification')
+    expect(msg).toContain('never finished')
     expect(msg).toContain('MOS-JOZCOM')
     expect(msg).toContain('KWN-2-I2NA9E')
   })
