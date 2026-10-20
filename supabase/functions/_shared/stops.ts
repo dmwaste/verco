@@ -521,6 +521,27 @@ export function wasteLocationOrNull(location: string | null | undefined): string
   return (WASTE_LOCATION_VALUES as readonly string[]).includes(trimmed) ? trimmed : null
 }
 
+/**
+ * The waste location a stop carries to the crew card and the OR notes (#580).
+ * For a MUD booking, booking.location holds the strata's free-text
+ * collection-point notes: createMudBooking copies
+ * eligible_properties.waste_location_notes (prod 20/10/2026: the property's
+ * notes on 241 of 254 live MUD bookings, the street address on none). For a
+ * block that is the one place the crew can't do without, so it passes through
+ * verbatim. Every other booking shows only a recognised placement
+ * (wasteLocationOrNull): legacy residential rows hold the ADDRESS there.
+ */
+export function stopWasteLocation(
+  bookingType: string,
+  location: string | null | undefined,
+): string | null {
+  if (bookingType === 'MUD') {
+    const trimmed = location?.trim()
+    return trimmed ? trimmed : null
+  }
+  return wasteLocationOrNull(location)
+}
+
 /** Composite key matching a stop to a booking item: collection date × waste stream. */
 export function stopItemKey(collectionDateId: string, stream: WasteStream): string {
   return `${collectionDateId}:${stream}`
