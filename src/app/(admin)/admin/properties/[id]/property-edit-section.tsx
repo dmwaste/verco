@@ -3,8 +3,8 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { invokeEfWithUserToken } from '@/lib/supabase/invoke-ef-client'
 import { canMoveArea, moveAreaMessage } from '@/lib/properties/edit-rules'
+import { geocodeProperty, rejectionExplanation } from '@/lib/properties/geocode-outcome'
 import type { Database } from '@/lib/supabase/types'
 
 type AppRole = Database['public']['Enums']['app_role']
@@ -66,26 +66,16 @@ export function PropertyEditSection({ property, areas, bookingStatuses, role }: 
         if (r.data.changed) {
           // Re-geocode just this row. Failure here is non-fatal: the address is
           // saved and the row is picked up by the next list-page Geocode run.
-          const geo = await invokeEfWithUserToken<{
-            processed?: number
-            failed?: number
-            rejected?: number
-            rejected_samples?: Array<{ google: string; reason: string }>
-          }>(supabase, 'geocode-properties', { property_ids: [property.id] })
-          const rejection = geo.ok ? geo.data.rejected_samples?.[0] : undefined
-          if (rejection) {
+          const geo = await geocodeProperty(supabase, property.id)
+          if (geo.kind === 'rejected') {
             // The EF refused Google's match (different suburb / interstate /
             // no street-level result) rather than write coordinates that
             // would send a crew to the wrong place — "12 Smith St Perth" came
             // back as Beaconsfield. Tell the admin what Google matched so they
-            // can disambiguate the address (postcode is the reliable cue).
-            setNotice(
-              `Address saved, but not geocoded: Google matched it to "${rejection.google}" ` +
-                `(${rejection.reason === 'locality' ? 'a different suburb' : rejection.reason === 'state' ? 'interstate' : 'not a street-level result'}), ` +
-                'so that location was not applied. Add the suburb and postcode to the address and save again.'
-            )
-          } else if (!geo.ok || (geo.data.failed ?? 0) > 0) {
-            setNotice('Address saved. Geocoding did not complete — use Geocode on the properties list to retry.')
+            // can disambiguate the address.
+            setNotice(`Address saved, but not geocoded: ${rejectionExplanation(geo.google, geo.reason)}`)
+          } else if (geo.kind === 'failed') {
+            setNotice(`Address saved. Geocoding did not complete (${geo.error}) — use Geocode on the properties list to retry.`)
           }
         }
       }

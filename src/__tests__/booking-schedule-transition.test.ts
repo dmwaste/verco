@@ -6,6 +6,7 @@ import {
   filterBookingsReadyToSchedule,
   rateLimitRetryAfterMs,
   remindedOnBothChannels,
+  reminderRunStatus,
   runWithinBudget,
   type BookingWithItemDates,
 } from '@/lib/booking/schedule-transition'
@@ -429,5 +430,30 @@ describe('remindedOnBothChannels', () => {
       { booking_id: null, channel: 'email' },
     ])
     expect([...done]).toEqual(['both'])
+  })
+})
+
+describe('reminderRunStatus', () => {
+  // The cron sends last_tick: false on the 09:00/09:10/09:20 ticks and true on
+  // the 09:30 tick (migration 20261020015939); a run without it counts as last.
+  it('returns 200 when every candidate was sent, on any tick', () => {
+    expect(reminderRunStatus({ failed: 0, remaining: 0 }, false)).toBe(200)
+    expect(reminderRunStatus({ failed: 0, remaining: 0 }, true)).toBe(200)
+  })
+
+  it('returns 207 when the budget ran out before the last tick (19/10 09:00: remaining 68)', () => {
+    expect(reminderRunStatus({ failed: 0, remaining: 68 }, false)).toBe(207)
+  })
+
+  it('returns 207 when a send failed before the last tick (19/10 09:10: failed 1)', () => {
+    expect(reminderRunStatus({ failed: 1, remaining: 0 }, false)).toBe(207)
+  })
+
+  it('returns 500 when the last tick leaves reminders unsent', () => {
+    expect(reminderRunStatus({ failed: 0, remaining: 3 }, true)).toBe(500)
+  })
+
+  it('returns 500 when a send fails on the last tick', () => {
+    expect(reminderRunStatus({ failed: 1, remaining: 0 }, true)).toBe(500)
   })
 })

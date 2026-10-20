@@ -5,7 +5,7 @@ How we get code onto Coolify/BinaryLane, and how to get it back off when somethi
 ## Architecture
 
 - **Next.js app** — Docker image built by GitHub Actions, pushed to GHCR, pulled by Coolify on webhook trigger.
-- **Edge Functions** — deployed directly by GitHub Actions to Supabase (`supabase functions deploy --no-verify-jwt`). Not part of the Docker image.
+- **Edge Functions** — deployed directly by GitHub Actions to Supabase (`supabase functions deploy --no-verify-jwt --use-api` — bundled server-side, no Docker; see `deploy.yml`). Not part of the Docker image.
 - **Database** — Supabase-hosted Postgres. Migrations are applied automatically by GitHub Actions (`supabase db push --linked`). Requires the `SUPABASE_DB_PASSWORD` GitHub secret.
 
 ```
@@ -19,7 +19,7 @@ push to main
       └──► migrations        → supabase db push --linked --include-all
                   │
                   ▼
-              edge-functions  → supabase functions deploy <each> --no-verify-jwt
+              edge-functions  → supabase functions deploy <each> --no-verify-jwt --use-api
                                 then assert verify_jwt=false via management API (VER-156 guard)
       │
       ▼
@@ -75,7 +75,8 @@ Supabase EFs aren't versioned in the platform. To roll an EF back:
 git checkout <known-good-sha> -- supabase/functions/<function-name>
 pnpm supabase functions deploy <function-name> \
   --project-ref tfddjmplcizfirxqhotv \
-  --no-verify-jwt
+  --no-verify-jwt \
+  --use-api
 git checkout HEAD -- supabase/functions/<function-name>   # restore working tree
 ```
 
@@ -88,7 +89,8 @@ Avoid when possible — the CI pipeline is the contract. When required (incident
 ```bash
 pnpm supabase functions deploy <name> \
   --project-ref tfddjmplcizfirxqhotv \
-  --no-verify-jwt
+  --no-verify-jwt \
+  --use-api
 ```
 
 **Always pass `--no-verify-jwt`.** Missing it caused the 8-day `send-notification` outage (VER-156). The CI guard will fail the next deploy if you forget, but residents feel it in the meantime.

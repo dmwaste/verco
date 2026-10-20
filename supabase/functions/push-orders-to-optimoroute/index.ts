@@ -9,14 +9,18 @@ import {
   buildOrderNotes,
   buildServicesSummary,
   groupItemsByStream,
+  idAncillaryTypes,
+  idWasteItemsLine,
+  itemStopKeys,
+  orderEmail,
   orderTypeLine,
+  withIdAncillaryStop,
   partitionPushResults,
   planStopChanges,
   shouldCancelOrphanStop,
   splitPushableStops,
   STOP_DURATION_MINUTES,
   STREAM_PRIORITY,
-  stopItemKey,
   stopLocation,
   vehicleFeaturesForStream,
   wasteLocationOrNull,
@@ -68,6 +72,8 @@ interface BookingItemRow extends StopItem {
 interface BookingRow {
   id: string
   ref: string
+  type: string
+  id_waste_types: string[] | null
   client_id: string
   latitude: number | null
   longitude: number | null
@@ -190,7 +196,7 @@ serve(cronHandler('push-orders-to-optimoroute', async (_req) => {
           supabase
             .from('booking')
             .select(
-              `id, ref, client_id, latitude, longitude, geo_address, location, notes,
+              `id, ref, type, id_waste_types, client_id, latitude, longitude, geo_address, location, notes,
                eligible_properties:property_id(formatted_address, address, latitude, longitude),
                booking_item!inner(no_services, collection_date_id, service(name, waste_stream))`,
             )
@@ -224,7 +230,9 @@ serve(cronHandler('push-orders-to-optimoroute', async (_req) => {
             external_order_ref: buildOrderNo(booking.ref, stream),
           })
         }
-        desired.set(booking.id, byStream)
+        // #593: an ID job's ticked mattresses / e-waste / whitegoods go to the
+        // ancillary truck as their own stop, derived from the ID pass.
+        desired.set(booking.id, withIdAncillaryStop(byStream, booking))
       }
 
       const STOP_COLUMNS =
@@ -322,11 +330,12 @@ serve(cronHandler('push-orders-to-optimoroute', async (_req) => {
           booking_id: string
           collection_date_id: string
           service: { waste_stream: WasteStream } | null
+          booking: { type: string; id_waste_types: string[] | null } | null
         }>(
           (from, to) =>
             supabase
               .from('booking_item')
-              .select('booking_id, collection_date_id, service(waste_stream)')
+              .select('booking_id, collection_date_id, service(waste_stream), booking:booking_id(type, id_waste_types)')
               .in('booking_id', liveAbsentBookingIds)
               .order('id')
               .range(from, to),
@@ -339,7 +348,10 @@ serve(cronHandler('push-orders-to-optimoroute', async (_req) => {
             set = new Set<string>()
             liveAbsentItemsByBooking.set(it.booking_id, set)
           }
-          set.add(stopItemKey(it.collection_date_id, it.service.waste_stream))
+          const idAncillary = it.booking ? idAncillaryTypes(it.booking.type, it.booking.id_waste_types) : []
+          for (const key of itemStopKeys(it.collection_date_id, it.service.waste_stream, idAncillary)) {
+            set.add(key)
+          }
         }
       }
 
@@ -480,17 +492,20 @@ serve(cronHandler('push-orders-to-optimoroute', async (_req) => {
       const bookingIds = [...new Set(stops.map((s) => s.booking_id))]
       const emailByBooking = new Map<string, string>()
       const typeLineByBooking = new Map<string, string>()
+      const itemsLineByBooking = new Map<string, string>()
+      const typeByBooking = new Map<string, string>()
       if (bookingIds.length > 0) {
         const bookingRows = await fetchAll<{
           id: string
           type: string
+          id_waste_types: string[] | null
           contact: { email: string | null } | null
           property: { unit_count: number } | null
         }>(
           (from, to) =>
             supabase
               .from('booking')
-              .select('id, type, contact:contact_id(email), property:property_id(unit_count)')
+              .select('id, type, id_waste_types, contact:contact_id(email), property:property_id(unit_count)')
               .in('id', bookingIds)
               .order('id')
               .range(from, to),
@@ -498,8 +513,11 @@ serve(cronHandler('push-orders-to-optimoroute', async (_req) => {
         )
         for (const b of bookingRows) {
           if (b.contact?.email) emailByBooking.set(b.id, b.contact.email)
+          typeByBooking.set(b.id, b.type)
           const typeLine = orderTypeLine(bookingTypeTag(b.type, b.property?.unit_count))
           if (typeLine) typeLineByBooking.set(b.id, typeLine)
+          const itemsLine = idWasteItemsLine(b.type, b.id_waste_types)
+          if (itemsLine) itemsLineByBooking.set(b.id, itemsLine)
         }
       }
 
@@ -526,8 +544,9 @@ serve(cronHandler('push-orders-to-optimoroute', async (_req) => {
             stop.waste_location,
             stop.driver_notes,
             typeLineByBooking.get(stop.booking_id) ?? null,
+            itemsLineByBooking.get(stop.booking_id) ?? null,
           ),
-          email: emailByBooking.get(stop.booking_id),
+          email: orderEmail(stop.stream, typeByBooking.get(stop.booking_id), emailByBooking.get(stop.booking_id)),
           location,
         }))
 

@@ -11,7 +11,8 @@ import { SkeletonRow } from '@/components/ui/skeleton'
 import { RowActionMenu } from '@/components/admin/row-action-menu'
 import { AllocationFormModal } from '@/app/(admin)/admin/allocations/allocation-form-modal'
 import { SetMudModal } from './set-mud-modal'
-import { createEligibleProperty } from './actions'
+import { AddPropertyPanel } from './add-property-panel'
+import { runGeocodeQueue, type GeocodeEfResponse } from '@/lib/properties/geocode-outcome'
 import { Th } from '@/components/admin/th'
 import { Pagination } from '@/components/admin/pagination'
 import { FilterBar, SearchInput, FilterSelect } from '@/components/admin/filter-bar'
@@ -55,11 +56,6 @@ export function PropertiesClient({ clientId, isContractorAdmin, canManageAllocat
   const [showImport, setShowImport] = useState(false)
   // Add single property panel
   const [showAdd, setShowAdd] = useState(false)
-  const [addArea, setAddArea] = useState('')
-  const [addAddress, setAddAddress] = useState('')
-  const [isAdding, setIsAdding] = useState(false)
-  const [addError, setAddError] = useState<string | null>(null)
-  const [addResult, setAddResult] = useState<string | null>(null)
   const [isGeocoding, setIsGeocoding] = useState(false)
   const [geocodeResult, setGeocodeResult] = useState<string | null>(null)
   const [setMudOpen, setSetMudOpen] = useState(false)
@@ -211,69 +207,38 @@ export function PropertiesClient({ clientId, isContractorAdmin, canManageAllocat
     setIsGeocoding(true)
     setGeocodeResult(null)
 
-    // The EF geocodes every row where google_place_id IS NULL, one Google call
-    // each, and is bounded by Supabase's ~150s wall-clock. A few thousand
-    // pending rows would blow that limit in a single call, so we drive it in
-    // bounded chunks (mirroring scripts/run-geocode-loop.ts). The EF's WHERE
-    // clause shrinks as rows are written, so each call picks up the next batch.
-    const CHUNK = 500
-    const MAX_ITERATIONS = 100 // backstop against an unexpected non-terminating loop
-    let totalProcessed = 0
-    let residualFailed = 0
-    let residualRejected = 0
-
+    // The EF geocodes rows where google_place_id IS NULL, one Google call each,
+    // bounded by Supabase's ~150s wall clock, so runGeocodeQueue drives it in
+    // chunks, walking the queue once by id so rows Google refused or snapped
+    // don't hide the rows behind them.
     try {
-      for (let i = 0; i < MAX_ITERATIONS; i++) {
-        const efResult = await invokeEfWithUserToken<{
-          processed?: number
-          failed?: number
-          total?: number
-          rejected?: number
-        }>(supabase, 'geocode-properties', { limit: CHUNK })
-
-        if (!efResult.ok) {
-          console.error('[geocode-properties] EF error:', efResult.error)
-          setGeocodeResult(`Geocoding failed: ${efResult.error}`)
-          return
-        }
-
-        const { processed = 0, failed = 0, total = 0, rejected = 0 } = efResult.data
-        totalProcessed += processed
-
-        // No rows left to geocode — clean finish.
-        if (total === 0) {
-          residualFailed = 0
-          residualRejected = 0
-          break
-        }
-        // The chunk advanced nothing: only permanently-unmatchable rows remain
-        // (they keep google_place_id NULL, so looping again refetches the same
-        // set). Stop and surface them rather than spin. Rejected = Google
-        // matched a different suburb / interstate / no street-level result and
-        // the EF wrote nothing; those addresses need a human to disambiguate.
-        if (processed === 0) {
-          residualFailed = failed
-          residualRejected = rejected
-          break
-        }
-
-        setGeocodeResult(`Geocoding… ${totalProcessed} done so far`)
+      const result = await runGeocodeQueue(
+        (body) => invokeEfWithUserToken<GeocodeEfResponse>(supabase, 'geocode-properties', body),
+        { onProgress: (n) => setGeocodeResult(`Geocoding… ${n} done so far`) },
+      )
+      if (!result.ok) {
+        console.error('[geocode-properties] EF error:', result.error)
+        setGeocodeResult(`Geocoding failed: ${result.error}`)
+        return
       }
-
+      const { geocoded, failed, rejected } = result.data
+      // Rejected = Google matched a different suburb / interstate / no street-
+      // level result and the EF wrote nothing; those need a human to fix the address.
       setGeocodeResult(
-        `Geocoded ${totalProcessed} propert${totalProcessed === 1 ? 'y' : 'ies'}` +
-          (residualFailed ? `, ${residualFailed} could not be matched` : '') +
-          (residualRejected
-            ? `, ${residualRejected} rejected (Google matched a different suburb — open the property and add its suburb and postcode)`
+        `Geocoded ${geocoded} propert${geocoded === 1 ? 'y' : 'ies'}` +
+          (failed ? `, ${failed} could not be matched` : '') +
+          (rejected
+            ? `, ${rejected} rejected (Google matched a different suburb or couldn’t find the street — open the property and correct its address)`
             : '')
       )
-      void queryClient.invalidateQueries({ queryKey: ['admin-properties'] })
-      void queryClient.invalidateQueries({ queryKey: ['ungeocoded-count'] })
     } catch (err) {
       console.error('[geocode-properties] unexpected error:', err)
       setGeocodeResult('Geocoding failed')
     } finally {
       setIsGeocoding(false)
+      // Earlier chunks may have written pins even when a later call failed.
+      void queryClient.invalidateQueries({ queryKey: ['admin-properties'] })
+      void queryClient.invalidateQueries({ queryKey: ['ungeocoded-count'] })
     }
   }
 
@@ -374,40 +339,6 @@ export function PropertiesClient({ clientId, isContractorAdmin, canManageAllocat
     }
   }
 
-  async function handleAddProperty() {
-    if (isAdding) return
-    setAddError(null)
-    setAddResult(null)
-
-    if (!addArea) {
-      setAddError('Select a collection area.')
-      return
-    }
-    if (addAddress.trim().length < 5) {
-      setAddError('Enter a full street address.')
-      return
-    }
-
-    setIsAdding(true)
-    const result = await createEligibleProperty({
-      collection_area_id: addArea,
-      address: addAddress.trim(),
-    })
-    setIsAdding(false)
-
-    if (!result.ok) {
-      setAddError(result.error)
-      return
-    }
-
-    setAddResult('Property added.')
-    setAddAddress('')
-    void queryClient.invalidateQueries({ queryKey: ['admin-properties'] })
-    void queryClient.invalidateQueries({ queryKey: ['ungeocoded-count'] })
-    // Geocode the new address (same as the bulk import).
-    void handleGeocodeAll()
-  }
-
   return (
     <>
       {/* Header */}
@@ -444,48 +375,13 @@ export function PropertiesClient({ clientId, isContractorAdmin, canManageAllocat
 
       {/* Add single property */}
       {showAdd && (
-        <div className="mx-7 mt-4 rounded-xl border border-gray-200 bg-white p-5">
-          <h3 className="mb-3 text-sm font-semibold text-[#293F52]">Add a single property</h3>
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
-            <div className="sm:w-56">
-              <label className="mb-1 block text-xs font-medium text-gray-500">Collection area</label>
-              <select
-                value={addArea}
-                onChange={(e) => setAddArea(e.target.value)}
-                className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
-              >
-                <option value="">Select area…</option>
-                {(areas ?? []).map((a) => (
-                  <option key={a.id} value={a.id}>{areaOptionLabel(a)}</option>
-                ))}
-              </select>
-            </div>
-            <div className="flex-1">
-              <label className="mb-1 block text-xs font-medium text-gray-500">Address</label>
-              <input
-                type="text"
-                value={addAddress}
-                onChange={(e) => setAddAddress(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter') void handleAddProperty() }}
-                placeholder="e.g. 23 Leda Blvd, Wellard WA 6170"
-                className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:border-[#293F52]"
-              />
-            </div>
-            <button
-              type="button"
-              onClick={() => void handleAddProperty()}
-              disabled={isAdding}
-              className="rounded-lg bg-[#293F52] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
-            >
-              {isAdding ? 'Adding…' : 'Add'}
-            </button>
-          </div>
-          {addError && <p className="mt-2 text-sm text-red-600">{addError}</p>}
-          {addResult && <p className="mt-2 text-sm text-emerald-600">{addResult}</p>}
-          <p className="mt-2 text-xs text-gray-400">
-            Added as a residential eligible address and geocoded automatically. Convert to a MUD later via the row menu.
-          </p>
-        </div>
+        <AddPropertyPanel
+          areas={areas ?? []}
+          onAdded={() => {
+            void queryClient.invalidateQueries({ queryKey: ['admin-properties'] })
+            void queryClient.invalidateQueries({ queryKey: ['ungeocoded-count'] })
+          }}
+        />
       )}
 
       {geocodeResult && (

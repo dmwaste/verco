@@ -220,3 +220,30 @@ export function remindedOnBothChannels(rows: Array<{ booking_id: string | null; 
   for (const [id, set] of channels) if (set.has('email') && set.has('sms')) done.add(id)
   return done
 }
+
+/**
+ * HTTP status for a send-collection-reminders run:
+ *   200 — every candidate was sent.
+ *   207 — some were not sent (budget spent or a send failed), but a later tick
+ *         today retries them. A busy morning, not an outage.
+ *   500 — some were not sent and no tick is left today: those residents get no
+ *         reminder unless someone runs scripts/send-reminder-catchup.ts.
+ *
+ * Why: the run was 500ing whenever it handed work to the next tick, which is
+ * the design on any day over ~120 bookings. On 19/10/2026 the 09:00 and 09:10
+ * ticks both 500'd (Sentry JAVASCRIPT-NEXTJS-T) and the 09:20/09:30 ticks
+ * reminded all 188 — so Sentry cried wolf every busy day. Only the last tick
+ * can tell a real miss.
+ *
+ * `lastTick` comes from the cron job itself (`{"last_tick": false}` on the
+ * earlier ticks, `true` on the last — migration 20261020015939), so the
+ * schedule lives in one place. A run without the flag (manual, or a tick added
+ * later without it) counts as the last: it alerts rather than hides a miss.
+ */
+export function reminderRunStatus(
+  run: { failed: number; remaining: number },
+  lastTick: boolean,
+): 200 | 207 | 500 {
+  if (run.failed === 0 && run.remaining === 0) return 200
+  return lastTick ? 500 : 207
+}

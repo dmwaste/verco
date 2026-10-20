@@ -32,6 +32,9 @@ jobs:
   docker:
     name: Build & push image
     needs: ci
+    # Production deploys only ever ship main — a manual run on any other
+    # branch builds CI and stops here.
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -108,6 +111,9 @@ jobs:
   migrations:
     name: Apply Supabase migrations
     needs: ci
+    # Production deploys only ever ship main — a manual run on any other
+    # branch builds CI and stops here.
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     env:
       SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
@@ -164,6 +170,9 @@ jobs:
   edge-functions:
     name: Deploy Edge Functions
     needs: [ci, migrations]
+    # Production deploys only ever ship main — a manual run on any other
+    # branch builds CI and stops here.
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     env:
       SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
@@ -186,6 +195,17 @@ jobs:
       # blip used to fail the whole job (and cascade-skip the Coolify release).
       # Retry each function with linear backoff so a transient CDN hiccup is
       # ridden out rather than aborting the deploy.
+      #
+      # --use-api bundles on Supabase's side instead of in a local Docker
+      # container. Docker bundling pulls public.ecr.aws/supabase/edge-runtime
+      # on every run, and AWS ECR Public throttles anonymous pulls from shared
+      # GitHub runner IPs ("toomanyrequests: Data limit exceeded"): on
+      # 2026-10-19 that failed all 3 runs of the #673 hotfix deploy at the first
+      # function, so nothing shipped and Coolify was skipped. The API path
+      # uploads the same source files (relative imports walked from index.ts —
+      # we have no import map, deno.json or static_files) and never touches
+      # Docker. Unlike Docker mode it can't skip unchanged functions, so every
+      # release bumps every function's version.
       - name: Deploy every function with --no-verify-jwt
         run: |
           set -euo pipefail
@@ -195,7 +215,8 @@ jobs:
             local n=1
             until pnpm supabase functions deploy "$name" \
               --project-ref "$SUPABASE_PROJECT_REF" \
-              --no-verify-jwt; do
+              --no-verify-jwt \
+              --use-api; do
               if [ "$n" -ge "$attempts" ]; then
                 echo "::error::Failed to deploy $name after $attempts attempts"
                 return 1
@@ -245,6 +266,9 @@ jobs:
   coolify:
     name: Trigger Coolify & verify
     needs: [docker, edge-functions]
+    # Production deploys only ever ship main — a manual run on any other
+    # branch builds CI and stops here.
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
       - name: Trigger Coolify webhook

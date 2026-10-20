@@ -9,6 +9,7 @@ import {
   stripPremisePrefix,
   verifyGeocodeResult,
 } from '../_shared/geocode-verify.ts'
+import { googleFetch } from '../_shared/google-fetch.ts'
 
 type RequestBody = {
   // Restrict to these property ids (admin address edit re-geocode, #502).
@@ -25,6 +26,9 @@ type RequestBody = {
   // Restrict to a single external_source — used to stratify smoke tests
   // across import sources (Main/SUB/VIC). Default: all sources.
   external_source?: string
+  // Walk the queue by id (Geocode All). Present (null for the first chunk) →
+  // rows come in id order after this id and the reply carries `last_id`.
+  after_id?: string | null
 }
 
 type GeocodeOutcome =
@@ -134,6 +138,12 @@ serve(withSentry('geocode-properties', async (req) => {
   const propertyIds = Array.isArray(body.property_ids)
     ? body.property_ids.filter((v): v is string => typeof v === 'string').slice(0, 100)
     : null
+  // Rows Google refuses or snaps keep google_place_id NULL (#508), so an
+  // oldest-first read hands back the same stuck rows first on every chunk, and
+  // 500+ of them would hide every newer row. With `after_id` the caller walks
+  // the queue once, past the stuck rows, chunk by chunk.
+  const cursorMode = body?.after_id !== undefined
+  const afterId = typeof body?.after_id === 'string' ? body.after_id : null
 
   // Catches rows missing place_id regardless of has_geocode state. The Main VV
   // import populated lat/long from Airtable without calling Geocoding, so
@@ -143,7 +153,9 @@ serve(withSentry('geocode-properties', async (req) => {
     .from('eligible_properties')
     .select('id, address, formatted_address, external_source, collection_area!inner(client_id)')
     .is('google_place_id', null)
-    .order('created_at', { ascending: true })
+    .order(cursorMode ? 'id' : 'created_at', { ascending: true })
+
+  if (afterId) query = query.gt('id', afterId)
 
   if (externalSource) query = query.eq('external_source', externalSource)
   if (propertyIds && propertyIds.length > 0) query = query.in('id', propertyIds)
@@ -225,7 +237,7 @@ serve(withSentry('geocode-properties', async (req) => {
             `country:AU|administrative_area:${SERVICE_STATE}`
           )
 
-          const geoRes = await fetch(geoUrl.toString())
+          const geoRes = await googleFetch(geoUrl, 'Geocoding')
           const geoData = await geoRes.json()
           if (geoData.status !== 'OK' || !geoData.results?.[0]) {
             return {
@@ -297,7 +309,7 @@ serve(withSentry('geocode-properties', async (req) => {
             acUrl.searchParams.set('input', address)
             acUrl.searchParams.set('key', apiKey)
             acUrl.searchParams.set('components', 'country:au')
-            const acRes = await fetch(acUrl.toString())
+            const acRes = await googleFetch(acUrl, 'Places Autocomplete')
             const acData = await acRes.json()
             autocompleteStatus = acData.status ?? 'UNKNOWN'
             autocompletePlaceId = acData.predictions?.[0]?.place_id ?? null
@@ -346,10 +358,12 @@ serve(withSentry('geocode-properties', async (req) => {
             autocompleteStatus,
           }
         } catch (err) {
+          // Backstop for throws outside googleFetch (e.g. reading the reply):
+          // this string reaches staff screens and Sentry, never the key.
           return {
             id: prop.id,
             success: false,
-            error: err instanceof Error ? err.message : String(err),
+            error: (err instanceof Error ? err.message : String(err)).replaceAll(apiKey, '[redacted]'),
           }
         }
       })
@@ -408,6 +422,7 @@ serve(withSentry('geocode-properties', async (req) => {
     failed,
     dry_run: dryRun,
   }
+  if (cursorMode) response.last_id = fetched[fetched.length - 1]?.id ?? null
   if (errors.length > 0) response.errors = errors.slice(0, 20)
   if (snappedRows.length > 0) {
     response.snapped = snappedRows.length

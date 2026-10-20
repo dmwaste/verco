@@ -535,6 +535,25 @@ describe('computeRollup — parity with rollup_booking_status_from_stops', () =>
     expect(roll('Cancelled', 'Nothing Presented')).toBe('Nothing Presented')
     expect(roll('Cancelled', 'Non-conformance', 'Completed')).toBe('Non-conformance')
   })
+
+  // #593: an ID job's derived ancillary stop must not turn a collected job
+  // into an exception (migration 20261020022434).
+  it('Illegal Dumping: any Completed stop makes the job Completed', () => {
+    expect(computeRollup(['Completed', 'Nothing Presented'], 'Illegal Dumping')).toBe('Completed')
+    expect(computeRollup(['Nothing Presented', 'Completed'], 'Illegal Dumping')).toBe('Completed')
+    expect(computeRollup(['Completed', 'Non-conformance'], 'Illegal Dumping')).toBe('Completed')
+  })
+
+  it('Illegal Dumping: exception wins when nothing was collected; single stop unchanged', () => {
+    expect(computeRollup(['Nothing Presented', 'Non-conformance'], 'Illegal Dumping')).toBe('Non-conformance')
+    expect(computeRollup(['Nothing Presented'], 'Illegal Dumping')).toBe('Nothing Presented')
+    expect(computeRollup(['Completed', 'Pending'], 'Illegal Dumping')).toBeNull()
+  })
+
+  it('other booking types keep exception-wins', () => {
+    expect(computeRollup(['Completed', 'Nothing Presented'], 'Residential')).toBe('Nothing Presented')
+    expect(computeRollup(['Completed', 'Non-conformance'], 'MUD')).toBe('Non-conformance')
+  })
 })
 
 describe('partitionPushResults — positional match of OR results to stops', () => {
@@ -610,7 +629,7 @@ describe('orderLocation — the location sent on the bulk OR push', () => {
   })
 
   it('returns null for a stop with no pin — the bulk call cannot geocode an address', () => {
-    expect(orderLocation({ address: '13 cronin way anketel', latitude: null, longitude: null })).toBeNull()
+    expect(orderLocation({ address: '7 fixture way anketel', latitude: null, longitude: null })).toBeNull()
     expect(orderLocation({ address: 'x', latitude: -32.27, longitude: null })).toBeNull()
     expect(orderLocation({ address: 'x', latitude: null, longitude: 115.82 })).toBeNull()
   })
@@ -669,12 +688,12 @@ describe('orderLocation → createOrUpdateOrders wire payload', () => {
 
     await createOrUpdateOrders('k3y', [
       {
-        orderNo: 'KWN-4-1MGKF0-B',
+        orderNo: 'KWN-4-TEST01-B',
         date: '2026-10-22',
         duration: STOP_DURATION_MINUTES,
         priority: STREAM_PRIORITY.general,
         notes: 'Bulk x1',
-        location: orderLocation({ address: '13 Cronin Way', latitude: -32.21, longitude: 115.85 })!,
+        location: orderLocation({ address: '7 Fixture Way', latitude: -32.21, longitude: 115.85 })!,
       },
     ])
 
@@ -684,14 +703,14 @@ describe('orderLocation → createOrUpdateOrders wire payload', () => {
       orders: [
         {
           operation: 'SYNC',
-          orderNo: 'KWN-4-1MGKF0-B',
+          orderNo: 'KWN-4-TEST01-B',
           type: 'P',
           date: '2026-10-22',
           duration: STOP_DURATION_MINUTES,
           priority: STREAM_PRIORITY.general,
           vehicleFeatures: [],
           notes: 'Bulk x1',
-          location: { latitude: -32.21, longitude: 115.85, locationName: '13 Cronin Way' },
+          location: { latitude: -32.21, longitude: 115.85, locationName: '7 Fixture Way' },
         },
       ],
     })

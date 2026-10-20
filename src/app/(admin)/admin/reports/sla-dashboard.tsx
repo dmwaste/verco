@@ -84,7 +84,7 @@ import {
   computeCleanCollection,
   CLEAN_TARGET_PCT,
 } from '@/lib/reports/clean-collection'
-import { computeOnTime, ON_TIME_TARGET_PCT } from '@/lib/reports/on-time'
+import { computeOnTime, countsTowardOnTime, ON_TIME_TARGET_PCT } from '@/lib/reports/on-time'
 import {
   computeServiceTicketSla,
   RESPONSE_TARGET_WD,
@@ -411,7 +411,7 @@ function OnTimeCard({ clientId, area, period }: CardScope) {
       // launder a wrong-day miss into an on-time success (#390.2; see on-time.ts).
       let q = supabase
         .from('collection_stop')
-        .select('completed_at, collection_date:collection_date_id!inner(date, collection_area_id)')
+        .select('completed_at, stream, booking:booking_id(type), collection_date:collection_date_id!inner(date, collection_area_id)')
         .eq('status', 'Completed')
         .not('completed_at', 'is', null)
         .eq('client_id', clientId)
@@ -419,10 +419,17 @@ function OnTimeCard({ clientId, area, period }: CardScope) {
       if (period.from) q = q.gte('collection_date.date', period.from)
       if (period.to) q = q.lte('collection_date.date', period.to)
       const rows = orThrow(await q)
-      const stops = (rows ?? []).map((row) => {
-        const cd = Array.isArray(row.collection_date) ? row.collection_date[0] : row.collection_date
-        return { completed_at: row.completed_at as string, scheduledDate: cd?.date as string }
-      })
+      // #593: an ID job's derived ancillary stop doesn't count (same rule as
+      // get_on_time_monthly), so the period figure matches the trendline.
+      const stops = (rows ?? [])
+        .filter((row) => {
+          const b = Array.isArray(row.booking) ? row.booking[0] : row.booking
+          return countsTowardOnTime(row.stream, b?.type)
+        })
+        .map((row) => {
+          const cd = Array.isArray(row.collection_date) ? row.collection_date[0] : row.collection_date
+          return { completed_at: row.completed_at as string, scheduledDate: cd?.date as string }
+        })
       return computeOnTime(stops)
     },
   })

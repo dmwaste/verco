@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   computeOnTime,
+  countsTowardOnTime,
   isOnTime,
   ON_TIME_TARGET_PCT,
   ON_TIME_LOW_N,
@@ -182,5 +183,21 @@ describe('computeOnTime', () => {
     expect(result.completed).toBe(20)
     expect(result.isLowN).toBe(false)
     expect(result.pct).toBe(100)
+  })
+})
+
+describe('countsTowardOnTime — an ID job counts once (#593)', () => {
+  it('leaves out an Illegal Dumping job\'s derived ancillary stop', () => {
+    expect(countsTowardOnTime('ancillary', 'Illegal Dumping')).toBe(false)
+  })
+
+  it('counts the ID job\'s own stop and every other booking\'s stops', () => {
+    expect(countsTowardOnTime('illegal_dumping', 'Illegal Dumping')).toBe(true)
+    expect(countsTowardOnTime('ancillary', 'Residential')).toBe(true)
+    expect(countsTowardOnTime('general', 'MUD')).toBe(true)
+  })
+
+  it('counts a stop whose booking type is hidden or missing', () => {
+    expect(countsTowardOnTime('ancillary', undefined)).toBe(true)
   })
 })
