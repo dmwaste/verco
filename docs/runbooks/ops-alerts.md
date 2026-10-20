@@ -106,7 +106,7 @@ Crews close out every stop in the field app. A stop nobody closes out is unbille
 - **Not dispatched:** a booking still waiting for collection with no open crew job. Either none was ever created, or a date change cancelled the old job and the new one never appeared, or one of its waste types was never sent out. That's a system fault (the OptimoRoute push), not a crew one. Raise a GitHub issue.
 - **Standing backlog:** everything 3+ days old still open, per area, with the date range and how many stops that area *did* close out since then. `0 closed out since …` means the area has gone dark.
 
-**What to do:** open **Worklist** (the bookings from that day still open) or **Full backlog** (everything stale). Admin shows one client at a time, so switch client to see Kwinana vs Verge Valet councils. Then get the crew or supervisor to close the stops out in the field app (only crews can close a stop out). Once they do, the stops drop off the backlog.
+**What to do:** open **Worklist** (the bookings from that day still open) or **Full backlog** (everything stale). You don't have to wait for the alert: while anything is stale, the admin dashboard shows a **Stuck closeouts (N)** strip to D&M staff (not council staff) that opens the same Full backlog list. Admin shows one client at a time, so switch client to see Kwinana vs Verge Valet councils. Then get the crew or supervisor to close the stops out in the field app (only crews can close a stop out). Once they do, the stops drop off the backlog.
 
 **Check what it would say today, without posting** (Supabase **SQL Editor**):
 
