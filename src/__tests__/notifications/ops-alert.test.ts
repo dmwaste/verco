@@ -106,20 +106,40 @@ describe('buildOpsAlertPayload — teams', () => {
     expect(payload.attachments[0]!.content).toMatchObject({ type: 'AdaptiveCard', version: '1.4' })
   })
 
-  it('renders title, lines, links and an AWST footer as TextBlocks', () => {
+  // The text of a block: a RichTextBlock's single TextRun, or a TextBlock's text.
+  const textOf = (b: Record<string, unknown>) =>
+    b.type === 'RichTextBlock' ? (b.inlines as Array<{ text: string }>)[0]!.text : (b.text as string)
+
+  it('renders title, lines and the AWST footer as plain text, links as one markdown TextBlock', () => {
     const body = buildAdaptiveCard(alert, NOW).body as Array<Record<string, unknown>>
-    expect(body.every((b) => b.type === 'TextBlock' && b.wrap === true)).toBe(true)
-    expect(body[0]).toMatchObject({ text: '🚨 Verco notification health alert', weight: 'Bolder', color: 'Attention' })
-    const texts = body.map((b) => b.text)
+    expect(body.map((b) => b.type)).toEqual(['RichTextBlock', 'RichTextBlock', 'RichTextBlock', 'RichTextBlock', 'TextBlock', 'RichTextBlock'])
+    expect((body[0]!.inlines as unknown[])[0]).toMatchObject({
+      type: 'TextRun',
+      text: '🚨 Verco notification health alert',
+      weight: 'Bolder',
+      color: 'Attention',
+    })
+    const texts = body.map(textOf)
     expect(texts).toContain('• SMS — 4 failed sends')
     expect(texts).toContain(`[Notification log](${ADMIN_ORIGIN}/admin/notifications)`)
     expect(texts.at(-1)).toBe('Sent by notification-health-check · 20/10/2026 15:15 AWST')
   })
 
-  it('turns a blank line into spacing, never an empty TextBlock', () => {
+  it('turns a blank line into spacing, never an empty block', () => {
     const body = buildAdaptiveCard(alert, NOW).body as Array<Record<string, unknown>>
-    expect(body.some((b) => typeof b.text === 'string' && b.text.trim() === '')).toBe(false)
-    expect(body.find((b) => b.text === '• SMS — 4 failed sends')).toMatchObject({ spacing: 'Medium' })
+    expect(body.some((b) => textOf(b).trim() === '')).toBe(false)
+    expect(body.find((b) => textOf(b) === '• SMS — 4 failed sends')).toMatchObject({ spacing: 'Medium' })
+  })
+
+  // TextBlock text is markdown in Teams: `_` turned refs into italics.
+  it('keeps underscores and asterisks literal in alert lines (no markdown)', () => {
+    const body = buildAdaptiveCard(
+      { source: 'notification-health-check', title: 'no booking_created row', lines: ['• KWN-2-AB12_CD *paid*'] },
+      NOW,
+    ).body as Array<Record<string, unknown>>
+    expect(body[0]!.type).toBe('RichTextBlock')
+    expect(textOf(body[0]!)).toBe('no booking_created row')
+    expect(body[1]).toMatchObject({ type: 'RichTextBlock', inlines: [{ type: 'TextRun', text: '• KWN-2-AB12_CD *paid*' }] })
   })
 })
 
@@ -152,6 +172,23 @@ describe('PII backstop', () => {
     expect(redactPii('• MOS-JOZCOM, KWN-2-I2NA9E, MOS-12984')).toBe('• MOS-JOZCOM, KWN-2-I2NA9E, MOS-12984')
   })
 
+  it('catches the AU and international shapes numbers arrive in', () => {
+    expect(redactPii('to 61412345678')).toBe('to [phone]')
+    expect(redactPii('to +61 412 345 678')).toBe('to [phone]')
+    expect(redactPii('office 08 9555-1234')).toBe('office [phone]')
+    expect(redactPii('office (08) 9555 1234')).toBe('office [phone]')
+    expect(redactPii('mobile 412 345 678 (no 0)')).toBe('mobile [phone] (no 0)')
+    expect(redactPii('UK +44 7700 900123')).toBe('UK [phone]')
+  })
+
+  // A blanket 8+-digit rule turned these into "[phone]", hiding the identifier
+  // ops need to trace a provider failure.
+  it('leaves long numeric IDs and error codes alone', () => {
+    expect(redactPii('Twilio error 30008 for message 2026102012345')).toBe('Twilio error 30008 for message 2026102012345')
+    expect(redactPii('legacy ref 39190123 failed')).toBe('legacy ref 39190123 failed')
+    expect(redactPii('SendGrid batch 1234567890123456')).toBe('SendGrid batch 1234567890123456')
+  })
+
   it('scrubs every line of both formats and caps runaway lines', () => {
     const leaky: OpsAlert = {
       source: 'notification-health-check',
@@ -178,8 +215,9 @@ describe('buildTestAlert', () => {
     const test = buildTestAlert('notification-health-check')
     expect(opsAlertText(test, NOW).startsWith('TEST — ')).toBe(true)
     const card = buildAdaptiveCard(test, NOW).body as Array<Record<string, unknown>>
-    expect(card[0]).toMatchObject({ color: 'Accent' })
-    expect(String(card[0]!.text)).toMatch(/^TEST — .*no action needed/)
+    const title = (card[0]!.inlines as Array<{ text: string; color: string }>)[0]!
+    expect(title.color).toBe('Accent')
+    expect(title.text).toMatch(/^TEST — .*no action needed/)
   })
 })
 

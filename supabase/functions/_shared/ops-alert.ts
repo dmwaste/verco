@@ -108,11 +108,22 @@ export function parseOpsAlertFormat(raw: string | null | undefined): OpsAlertFor
 }
 
 const EMAIL_RE = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g
-// 8–15 digits, optionally `+`-prefixed, single spaces allowed between digits:
-// +61412345678, 0412 345 678, 0895551234. Deliberately NOT the Sentry
-// scrubber's pattern — that one allows `-` and eats ISO dates (2026-10-20),
-// which alerts print as "last success".
-const PHONE_RE = /\+?\d(?: ?\d){7,14}/g
+// Phone numbers in the shapes they actually arrive in: AU numbers with a +61,
+// 61 or 0 prefix (spaces or hyphens allowed: +61412345678, 0412 345 678,
+// 08 9555-1234, +61 (0)8 9555 1234), an (08) area code, the no-leading-0
+// mobile (412 345 678, #665), and `+`-prefixed international numbers. Digit
+// boundaries on both sides keep long numeric IDs (provider message IDs, legacy
+// refs like 2026102012345) and ISO dates (2026-10-20, printed as "last
+// success") intact: a blanket 8+-digit rule hid the identifiers ops need.
+const PHONE_RE = new RegExp(
+  [
+    String.raw`(?<![\d+])(?:\+?61[ -]?(?:\(0\)[ -]?)?0?|0)[2-478](?:[ -]?\d){8}(?!\d)`,
+    String.raw`\(0[2-478]\)[ -]?\d{4}[ -]?\d{4}(?!\d)`,
+    String.raw`(?<![\d+])4\d{2}[ -]?\d{3}[ -]?\d{3}(?!\d)`,
+    String.raw`\+(?!61)[1-9](?:[ -]?\d){6,14}(?!\d)`,
+  ].join('|'),
+  'g',
+)
 const URL_RE = /https?:\/\/[^\s)'"<>]+/g
 
 /** Strip email addresses and phone numbers from free text. */
@@ -166,17 +177,20 @@ export function opsAlertText(alert: OpsAlert, now: Date = new Date()): string {
 
 type AdaptiveElement = Record<string, unknown>
 
+/**
+ * Plain text in an Adaptive Card. A TextBlock's text is rendered as markdown
+ * by Teams, so `booking_created` or a ref like `KWN-2-AB12_CD` lost its
+ * underscores to italics; a RichTextBlock's TextRun is never parsed as markdown,
+ * so refs and provider errors arrive exactly as written.
+ */
+function plainText(text: string, run: AdaptiveElement = {}, block: AdaptiveElement = {}): AdaptiveElement {
+  return { type: 'RichTextBlock', inlines: [{ type: 'TextRun', text, ...run }], ...block }
+}
+
 /** The Adaptive Card body posted to Teams. */
 export function buildAdaptiveCard(alert: OpsAlert, now: Date = new Date()): Record<string, unknown> {
   const body: AdaptiveElement[] = [
-    {
-      type: 'TextBlock',
-      text: displayTitle(alert),
-      weight: 'Bolder',
-      size: 'Medium',
-      color: alert.test ? 'Accent' : 'Attention',
-      wrap: true,
-    },
+    plainText(displayTitle(alert), { weight: 'Bolder', size: 'Medium', color: alert.test ? 'Accent' : 'Attention' }),
   ]
   // A blank line becomes extra spacing on the next block — an empty TextBlock
   // is not valid card content.
@@ -186,7 +200,7 @@ export function buildAdaptiveCard(alert: OpsAlert, now: Date = new Date()): Reco
       gap = true
       continue
     }
-    body.push({ type: 'TextBlock', text: cleanLine(line), wrap: true, spacing: gap ? 'Medium' : 'Small' })
+    body.push(plainText(cleanLine(line), {}, { spacing: gap ? 'Medium' : 'Small' }))
     gap = false
   }
   if (alert.links && alert.links.length > 0) {
@@ -197,7 +211,7 @@ export function buildAdaptiveCard(alert: OpsAlert, now: Date = new Date()): Reco
       spacing: 'Medium',
     })
   }
-  body.push({ type: 'TextBlock', text: footer(alert, now), isSubtle: true, size: 'Small', wrap: true, spacing: 'Medium' })
+  body.push(plainText(footer(alert, now), { isSubtle: true, size: 'Small' }, { spacing: 'Medium' }))
   return {
     $schema: 'http://adaptivecards.io/schemas/adaptive-card.json',
     type: 'AdaptiveCard',

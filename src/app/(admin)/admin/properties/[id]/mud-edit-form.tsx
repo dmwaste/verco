@@ -126,7 +126,9 @@ export function MudEditForm({ property, strataContact, onCancel }: MudEditFormPr
         setError('Strata contact first and last name are required if any contact field is filled.')
         return
       }
-      if (!isValidPhone(contactMobile)) {
+      // Only a number this edit changes must pass (#668): a contact on file with
+      // a wrong-length one can still have its name or email fixed.
+      if (contactMobile.trim() !== (strataContact?.mobile_e164 ?? '') && !isValidPhone(contactMobile)) {
         setError(`Strata contact phone: ${PHONE_INVALID_MESSAGE}`)
         return
       }
