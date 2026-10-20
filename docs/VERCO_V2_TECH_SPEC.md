@@ -32,7 +32,7 @@ Reconciles this spec with what actually shipped (the original 2026-03-26 text de
 | Backend | Supabase (separate AU project) | ap-southeast-2, new project — not the prototype project |
 | Auth | Supabase Auth (email OTP) | Carry forward — no passwords |
 | Payments | Stripe | Single D&M account |
-| SMS | Twilio (`_shared/twilio.ts`) | One D&M account (`TWILIO_ACCOUNT_SID` / `TWILIO_AUTH_TOKEN`, §16); the sender is chosen per tenant by `client.twilio_messaging_service_sid` (one Messaging Service per registered alpha sender, routed in `_shared/dispatch.ts`); the admin-editable `client.sms_sender_id` is the display label, not the routing key |
+| SMS | Twilio (`_shared/twilio.ts`) | One D&M account (`TWILIO_ACCOUNT_SID` / `TWILIO_AUTH_TOKEN`, §16); the sender is chosen per tenant by `client.twilio_messaging_service_sid` (one Messaging Service per registered alpha sender, routed in `_shared/dispatch.ts`); the admin-editable `client.sms_sender_id` (Notifications tab) is stored and audited but nothing reads it — routing is by `twilio_messaging_service_sid` alone |
 | Email | SendGrid (`_shared/sendgrid.ts`) | Rendered and sent inside `send-notification` / `notify-ticket-response`; delivery events come back through `sendgrid-webhook`. The planned `send-email` EF was never built (§10) |
 | CRM | None | The Attio contact + ticket sync was never built; its columns were dropped 02/07/2026 (migration `20260702113000`). A HubSpot sync was designed 29/05/2026 (`docs/superpowers/specs/2026-05-29-verco-hubspot-sync-design.md`) but only the pure mappers in `src/lib/hubspot/` exist — no Edge Function, secret or cron |
 | Testing | Vitest + Testing Library + Playwright | Unit + E2E |
@@ -1644,7 +1644,7 @@ Every pg_cron-invoked EF is entered via `serve(cronHandler('<name>', handler))` 
 - **Auth:** Cron (see shared contract). `{ "test_alert": true }` through the same gate skips the checks and sends only the runbook's labelled test card
 - **Trigger:** pg_cron, every 3 hours (`15 */3 * * *`)
 - **Logic:** Over the trailing `NOTIF_HEALTH_WINDOW_HOURS` (default 3) flags any channel whose failed sends reach `NOTIF_HEALTH_FAILURE_THRESHOLD` (default 3), and any live resident/admin booking with no settled `booking_created` confirmation inside `NOTIF_HEALTH_MISSING_CONFIRMATION_HOURS` (default 24) — a lone stranded `queued` claim counts as unconfirmed
-- **Side effects:** One ops alert via `sendOpsAlert` (`_shared/ops-alert.ts`, ADR 0033): counts, channel names, booking refs and an admin link, never contact PII. Returns 500 when a warranted alert fails to deliver (pg_cron records it); a healthy run with `OPS_ALERT_WEBHOOK_URL` unset returns 200 and raises a Sentry warning
+- **Side effects:** One ops alert via `sendOpsAlert` (`_shared/ops-alert.ts`, ADR 0033): counts, channel names, booking refs and an admin link, never contact PII. Returns 500 only when a configured sink refuses a warranted alert (pg_cron records it); with `OPS_ALERT_WEBHOOK_URL` unset, a healthy run and a warranted alert both return 200 (the latter with `alert_skipped`) and raise the Sentry warning
 
 ### `stale-closeout-check`
 - **Auth:** Cron (see shared contract). `{ "dry_run": true }` returns the alert it would send without posting; `{ "test_alert": true }` sends the labelled test card

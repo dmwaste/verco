@@ -11,7 +11,7 @@ Some background jobs watch for silent failures. When one finds a problem, it pos
 | `notification-health-check` | Every 3 hours | Email or SMS sends failing, and bookings that never got a confirmation |
 | `stale-closeout-check` | Daily, 09:35 | Stops still not closed out 3 days after collection, and bookings that never reached the crews (#575) — see [Stale-closeout alert](#stale-closeout-alert) |
 
-Until #576 that channel was never connected. The watchdog found problems and had nowhere to say them. Now a missing or malformed link raises a Sentry warning on every run until it's fixed, and a link Teams refuses raises one on every run that tries to post. A quiet, healthy run doesn't probe the link, so after any change in Teams send the test alert (step 3) rather than waiting for a real one.
+Until #576 that channel was never connected. The watchdog found problems and had nowhere to say them. Now a missing link (or a bad `OPS_ALERT_WEBHOOK_FORMAT` value) raises a Sentry warning on every run until it's fixed, and a link Teams refuses raises one on every run that tries to post. A quiet, healthy run doesn't probe the link, so after any change in Teams send the test alert (step 3) rather than waiting for a real one.
 
 Alerts carry counts, channel names (email/SMS), council area codes and booking refs, plus a link into admin. They never include resident names, emails or phone numbers, and any that slip into a provider error message are blanked out before sending.
 
