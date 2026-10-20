@@ -356,6 +356,79 @@ export function orderTypeLine(tag: BookingTypeTag | null): string | null {
 }
 
 /**
+ * Illegal Dumping ancillary items (#593). The ID intake forms store what the
+ * reporter ticked as tags on booking.id_waste_types (values from
+ * src/lib/booking/id-options.ts ID_WASTE_TYPES), and the booking's ONE
+ * booking_item is the illegal_dumping pass, which goes to the bulk truck (BLK).
+ * Mattresses, e-waste and whitegoods need the ancillary truck, so the push
+ * derives an ancillary stop for them (idAncillaryStop). No item, capacity or
+ * price changes: ID volume is an estimate settled at closeout.
+ *
+ * Stored values, not display labels: they are stable identifiers on historical
+ * rows. Parity with id-options.ts is pinned by src/__tests__/stops/id-ancillary.test.ts.
+ */
+export const ID_ANCILLARY_WASTE_TYPES = ['Whitegoods', 'Mattress', 'E-Waste'] as const
+
+/** Mirror of id-options.ts ID_WASTE_TYPE_LABELS (stored value → staff label). */
+const ID_WASTE_TYPE_LABELS: Record<string, string> = { 'General / Mixed': 'Bulk Waste' }
+
+/** The ancillary items ticked on an Illegal Dumping booking, in intake-form order. */
+export function idAncillaryTypes(
+  bookingType: string,
+  idWasteTypes: readonly string[] | null | undefined,
+): string[] {
+  if (bookingType !== 'Illegal Dumping' || !idWasteTypes) return []
+  return ID_ANCILLARY_WASTE_TYPES.filter((t) => idWasteTypes.includes(t))
+}
+
+/**
+ * The ancillary-truck pass of an ID job: the ID stop's date, pin and crew notes,
+ * on the ancillary stream with the ticked items as its services (one each: the
+ * real count is only known on site). Null when nothing ancillary was ticked or
+ * the stop isn't the ID pass.
+ */
+export function idAncillaryStop<
+  S extends { stream: WasteStream; services_summary: ServiceSummaryEntry[]; external_order_ref: string },
+>(idStop: S, bookingRef: string, ancillaryTypes: readonly string[]): S | null {
+  if (idStop.stream !== 'illegal_dumping' || ancillaryTypes.length === 0) return null
+  return {
+    ...idStop,
+    stream: 'ancillary',
+    services_summary: ancillaryTypes
+      .map((name) => ({ name, qty: 1 }))
+      .sort((a, b) => a.name.localeCompare(b.name)),
+    external_order_ref: buildOrderNo(bookingRef, 'ancillary'),
+  }
+}
+
+/**
+ * The stop keys a booking item keeps alive in the pass-1 orphan check: its own
+ * (date, stream), plus the derived ancillary stop's for an ID item with
+ * ancillary ticks. Without the second key a live, rescheduled ID booking's
+ * ancillary stop would never match an item and be cancelled as an orphan.
+ */
+export function itemStopKeys(
+  collectionDateId: string,
+  stream: WasteStream,
+  idAncillary: readonly string[],
+): string[] {
+  const keys = [stopItemKey(collectionDateId, stream)]
+  if (stream === 'illegal_dumping' && idAncillary.length > 0) {
+    keys.push(stopItemKey(collectionDateId, 'ancillary'))
+  }
+  return keys
+}
+
+/** Everything ticked on an ID job, as staff labels, for the OR notes `Items:` line. */
+export function idWasteItemsLine(
+  bookingType: string,
+  idWasteTypes: readonly string[] | null | undefined,
+): string | null {
+  if (bookingType !== 'Illegal Dumping' || !idWasteTypes || idWasteTypes.length === 0) return null
+  return idWasteTypes.map((t) => ID_WASTE_TYPE_LABELS[t] ?? t).join(', ')
+}
+
+/**
  * Structured OptimoRoute order notes — a labelled block ops read in the OR
  * web order detail, e.g.
  *
@@ -366,7 +439,8 @@ export function orderTypeLine(tag: BookingTypeTag | null): string | null {
  *
  * Each line is omitted when its source is empty (a bare bulk stop is just
  * "Services: Bulk Waste x1"). typeLine = orderTypeLine(bookingTypeTag(...)),
- * FIRST so it's visible in truncated order lists; location = booking.location
+ * FIRST so it's visible in truncated order lists; itemsLine =
+ * idWasteItemsLine(...), everything ticked on an ID job (both its passes); location = booking.location
  * (waste placement); driverNotes = booking.notes (resident instructions).
  */
 export function buildOrderNotes(
@@ -374,10 +448,14 @@ export function buildOrderNotes(
   location?: string | null,
   driverNotes?: string | null,
   typeLine?: string | null,
+  itemsLine?: string | null,
 ): string {
   const lines: string[] = []
   if (typeLine && typeLine.trim() !== '') {
     lines.push(`Type: ${typeLine.trim()}`)
+  }
+  if (itemsLine && itemsLine.trim() !== '') {
+    lines.push(`Items: ${itemsLine.trim()}`)
   }
   if (summary.length > 0) {
     lines.push(`Services: ${summary.map((s) => `${s.name} x${s.qty}`).join(', ')}`)
