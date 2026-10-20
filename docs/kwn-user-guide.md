@@ -1,7 +1,7 @@
 # VERCO Kwinana — City of Kwinana User Guide
 
 **For:** City of Kwinana team members trialling the VERCO Kwinana portal before go-live — both the **resident** experience (Parts A + B) and the **admin operational** workflows their staff will run after launch (Part C).
-**Version:** 1.1 — 2026-06-05 _(rebranded from the WMRC / Verge Valet guide v1.2; resident screenshots (Parts A + B) captured live from `kwntest.verco.au`; admin screens in Part C are described but not yet captured — see banner below)_
+**Version:** 1.3 — 2026-10-20 _(rebranded from the WMRC / Verge Valet guide v1.2; resident screenshots (Parts A + B) captured live from `kwntest.verco.au`; admin screens in Part C are described but not yet captured — see banner below)_
 **Audience:** City of Kwinana team members and customer service staff — covering resident-side testing AND client-staff back-office training.
 
 ---
@@ -273,7 +273,9 @@ Four required fields:
 - **First Name*** *(autocompletes from the browser)*
 - **Last Name*** *(autocompletes from the browser)*
 - **Email***
-- **Mobile*** — Australian format, auto-formats as you type to `0412 345 678`
+- **Mobile*** — Australian format, auto-formats as you type to `0412 345 678`. A number with the wrong count of digits is **rejected** (see below)
+
+> **Wrong-length phone numbers are rejected _(since 2026-10-20)_.** A number a digit short or long (`0413 12345`) used to be accepted as typed, and the resident silently got no SMS. It is now a hard error on this field: *"Check your number. Mobiles are 10 digits (04xx xxx xxx); landlines need the area code (08 xxxx xxxx)."* Enter a mobile as all 10 digits (`04xx xxx xxx`), a landline with its area code (`08 xxxx xxxx`) and a 1300 / 1800 number as all 10 digits; overseas numbers aren't length-checked. The same rule applies to the on-behalf wizard (§4.2), to a changed number in a booking's CONTACT panel (§4.3) and to a strata contact's phone (§4.6). Editing the services of a booking whose contact already holds a wrong-length number stops at this field until the number is fixed — fix it with the resident on the phone.
 
 > **Why first/last separately?** The system stores the resident's name as two fields and generates the display name from both — it's used in audit trails, NCN letters, refund emails, and so on. Single "full name" entry isn't supported.
 
@@ -626,7 +628,7 @@ The panel has the following sections, stacked top-to-bottom:
 #### COLLECTION DETAILS (with pencil icon to edit)
 
 - **Address** — full street + suburb + postcode (resident name is *not* here; that's in CONTACT)
-- **Location** — Front Verge / Side Verge / Driveway / Laneway (whatever the resident selected at step 4 of the wizard)
+- **Location** — Front Verge / Side Verge / Driveway / Laneway (whatever the resident selected at step 4 of the wizard). On a **MUD** booking this is the building's waste-location notes instead, copied from the MUD record (§4.6)
 - **Collection Date** — formatted "Wednesday, 20 May 2026"
 - **Notes** — driver instructions the resident left, or italic *"Nothing"* if blank
 
@@ -847,27 +849,29 @@ Done from the **Properties** page (`/admin/properties`), not from the MUDs list.
 
 1. Open `/admin/properties` (~18,915 records across Kwinana's four areas — use the search box)
 2. Find the property by address
-3. Click the row's **kebab menu** (⋮) → **"Convert to MUD"**
-4. Enter unit count, strata contact name + email + mobile, and cadence
+3. Click the row's **kebab menu** (⋮) → **"Set MUD"**
+4. Enter unit count, cadence, the **Waste location notes** — where the building's bins or pile will be, e.g. *"Bin enclosure behind Block B — enter via the side gate"* (required before the building can be marked **Registered**; crews see these notes on every booking for the building, see c) below, so keep contact details out of them) — and the strata contact name + email + phone (mobile or landline; a wrong-length number is rejected, same rule as §2.6)
 5. Save — the property reappears in `/admin/muds`
 
 #### c) Booking on behalf of a strata building
 
 1. From the MUDs list, click a row to open its detail page
-2. Click **"Book Collection"** (the only call-to-action available on a MUD detail)
-3. The booking wizard opens, pre-loaded with:
-   - The MUD address (read-only — can't change it)
-   - **Type: MUD** (different allocation rules — unit count × per-unit allocation)
-   - Strata contact pre-filled in CONTACT (your name appears with the "(Admin)" suffix as actor)
-4. Walk through the wizard as you would for a resident: services, date, location, confirm
-5. Submit — the booking lands directly in **Confirmed** status (no OTP step required, because the strata manager has been onboarded already)
+2. Click **"Create booking"** (the only call-to-action on a **Registered** MUD detail)
+3. The MUD booking form opens, pre-loaded **from the MUD record** — all of it read-only:
+   - The MUD address and **Type: MUD** (different allocation rules — unit count × per-unit allocation)
+   - **Strata contact** (your name appears with the "(Admin)" suffix as actor)
+   - **Waste location** — the building's waste-location notes from the MUD record (§4.6b). There is **no location picker** on a MUD booking: if the crew should look somewhere else, edit the notes on the MUD record *before* you book
+4. Pick the services and the collection date, add a one-off **Notes** line for the crew if needed (optional), and click **Create MUD booking**
+5. The booking lands directly in **Confirmed** status (no OTP step required, because the strata manager has been onboarded already)
+
+> **Crews see the waste-location notes _(since 2026-10-20)_.** The notes on the MUD record travel with every booking for that building: they appear as the booking's **Location** (§4.3), as the **Location:** line on the crew's run-sheet card, and in the OptimoRoute order the day's route is planned from — alongside any **Notes** you added at booking time. Keep them current (a stale note sends the truck to the wrong spot) and keep names and phone numbers out of them, because crews read them.
 
 > **Allocation maths is different for MUDs.** A 50-unit MUD with the standard 2-Bulk-per-property allocation gets `50 × 2 = 100` Bulk units per FY (shared across General and Green), plus the per-unit Ancillary budget. The pricing engine knows this from `UNITS` × per-unit-allocation; you don't manually scale anything.
 
 #### d) PII handling on MUDs
 
 The **strata contact** name + email + mobile sit in the MUDs table because admins need them. They are **never** exposed to:
-- Field crew (`field` role) — they see only the address and items to collect
+- Field crew (`field` role) — they see the address, the items to collect and the waste-location notes (plus any booking notes), never the contact
 - Rangers (`ranger` role) — same restriction
 - Other residents in the building — who don't have visibility into who their strata manager is via this app
 
@@ -899,9 +903,11 @@ The Service Tickets queue is where resident-side enquiries land that aren't dire
 2. **Open** the highest-priority ticket
 3. **Read** the resident's message + any linked booking
 4. **Assign** yourself (or your colleague) so others don't double-handle
-5. **Reply** via the ticket comment thread (the resident is emailed)
+5. **Reply** via the ticket comment thread (the resident is emailed — if that email can't be sent, a banner under the reply box tells you; see below)
 6. **Change status** to "Awaiting Resident" if you're waiting on them, or "Resolved" once handled
 7. **Close** after the resident confirms or after 7 days of silence on Resolved status
+
+> **If the reply email doesn't go out _(since 2026-10-20)_.** Your reply is always saved on the ticket, whatever happens to the email. If the email to the resident fails, an amber banner appears under the reply box — *"Your reply is saved, but the email to the resident didn’t send."* — with a **Resend email** link. Click it once: it reads **Resending…** while it runs, and the banner clears when the email goes. If the resident has no email address on file, the banner says that instead (*"…this resident has no email address on file, so they weren’t emailed."*) and there is nothing to resend — phone them. A resend can never double-send: if the first email did in fact go out, the resend is skipped. The same guard sits behind **Retry** on the **Admin → Notifications** page, where retrying a message that has already gone out (or is sending right now) shows *"This notification has already gone out (or is sending now), so there is nothing to retry."* rather than an error.
 
 > **"Report a bug" floating button vs. Service Tickets.** The floating bug-report button (bottom-right of every admin page) goes to D&M's **dev team** — use it for app misbehaviour. Service Tickets is your **internal customer queue** — use it for things you need to action for a resident. Two different inboxes, two different audiences.
 
@@ -1018,12 +1024,13 @@ Inside the admin app, the floating **"Report a bug"** button (bottom-right corne
 
 ---
 
-**Document version:** 1.1
-**Last updated:** 2026-06-08
+**Document version:** 1.3
+**Last updated:** 2026-10-20
 **Next review:** after first round of City of Kwinana dummy bookings + the Part C admin screenshot capture
 
 ### Revision log
 
+- **1.3 — 2026-10-20**: Updated for the 20 October 2026 release. **Phone entry (§2.6):** an Australian mobile or landline with the wrong number of digits is now rejected with *"Check your number. Mobiles are 10 digits (04xx xxx xxx); landlines need the area code (08 xxxx xxxx)."* — on the resident and on-behalf confirm step, a changed number in CONTACT, and the strata contact. **Strata bookings (§4.6):** the booking's waste location is the building's **waste-location notes** from the MUD record (read-only on the booking form — there is no location picker), and crews now see those notes on their run-sheet card and in the OptimoRoute order; the Set-MUD step names the notes field, and "crews see only the address and items" is corrected. Button labels corrected against the live app (**Set MUD**, **Create booking**, **Create MUD booking**). **Service tickets (§4.7):** when a reply email can't be sent the ticket shows a banner with **Resend email**; a resend never double-sends, and **Retry** on the Notifications page explains an already-sent message instead of erroring. §4.3 notes that a MUD booking's Location shows the building's notes. No screenshots changed (Part C admin screens still uncaptured).
 - **1.2 — 2026-06-08**: Corrected the Ancillary service catalogue — **all three services (E-Waste, Whitegoods, Mattress) now have a per-service free limit of 3**, matching the live config (previously listed 3 / 2 / 1). The Ancillary category cap stays at 3 per FY, so residents take 3 free Ancillary collections in any mix. Updated the catalogue table, the worked example, and UAT scenario 5.
 - **1.1 — 2026-06-05**: Replaced the placeholder resident screenshots with **live Kwinana captures** (images 01–20, shot from `kwntest.verco.au` and stored under `screenshots/kwn/`). Updated the §2.1 hero description and screenshots banner to match the live site. Part C admin screens (21–32) still pending capture.
 - **1.0 — 2026-06-05**: Initial City of Kwinana release, rebranded from the WMRC / Verge Valet user guide (v1.2). Single-LGA structure (no sub-clients, no member councils — four collection areas KWN-1 to KWN-4); Kwinana service catalogue (Bulk + Ancillary, dual-limit allocation); 48-hour place-out window; `kwntest.verco.au`; VERCO Kwinana contact details. Resident screenshots shipped as reused Verge Valet placeholders (replaced in v1.1).
