@@ -356,6 +356,111 @@ export function orderTypeLine(tag: BookingTypeTag | null): string | null {
 }
 
 /**
+ * Illegal Dumping ancillary items (#593). The ID intake forms store what the
+ * reporter ticked as tags on booking.id_waste_types (values from
+ * src/lib/booking/id-options.ts ID_WASTE_TYPES), and the booking's ONE
+ * booking_item is the illegal_dumping pass, which goes to the bulk truck (BLK).
+ * Mattresses, e-waste and whitegoods need the ancillary truck, so the push
+ * derives an ancillary stop for them (idAncillaryStop). No item, capacity or
+ * price changes: ID volume is an estimate settled at closeout.
+ *
+ * Stored values, not display labels: they are stable identifiers on historical
+ * rows. Parity with id-options.ts is pinned by src/__tests__/stops/id-ancillary.test.ts.
+ */
+export const ID_ANCILLARY_WASTE_TYPES = ['Whitegoods', 'Mattress', 'E-Waste'] as const
+
+/** Mirror of id-options.ts ID_WASTE_TYPE_LABELS (stored value → staff label). */
+const ID_WASTE_TYPE_LABELS: Record<string, string> = { 'General / Mixed': 'Bulk Waste' }
+
+/** The ancillary items ticked on an Illegal Dumping booking, in intake-form order. */
+export function idAncillaryTypes(
+  bookingType: string,
+  idWasteTypes: readonly string[] | null | undefined,
+): string[] {
+  if (bookingType !== 'Illegal Dumping' || !idWasteTypes) return []
+  return ID_ANCILLARY_WASTE_TYPES.filter((t) => idWasteTypes.includes(t))
+}
+
+/**
+ * The ancillary-truck pass of an ID job: the ID stop's date, pin and crew notes,
+ * on the ancillary stream with the ticked items as its services (one each: the
+ * real count is only known on site). Null when nothing ancillary was ticked or
+ * the stop isn't the ID pass.
+ */
+export function idAncillaryStop<
+  S extends { stream: WasteStream; services_summary: ServiceSummaryEntry[]; external_order_ref: string },
+>(idStop: S, bookingRef: string, ancillaryTypes: readonly string[]): S | null {
+  if (idStop.stream !== 'illegal_dumping' || ancillaryTypes.length === 0) return null
+  return {
+    ...idStop,
+    stream: 'ancillary',
+    services_summary: ancillaryTypes
+      .map((name) => ({ name, qty: 1 }))
+      .sort((a, b) => a.name.localeCompare(b.name)),
+    external_order_ref: buildOrderNo(bookingRef, 'ancillary'),
+  }
+}
+
+/**
+ * Adds an ID job's derived ancillary stop to its per-stream desired stops (the
+ * push EF's pass-1 builder). No-op unless the booking has an illegal_dumping
+ * stop, ancillary items ticked, and no real ancillary stop already.
+ */
+export function withIdAncillaryStop<
+  S extends { stream: WasteStream; services_summary: ServiceSummaryEntry[]; external_order_ref: string },
+>(
+  byStream: Map<WasteStream, S>,
+  booking: { ref: string; type: string; id_waste_types: readonly string[] | null },
+): Map<WasteStream, S> {
+  const idStop = byStream.get('illegal_dumping')
+  if (!idStop || byStream.has('ancillary')) return byStream
+  const ancStop = idAncillaryStop(idStop, booking.ref, idAncillaryTypes(booking.type, booking.id_waste_types))
+  if (ancStop) byStream.set('ancillary', ancStop)
+  return byStream
+}
+
+/**
+ * OptimoRoute emails the order's contact (~30 min away, receipt) per ORDER. An
+ * ID job's contact already gets them for its illegal_dumping order, so its
+ * derived ancillary order carries no email: one job, one set of emails.
+ */
+export function orderEmail(
+  stream: WasteStream,
+  bookingType: string | undefined,
+  email: string | undefined,
+): string | undefined {
+  if (stream === 'ancillary' && bookingType === 'Illegal Dumping') return undefined
+  return email
+}
+
+/**
+ * The stop keys a booking item keeps alive in the pass-1 orphan check: its own
+ * (date, stream), plus the derived ancillary stop's for an ID item with
+ * ancillary ticks. Without the second key a live, rescheduled ID booking's
+ * ancillary stop would never match an item and be cancelled as an orphan.
+ */
+export function itemStopKeys(
+  collectionDateId: string,
+  stream: WasteStream,
+  idAncillary: readonly string[],
+): string[] {
+  const keys = [stopItemKey(collectionDateId, stream)]
+  if (stream === 'illegal_dumping' && idAncillary.length > 0) {
+    keys.push(stopItemKey(collectionDateId, 'ancillary'))
+  }
+  return keys
+}
+
+/** Everything ticked on an ID job, as staff labels, for the OR notes `Items:` line. */
+export function idWasteItemsLine(
+  bookingType: string,
+  idWasteTypes: readonly string[] | null | undefined,
+): string | null {
+  if (bookingType !== 'Illegal Dumping' || !idWasteTypes || idWasteTypes.length === 0) return null
+  return idWasteTypes.map((t) => ID_WASTE_TYPE_LABELS[t] ?? t).join(', ')
+}
+
+/**
  * Structured OptimoRoute order notes — a labelled block ops read in the OR
  * web order detail, e.g.
  *
@@ -366,7 +471,8 @@ export function orderTypeLine(tag: BookingTypeTag | null): string | null {
  *
  * Each line is omitted when its source is empty (a bare bulk stop is just
  * "Services: Bulk Waste x1"). typeLine = orderTypeLine(bookingTypeTag(...)),
- * FIRST so it's visible in truncated order lists; location = booking.location
+ * FIRST so it's visible in truncated order lists; itemsLine =
+ * idWasteItemsLine(...), everything ticked on an ID job (both its passes); location = booking.location
  * (waste placement); driverNotes = booking.notes (resident instructions).
  */
 export function buildOrderNotes(
@@ -374,10 +480,14 @@ export function buildOrderNotes(
   location?: string | null,
   driverNotes?: string | null,
   typeLine?: string | null,
+  itemsLine?: string | null,
 ): string {
   const lines: string[] = []
   if (typeLine && typeLine.trim() !== '') {
     lines.push(`Type: ${typeLine.trim()}`)
+  }
+  if (itemsLine && itemsLine.trim() !== '') {
+    lines.push(`Items: ${itemsLine.trim()}`)
   }
   if (summary.length > 0) {
     lines.push(`Services: ${summary.map((s) => `${s.name} x${s.qty}`).join(', ')}`)
@@ -447,7 +557,9 @@ export function shouldCancelOrphanStop(args: {
 }
 
 /**
- * Booking-status rollup over a booking's stop statuses — exception wins.
+ * Booking-status rollup over a booking's stop statuses — exception wins, except
+ * for an Illegal Dumping job (one clean-up across its bulk + derived ancillary
+ * stops, #593): any Completed stop makes it Completed (migration 20261020022434).
  * Mirrors rollup_booking_status_from_stops' status arithmetic; the DB trigger
  * is authoritative, this exists for tests and UI display. Since migration
  * 20260827030000 the DB trigger ALSO holds the rollup while a booked stream
@@ -460,11 +572,13 @@ export function shouldCancelOrphanStop(args: {
  */
 export function computeRollup(
   statuses: StopStatus[],
+  bookingType?: string,
 ): 'Completed' | 'Non-conformance' | 'Nothing Presented' | null {
   if (statuses.length === 0) return null
   if (statuses.some((s) => s === 'Pending')) return null
   const live = statuses.filter((s) => s !== 'Cancelled')
   if (live.length === 0) return null
+  if (bookingType === 'Illegal Dumping' && live.includes('Completed')) return 'Completed'
   if (live.some((s) => s === 'Non-conformance')) return 'Non-conformance'
   if (live.some((s) => s === 'Nothing Presented')) return 'Nothing Presented'
   return 'Completed'

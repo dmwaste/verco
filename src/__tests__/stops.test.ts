@@ -535,6 +535,25 @@ describe('computeRollup — parity with rollup_booking_status_from_stops', () =>
     expect(roll('Cancelled', 'Nothing Presented')).toBe('Nothing Presented')
     expect(roll('Cancelled', 'Non-conformance', 'Completed')).toBe('Non-conformance')
   })
+
+  // #593: an ID job's derived ancillary stop must not turn a collected job
+  // into an exception (migration 20261020022434).
+  it('Illegal Dumping: any Completed stop makes the job Completed', () => {
+    expect(computeRollup(['Completed', 'Nothing Presented'], 'Illegal Dumping')).toBe('Completed')
+    expect(computeRollup(['Nothing Presented', 'Completed'], 'Illegal Dumping')).toBe('Completed')
+    expect(computeRollup(['Completed', 'Non-conformance'], 'Illegal Dumping')).toBe('Completed')
+  })
+
+  it('Illegal Dumping: exception wins when nothing was collected; single stop unchanged', () => {
+    expect(computeRollup(['Nothing Presented', 'Non-conformance'], 'Illegal Dumping')).toBe('Non-conformance')
+    expect(computeRollup(['Nothing Presented'], 'Illegal Dumping')).toBe('Nothing Presented')
+    expect(computeRollup(['Completed', 'Pending'], 'Illegal Dumping')).toBeNull()
+  })
+
+  it('other booking types keep exception-wins', () => {
+    expect(computeRollup(['Completed', 'Nothing Presented'], 'Residential')).toBe('Nothing Presented')
+    expect(computeRollup(['Completed', 'Non-conformance'], 'MUD')).toBe('Non-conformance')
+  })
 })
 
 describe('partitionPushResults — positional match of OR results to stops', () => {

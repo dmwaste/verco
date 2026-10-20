@@ -7,7 +7,10 @@ import { awstDateFromUtc } from '@/lib/booking/schedule-transition'
  * `completed_at` (a UTC instant) equals the scheduled `collection_date.date`
  * (already an AWST YYYY-MM-DD). The metric is the share of completed stops that
  * were on-time, over ALL completed stops (per-stop grain — a multi-stream
- * booking contributes up to two stop rows).
+ * booking contributes up to two stop rows), except an Illegal Dumping job's
+ * derived ancillary stop (#593): an ID job counts once, by its own stop, so the
+ * series keeps its basis (countsTowardOnTime; get_on_time_monthly applies the
+ * same rule, migration 20261020022434).
  *
  * Pure function: no Supabase, no network, no wall-clock reads. It compares two
  * stored timestamps passed in by the caller, so it is fully deterministic.
@@ -54,6 +57,14 @@ export interface OnTimeResult {
   isEmpty: boolean
   /** True when `0 < completed < ON_TIME_LOW_N` (raw fraction, no coloured pct). */
   isLowN: boolean
+}
+
+/**
+ * Whether a completed stop counts toward ONTIME. An ID job's derived ancillary
+ * stop doesn't: the job already counts through its illegal_dumping stop.
+ */
+export function countsTowardOnTime(stream: string, bookingType: string | null | undefined): boolean {
+  return !(stream === 'ancillary' && bookingType === 'Illegal Dumping')
 }
 
 /** True when the AWST completion date of a stop equals its scheduled date. */
