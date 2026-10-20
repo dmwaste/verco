@@ -170,14 +170,31 @@ export interface ClaimHolder {
 }
 
 /**
- * The three notification_log operations a claim needs. The EF wires them to
- * PostgREST; tests wire them to an in-memory log with the same unique key.
+ * A notification_log row as far as the claim cares. Wider than
+ * NotificationLogRow so non-dispatcher senders (notify-ticket-response: free-
+ * text `ticket_response` type, booking may be NULL) claim the same way.
+ */
+export interface SendClaimRow {
+  booking_id: string | null
+  contact_id: string | null
+  client_id: string
+  channel: string
+  notification_type: string
+  to_address: string
+  status: string
+  reference_id?: string | null
+}
+
+/**
+ * The three notification_log operations a claim needs. EFs wire them to
+ * PostgREST (`_shared/notification-claim-store.ts`); tests wire them to an
+ * in-memory log with the same unique key.
  */
 export interface SendClaimStore {
   /** INSERT the row as `queued`. `conflict` = unique violation (23505) on the claim key. */
-  insertClaim: (row: NotificationLogRow) => Promise<{ id: string } | { conflict: true } | { error: string }>
+  insertClaim: (row: SendClaimRow) => Promise<{ id: string } | { conflict: true } | { error: string }>
   /** The queued/sent row holding the row's key, or null if none. */
-  findHolder: (row: NotificationLogRow) => Promise<ClaimHolder | null | { error: string }>
+  findHolder: (row: SendClaimRow) => Promise<ClaimHolder | null | { error: string }>
   /** Flip a still-`queued` row to `failed`. true only when THIS call flipped it. */
   releaseClaim: (id: string, reason: string) => Promise<boolean>
 }
@@ -201,7 +218,7 @@ export const STALE_CLAIM_AFTER_MS = 10 * 60 * 1000
  */
 export async function claimNotificationSend(
   store: SendClaimStore,
-  row: NotificationLogRow,
+  row: SendClaimRow,
   nowMs: number = Date.now(),
 ): Promise<SendClaim> {
   for (let round = 0; round < 2; round++) {

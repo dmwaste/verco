@@ -99,6 +99,9 @@ export function AdminTicketDetailClient({
   const [replyMode, setReplyMode] = useState<'reply' | 'internal'>('reply')
   const [isSending, setIsSending] = useState(false)
   const [sendError, setSendError] = useState<string | null>(null)
+  // The resident email for the latest public reply, when it didn't go out.
+  const [emailIssue, setEmailIssue] = useState<{ responseId: string; reason: 'not_sent' | 'no_email' } | null>(null)
+  const [isResending, setIsResending] = useState(false)
   const [copied, setCopied] = useState<string | null>(null)
   const threadEndRef = useRef<HTMLDivElement>(null)
 
@@ -178,10 +181,16 @@ export function AdminTicketDetailClient({
       },
     ])
 
-    // Email the resident on a public reply (fire-and-forget — never blocks the
-    // UI or the already-committed insert). Internal notes never notify.
+    // Email the resident on a public reply. Not awaited, so the composer frees
+    // up at once (a gateway retry can take a few seconds), but the outcome is
+    // shown when it lands: staff see a reply email that didn't go out and can
+    // resend it (#671). Internal notes never notify.
     if (replyMode === 'reply') {
-      void invokeNotifyTicketResponse(supabase, response.id)
+      setEmailIssue(null)
+      const responseId = response.id
+      invokeNotifyTicketResponse(supabase, responseId).then((outcome) => {
+        if (!outcome.ok) setEmailIssue({ responseId, reason: outcome.reason })
+      })
     }
 
     // If replying to resident and ticket was open, set to waiting_on_customer
@@ -191,6 +200,17 @@ export function AdminTicketDetailClient({
 
     setReplyText('')
     setIsSending(false)
+  }
+
+  async function handleResendEmail() {
+    if (!emailIssue) return
+    const { responseId } = emailIssue
+    setIsResending(true)
+    // Safe to repeat: the EF claims each reply's send, so a resend after an
+    // email that did in fact go out is skipped, never sent twice.
+    const outcome = await invokeNotifyTicketResponse(supabase, responseId)
+    setEmailIssue(outcome.ok ? null : { responseId, reason: outcome.reason })
+    setIsResending(false)
   }
 
   function copyToClipboard(text: string, label: string) {
@@ -349,6 +369,25 @@ export function AdminTicketDetailClient({
             />
             {sendError && (
               <div className="mt-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-body-sm text-red-700">{sendError}</div>
+            )}
+            {emailIssue && (
+              <div role="status" className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg bg-status-warn-bg px-3 py-2 text-body-sm text-status-warn">
+                <span>
+                  {emailIssue.reason === 'no_email'
+                    ? 'Your reply is saved, but this resident has no email address on file, so they weren’t emailed.'
+                    : 'Your reply is saved, but the email to the resident didn’t send.'}
+                </span>
+                {emailIssue.reason === 'not_sent' && (
+                  <button
+                    type="button"
+                    onClick={handleResendEmail}
+                    disabled={isResending}
+                    className="font-semibold underline underline-offset-2 disabled:opacity-50"
+                  >
+                    {isResending ? 'Resending…' : 'Resend email'}
+                  </button>
+                )}
+              </div>
             )}
             <div className="mt-3 flex justify-end">
               <button

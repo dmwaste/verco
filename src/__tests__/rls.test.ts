@@ -4133,5 +4133,19 @@ if (!haveDb) {
         await pg.query('ROLLBACK')
       }
     })
+
+    it('a ticket reply with no booking is one key too (NULLS NOT DISTINCT)', async (ctx) => {
+      if (!(await deployed())) return ctx.skip()
+      const reply = '00000000-0000-4000-8000-0000000006a2'
+      const claim = `INSERT INTO notification_log (booking_id, client_id, channel, notification_type, to_address, status, reference_id)
+                     VALUES (NULL, $1, 'email', 'ticket_response', 'rls-probe', $2, $3)`
+      await pg.query('BEGIN')
+      try {
+        await pg.query(claim, [CLIENT_ID, 'queued', reply])
+        await expect(pg.query(claim, [CLIENT_ID, 'sent', reply])).rejects.toMatchObject({ code: '23505' })
+      } finally {
+        await pg.query('ROLLBACK')
+      }
+    })
   })
 })

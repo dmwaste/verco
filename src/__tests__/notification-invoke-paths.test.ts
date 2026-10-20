@@ -73,9 +73,12 @@ describe('booking_created invoke paths', () => {
     ])
   })
 
-  it('has no bare `void` send-notification invoke anywhere in src/', () => {
+  it('has no bare `void` notification invoke anywhere in src/', () => {
+    // Includes the browser-side ticket reply hop: a dropped `void` promise
+    // there loses the resident's reply email with only a console line, and
+    // the staff member who just replied never hears (#671 follow-up).
     const offenders = srcFiles
-      .filter((f) => /void\s+invoke(SendNotification|BookingCreated)\b/.test(f.text))
+      .filter((f) => /void\s+invoke(SendNotification|BookingCreated|NotifyTicketResponse)\b/.test(f.text))
       .map((f) => f.path)
     expect(offenders).toEqual([])
   })

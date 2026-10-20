@@ -10,11 +10,15 @@
 --    the dispatcher started) hits 23505 and skips instead of sending again.
 --    'failed' rows are outside the predicate, so a failure never blocks the
 --    next attempt. Per-channel, as before: email and SMS claim separately.
---    reference_id is part of the key (ncn_id / np_id / correction_id …) so
---    per-notice types still notify once per notice; NULL is coalesced so
---    booking-level types (booking_created …) dedupe per booking.
---    Prod check 20/10/2026: zero existing duplicate keys among queued/sent
---    rows, and zero 'queued' rows at all, so the index builds as-is.
+--    reference_id is part of the key (ncn_id / np_id / edit_ref / correction_id
+--    / ticket_response id) so per-notice types still notify once per notice.
+--    NULLS NOT DISTINCT makes a NULL reference (booking-level types such as
+--    booking_created dedupe per booking) and a NULL booking (a ticket reply on
+--    a ticket with no booking — notify-ticket-response claims the same way)
+--    each a real key value instead of "never equal".
+--    Prod check 20/10/2026 (Postgres 17.6): zero existing duplicate keys among
+--    queued/sent rows, NULL booking rows included (116, all ticket_response),
+--    and zero 'queued' rows at all, so the index builds as-is.
 --    Readers: 'queued' already meant "about to send" (CHECK from 20260409),
 --    nothing counts it as sent or failed; the watchdog now treats a booking
 --    whose only booking_created row is a stranded 'queued' claim as
@@ -35,13 +39,9 @@
 --    can already trigger that confirmation through send-notification.
 
 CREATE UNIQUE INDEX IF NOT EXISTS notification_log_send_claim_key
-  ON public.notification_log (
-    booking_id,
-    notification_type,
-    channel,
-    COALESCE(reference_id, '00000000-0000-0000-0000-000000000000'::uuid)
-  )
-  WHERE status IN ('queued', 'sent') AND booking_id IS NOT NULL;
+  ON public.notification_log (booking_id, notification_type, channel, reference_id)
+  NULLS NOT DISTINCT
+  WHERE status IN ('queued', 'sent');
 
 COMMENT ON INDEX public.notification_log_send_claim_key IS
   'Send claim (#671): one queued-or-sent row per (booking, type, channel, reference). '

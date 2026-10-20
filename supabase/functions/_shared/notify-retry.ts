@@ -8,22 +8,19 @@
 // Never name the service-role env var in this file: the mirror lands in src/,
 // where deploy.yml's Red Line #3 grep fails the image build on the name alone.
 //
-// Contract (#664, extended by #671):
-//   - Retries transient failures (429/502/503/504 or a thrown fetch) twice,
-//     backing off 500 ms then 1,500 ms. Retrying a 504 or our own timeout is
-//     safe because the dispatcher CLAIMS each channel before sending (a `queued`
-//     row under notification_log_send_claim_key) — a retry that lands while the
-//     first attempt is still sending is skipped, never sent twice.
-//   - A 429 / RateLimitError waits the retry-after it was given (never less
-//     than the backoff). One longer than MAX_RATE_LIMIT_WAIT_MS isn't waited
-//     out — the caller is holding a booking response — it's recorded instead.
-//   - On FINAL failure writes a `failed` row for each channel the booking would
+// Contract (#664, extended by #671): the retry loop itself is ./post-retry.ts
+// (retries 429/502/503/504 + thrown fetches, honours retry-after, claim-guarded
+// so a 504 retry can't double-send). On top of it, this file:
+//   - on FINAL failure writes a `failed` row for each channel the booking would
 //     use (email; SMS when the contact can be texted) that has no row yet, so
 //     the miss shows on /admin/notifications and can be retried per channel,
-//     and reports a PII-free Sentry warning (ids + HTTP status only).
+//     and reports a PII-free Sentry warning (ids + HTTP status only);
 //   - NEVER throws: the booking is committed before we notify.
 
 import { isSmsDeliverable } from './dispatch.ts'
+import { describeAttempt, postWithRetry, type FailedAttempt } from './post-retry.ts'
+
+export { ATTEMPT_TIMEOUT_MS, MAX_RATE_LIMIT_WAIT_MS, RETRY_DELAYS_MS, RETRYABLE_STATUSES } from './post-retry.ts'
 
 export type BookingCreatedPayload = {
   type: 'booking_created'
@@ -33,18 +30,6 @@ export type BookingCreatedPayload = {
 export type InvokeOutcome =
   | { ok: true; attempts: number }
   | { ok: false; attempts: number; status: number | null; error: string }
-
-/** Backoff before retry 1 and retry 2 (ms). Two retries → three attempts. */
-export const RETRY_DELAYS_MS: readonly number[] = [500, 1500]
-
-/** Gateway / throttle statuses worth a retry. Anything else is final. */
-export const RETRYABLE_STATUSES: ReadonlySet<number> = new Set([429, 502, 503, 504])
-
-/** Per-attempt cap so a hung gateway can't hold the caller to the 150 s edge limit. */
-export const ATTEMPT_TIMEOUT_MS = 10_000
-
-/** Longest throttle wait worth holding a booking response for. */
-export const MAX_RATE_LIMIT_WAIT_MS = 5_000
 
 /** Embedded PostgREST relation — object, single-element array, or null. */
 type Embedded<T> = T | T[] | null
@@ -109,66 +94,6 @@ export interface InvokeWithRetryDeps {
   failureLog: FailureLog
 }
 
-type Attempt =
-  | { kind: 'ok' }
-  | { kind: 'http'; status: number; body: string; retryAfterMs: number | null }
-  | { kind: 'thrown'; error: string; retryAfterMs: number | null }
-
-type FailedAttempt = Exclude<Attempt, { kind: 'ok' }>
-
-/**
- * The edge runtime's EF→EF throttle (CLAUDE.md §11) throws a `RateLimitError`
- * with `retryAfterMs`. Duck-typed on `name`; same parse as
- * `rateLimitRetryAfterMs` in _shared/schedule-transition.ts (a separate mirror
- * tree, so not importable from here).
- */
-function thrownRetryAfterMs(err: unknown): number | null {
-  if (!(err instanceof Error) || err.name !== 'RateLimitError') return null
-  const declared = (err as Error & { retryAfterMs?: unknown }).retryAfterMs
-  if (typeof declared === 'number' && declared > 0) return declared
-  const parsed = /Retry after (\d+)\s*ms/i.exec(err.message)
-  return parsed ? Number(parsed[1]) : 60_000
-}
-
-/** `Retry-After` in seconds (the HTTP-date form is treated as unknown). */
-function headerRetryAfterMs(res: Response): number | null {
-  const seconds = Number(res.headers.get('retry-after'))
-  return Number.isFinite(seconds) && seconds > 0 ? seconds * 1000 : null
-}
-
-async function attemptOnce(
-  payload: BookingCreatedPayload,
-  deps: InvokeWithRetryDeps,
-  bearer: string,
-): Promise<Attempt> {
-  try {
-    const res = await deps.fetch(deps.url, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${bearer}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(ATTEMPT_TIMEOUT_MS),
-    })
-    if (res.ok) return { kind: 'ok' }
-    const body = await res.text().catch(() => '(no body)')
-    return {
-      kind: 'http',
-      status: res.status,
-      body: body.slice(0, 500),
-      retryAfterMs: res.status === 429 ? headerRetryAfterMs(res) : null,
-    }
-  } catch (err) {
-    return {
-      kind: 'thrown',
-      error: err instanceof Error ? err.message : String(err),
-      retryAfterMs: thrownRetryAfterMs(err),
-    }
-  }
-}
-
-function describe(a: FailedAttempt): string {
-  return a.kind === 'http' ? `returned HTTP ${a.status}` : `threw (${a.error})`
-}
-
 export async function invokeBookingCreatedWithRetry(
   payload: BookingCreatedPayload,
   deps: InvokeWithRetryDeps,
@@ -181,24 +106,15 @@ export async function invokeBookingCreatedWithRetry(
     })
   }
 
-  for (let attempt = 1; ; attempt++) {
-    const last = await attemptOnce(payload, deps, deps.bearer)
-    if (last.kind === 'ok') return { ok: true, attempts: attempt }
-
-    const retryable = last.kind === 'thrown' || RETRYABLE_STATUSES.has(last.status)
-    const backoff = RETRY_DELAYS_MS[attempt - 1]
-    if (!retryable || backoff === undefined) {
-      return await recordFinalFailure(payload, deps, attempt, last)
-    }
-    const wait = Math.max(backoff, last.retryAfterMs ?? 0)
-    if (wait > MAX_RATE_LIMIT_WAIT_MS) {
-      return await recordFinalFailure(payload, deps, attempt, last, wait)
-    }
-    console.warn(
-      `[notifications] send-notification ${describe(last)} for ${payload.type} ${payload.booking_id} — retry ${attempt}/${RETRY_DELAYS_MS.length} in ${wait}ms`,
-    )
-    await deps.sleep(wait)
-  }
+  const res = await postWithRetry(payload, {
+    url: deps.url,
+    bearer: deps.bearer,
+    fetch: deps.fetch,
+    sleep: deps.sleep,
+    label: `send-notification ${payload.type} ${payload.booking_id}`,
+  })
+  if (res.ok) return { ok: true, attempts: res.attempts }
+  return await recordFinalFailure(payload, deps, res.attempts, res.last, res.throttledWaitMs)
 }
 
 /** One `failed` row per channel the booking would use that has no row yet. */
@@ -241,7 +157,7 @@ async function recordFinalFailure(
     (throttledWaitMs !== undefined ? ` (rate limited — retry after ${throttledWaitMs} ms, not waited)` : '')
 
   console.error(
-    `[notifications] send-notification ${describe(last)} for ${payload.type} ${payload.booking_id} after ${attempts} attempt(s)` +
+    `[notifications] send-notification ${describeAttempt(last)} for ${payload.type} ${payload.booking_id} after ${attempts} attempt(s)` +
       (last.kind === 'http' ? `: ${last.body}` : ''),
   )
 

@@ -110,6 +110,7 @@ sync_one "$SHARED/dispatch.ts" "$MIRROR/dispatch.ts" || drift=1
 sync_one "$SHARED/notification-authz.ts" "$MIRROR/authz.ts" || drift=1
 sync_one "$SHARED/welcome-login-url.ts" "$MIRROR/welcome-login-url.ts" || drift=1
 sync_one "$SHARED/notification-health.ts" "$MIRROR/health.ts" || drift=1
+sync_one "$SHARED/post-retry.ts" "$MIRROR/post-retry.ts" || drift=1
 sync_one "$SHARED/notify-retry.ts" "$MIRROR/notify-retry.ts" || drift=1
 sync_one "$SHARED/ops-alert.ts" "$MIRROR/ops-alert.ts" || drift=1
 sync_one "$SHARED/stale-closeouts.ts" "src/lib/ops/stale-closeouts.ts" || drift=1

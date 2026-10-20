@@ -20,6 +20,7 @@ import {
   dispatch,
   STALE_CLAIM_AFTER_MS,
   type DispatchDeps,
+  type SendClaimRow,
   type SendClaimStore,
 } from '@/lib/notifications/dispatch'
 import type {
@@ -35,7 +36,7 @@ import { makeMockBooking } from './fixtures'
 const BOOKING_ID = 'b-claim-1'
 const NOW = Date.parse('2026-10-20T03:00:00Z')
 
-type StoredRow = NotificationLogRow & { id: string; created_at: string }
+type StoredRow = SendClaimRow & { id: string; created_at: string; error_message?: string }
 
 /**
  * notification_log stand-in. `claimStore` enforces the partial unique key the
@@ -45,7 +46,7 @@ type StoredRow = NotificationLogRow & { id: string; created_at: string }
 function makeLog(initial: Array<Partial<StoredRow>> = []) {
   const rows: StoredRow[] = []
   let seq = 0
-  const add = (row: NotificationLogRow, createdAt = NOW): StoredRow => {
+  const add = (row: SendClaimRow, createdAt = NOW): StoredRow => {
     const stored = { ...row, id: `log-${++seq}`, created_at: new Date(createdAt).toISOString() }
     rows.push(stored)
     return stored
@@ -67,7 +68,7 @@ function makeLog(initial: Array<Partial<StoredRow>> = []) {
     )
   }
 
-  const sameKey = (a: NotificationLogRow, b: NotificationLogRow) =>
+  const sameKey = (a: SendClaimRow, b: SendClaimRow) =>
     a.booking_id === b.booking_id &&
     a.notification_type === b.notification_type &&
     a.channel === b.channel &&

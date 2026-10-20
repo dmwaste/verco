@@ -10,12 +10,12 @@ import type {
   NotificationDispatchInput,
   NotificationLogRow,
   NotificationType,
-  SendClaimStore,
   SendEmailParams,
   SendEmailResult,
   SendSMSParams,
   SendSMSResult,
 } from '../_shared/dispatch.ts'
+import { notificationClaimStore } from '../_shared/notification-claim-store.ts'
 import { sendEmail as sendgridSendEmail } from '../_shared/sendgrid.ts'
 import { sendSMS as twilioSendSMS } from '../_shared/twilio.ts'
 import {
@@ -213,57 +213,7 @@ serve(withSentry('send-notification', async (req) => {
   }
 
   // ── Send-claim store over notification_log (#671) ──────────────────────
-  // Matches the index key exactly: a NULL reference_id is its own key value
-  // (the index coalesces it), so look it up with IS NULL, never "any ref".
-  const holderQuery = (row: NotificationLogRow) => {
-    const q = supabaseService
-      .from('notification_log')
-      .select('id, status, created_at')
-      .eq('booking_id', row.booking_id)
-      .eq('notification_type', row.notification_type)
-      .eq('channel', row.channel)
-      .in('status', ['queued', 'sent'])
-    return row.reference_id ? q.eq('reference_id', row.reference_id) : q.is('reference_id', null)
-  }
-  const claimStore: SendClaimStore = {
-    insertClaim: async (row) => {
-      const { data, error } = await supabaseService
-        .from('notification_log')
-        .insert({
-          booking_id: row.booking_id,
-          contact_id: row.contact_id,
-          client_id: row.client_id,
-          channel: row.channel,
-          notification_type: row.notification_type,
-          to_address: row.to_address,
-          status: 'queued',
-          reference_id: row.reference_id ?? null,
-        })
-        .select('id')
-        .single()
-      if (error?.code === '23505') return { conflict: true }
-      if (error || !data) return { error: error?.message ?? 'claim insert returned no row' }
-      return { id: data.id }
-    },
-    findHolder: async (row) => {
-      const { data, error } = await holderQuery(row).limit(1).maybeSingle()
-      if (error) return { error: error.message }
-      return data
-    },
-    releaseClaim: async (id, reason) => {
-      const { data, error } = await supabaseService
-        .from('notification_log')
-        .update({ status: 'failed', error_message: reason })
-        .eq('id', id)
-        .eq('status', 'queued')
-        .select('id')
-      if (error) {
-        console.error('releaseClaim failed:', error.message)
-        return false
-      }
-      return (data ?? []).length > 0
-    },
-  }
+  const claimStore = notificationClaimStore(supabaseService)
 
   // ── Wire up DispatchDeps with real implementations ─────────────────────
   const deps: DispatchDeps = {
