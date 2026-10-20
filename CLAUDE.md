@@ -48,7 +48,7 @@ Dan can't review code; the "why" is his review surface. Before shipping any non-
 | Backend | Supabase (separate AU project) | ap-southeast-2 |
 | Auth | Supabase Auth — email OTP only | No passwords, no OAuth |
 | Payments | Stripe | Single D&M account |
-| Package manager | pnpm | Never use npm or yarn |
+| Package manager | pnpm 9.15.9 (`packageManager` pin) | Never use npm or yarn. The pin keeps CI, Docker and Dependabot on one pnpm — pnpm 11+ ignores `package.json#pnpm.overrides` and strips every security pin from the lockfile (#602; CI job "Lockfile Security Pins" names them) |
 | Testing | Vitest + Testing Library + Playwright | Unit + E2E |
 | Fonts | Poppins + DM Sans self-hosted via next/font/local (`src/app/_fonts/`) — NEVER next/font/google (Google's `/l/font?kit=` URLs intermittently fail builds + deploys, #661) | `--font-poppins` (headings), `--font-dm-sans` (body/sans); each `-ext` (latin-ext) var precedes its latin var in globals.css |
 | Maps | Leaflet via `dynamic(() => ..., { ssr: false })` | OpenStreetMap tiles; coerce Postgres `numeric` → `Number()` |
