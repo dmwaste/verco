@@ -42,7 +42,7 @@ export {
   canonicaliseAuMobile,
   isSmsCapable,
 } from '@/lib/phone'
-import { canonicaliseAuMobile, isValidPhone, normalisePhone } from '@/lib/phone'
+import { canonicaliseAuMobile, isValidPhone, normalisePhone, PHONE_INVALID_MESSAGE } from '@/lib/phone'
 
 export const ContactSchema = z.object({
   first_name: z.string().min(1, 'First name is required').max(100),
@@ -58,7 +58,7 @@ export const ContactSchema = z.object({
     .trim()
     .min(1, 'Phone number is required')
     .max(25, 'Please enter a valid phone number')
-    .refine(isValidPhone, 'Please enter a valid phone number (e.g. 0412 345 678)')
+    .refine(isValidPhone, PHONE_INVALID_MESSAGE)
     .transform((val) => canonicaliseAuMobile(val) ?? normalisePhone(val)),
 })
 

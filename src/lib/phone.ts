@@ -42,10 +42,28 @@ export function formatAuMobileDisplay(e164: string): string {
 /** Strip phone formatting (spaces, parens, hyphens, dots) but keep a leading +. */
 export const normalisePhone = (s: string) => s.replace(/[\s()\-.]/g, '')
 
-/** Accepts mobile / landline / 1300 / 1800 / 13xx / international. Rejects letters, too-short, +0. */
+/** The field error every phone input shows when isValidPhone rejects it. */
+export const PHONE_INVALID_MESSAGE =
+  'Check your number. Mobiles are 10 digits (04xx xxx xxx); landlines need the area code (08 xxxx xxxx).'
+
+/**
+ * Accepts mobile / landline / 1300 / 1800 / 13xx / international. Rejects letters,
+ * too-short, +0, and an Australian-looking number with the wrong digit count (#668:
+ * `0413 12345` passed, was stored raw, and the resident silently got no SMS).
+ * Another country's number keeps the loose 6–15-digit rule.
+ */
 export function isValidPhone(s: string): boolean {
   const v = normalisePhone(s.trim())
-  return /^\+?\d{6,15}$/.test(v) && !v.startsWith('+0')
+  return /^\+?\d{6,15}$/.test(v) && !v.startsWith('+0') && hasAuLength(v.replace(/^00/, '+'))
+}
+
+function hasAuLength(v: string): boolean {
+  if (/^\+?61/.test(v)) return /^\+?610?[1-9]\d{8}$/.test(v) // +61 [0] + 9 digits
+  if (v.startsWith('+')) return true
+  if (/^0[2-478]/.test(v) || /^1[38]00/.test(v)) return v.length === 10 // 04 mobile, 0[2378] landline
+  if (v.startsWith('4')) return v.length === 9 // 412… (no 0), canonicalised to +614…
+  if (v.startsWith('13')) return v.length === 6
+  return v.length !== 8 // a local number with the area code left off
 }
 
 /**

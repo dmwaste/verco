@@ -14,6 +14,7 @@ import {
   MUD_MIN_UNIT_COUNT,
   isValidPhone,
   isSmsCapable,
+  PHONE_INVALID_MESSAGE,
   type CollectionCadence,
 } from '@/lib/mud/validation'
 import { FieldLabel, Input, Select, Textarea } from '@/components/admin/form'
@@ -139,7 +140,7 @@ export function SetMudModal({ open, onOpenChange, property, onSuccess }: SetMudM
         return
       }
       if (!isValidPhone(contactMobile)) {
-        setError('Strata contact phone must be a valid phone number.')
+        setError(`Strata contact phone: ${PHONE_INVALID_MESSAGE}`)
         return
       }
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contactEmail.trim())) {
