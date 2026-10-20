@@ -110,6 +110,7 @@ sync_one "$SHARED/dispatch.ts" "$MIRROR/dispatch.ts" || drift=1
 sync_one "$SHARED/notification-authz.ts" "$MIRROR/authz.ts" || drift=1
 sync_one "$SHARED/welcome-login-url.ts" "$MIRROR/welcome-login-url.ts" || drift=1
 sync_one "$SHARED/notification-health.ts" "$MIRROR/health.ts" || drift=1
+sync_one "$SHARED/ops-alert.ts" "$MIRROR/ops-alert.ts" || drift=1
 sync_one "$SHARED/schedule-transition.ts" "src/lib/booking/schedule-transition.ts" || drift=1
 sync_one "$SHARED/stops.ts" "src/lib/stops/stops.ts" || drift=1
 sync_one "$SHARED/expiry-decision.ts" "src/lib/payments/expiry-decision.ts" || drift=1

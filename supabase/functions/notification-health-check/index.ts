@@ -1,5 +1,6 @@
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts'
 import { cronHandler } from '../_shared/cron-handler.ts'
+import { captureWarning } from '../_shared/sentry.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.100.0'
 import type { Database } from '../_shared/database.types.ts'
 import {
@@ -12,6 +13,16 @@ import {
   type HealthThresholds,
   type NotificationChannel,
 } from '../_shared/notification-health.ts'
+import {
+  ADMIN_ORIGIN,
+  buildTestAlert,
+  isTestAlertRequest,
+  opsAlertText,
+  resolveOpsAlertSink,
+  sendOpsAlert,
+  type OpsAlert,
+  type OpsAlertConfig,
+} from '../_shared/ops-alert.ts'
 
 /**
  * notification-health-check Edge Function (VER-254)
@@ -38,10 +49,22 @@ import {
  *
  * ## Alert path independence
  *
- * The alert goes to `OPS_ALERT_WEBHOOK_URL` (a Slack-compatible incoming
- * webhook, or any sink that accepts `{ text }`). This is deliberately
- * independent of both SendGrid (email) and Twilio (SMS) — alerting about a
- * dead email channel must not depend on that same email channel.
+ * The alert goes through `sendOpsAlert` (`_shared/ops-alert.ts`, #576) to
+ * `OPS_ALERT_WEBHOOK_URL` — a Teams Workflows webhook by default, or a
+ * `{ text }` (Slack-style) sink with OPS_ALERT_WEBHOOK_FORMAT=slack. This is
+ * deliberately independent of both SendGrid (email) and Twilio (SMS) — alerting
+ * about a dead email channel must not depend on that same email channel.
+ *
+ * Until #576 the URL was never set: the check found problems, logged them and
+ * returned 200, unseen for three months. Now a missing or broken sink raises a
+ * Sentry warning on EVERY run (healthy runs included), so the gap is visible
+ * before the next incident needs it. Runbook: docs/runbooks/ops-alerts.md.
+ *
+ * ## Test alert
+ *
+ * POST `{ "test_alert": true }` (through the same cron gate — X-Cron-Secret or
+ * a service-role bearer) skips the checks, sends a clearly labelled test
+ * message through the sink, and returns what the webhook answered.
  *
  * ## Auth
  *
@@ -53,7 +76,9 @@ import {
  * ## Config (Edge Function secrets / env)
  *
  *   OPS_ALERT_WEBHOOK_URL          required for alerts to actually send;
- *                                  absent → the check still runs + logs, no POST
+ *                                  absent → the check still runs + logs, no
+ *                                  POST, and a Sentry warning names the secret
+ *   OPS_ALERT_WEBHOOK_FORMAT       `teams` (default) | `slack`
  *   NOTIF_HEALTH_WINDOW_HOURS      default 3
  *   NOTIF_HEALTH_FAILURE_THRESHOLD default 3
  *   NOTIF_HEALTH_MISSING_CONFIRMATION_HOURS
@@ -64,12 +89,16 @@ import {
  *
  * ## Return contract
  *
- *   200 — check ran (whether or not channels were unhealthy / an alert sent)
+ *   200 — check ran (whether or not channels were unhealthy / an alert sent;
+ *         an unset URL stays 200 — a config gap, reported to Sentry instead)
  *   500 — the DB read failed, or an alert was warranted but the webhook POST
- *         failed (so pg_cron records a non-success HTTP status — a 200 would
- *         hide a broken alert path, exactly the silent-failure trap we're
- *         closing).
+ *         failed or OPS_ALERT_WEBHOOK_FORMAT is invalid (so pg_cron records a
+ *         non-success HTTP status — a 200 would hide a broken alert path,
+ *         exactly the silent-failure trap we're closing)
+ *   test alert: 200 when the webhook accepted it, 500 otherwise.
  */
+
+const SOURCE = 'notification-health-check'
 
 const CHANNELS: NotificationChannel[] = ['email', 'sms']
 
@@ -80,7 +109,20 @@ function intFromEnv(name: string, fallback: number): number {
   return Number.isFinite(n) && n > 0 ? n : fallback
 }
 
-serve(cronHandler('notification-health-check', async (_req) => {
+serve(cronHandler(SOURCE, async (req) => {
+  const sinkConfig: OpsAlertConfig = {
+    webhookUrl: Deno.env.get('OPS_ALERT_WEBHOOK_URL'),
+    format: Deno.env.get('OPS_ALERT_WEBHOOK_FORMAT'),
+  }
+
+  // pg_cron posts `{}`; the runbook's test posts `{ "test_alert": true }`.
+  const body: unknown = await req.json().catch(() => null)
+  if (isTestAlertRequest(body)) {
+    const result = await sendOpsAlert(buildTestAlert(SOURCE), sinkConfig, { captureWarning })
+    console.log(`${SOURCE}: test alert`, JSON.stringify(result))
+    return jsonResponse({ ok: result.delivered, test_alert: true, ...result }, result.delivered ? 200 : 500)
+  }
+
   const supabase = createClient<Database>(
     Deno.env.get('SUPABASE_URL')!,
     Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
@@ -226,58 +268,47 @@ serve(cronHandler('notification-health-check', async (_req) => {
     console.log('notification-health-check:', JSON.stringify(summary))
 
     if (unhealthy.length === 0 && missingConfirmations.length === 0) {
+      // Healthy — but a watchdog that can't speak is itself a fault (#576):
+      // say so every run until the sink is fixed, not only mid-incident.
+      const sink = resolveOpsAlertSink(sinkConfig)
+      if (!sink.ok) {
+        console.warn(`${SOURCE}: healthy, but the watchdog cannot alert — ${sink.error}`)
+        captureWarning(`${SOURCE}: the watchdog cannot alert — ${sink.error}`, { reason: sink.reason })
+      }
       return jsonResponse({ ok: true, alerted: false, ...summary }, 200)
     }
 
     // 4. Unhealthy and/or missing confirmations → alert via the
-    //    channel-independent webhook.
+    //    channel-independent ops sink. Counts, channels and booking refs only
+    //    (sendOpsAlert also scrubs emails/phones from the provider error text).
     const message = buildHealthAlert(unhealthy, thresholds, missingConfirmations)!
-    const webhookUrl = Deno.env.get('OPS_ALERT_WEBHOOK_URL')
+    const [title = 'Verco notification health alert', ...lines] = message.split('\n')
+    const alert: OpsAlert = {
+      source: SOURCE,
+      title,
+      lines,
+      links: [{ label: 'Notification log', url: `${ADMIN_ORIGIN}/admin/notifications` }],
+    }
+    const result = await sendOpsAlert(alert, sinkConfig, { captureWarning })
 
-    if (!webhookUrl) {
-      // No sink configured. Still surface loudly in the EF logs and report
-      // back — but this is a config gap, not a per-run failure, so 200.
-      console.warn(
-        'notification-health-check: unhealthy channel(s) / missing confirmation(s) detected but ' +
-          'OPS_ALERT_WEBHOOK_URL is not set — no alert sent.\n' +
-          message,
+    if (result.delivered) {
+      console.log(
+        `${SOURCE}: alert sent for`,
+        JSON.stringify({ unhealthy: summary.unhealthy, missing_confirmations: summary.missing_confirmations }),
       )
-      return jsonResponse(
-        { ok: true, alerted: false, alert_skipped: 'OPS_ALERT_WEBHOOK_URL not set', ...summary },
-        200,
-      )
+      return jsonResponse({ ok: true, alerted: true, ...summary }, 200)
     }
 
-    let postRes: Response
-    try {
-      postRes = await fetch(webhookUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: message }),
-      })
-    } catch (postErr) {
-      const error = postErr instanceof Error ? postErr.message : String(postErr)
-      console.error('notification-health-check: alert webhook POST threw', error)
-      return jsonResponse({ ok: false, error: `alert webhook failed: ${error}`, ...summary }, 500)
+    console.warn(`${SOURCE}: alert NOT sent — ${result.error}\n${opsAlertText(alert)}`)
+    if (result.reason === 'not_configured') {
+      // A config gap, not a per-run failure, so 200 — sendOpsAlert has already
+      // raised the Sentry warning that makes it visible.
+      return jsonResponse({ ok: true, alerted: false, alert_skipped: result.error, ...summary }, 200)
     }
-
-    if (!postRes.ok) {
-      const body = await postRes.text().catch(() => '')
-      console.error(
-        `notification-health-check: alert webhook returned ${postRes.status}`,
-        body,
-      )
-      return jsonResponse(
-        { ok: false, error: `alert webhook returned ${postRes.status}`, ...summary },
-        500,
-      )
-    }
-
-    console.log(
-      'notification-health-check: alert sent for',
-      JSON.stringify({ unhealthy: summary.unhealthy, missing_confirmations: summary.missing_confirmations }),
+    return jsonResponse(
+      { ok: false, alerted: false, error: `alert not sent: ${result.error}`, ...summary },
+      500,
     )
-    return jsonResponse({ ok: true, alerted: true, ...summary }, 200)
   } catch (err) {
     const error = err instanceof Error ? err.message : String(err)
     console.error('notification-health-check: uncaught', error)
