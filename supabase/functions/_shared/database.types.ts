@@ -2965,6 +2965,18 @@ export type Database = {
         Returns: boolean
       }
       generate_booking_ref: { Args: { p_area_code: string }; Returns: string }
+      get_booking_tally: {
+        Args: {
+          p_area_ids?: string[]
+          p_client_id: string
+          p_date_from?: string
+          p_date_to?: string
+          p_service_ids?: string[]
+          p_statuses?: Database["public"]["Enums"]["booking_status"][]
+          p_types?: Database["public"]["Enums"]["booking_type"][]
+        }
+        Returns: Json
+      }
       get_client_monthly_report: {
         Args: { p_client_id: string; p_month: string }
         Returns: {
