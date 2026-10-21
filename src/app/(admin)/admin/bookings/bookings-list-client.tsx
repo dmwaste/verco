@@ -15,6 +15,7 @@ import { Pagination } from '@/components/admin/pagination'
 import Link from 'next/link'
 import type { Database } from '@/lib/supabase/types'
 import { areaFilterGroups, onlyKnown, onlyUuids, parseMultiParam } from './list-filters'
+import { BookingTallyPanel } from './booking-tally-panel'
 
 type BookingStatus = Database['public']['Enums']['booking_status']
 type BookingType = Database['public']['Enums']['booking_type']
@@ -523,6 +524,17 @@ export function BookingsListClient({ clientId, isContractorAdmin }: BookingsList
         </div>
 
         <Pagination page={page} pageSize={PAGE_SIZE} total={total} onPageChange={setPage} />
+
+        <BookingTallyPanel
+          clientId={clientId}
+          statuses={statusFilter}
+          areaIds={areaFilter}
+          types={typeFilter}
+          serviceIds={serviceFilter}
+          dateFrom={dateFrom}
+          dateTo={dateTo}
+          searching={search.trim() !== ''}
+        />
       </div>
     </>
   )
