@@ -2,24 +2,27 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import type { CallerMatch } from '@/app/(admin)/admin/lookup/caller-matches'
 
 /**
- * What the caller lookup page loads around the matches (VER-316): the notes on
- * every property the callers have booked (VER-321), each property once, and
- * nothing extra on a miss.
+ * What the caller lookup page does around the matches (VER-316): loads the
+ * notes on every property the callers have booked (VER-321), each property
+ * once, and records a view of every contact it shows (VER-322, ADR 0040).
  */
 
-const { rpc, loadCallerMatches, loadPropertyNotes, getCurrentAdminClient, getAccessibleAdminClients } = vi.hoisted(() => ({
-  rpc: vi.fn(),
-  loadCallerMatches: vi.fn(),
-  loadPropertyNotes: vi.fn(),
-  getCurrentAdminClient: vi.fn(),
-  getAccessibleAdminClients: vi.fn(),
-}))
+const { rpc, loadCallerMatches, loadPropertyNotes, getCurrentAdminClient, getAccessibleAdminClients, logContactViews } =
+  vi.hoisted(() => ({
+    rpc: vi.fn(),
+    loadCallerMatches: vi.fn(),
+    loadPropertyNotes: vi.fn(),
+    getCurrentAdminClient: vi.fn(),
+    getAccessibleAdminClients: vi.fn(),
+    logContactViews: vi.fn(),
+  }))
 
 vi.mock('@/lib/supabase/server', () => ({ createClient: vi.fn(async () => ({ rpc })) }))
 vi.mock('next/navigation', () => ({ redirect: vi.fn() }))
 vi.mock('@/app/(admin)/admin/lookup/caller-matches', () => ({ loadCallerMatches }))
 vi.mock('@/lib/property-notes/load', () => ({ loadPropertyNotes }))
 vi.mock('@/lib/admin/current-client', () => ({ getCurrentAdminClient, getAccessibleAdminClients }))
+vi.mock('@/lib/contacts/view-log', () => ({ logContactViews }))
 
 import CallerLookupPage from '@/app/(admin)/admin/lookup/page'
 
@@ -88,6 +91,25 @@ describe('caller lookup page', () => {
 
     expect(getCurrentAdminClient).not.toHaveBeenCalled()
     expect(getAccessibleAdminClients).not.toHaveBeenCalled()
+  })
+
+  it('records a view of every contact it shows', async () => {
+    loadCallerMatches.mockResolvedValue({ ok: true, data: [match('c-a', []), match('c-b', [])] })
+
+    await CallerLookupPage({ searchParams })
+
+    expect(logContactViews).toHaveBeenCalledWith(expect.anything(), ['c-a', 'c-b'], 'caller_lookup')
+  })
+
+  it.each([
+    ['a miss', { ok: true, data: [] }],
+    ['a failed lookup', { ok: false, error: 'statement timeout' }],
+  ])('records no view on %s', async (_, result) => {
+    loadCallerMatches.mockResolvedValue(result)
+
+    await CallerLookupPage({ searchParams })
+
+    expect(logContactViews).toHaveBeenCalledWith(expect.anything(), [], 'caller_lookup')
   })
 
   it('looks up the switcher’s council only on a miss, with no notes to load', async () => {

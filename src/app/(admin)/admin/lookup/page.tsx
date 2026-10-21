@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { STAFF_ROLES } from '@/lib/auth/roles'
 import { getAccessibleAdminClients, getCurrentAdminClient } from '@/lib/admin/current-client'
 import { loadPropertyNotes } from '@/lib/property-notes/load'
+import { logContactViews } from '@/lib/contacts/view-log'
 import { CallerLookupView } from './caller-lookup-view'
 import { loadCallerMatches } from './caller-matches'
 import { phoneLookupCandidates } from './phone-lookup'
@@ -14,7 +15,8 @@ interface CallerLookupPageProps {
 /**
  * Caller lookup (VER-316): the Teams "open apps in browser for incoming PSTN
  * calls" target, https://admin.verco.au/admin/lookup?phone={phone}. Shows who
- * is ringing across every client the user can see; RLS does the scoping.
+ * is ringing across every client the user can see; RLS does the scoping. Every
+ * contact shown is recorded in contact_view_log (VER-322).
  *
  * Staff only, checked before any contact query: the admin host's proxy already
  * blocks other roles, but on a tenant subdomain the (admin) layout has no role
@@ -41,6 +43,8 @@ export default async function CallerLookupPage({ searchParams }: CallerLookupPag
     propertyIds.length > 0 ? getAccessibleAdminClients() : [],
     // Access notes on the callers' properties (VER-321), across councils by RLS.
     loadPropertyNotes(supabase, propertyIds),
+    // Who opened which resident (VER-322, ADR 0040). Never blocks the page.
+    logContactViews(supabase, matches.map((m) => m.contact.id), 'caller_lookup'),
   ])
 
   return (
