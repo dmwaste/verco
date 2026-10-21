@@ -9,6 +9,7 @@ import type { Result } from '@/lib/result'
 import type { PropertyNoteView } from '@/lib/property-notes/load'
 import { PropertyNoteList } from '../properties/[id]/property-note-list'
 import { formatPhoneDisplay } from './phone-lookup'
+import { AddNoteInCouncil } from './add-note-in-council'
 import type { CallerBooking, CallerMatch } from './caller-matches'
 
 interface CallerLookupViewProps {
@@ -22,6 +23,10 @@ interface CallerLookupViewProps {
   newBookingClientName?: string | null
   /** Notes on the properties of the callers' bookings (VER-321); null = the read failed. */
   propertyNotes?: PropertyNoteView[] | null
+  /** The switcher's council; the property page opens only properties in it. */
+  currentClientId?: string | null
+  /** Council names by client id, for the cross-council "Add a note". */
+  clientNames?: Record<string, string>
 }
 
 const dayLabel = (yyyymmdd: string) => format(new Date(`${yyyymmdd}T00:00:00`), 'EEE d MMM yyyy')
@@ -33,6 +38,8 @@ export function CallerLookupView({
   result,
   newBookingClientName,
   propertyNotes = [],
+  currentClientId = null,
+  clientNames = {},
 }: CallerLookupViewProps) {
   const display = candidates[0] ? formatPhoneDisplay(candidates[0]) : null
   const matches = result?.ok ? result.data : []
@@ -89,7 +96,13 @@ export function CallerLookupView({
         )}
 
         {matches.map((match) => (
-          <ContactCard key={match.contact.id} match={match} propertyNotes={propertyNotes} />
+          <ContactCard
+            key={match.contact.id}
+            match={match}
+            propertyNotes={propertyNotes}
+            currentClientId={currentClientId}
+            clientNames={clientNames}
+          />
         ))}
       </div>
     </>
@@ -98,10 +111,12 @@ export function CallerLookupView({
 
 function ContactCard({
   match: { contact, bookings, tickets },
-  propertyNotes,
+  ...notesProps
 }: {
   match: CallerMatch
   propertyNotes: PropertyNoteView[] | null
+  currentClientId: string | null
+  clientNames: Record<string, string>
 }) {
   return (
     <section className="flex flex-col gap-4 rounded-xl bg-white p-5 shadow-sm">
@@ -163,7 +178,7 @@ function ContactCard({
         )}
       </div>
 
-      <PropertyNotes contactId={contact.id} bookings={bookings} notes={propertyNotes} />
+      <PropertyNotes contactId={contact.id} bookings={bookings} {...notesProps} />
 
       <div>
         <h3 className="mb-2 text-caption font-semibold uppercase tracking-wide text-gray-500">
@@ -204,14 +219,18 @@ function ContactCard({
 function PropertyNotes({
   contactId,
   bookings,
-  notes,
+  propertyNotes: notes,
+  currentClientId,
+  clientNames,
 }: {
   contactId: string
   bookings: CallerBooking[]
-  notes: PropertyNoteView[] | null
+  propertyNotes: PropertyNoteView[] | null
+  currentClientId: string | null
+  clientNames: Record<string, string>
 }) {
   const properties = [
-    ...new Map(bookings.flatMap((b) => (b.propertyId ? [[b.propertyId, b.address] as const] : []))),
+    ...new Map(bookings.flatMap((b) => (b.propertyId ? [[b.propertyId, b] as const] : []))),
   ]
   if (properties.length === 0) return null
 
@@ -227,7 +246,7 @@ function PropertyNotes({
         </p>
       ) : (
         <div className="flex flex-col gap-2">
-          {properties.map(([propertyId, address]) => {
+          {properties.map(([propertyId, { address, clientId }]) => {
             const entries = notes.filter((n) => n.property_id === propertyId)
             return (
               <div key={propertyId} className="rounded-lg border border-gray-100">
@@ -235,12 +254,20 @@ function PropertyNotes({
                   <span className="min-w-0 truncate text-body-sm font-medium text-gray-900" title={address ?? undefined}>
                     {address ?? 'Property'}
                   </span>
-                  <Link
-                    href={`/admin/properties/${propertyId}`}
-                    className="shrink-0 text-body-sm font-semibold text-[#293F52] hover:underline"
-                  >
-                    Add a note
-                  </Link>
+                  {clientId === currentClientId ? (
+                    <Link
+                      href={`/admin/properties/${propertyId}`}
+                      className="shrink-0 text-body-sm font-semibold text-[#293F52] hover:underline"
+                    >
+                      Add a note
+                    </Link>
+                  ) : (
+                    <AddNoteInCouncil
+                      propertyId={propertyId}
+                      clientId={clientId}
+                      clientName={clientNames[clientId] ?? 'its council'}
+                    />
+                  )}
                 </div>
                 {entries.length === 0 ? (
                   <p className="border-t border-gray-100 px-5 py-2.5 text-body-sm text-gray-400">No notes</p>
