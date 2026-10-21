@@ -127,9 +127,13 @@ BEGIN
   -- predicates as the invoice RPC). Only an attended booking is flagged: a
   -- Rebooked or Cancelled one is already outside the billable total and keeps
   -- its own status and reason, rather than being split across two lines.
+  -- Every item of the booking, whatever the date/service filter: `counted`
+  -- labels a booking "D&M's fault" only when ALL of its billable work came off
+  -- the invoice, so a Green filter can't mislabel a booking whose general run
+  -- still billed. `booked` applies the filters when it sums units.
   items AS (
     SELECT bi.booking_id, b.status, b.attended, cat.code AS category,
-           s.name AS service, bi.is_extra,
+           s.name AS service, bi.is_extra, bi.service_id, cd.date AS coll_date,
            coalesce(bi.actual_services, bi.no_services) AS units,
            b.attended AND cd.date >= DATE '2026-10-01' AND EXISTS (
              SELECT 1
@@ -152,9 +156,6 @@ BEGIN
       JOIN collection_date cd ON cd.id = bi.collection_date_id
      WHERE (v_statuses IS NULL OR b.status = ANY (v_statuses))
        AND NOT (s.is_mattress AND v_has_mattress_stream)
-       AND (p_date_from IS NULL OR cd.date >= p_date_from)
-       AND (p_date_to   IS NULL OR cd.date <= p_date_to)
-       AND (v_service_ids IS NULL OR bi.service_id = ANY (v_service_ids))
   ),
   counted AS (
     SELECT bk.status, bk.attended,
@@ -190,6 +191,9 @@ BEGIN
            it.category, it.service, it.is_extra,
            sum(it.units)::bigint AS units
       FROM items it
+     WHERE (p_date_from IS NULL OR it.coll_date >= p_date_from)
+       AND (p_date_to   IS NULL OR it.coll_date <= p_date_to)
+       AND (v_service_ids IS NULL OR it.service_id = ANY (v_service_ids))
      GROUP BY 1, 2, 3, it.category, it.service, it.is_extra
   ),
   stop_mattress AS (
