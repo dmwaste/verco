@@ -14,9 +14,10 @@
 --   * billable = Completed | Non-conformance | Nothing Presented: attended
 --     collections, billed at the normal rate. Cancelled, Scheduled, Rebooked
 --     and Missed Collection are outside the billable total (ADR 0017);
---   * EXCEPT a Nothing Presented the office recorded as D&M's fault
---     (nothing_presented.contractor_fault, ADR 0039): the items on that stop's
---     waste stream are not billable, and nor is that stop's crew mattress count;
+--   * EXCEPT a Nothing Presented or Non-conformance the office recorded as
+--     D&M's fault (contractor_fault on the notice, ADR 0039): the items on that
+--     stop's waste stream are not billable, and nor is that stop's crew
+--     mattress count;
 --   * soft-deleted bookings never count;
 --   * a tenant that logs mattresses at closeout (mattress_closeout_stream) has
 --     its is_mattress items dropped and the crew's collection_stop.mattress_count
@@ -27,12 +28,13 @@
 -- Unlike the invoice, the tally returns EVERY status in the filtered set, each
 -- row flagged `billable`, so the screen can show the billable subtotal and the
 -- rest beside it. The flag is the only place the billable set lives for the UI
--- (no TypeScript copy). Our-fault Nothing Presented rows come back as status
--- 'Nothing Presented' with contractor_fault = true and billable = false, so the
--- screen lists them outside the billable total instead of losing them. A
--- booking counts as our-fault only when ALL its items are on our-fault streams;
--- a booking with one faulted stream still counts as billable, and only that
--- stream's units move.
+-- (no TypeScript copy). Our-fault rows come back with contractor_fault = true
+-- and billable = false, labelled with the notice's outcome ('Nothing Presented'
+-- or 'Non-conformance'), so the screen lists them outside the billable total
+-- instead of losing them. A booking counts as our-fault only when ALL its items
+-- are on our-fault streams (labelled with the booking's own status); a booking
+-- with one faulted stream still counts as billable, and only that stream's
+-- units move.
 --
 -- Filters mirror the bookings list (empty array = no filter): statuses (booking
 -- status; for crew-logged mattresses, the stop status, which uses the same
@@ -120,18 +122,28 @@ BEGIN
        AND (v_types IS NULL OR b.type = ANY (v_types))
   ),
   -- One row per booking_item in scope, flagged when its waste stream had an
-  -- our-fault Nothing Presented (ADR 0039; same predicate as the invoice RPC).
+  -- our-fault Nothing Presented or Non-conformance (ADR 0039; the same
+  -- predicates as the invoice RPC). Only an attended booking is flagged: a
+  -- Rebooked or Cancelled one is already outside the billable total and keeps
+  -- its own status and reason, rather than being split across two lines.
   items AS (
     SELECT bi.booking_id, b.status, b.attended, cat.code AS category,
            s.name AS service, bi.is_extra,
            coalesce(bi.actual_services, bi.no_services) AS units,
-           EXISTS (
+           b.attended AND EXISTS (
              SELECT 1
                FROM nothing_presented np
                LEFT JOIN collection_stop npcs ON npcs.id = np.collection_stop_id
               WHERE np.booking_id = b.id
                 AND np.contractor_fault
-                AND (np.collection_stop_id IS NULL OR npcs.stream = s.waste_stream)) AS np_fault
+                AND (np.collection_stop_id IS NULL OR npcs.stream = s.waste_stream)) AS np_fault,
+           b.attended AND EXISTS (
+             SELECT 1
+               FROM non_conformance_notice ncn
+               LEFT JOIN collection_stop ncncs ON ncncs.id = ncn.collection_stop_id
+              WHERE ncn.booking_id = b.id
+                AND ncn.contractor_fault
+                AND (ncn.collection_stop_id IS NULL OR ncncs.stream = s.waste_stream)) AS ncn_fault
       FROM bk b
       JOIN booking_item bi    ON bi.booking_id = b.id
       JOIN service s          ON s.id  = bi.service_id
@@ -146,9 +158,9 @@ BEGIN
   counted AS (
     SELECT bk.status, bk.attended,
            -- Our fault as a whole only when no item sits outside a faulted stream.
-           EXISTS (SELECT 1 FROM items it WHERE it.booking_id = bk.id AND it.np_fault)
-             AND NOT EXISTS (SELECT 1 FROM items it WHERE it.booking_id = bk.id AND NOT it.np_fault)
-             AS np_fault
+           EXISTS (SELECT 1 FROM items it WHERE it.booking_id = bk.id AND (it.np_fault OR it.ncn_fault))
+             AND NOT EXISTS (SELECT 1 FROM items it WHERE it.booking_id = bk.id AND NOT (it.np_fault OR it.ncn_fault))
+             AS our_fault
       FROM bk
      WHERE (v_statuses IS NULL OR bk.status = ANY (v_statuses))
        AND (NOT v_item_filter OR EXISTS (
@@ -161,30 +173,35 @@ BEGIN
                 AND (v_service_ids IS NULL OR bi.service_id = ANY (v_service_ids))))
   ),
   counts AS (
-    SELECT CASE WHEN c.np_fault THEN 'Nothing Presented' ELSE c.status::text END AS status,
-           c.attended AND NOT c.np_fault AS billable,
-           c.np_fault AS contractor_fault,
+    SELECT c.status::text AS status,
+           c.attended AND NOT c.our_fault AS billable,
+           c.our_fault AS contractor_fault,
            count(*)::bigint AS bookings
       FROM counted c
      GROUP BY 1, 2, 3
   ),
   booked AS (
-    SELECT CASE WHEN it.np_fault THEN 'Nothing Presented' ELSE it.status::text END AS status,
-           it.attended AND NOT it.np_fault AS billable,
-           it.np_fault AS contractor_fault,
+    SELECT CASE WHEN it.np_fault  THEN 'Nothing Presented'
+                WHEN it.ncn_fault THEN 'Non-conformance'
+                ELSE it.status::text END AS status,
+           it.attended AND NOT (it.np_fault OR it.ncn_fault) AS billable,
+           it.np_fault OR it.ncn_fault AS contractor_fault,
            it.category, it.service, it.is_extra,
            sum(it.units)::bigint AS units
       FROM items it
      GROUP BY 1, 2, 3, it.category, it.service, it.is_extra
   ),
   stop_mattress AS (
-    SELECT cs.status, NOT cs.np_fault AS billable, cs.np_fault AS contractor_fault,
+    SELECT cs.status, NOT cs.our_fault AS billable, cs.our_fault AS contractor_fault,
            sum(cs.mattress_count)::bigint AS units
       FROM (
         SELECT cs.status::text AS status, cs.mattress_count,
                EXISTS (
                  SELECT 1 FROM nothing_presented np
-                  WHERE np.collection_stop_id = cs.id AND np.contractor_fault) AS np_fault
+                  WHERE np.collection_stop_id = cs.id AND np.contractor_fault)
+                 OR EXISTS (
+                 SELECT 1 FROM non_conformance_notice ncn
+                  WHERE ncn.collection_stop_id = cs.id AND ncn.contractor_fault) AS our_fault
           FROM bk
           JOIN collection_stop cs ON cs.booking_id = bk.id
           JOIN collection_date cd ON cd.id = cs.collection_date_id
@@ -201,7 +218,7 @@ BEGIN
            AND (p_date_from IS NULL OR cd.date >= p_date_from)
            AND (p_date_to   IS NULL OR cd.date <= p_date_to)
       ) cs
-     GROUP BY cs.status, cs.np_fault
+     GROUP BY cs.status, cs.our_fault
   )
   SELECT jsonb_build_object(
     'bookings', coalesce((
