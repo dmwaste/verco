@@ -128,7 +128,7 @@ test.describe('Stuck closeouts strip — contractor dashboard (seeded)', () => {
     expect(landed.get('date_to')).toBe(cutoff)
     // The list picks its filters up from the URL, so the count and the list agree.
     // Status is a multi-select (VER-323): its trigger names the single ticked value.
-    await expect(page.getByRole('button', { name: 'Filter by status' })).toHaveText(/^Scheduled/)
+    await expect(page.getByRole('button', { name: /^Filter by status/ })).toHaveText(/^Scheduled/)
     await expect(page.getByLabel('Collection date to')).toHaveValue(cutoff)
   })
 

@@ -150,7 +150,9 @@ export function MultiSelectFilter({
   return (
     <Menu.Root>
       <Menu.Trigger
-        aria-label={ariaLabel}
+        // Name carries the current value, as a native <select> announces it
+        // (label-in-name: "Filter by status: 3 statuses").
+        aria-label={`${ariaLabel}: ${summary}`}
         className={cn(
           'inline-flex items-center gap-1.5 rounded-lg border-[1.5px] bg-white px-3 py-[7px] text-body-sm',
           selected.length > 0 ? 'border-[#293F52] font-medium text-gray-900' : 'border-gray-100 text-gray-700'
@@ -162,13 +164,17 @@ export function MultiSelectFilter({
       <Menu.Portal>
         <Menu.Positioner side="bottom" align="start" sideOffset={4} className="z-50">
           <Menu.Popup className="max-h-80 min-w-56 overflow-y-auto rounded-lg border border-gray-200 bg-white py-1 shadow-lg outline-none">
-            {selected.length > 0 && (
-              <div className="mb-1 border-b border-gray-100 pb-1">
-                <Menu.Item onClick={() => onChange([])} className={cn(MENU_ITEM_CLASS, 'font-medium text-[#293F52]')}>
-                  Clear selection
-                </Menu.Item>
-              </div>
-            )}
+            {/* Always rendered (disabled when empty) so the first tick doesn't
+                shift every option down under the cursor. */}
+            <div className="mb-1 border-b border-gray-100 pb-1">
+              <Menu.Item
+                disabled={selected.length === 0}
+                onClick={() => onChange([])}
+                className={cn(MENU_ITEM_CLASS, 'font-medium text-[#293F52] data-[disabled]:cursor-default data-[disabled]:text-gray-300')}
+              >
+                Clear selection
+              </Menu.Item>
+            </div>
             {groups
               ? groups.map((g) => {
                   const values = g.options.map((o) => o.value)

@@ -51,7 +51,7 @@ test.describe('Bookings filters — staff list (seeded)', () => {
   test('a comma-joined status link lands with both statuses ticked', async ({ page }) => {
     if (!(await gotoBookingsOrSkip(page, 'status=Completed,Nothing%20Presented'))) return
 
-    const trigger = page.getByRole('button', { name: 'Filter by status' })
+    const trigger = page.getByRole('button', { name: /^Filter by status/ })
     await expect(trigger).toHaveText(/^2 statuses/)
     await trigger.click()
     await expect(page.getByRole('menuitemcheckbox', { name: 'Completed' })).toHaveAttribute('aria-checked', 'true')
@@ -67,6 +67,6 @@ test.describe('Bookings filters — staff list (seeded)', () => {
 
   test('an old single-value link is the one-item case', async ({ page }) => {
     if (!(await gotoBookingsOrSkip(page, 'status=Scheduled'))) return
-    await expect(page.getByRole('button', { name: 'Filter by status' })).toHaveText(/^Scheduled/)
+    await expect(page.getByRole('button', { name: /^Filter by status/ })).toHaveText(/^Scheduled/)
   })
 })

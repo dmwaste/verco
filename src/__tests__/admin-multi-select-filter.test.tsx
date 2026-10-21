@@ -33,13 +33,13 @@ function Harness(props: {
 
 const STATUSES = ['Completed', 'Non-conformance', 'Nothing Presented'].map((s) => ({ value: s, label: s }))
 
-const open = () => fireEvent.click(screen.getByRole('button', { name: 'Filter by status' }))
+const open = () => fireEvent.click(screen.getByRole('button', { name: /^Filter by status/ }))
 const selected = () => screen.getByTestId('selected').textContent
 
 describe('MultiSelectFilter', () => {
   it('shows the "All" label when nothing is ticked', () => {
     render(<Harness options={STATUSES} />)
-    expect(screen.getByRole('button', { name: 'Filter by status' })).toHaveTextContent('All Statuses')
+    expect(screen.getByRole('button', { name: /^Filter by status/ })).toHaveTextContent('All Statuses')
   })
 
   it('ticks several values, keeps the menu open, and summarises the count', async () => {
@@ -51,12 +51,26 @@ describe('MultiSelectFilter', () => {
     // Option order, not click order — keeps URLs and query keys stable.
     expect(selected()).toBe('Completed|Nothing Presented')
     expect(screen.getByRole('menuitemcheckbox', { name: 'Completed' })).toHaveAttribute('aria-checked', 'true')
-    expect(screen.getByRole('button', { name: 'Filter by status' })).toHaveTextContent('2 statuses')
+    expect(screen.getByRole('button', { name: /^Filter by status/ })).toHaveTextContent('2 statuses')
   })
 
   it('names the single ticked value, like the old single select', () => {
     render(<Harness options={STATUSES} initial={['Non-conformance']} />)
-    expect(screen.getByRole('button', { name: 'Filter by status' })).toHaveTextContent('Non-conformance')
+    expect(screen.getByRole('button', { name: /^Filter by status/ })).toHaveTextContent('Non-conformance')
+  })
+
+  it('announces the current value in the accessible name, as a native select does', () => {
+    render(<Harness options={STATUSES} initial={['Completed', 'Nothing Presented']} />)
+    expect(screen.getByRole('button', { name: 'Filter by status: 2 statuses' })).toBeInTheDocument()
+  })
+
+  it('keeps "Clear selection" in place (disabled) before the first tick, so options never shift', async () => {
+    render(<Harness options={STATUSES} />)
+    open()
+    const clear = await screen.findByRole('menuitem', { name: 'Clear selection' })
+    expect(clear).toHaveAttribute('aria-disabled', 'true')
+    fireEvent.click(screen.getByRole('menuitemcheckbox', { name: 'Completed' }))
+    expect(screen.getByRole('menuitem', { name: 'Clear selection' })).not.toHaveAttribute('aria-disabled', 'true')
   })
 
   it('unticks a value and clears the whole selection', async () => {
