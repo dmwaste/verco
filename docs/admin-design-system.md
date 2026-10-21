@@ -84,6 +84,7 @@ and filter components already do this.
 |---|---|---|
 | `PageHeader` | `@/components/admin/page-header` | List-page header: title + optional count subtitle + right-side actions |
 | `FilterBar` / `SearchInput` / `FilterSelect` | `@/components/admin/filter-bar` | The filter row, its search box, and its `<select>` |
+| `MultiSelectFilter` | `@/components/admin/filter-bar` | Tick-several filter (empty = no filter). Pass `groups` for a two-level list, e.g. areas by council, where a group header ticks the whole group. Store the selection comma-joined in the URL (`?status=a,b`) so single-value links still work (see `admin/bookings/list-filters.ts`) |
 | `Th` | `@/components/admin/th` | Standard table header cell (`scope="col"`, `text-caption` uppercase) |
 | `Pagination` | `@/components/admin/pagination` | The one list pagination; renders nothing on a single page |
 | `DetailHeader` | `@/components/admin/detail-header` | Detail-page header: back-link + title + subtitle + right-side pills/actions |

@@ -9,11 +9,12 @@ import { invokeEfWithUserToken } from '@/lib/supabase/invoke-ef-client'
 import { BookingStatusBadge } from '@/components/booking/booking-status-badge'
 import { SkeletonRow } from '@/components/ui/skeleton'
 import { PageHeader } from '@/components/admin/page-header'
-import { FilterBar, SearchInput, FilterSelect, DateRangeFilter } from '@/components/admin/filter-bar'
+import { FilterBar, SearchInput, MultiSelectFilter, DateRangeFilter } from '@/components/admin/filter-bar'
 import { Th } from '@/components/admin/th'
 import { Pagination } from '@/components/admin/pagination'
 import Link from 'next/link'
 import type { Database } from '@/lib/supabase/types'
+import { areaFilterGroups, onlyKnown, onlyUuids, parseMultiParam } from './list-filters'
 
 type BookingStatus = Database['public']['Enums']['booking_status']
 type BookingType = Database['public']['Enums']['booking_type']
@@ -27,6 +28,7 @@ const STATUS_OPTIONS: BookingStatus[] = [
   'Cancelled',
   'Non-conformance',
   'Nothing Presented',
+  'Rebooked',
 ]
 
 const TYPE_OPTIONS: BookingType[] = [
@@ -44,6 +46,20 @@ const TYPE_DOT_COLOR: Record<string, string> = {
 }
 
 const PAGE_SIZE = 20
+
+/**
+ * Status / area / type / service are multi-select (VER-323): empty = no
+ * filter, values OR together within a filter, filters AND across. The URL form
+ * is comma-joined; a single value is the old single-select link.
+ */
+function readMultiFilters(params: { get(name: string): string | null }) {
+  return {
+    statuses: onlyKnown(parseMultiParam(params.get('status')), STATUS_OPTIONS),
+    areas: onlyUuids(parseMultiParam(params.get('area'))),
+    types: onlyKnown(parseMultiParam(params.get('type')), TYPE_OPTIONS),
+    services: onlyUuids(parseMultiParam(params.get('service'))),
+  }
+}
 
 /**
  * Sortable columns. 'ref'/'type'/'status'/'created_at' are top-level booking
@@ -69,11 +85,11 @@ export function BookingsListClient({ clientId, isContractorAdmin }: BookingsList
   const [payError, setPayError] = useState<string | null>(null)
 
   const [search, setSearch] = useState(searchParams.get('search') ?? '')
-  const [statusFilter, setStatusFilter] = useState(searchParams.get('status') ?? '')
-  const [areaFilter, setAreaFilter] = useState(searchParams.get('area') ?? '')
-  const [typeFilter, setTypeFilter] = useState(searchParams.get('type') ?? '')
-  // Service id — filters to bookings containing that service (booking_item!inner).
-  const [serviceFilter, setServiceFilter] = useState(searchParams.get('service') ?? '')
+  const [statusFilter, setStatusFilter] = useState(() => readMultiFilters(searchParams).statuses)
+  const [areaFilter, setAreaFilter] = useState(() => readMultiFilters(searchParams).areas)
+  const [typeFilter, setTypeFilter] = useState(() => readMultiFilters(searchParams).types)
+  // Service ids — filters to bookings containing any of them (booking_item!inner).
+  const [serviceFilter, setServiceFilter] = useState(() => readMultiFilters(searchParams).services)
   // Collection-date range (booking_item.collection_date.date), both YYYY-MM-DD
   // or empty. Filters parents via an !inner join when either bound is set.
   const [dateFrom, setDateFrom] = useState(searchParams.get('date_from') ?? '')
@@ -103,10 +119,11 @@ export function BookingsListClient({ clientId, isContractorAdmin }: BookingsList
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional URL→state sync on soft-navigation; see CLAUDE.md §21 searchParams gotcha
     setSearch(searchParams.get('search') ?? '')
-    setStatusFilter(searchParams.get('status') ?? '')
-    setAreaFilter(searchParams.get('area') ?? '')
-    setTypeFilter(searchParams.get('type') ?? '')
-    setServiceFilter(searchParams.get('service') ?? '')
+    const multi = readMultiFilters(searchParams)
+    setStatusFilter(multi.statuses)
+    setAreaFilter(multi.areas)
+    setTypeFilter(multi.types)
+    setServiceFilter(multi.services)
     setDateFrom(searchParams.get('date_from') ?? '')
     setDateTo(searchParams.get('date_to') ?? '')
     setPage(0)
@@ -118,10 +135,10 @@ export function BookingsListClient({ clientId, isContractorAdmin }: BookingsList
   // from searchParams.
   const listStateQuery = new URLSearchParams({
     ...(search ? { search } : {}),
-    ...(statusFilter ? { status: statusFilter } : {}),
-    ...(areaFilter ? { area: areaFilter } : {}),
-    ...(typeFilter ? { type: typeFilter } : {}),
-    ...(serviceFilter ? { service: serviceFilter } : {}),
+    ...(statusFilter.length ? { status: statusFilter.join(',') } : {}),
+    ...(areaFilter.length ? { area: areaFilter.join(',') } : {}),
+    ...(typeFilter.length ? { type: typeFilter.join(',') } : {}),
+    ...(serviceFilter.length ? { service: serviceFilter.join(',') } : {}),
     ...(dateFrom ? { date_from: dateFrom } : {}),
     ...(dateTo ? { date_to: dateTo } : {}),
   }).toString()
@@ -130,20 +147,22 @@ export function BookingsListClient({ clientId, isContractorAdmin }: BookingsList
 
   // Fetch collection areas for filter dropdown — scoped to the selected client
   // (collection_area is public-SELECT, so without this a client-admin sees
-  // every tenant's area codes).
+  // every tenant's area codes). Not filtered on is_active: that gates resident
+  // booking only, and a not-yet-live or paused area still has bookings staff
+  // must be able to find (§21). The council name groups the options.
   const { data: areas } = useQuery({
-    queryKey: ['collection-areas', clientId],
+    queryKey: ['collection-areas-with-council', clientId],
     queryFn: async () => {
       let q = supabase
         .from('collection_area')
-        .select('id, code, name')
-        .eq('is_active', true)
+        .select('id, code, name, sub_client(name)')
         .order('code')
       if (clientId) q = q.eq('client_id', clientId)
       const { data } = await q
       return data ?? []
     },
   })
+  const areaGroups = areaFilterGroups(areas ?? [])
 
   // Services for the filter dropdown. `service` is a global catalog (not
   // tenant-scoped) — a service unused by the tenant simply returns no rows.
@@ -195,7 +214,7 @@ export function BookingsListClient({ clientId, isContractorAdmin }: BookingsList
       // Without them, keep it LEFT so bookings with no items still appear.
       // Mirrors the reports BcCard pattern.
       const dateFilterActive = !!(dateFrom || dateTo)
-      const itemJoinActive = dateFilterActive || !!serviceFilter
+      const itemJoinActive = dateFilterActive || serviceFilter.length > 0
       const itemsEmbed = itemJoinActive
         ? 'booking_item!inner(no_services, service!inner(name), collection_date!inner(id, date))'
         : 'booking_item(no_services, service!inner(name), collection_date!inner(id, date))'
@@ -219,7 +238,7 @@ export function BookingsListClient({ clientId, isContractorAdmin }: BookingsList
 
       if (dateFrom) query = query.gte('booking_item.collection_date.date', dateFrom)
       if (dateTo) query = query.lte('booking_item.collection_date.date', dateTo)
-      if (serviceFilter) query = query.eq('booking_item.service_id', serviceFilter)
+      if (serviceFilter.length) query = query.in('booking_item.service_id', serviceFilter)
 
       // Scope to the selected tenant. booking.client_id is RLS-gated too, but
       // for a contractor-admin (who can see every client) this is what makes
@@ -228,15 +247,14 @@ export function BookingsListClient({ clientId, isContractorAdmin }: BookingsList
         query = query.eq('client_id', clientId)
       }
 
-      if (statusFilter) {
-        query = query.eq('status', statusFilter as BookingStatus)
-      }
-      if (areaFilter) {
-        query = query.eq('collection_area_id', areaFilter)
-      }
-      if (typeFilter) {
-        query = query.eq('type', typeFilter as BookingType)
-      }
+      // Soft-deleted bookings (de-duplicated imports) are not real bookings:
+      // every report and the invoice exclude them, so the list must too, or a
+      // council reconciling against the invoice counts them twice (VER-323).
+      query = query.is('deleted_at', null)
+
+      if (statusFilter.length) query = query.in('status', statusFilter)
+      if (areaFilter.length) query = query.in('collection_area_id', areaFilter)
+      if (typeFilter.length) query = query.in('type', typeFilter)
       if (search) {
         const orClauses = [`ref.ilike.%${search}%`]
         if (matchingPropertyIds.length > 0) {
@@ -349,49 +367,42 @@ export function BookingsListClient({ clientId, isContractorAdmin }: BookingsList
           ariaLabel="Search bookings"
         />
 
-        <FilterSelect
-          value={statusFilter}
-          onChange={(e) => { setStatusFilter(e.target.value); setPage(0) }}
-          aria-label="Filter by status"
-        >
-          <option value="">All Statuses</option>
-          {STATUS_OPTIONS.map((s) => (
-            <option key={s} value={s}>{s}</option>
-          ))}
-        </FilterSelect>
+        <MultiSelectFilter
+          allLabel="All Statuses"
+          pluralNoun="statuses"
+          options={STATUS_OPTIONS.map((s) => ({ value: s, label: s }))}
+          selected={statusFilter}
+          onChange={(next) => { setStatusFilter(onlyKnown(next, STATUS_OPTIONS)); setPage(0) }}
+          ariaLabel="Filter by status"
+        />
 
-        <FilterSelect
-          value={areaFilter}
-          onChange={(e) => { setAreaFilter(e.target.value); setPage(0) }}
-          aria-label="Filter by area"
-        >
-          <option value="">All Areas</option>
-          {(areas ?? []).map((a) => (
-            <option key={a.id} value={a.id}>{a.code}</option>
-          ))}
-        </FilterSelect>
+        <MultiSelectFilter
+          allLabel="All Areas"
+          pluralNoun="areas"
+          options={(areas ?? []).map((a) => ({ value: a.id, label: a.code }))}
+          groups={areaGroups}
+          selected={areaFilter}
+          onChange={(next) => { setAreaFilter(next); setPage(0) }}
+          ariaLabel="Filter by area"
+        />
 
-        <FilterSelect
-          value={typeFilter}
-          onChange={(e) => { setTypeFilter(e.target.value); setPage(0) }}
-          aria-label="Filter by type"
-        >
-          <option value="">All Types</option>
-          {TYPE_OPTIONS.map((t) => (
-            <option key={t} value={t}>{t}</option>
-          ))}
-        </FilterSelect>
+        <MultiSelectFilter
+          allLabel="All Types"
+          pluralNoun="types"
+          options={TYPE_OPTIONS.map((t) => ({ value: t, label: t }))}
+          selected={typeFilter}
+          onChange={(next) => { setTypeFilter(onlyKnown(next, TYPE_OPTIONS)); setPage(0) }}
+          ariaLabel="Filter by type"
+        />
 
-        <FilterSelect
-          value={serviceFilter}
-          onChange={(e) => { setServiceFilter(e.target.value); setPage(0) }}
-          aria-label="Filter by service"
-        >
-          <option value="">All Services</option>
-          {(services ?? []).map((s) => (
-            <option key={s.id} value={s.id}>{s.name}</option>
-          ))}
-        </FilterSelect>
+        <MultiSelectFilter
+          allLabel="All Services"
+          pluralNoun="services"
+          options={(services ?? []).map((s) => ({ value: s.id, label: s.name }))}
+          selected={serviceFilter}
+          onChange={(next) => { setServiceFilter(next); setPage(0) }}
+          ariaLabel="Filter by service"
+        />
 
         <DateRangeFilter
           label="Collection"
