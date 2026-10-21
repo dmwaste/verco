@@ -7,19 +7,21 @@ import type { CallerMatch } from '@/app/(admin)/admin/lookup/caller-matches'
  * once, and records a view of every contact it shows (VER-322, ADR 0040).
  */
 
-const { rpc, loadCallerMatches, loadPropertyNotes, getCurrentAdminClient, logContactViews } = vi.hoisted(() => ({
-  rpc: vi.fn(),
-  loadCallerMatches: vi.fn(),
-  loadPropertyNotes: vi.fn(),
-  getCurrentAdminClient: vi.fn(),
-  logContactViews: vi.fn(),
-}))
+const { rpc, loadCallerMatches, loadPropertyNotes, getCurrentAdminClient, getAccessibleAdminClients, logContactViews } =
+  vi.hoisted(() => ({
+    rpc: vi.fn(),
+    loadCallerMatches: vi.fn(),
+    loadPropertyNotes: vi.fn(),
+    getCurrentAdminClient: vi.fn(),
+    getAccessibleAdminClients: vi.fn(),
+    logContactViews: vi.fn(),
+  }))
 
 vi.mock('@/lib/supabase/server', () => ({ createClient: vi.fn(async () => ({ rpc })) }))
 vi.mock('next/navigation', () => ({ redirect: vi.fn() }))
 vi.mock('@/app/(admin)/admin/lookup/caller-matches', () => ({ loadCallerMatches }))
 vi.mock('@/lib/property-notes/load', () => ({ loadPropertyNotes }))
-vi.mock('@/lib/admin/current-client', () => ({ getCurrentAdminClient }))
+vi.mock('@/lib/admin/current-client', () => ({ getCurrentAdminClient, getAccessibleAdminClients }))
 vi.mock('@/lib/contacts/view-log', () => ({ logContactViews }))
 
 import CallerLookupPage from '@/app/(admin)/admin/lookup/page'
@@ -32,6 +34,7 @@ const booking = (id: string, propertyId: string | null) => ({
   collectionDates: [],
   address: '7 Fixture Way',
   propertyId,
+  clientId: 'kwn',
 })
 
 const match = (id: string, bookings: CallerMatch['bookings']): CallerMatch => ({
@@ -48,6 +51,10 @@ describe('caller lookup page', () => {
     rpc.mockResolvedValue({ data: 'contractor-staff' })
     loadPropertyNotes.mockResolvedValue([])
     getCurrentAdminClient.mockResolvedValue({ id: 'kwn', name: 'City of Kwinana' })
+    getAccessibleAdminClients.mockResolvedValue([
+      { id: 'kwn', slug: 'kwn', name: 'City of Kwinana' },
+      { id: 'vv', slug: 'vergevalet', name: 'Verge Valet' },
+    ])
   })
 
   it('loads notes for each booked property once, across every caller on the number', async () => {
@@ -62,7 +69,28 @@ describe('caller lookup page', () => {
     await CallerLookupPage({ searchParams })
 
     expect(loadPropertyNotes).toHaveBeenCalledWith(expect.anything(), ['p-1', 'p-2'])
+  })
+
+  // "Add a note" switches council when a property isn't in the switcher's.
+  it('hands the view the switcher’s council and every council’s name', async () => {
+    loadCallerMatches.mockResolvedValue({ ok: true, data: [match('c-a', [booking('b-1', 'p-1')])] })
+
+    const page = await CallerLookupPage({ searchParams })
+
+    expect(page.props).toMatchObject({
+      currentClientId: 'kwn',
+      clientNames: { kwn: 'City of Kwinana', vv: 'Verge Valet' },
+      newBookingClientName: null,
+    })
+  })
+
+  it('needs no councils when no caller has a property booked', async () => {
+    loadCallerMatches.mockResolvedValue({ ok: true, data: [match('c-a', [booking('b-1', null)])] })
+
+    await CallerLookupPage({ searchParams })
+
     expect(getCurrentAdminClient).not.toHaveBeenCalled()
+    expect(getAccessibleAdminClients).not.toHaveBeenCalled()
   })
 
   it('records a view of every contact it shows', async () => {

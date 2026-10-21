@@ -1,7 +1,7 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { STAFF_ROLES } from '@/lib/auth/roles'
-import { getCurrentAdminClient } from '@/lib/admin/current-client'
+import { getAccessibleAdminClients, getCurrentAdminClient } from '@/lib/admin/current-client'
 import { loadPropertyNotes } from '@/lib/property-notes/load'
 import { logContactViews } from '@/lib/contacts/view-log'
 import { CallerLookupView } from './caller-lookup-view'
@@ -35,9 +35,12 @@ export default async function CallerLookupPage({ searchParams }: CallerLookupPag
   const propertyIds = [
     ...new Set(matches.flatMap((m) => m.bookings.flatMap((b) => (b.propertyId ? [b.propertyId] : [])))),
   ]
-  const [newBookingClient, propertyNotes] = await Promise.all([
-    // Only a miss offers "+ New Booking", and only it needs the switcher's council.
-    result?.ok && matches.length === 0 ? getCurrentAdminClient() : null,
+  const isMiss = result?.ok === true && matches.length === 0
+  const [currentClient, councils, propertyNotes] = await Promise.all([
+    // The switcher's council: "+ New Booking" on a miss books under it, and
+    // "Add a note" switches away from it for another council's property.
+    isMiss || propertyIds.length > 0 ? getCurrentAdminClient() : null,
+    propertyIds.length > 0 ? getAccessibleAdminClients() : [],
     // Access notes on the callers' properties (VER-321), across councils by RLS.
     loadPropertyNotes(supabase, propertyIds),
     // Who opened which resident (VER-322, ADR 0040). Never blocks the page.
@@ -49,8 +52,10 @@ export default async function CallerLookupPage({ searchParams }: CallerLookupPag
       query={query}
       candidates={candidates}
       result={result}
-      newBookingClientName={newBookingClient?.name ?? null}
+      newBookingClientName={isMiss ? (currentClient?.name ?? null) : null}
       propertyNotes={propertyNotes}
+      currentClientId={currentClient?.id ?? null}
+      clientNames={Object.fromEntries(councils.map((c) => [c.id, c.name]))}
     />
   )
 }

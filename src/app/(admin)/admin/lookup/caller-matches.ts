@@ -19,6 +19,8 @@ export interface CallerBooking {
   address: string | null
   /** The eligible property booked; null for a booking with none (e.g. illegal dumping). */
   propertyId: string | null
+  /** The booking's council (client). */
+  clientId: string
 }
 
 export interface CallerTicket {
@@ -66,7 +68,7 @@ export async function loadCallerMatches(
     supabase
       .from('booking')
       .select(
-        `id, ref, status, contact_id, property_id, geo_address,
+        `id, ref, status, contact_id, property_id, client_id, geo_address,
          collection_area(code),
          eligible_properties:property_id(formatted_address, address),
          booking_item(collection_date(date))`,
@@ -105,6 +107,7 @@ export async function loadCallerMatches(
             b.eligible_properties?.address ??
             b.geo_address,
           propertyId: b.property_id,
+          clientId: b.client_id,
         })),
       tickets: tickets.data
         .filter((t) => t.contact_id === c.id)
