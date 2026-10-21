@@ -3501,7 +3501,8 @@ if (!haveDb) {
   // audit_log; field read every notification_log row (Red Line #2). The scoped
   // user is seeded INSIDE the rolled-back tx: the KWN client-staff fixture is
   // re-pointed at the Verge Valet sub-client with the most notifications, so the
-  // positive guard below can't pass vacuously.
+  // positive guard below can't pass vacuously. The audit_log stopgap (council
+  // staff saw none) gave way to council-tagged entries in #614 (20261021023000).
   // ---------------------------------------------------------------------------
   describe('side-table sub-client scope + field PII (20260930030000)', () => {
     async function deployed(): Promise<boolean> {
@@ -3531,7 +3532,38 @@ if (!haveDb) {
             SELECT b.id FROM booking b JOIN collection_area ca ON ca.id = b.collection_area_id
              WHERE ca.sub_client_id = '${subClientId}'`, []],
         ['GRANT SELECT ON _own_bookings TO authenticated', []],
+        [`CREATE TEMP TABLE _own_sub ON COMMIT DROP AS SELECT '${subClientId}'::uuid AS id`, []],
+        ['GRANT SELECT ON _own_sub TO authenticated', []],
         ...residentsSeed(),
+      ]
+    }
+
+    // #614 (20261021023000): audit entries carry their council and council
+    // staff see their own again. Gated on the policy, so it skips until live.
+    async function auditTagged(): Promise<boolean> {
+      const r = await pg.query(
+        `SELECT qual FROM pg_policies WHERE tablename = 'audit_log' AND policyname = 'audit_log_select'`,
+      )
+      return (r.rows[0]?.qual ?? '').includes('sub_client_id = ( SELECT current_user_sub_client_id()')
+    }
+
+    // One audited write in the scoped user's council (by AUDIT_ACTORS.own) and
+    // one in another Verge Valet council (by AUDIT_ACTORS.other), so both
+    // assertions below hold whether or not the backfill has run.
+    const AUDIT_ACTORS = { own: USERS['contractor-staff'], other: USERS.resident } as const
+    function auditWritesSeed(): Array<[string, unknown[]]> {
+      const as = (sub: string) => JSON.stringify({ sub, role: 'authenticated' })
+      return [
+        [`UPDATE profiles SET display_name = COALESCE(display_name, 'RLS fixture') WHERE id = ANY($1::uuid[])`, [[AUDIT_ACTORS.own, AUDIT_ACTORS.other]]],
+        [`SELECT set_config('request.jwt.claims', $1, true)`, [as(AUDIT_ACTORS.own)]],
+        ['UPDATE booking SET updated_at = updated_at WHERE id = (SELECT id FROM _own_bookings LIMIT 1)', []],
+        [`SELECT set_config('request.jwt.claims', $1, true)`, [as(AUDIT_ACTORS.other)]],
+        [`UPDATE booking SET updated_at = updated_at WHERE id = (
+            SELECT b.id FROM booking b JOIN collection_area ca ON ca.id = b.collection_area_id
+             WHERE ca.client_id = $1 AND ca.sub_client_id IS NOT NULL
+               AND ca.sub_client_id <> (SELECT id FROM _own_sub)
+             LIMIT 1)`, [VV_CLIENT_ID]],
+        [`SELECT set_config('request.jwt.claims', '', true)`, []],
       ]
     }
 
@@ -3574,9 +3606,23 @@ if (!haveDb) {
       ).toBe(0)
     })
 
-    it('a sub-client-scoped user sees zero audit_log rows (option B until the post-freeze tag)', async (ctx) => {
-      if (!(await deployed())) return ctx.skip()
-      expect(await countAsWithSeed(USERS['client-staff'], await scopedSeed(), 'SELECT id FROM audit_log')).toBe(0)
+    it('a sub-client-scoped user sees their own council’s audit_log rows and none from any other (#614)', async (ctx) => {
+      if (!(await deployed()) || !(await auditTagged())) return ctx.skip()
+      const seed = [...(await scopedSeed()), ...auditWritesSeed()]
+      const user = USERS['client-staff']
+      expect(await countAsWithSeed(user, seed, 'SELECT id FROM audit_log WHERE sub_client_id = (SELECT id FROM _own_sub)')).toBeGreaterThan(0)
+      // Other councils' entries and untagged ones (contacts, unbooked tickets, Kwinana).
+      expect(
+        await countAsWithSeed(user, seed, 'SELECT id FROM audit_log WHERE sub_client_id IS DISTINCT FROM (SELECT id FROM _own_sub)'),
+      ).toBe(0)
+    })
+
+    it('resolve_actor_names follows the same council scope (#614)', async (ctx) => {
+      if (!(await deployed()) || !(await auditTagged())) return ctx.skip()
+      const seed = [...(await scopedSeed()), ...auditWritesSeed()]
+      const sql = (id: string) => `SELECT user_id FROM resolve_actor_names(ARRAY['${AUDIT_ACTORS.own}', '${AUDIT_ACTORS.other}']::uuid[]) WHERE user_id = '${id}'`
+      expect(await countAsWithSeed(USERS['client-staff'], seed, sql(AUDIT_ACTORS.own))).toBe(1)
+      expect(await countAsWithSeed(USERS['client-staff'], seed, sql(AUDIT_ACTORS.other))).toBe(0)
     })
 
     it('client-tier staff see zero resident profiles', async (ctx) => {
