@@ -154,6 +154,28 @@ describe('buildTally', () => {
     expect(t.total.includedTotal).toBe(6)
   })
 
+  it('gives an our-fault Non-conformance its own line too, separate from an our-fault Nothing Presented', () => {
+    const p = parseTally({
+      bookings: [
+        { status: 'Non-conformance', billable: true, contractor_fault: false, bookings: 6 },
+        { status: 'Non-conformance', billable: false, contractor_fault: true, bookings: 1 },
+      ],
+      units: [
+        booked('Non-conformance', true, 'bulk', 'Bulk Waste', 6),
+        booked('Non-conformance', false, 'bulk', 'Bulk Waste', 2, false, true),
+        booked('Nothing Presented', false, 'bulk', 'Green Waste', 1, false, true),
+      ],
+    })
+    if (!p.ok) throw new Error(p.error)
+    const t = buildTally(p.data)
+    expect(t.billable.map((r) => r.label)).toEqual(['Non-conformance'])
+    expect(t.other.map((r) => [r.label, r.includedTotal])).toEqual([
+      ["Non-conformance — D&M's fault", 2],
+      ["Nothing Presented — D&M's fault", 1],
+    ])
+    expect(t.billableTotal.includedTotal).toBe(6)
+  })
+
   it('is empty for an empty result', () => {
     const p = parseTally({ bookings: [], units: [] })
     if (!p.ok) throw new Error(p.error)

@@ -9,9 +9,10 @@ import type { Result } from '@/lib/result'
  * SQL is the single place that set lives (pinned to the invoice RPC by
  * client-monthly-billable-statuses.test.ts), so this file has no copy to drift.
  * Crew-logged mattresses (`stop_mattress`) fill the Mattress column; they are
- * always council-included, as on the invoice. A Nothing Presented the office
- * recorded as D&M's fault (`contractor_fault`, ADR 0039) gets its own line
- * outside the billable total, so its units are shown, not lost.
+ * always council-included, as on the invoice. A Nothing Presented or
+ * Non-conformance the office recorded as D&M's fault (`contractor_fault`,
+ * ADR 0039) gets its own line outside the billable total, so its units are
+ * shown, not lost.
  */
 
 const tallySchema = z.object({
@@ -54,7 +55,7 @@ export interface TallyRow {
   status: string
   /** What the row is called on screen (the status, or "… — D&M's fault"). */
   label: string
-  /** The office recorded this Nothing Presented as D&M's fault (ADR 0039). */
+  /** The office recorded this Nothing Presented / Non-conformance as D&M's fault (ADR 0039). */
   contractorFault: boolean
   bookings: number
   /** Council-included units per service column. */
