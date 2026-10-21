@@ -293,6 +293,7 @@ export type Database = {
           new_data: Json | null
           old_data: Json | null
           record_id: string
+          sub_client_id: string | null
           table_name: string
         }
         Insert: {
@@ -305,6 +306,7 @@ export type Database = {
           new_data?: Json | null
           old_data?: Json | null
           record_id: string
+          sub_client_id?: string | null
           table_name: string
         }
         Update: {
@@ -317,6 +319,7 @@ export type Database = {
           new_data?: Json | null
           old_data?: Json | null
           record_id?: string
+          sub_client_id?: string | null
           table_name?: string
         }
         Relationships: [
@@ -339,6 +342,13 @@ export type Database = {
             columns: ["contractor_id"]
             isOneToOne: false
             referencedRelation: "contractor"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "audit_log_sub_client_id_fkey"
+            columns: ["sub_client_id"]
+            isOneToOne: false
+            referencedRelation: "sub_client"
             referencedColumns: ["id"]
           },
         ]
@@ -2869,6 +2879,10 @@ export type Database = {
           user_id: string
         }[]
       }
+      audit_log_sub_client_id: {
+        Args: { p_row: Json; p_table: string }
+        Returns: string
+      }
       bulk_update_booking_item_actuals: {
         Args: { p_booking_id: string; p_updates: Json }
         Returns: undefined
@@ -2958,6 +2972,18 @@ export type Database = {
         Returns: boolean
       }
       generate_booking_ref: { Args: { p_area_code: string }; Returns: string }
+      get_booking_tally: {
+        Args: {
+          p_area_ids?: string[]
+          p_client_id: string
+          p_date_from?: string
+          p_date_to?: string
+          p_service_ids?: string[]
+          p_statuses?: Database["public"]["Enums"]["booking_status"][]
+          p_types?: Database["public"]["Enums"]["booking_type"][]
+        }
+        Returns: Json
+      }
       get_client_monthly_report: {
         Args: { p_client_id: string; p_month: string }
         Returns: {
