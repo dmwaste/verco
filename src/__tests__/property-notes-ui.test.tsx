@@ -39,6 +39,7 @@ const PROPERTY = 'c67dd909-4b4e-4856-acf9-219a37dc7d0e'
 
 const FORM: PropertyNoteView = {
   id: 'n-1',
+  property_id: PROPERTY,
   kind: 'access_form',
   body: 'Signed by owner — collect behind side gate',
   file_name: 'permission.pdf',
@@ -72,6 +73,14 @@ describe('PropertyNotesSection', () => {
   it('shows an empty state', () => {
     render(<PropertyNotesSection propertyId={PROPERTY} notes={[]} />)
     expect(screen.getByText('No notes or documents yet.')).toBeTruthy()
+  })
+
+  // PRIS collection + sensitive-information principles (VER-321): the form says
+  // what belongs in a note before anyone writes one.
+  it('reminds staff to keep notes to access details', () => {
+    render(<PropertyNotesSection propertyId={PROPERTY} notes={[]} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Add' }))
+    expect(screen.getByText(/health or other sensitive information/i)).toBeTruthy()
   })
 
   it('will not save a permission-to-enter form without its file', async () => {

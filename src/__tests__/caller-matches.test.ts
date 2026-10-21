@@ -94,7 +94,7 @@ describe('loadCallerMatches', () => {
       booking: {
         data: [
           {
-            id: 'b-2', ref: 'VV-COT-2', status: 'Confirmed', contact_id: 'c-a', geo_address: null,
+            id: 'b-2', ref: 'VV-COT-2', status: 'Confirmed', contact_id: 'c-a', property_id: 'p-1', client_id: 'vv', geo_address: null,
             collection_area: { code: 'VV-COT' },
             eligible_properties: { formatted_address: '1 Test St, Cottesloe', address: '1 Test St' },
             booking_item: [
@@ -104,7 +104,7 @@ describe('loadCallerMatches', () => {
             ],
           },
           {
-            id: 'b-1', ref: 'KWN-1-1', status: 'Completed', contact_id: 'c-b', geo_address: 'Verge near 5 Test Rd',
+            id: 'b-1', ref: 'KWN-1-1', status: 'Completed', contact_id: 'c-b', property_id: null, client_id: 'kwn', geo_address: 'Verge near 5 Test Rd',
             collection_area: { code: 'KWN-1' },
             eligible_properties: null,
             booking_item: [],
@@ -123,6 +123,9 @@ describe('loadCallerMatches', () => {
     const result = await loadCallerMatches(client, ['+61412345678'])
 
     expect(calls.booking?.filters).toContainEqual(['in', 'contact_id', ['c-a', 'c-b']])
+    // The property carries the access notes shown under the caller (VER-321).
+    expect(calls.booking?.select).toMatch(/,\s*property_id\s*,/)
+    expect(calls.booking?.select).toMatch(/,\s*client_id\s*,/)
     expect(calls.booking?.filters).toContainEqual(['is', 'deleted_at', null])
     expect(calls.booking?.orders[0]).toEqual(['created_at', { ascending: false }])
     expect(calls.service_ticket?.filters).toContainEqual(['in', 'contact_id', ['c-a', 'c-b']])
@@ -134,7 +137,7 @@ describe('loadCallerMatches', () => {
         {
           contact: { id: 'c-a', fullName: 'Alex Able', mobile: '+61412345678', email: 'a@example.com' },
           bookings: [
-            { id: 'b-2', ref: 'VV-COT-2', status: 'Confirmed', areaCode: 'VV-COT', collectionDates: ['2026-11-02', '2026-11-09'], address: '1 Test St, Cottesloe' },
+            { id: 'b-2', ref: 'VV-COT-2', status: 'Confirmed', areaCode: 'VV-COT', collectionDates: ['2026-11-02', '2026-11-09'], address: '1 Test St, Cottesloe', propertyId: 'p-1', clientId: 'vv' },
           ],
           tickets: [
             { id: 't-1', displayId: 'TKT-1001', subject: 'Missed pickup', status: 'open', createdAt: '2026-10-01T02:00:00Z' },
@@ -143,7 +146,7 @@ describe('loadCallerMatches', () => {
         {
           contact: { id: 'c-b', fullName: 'Bo Baker', mobile: '+61412345678', email: 'bo@example.com' },
           bookings: [
-            { id: 'b-1', ref: 'KWN-1-1', status: 'Completed', areaCode: 'KWN-1', collectionDates: [], address: 'Verge near 5 Test Rd' },
+            { id: 'b-1', ref: 'KWN-1-1', status: 'Completed', areaCode: 'KWN-1', collectionDates: [], address: 'Verge near 5 Test Rd', propertyId: null, clientId: 'kwn' },
           ],
           tickets: [],
         },

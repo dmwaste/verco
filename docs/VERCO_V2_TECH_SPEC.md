@@ -1,6 +1,6 @@
 # Verco v2 — Technical Specification
 
-**Version:** 1.4  
+**Version:** 1.5  
 **Date:** 2026-03-26 (last reconciled 2026-10-21 — see Change Log)  
 **Status:** APPROVED — implementation basis for Claude Code  
 **Companion docs:** `VERCO_V2_PRD.md`, `CLAUDE.md`
@@ -17,6 +17,7 @@ Reconciles this spec with what actually shipped (the original 2026-03-26 text de
 | 2026-10-20 | 1.2 | **Notifications are claimed before sending (§10 `send-notification`, ADR 0035).** The dispatcher inserts the attempt as a `queued` `notification_log` row under the partial unique index `notification_log_send_claim_key` (migration `20261020060309`), sends, then settles that row — a retried call hits `23505` and skips instead of sending twice. Staff may insert a `failed` `booking_created` row under their own JWT (`notification_log_staff_insert_failed`, tenant-pinned) so an unreachable send shows on `/admin/notifications` with Retry. **Watchdogs alert through one Teams channel (§10, §16, ADR 0033):** `notification-health-check` and the new daily `stale-closeout-check` (migration `20261020051532`, ADR 0034) post via `_shared/ops-alert.ts`; `OPS_ALERT_WEBHOOK_URL` and friends added to §16. **pnpm pinned to 9.15.9 (§1)** via `packageManager` (#602). Shipped as PRs #682–#689, #692 (release #693). |
 | 2026-10-20 | 1.3 | **Reconciled with the as-built system (post-#694 audit).** **§1:** CRM row — the Attio sync was never built and its columns were dropped (migration `20260702113000`); no CRM is live (HubSpot designed, pure mappers only). Tenant resolution names `src/proxy.ts` (also the §2 tree); Email / SMS rows name SendGrid and Twilio (`_shared/sendgrid.ts`, `_shared/twilio.ts`) instead of the never-built `send-email` EF and `tenant.sms_sender_id` (the sender is routed by `client.twilio_messaging_service_sid`). **§3 `notification_log`:** added `reference_id` (`20260610120000`), the SendGrid delivery columns `delivery_status` / `delivery_updated_at` / `delivery_detail` + their CHECK (`20260530133303`), the `status` CHECK (`20260409000000`), indexes `idx_notification_log_booking_type_status` (`20260516030000`), `idx_notification_log_to_address` (`20260530133303`) and the partial unique send-claim index `notification_log_send_claim_key` (`20261020060309`). **§6.2:** `notification_log` policy list — `notification_log_select` (staff, sub-client narrowed, `20260930030000`), `notification_log_staff_insert_failed` (`20261020060309`), no UPDATE/DELETE policy (service-role EFs + the `retry_notification_log` DEFINER RPC, `20260702100000`). **§10:** `nightly-sync-to-dm-ops` marked retired (ADR 0015, `20260823120000`) and dropped from the cron members list, which now carries each job's schedule; `send-routes-to-optimoroute` added (ADR 0028, `20261013100000`); `send-collection-reminders` trigger corrected to the four ticks (`20261020015939`); `send-email` / `send-sms` marked never built (no directory, no git history). **§16:** regenerated from `.env.example` plus every `Deno.env.get` / `process.env` read — dropped `STRIPE_PUBLISHABLE_KEY`, `ATTIO_API_KEY`, `SMS_API_KEY` (nothing reads them), added the SendGrid / Twilio / OptimoRoute / `APP_URL` / `SITE_URL` / `DEFAULT_FROM_EMAIL` / script-only vars, moved `DM_OPS_*` to a dormant note; `.env.example` and `docs/runbooks/deploy.md` renamed `SENDGRID_FROM_EMAIL` → `DEFAULT_FROM_EMAIL`, the name the EFs actually read. Version line bumped (the 1.2 row landed without one). |
 | 2026-10-21 | 1.4 | **Council tag on `audit_log` (§3, §6.2, ADR 0036, #614).** New `sub_client_id` column filled by `audit_trigger_fn()` through `audit_log_sub_client_id()` (one table → council map, also used by `scripts/backfill-audit-log-sub-client.sh`); `idx_audit_log_client` replaced by `idx_audit_log_client_created (client_id, created_at DESC) INCLUDE (sub_client_id, table_name)`; `audit_log_select` shown as built (staff roles, council clause, D&M-only table clause). `resolve_actor_names` mirrors both. `audit_log_insert` dropped and API-role write grants revoked: only the trigger and service role write the log (ADR 0037). Migration `20261021023000`. |
+| 2026-10-21 | 1.5 | **`contact_view_log` (§3, VER-322, ADR 0040).** Append-only record of who opened which resident contact, when and on which screen (`surface`: `caller_lookup`). Staff insert only as themselves and only "now" (`viewed_by = auth.uid()`, `viewed_at = now()`); contractor-admin and client-admin read the rows for contacts their contacts RLS shows them, so each council sees views of its own residents. No UPDATE/DELETE policy or grant; `authenticated` holds SELECT + INSERT only, anon nothing. Not audited: each row is itself the record. Migration `20261021073312`. |
 
 ---
 
@@ -328,6 +329,21 @@ CREATE TABLE contacts (
   created_at          timestamptz NOT NULL DEFAULT now(),
   updated_at          timestamptz NOT NULL DEFAULT now()
 );
+```
+
+#### `contact_view_log`
+```sql
+-- Who opened which resident contact (VER-322, ADR 0040). Append-only.
+CREATE TABLE contact_view_log (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  contact_id  uuid NOT NULL REFERENCES contacts(id),
+  viewed_by   uuid NOT NULL DEFAULT auth.uid() REFERENCES auth.users(id),
+  viewed_at   timestamptz NOT NULL DEFAULT now(),
+  surface     text NOT NULL CHECK (surface IN ('caller_lookup'))
+);
+-- INSERT: staff roles, viewed_by = auth.uid(), viewed_at = now().
+-- SELECT: contractor-admin / client-admin, contact_id IN (SELECT id FROM contacts).
+-- No UPDATE / DELETE for API roles.
 ```
 
 #### `account`
