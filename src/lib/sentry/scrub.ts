@@ -1,9 +1,16 @@
 import type {
   Breadcrumb,
   BreadcrumbHint,
+  BrowserOptions,
   ErrorEvent,
   EventHint,
 } from "@sentry/nextjs";
+
+// `@sentry/nextjs` doesn't re-export core's TransactionEvent; take it from the hook.
+export type TransactionEvent = Parameters<
+  NonNullable<BrowserOptions["beforeSendTransaction"]>
+>[0];
+type SentryRequest = NonNullable<ErrorEvent["request"]>;
 
 /**
  * PII scrubbing for Sentry payloads.
@@ -12,7 +19,8 @@ import type {
  * behalf of local governments — that data must not leave the country. Only
  * sanitised operational telemetry (stack traces, error metadata) may cross the
  * border, never resident/council PII. These helpers run in every `beforeSend` /
- * `beforeBreadcrumb` so identifying data is stripped before an event is sent.
+ * `beforeSendTransaction` / `beforeBreadcrumb` so identifying data is stripped
+ * before an event is sent.
  *
  * Defence in depth: `sendDefaultPii: false` is also set on every `Sentry.init`,
  * and Session Replay is deliberately NOT enabled (it would record the DOM,
@@ -20,8 +28,24 @@ import type {
  */
 
 const EMAIL_RE = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
-// +61…, 04xx…, or any run of 8+ phone-shaped characters.
-const PHONE_RE = /\+?\d[\d ()-]{7,}\d/g;
+const UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
+const ISO_DATE = "\\d{4}-\\d{2}-\\d{2}(?:T[\\d:.]+(?:Z|[+-]\\d{2}:?\\d{2})?)?";
+// +61…, 04xx…, or any run of 8+ phone-shaped characters. UUIDs and ISO dates
+// are matched first (group 1) and kept, so their digit runs aren't read as
+// phone numbers (property ids arrived as `9941569f-[phone]-…`).
+const PHONE_RE = new RegExp(`(${UUID}|${ISO_DATE})|\\+?\\d[\\d ()-]{7,}\\d`, "gi");
+
+// URL query values are default-deny: only id-, number-, date- and flag-shaped
+// values stay readable, whatever the param is called. The booking wizard
+// carries the address (and, on a staff edit, name/email/mobile/notes) in its
+// query string, and a list of PII param names would miss the next one added.
+const QUERY_PAIR_RE = /([?&])([^=&#\s?]+)=([^&#\s]*)/g;
+const SAFE_QUERY_VALUE_RE = new RegExp(
+  `^(?:${UUID}(?::\\d{1,3})?(?:,${UUID}(?::\\d{1,3})?)*|\\d{1,6}|\\d{4}-\\d{2}-\\d{2}|true|false)?$`,
+  "i",
+);
+// Keys whose string value is a bare query string (no leading `?`).
+const QUERY_KEYS = new Set(["query_string", "url.query", "http.query"]);
 
 // Object keys whose values are redacted wholesale regardless of content.
 const PII_KEYS = new Set([
@@ -45,8 +69,35 @@ const PII_KEYS = new Set([
   "refresh_token",
 ]);
 
+function safeQueryValue(raw: string): string {
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(raw.replace(/\+/g, " "));
+  } catch {
+    return "[redacted]";
+  }
+  return SAFE_QUERY_VALUE_RE.test(decoded) ? raw : "[redacted]";
+}
+
+function redactQueryValues(value: string): string {
+  return value.replace(
+    QUERY_PAIR_RE,
+    (_match, sep: string, name: string, raw: string) =>
+      `${sep}${name}=${safeQueryValue(raw)}`,
+  );
+}
+
+/** A bare query string (`a=1&b=2`, with or without the leading `?`). */
+function redactQueryString(value: string): string {
+  if (value.startsWith("?")) return redactString(value);
+  return redactString(`?${value}`).slice(1);
+}
+
 function redactString(value: string): string {
-  return value.replace(EMAIL_RE, "[email]").replace(PHONE_RE, "[phone]");
+  return redactQueryValues(value.replace(EMAIL_RE, "[email]")).replace(
+    PHONE_RE,
+    (match, keep: string | undefined) => (keep ? match : "[phone]"),
+  );
 }
 
 /** Recursively redact PII from an arbitrary value (bounded depth). */
@@ -57,28 +108,48 @@ function scrubValue(value: unknown, depth = 0): unknown {
   if (value && typeof value === "object") {
     const out: Record<string, unknown> = {};
     for (const [key, val] of Object.entries(value as Record<string, unknown>)) {
-      out[key] = PII_KEYS.has(key.toLowerCase())
+      const lower = key.toLowerCase();
+      out[key] = PII_KEYS.has(lower)
         ? "[redacted]"
-        : scrubValue(val, depth + 1);
+        : QUERY_KEYS.has(lower) && typeof val === "string"
+          ? redactQueryString(val)
+          : scrubValue(val, depth + 1);
     }
     return out;
   }
   return value;
 }
 
+function scrubQueryParams(
+  query: NonNullable<SentryRequest["query_string"]>,
+): SentryRequest["query_string"] {
+  if (typeof query === "string") return redactQueryString(query);
+  if (Array.isArray(query)) {
+    return query.map(([key, val]): [string, string] => [key, safeQueryValue(val)]);
+  }
+  return Object.fromEntries(
+    Object.entries(query).map(([key, val]) => [key, safeQueryValue(val)]),
+  );
+}
+
+function scrubRequest(request: SentryRequest): void {
+  // Cookies + headers carry auth tokens and identifiers (the Referer header
+  // carries the previous page's full URL) — drop entirely.
+  delete request.cookies;
+  delete request.headers;
+  // The browser SDK sets url = location.href, query string included.
+  if (request.url) request.url = redactString(request.url);
+  if (request.query_string) {
+    request.query_string = scrubQueryParams(request.query_string);
+  }
+  if (request.data !== undefined) {
+    request.data = scrubValue(request.data);
+  }
+}
+
 /** `beforeSend` — strip PII from an error event before it leaves the app. */
 export function scrubEvent(event: ErrorEvent, _hint: EventHint): ErrorEvent {
-  if (event.request) {
-    // Cookies + headers carry auth tokens and identifiers — drop entirely.
-    delete event.request.cookies;
-    delete event.request.headers;
-    if (event.request.query_string) {
-      event.request.query_string = redactString(String(event.request.query_string));
-    }
-    if (event.request.data !== undefined) {
-      event.request.data = scrubValue(event.request.data);
-    }
-  }
+  if (event.request) scrubRequest(event.request);
 
   // Never send user PII — keep only a stable id if one is present.
   if (event.user) {
@@ -98,6 +169,33 @@ export function scrubEvent(event: ErrorEvent, _hint: EventHint): ErrorEvent {
     event.contexts = scrubValue(event.contexts) as ErrorEvent["contexts"];
   }
 
+  return event;
+}
+
+/**
+ * `beforeSendTransaction` — the same scrub for performance events. With
+ * tracing at 100% every page view sends one, and its request and spans carry
+ * full URLs (`url`, `http.url`, `http.query`, `url.query`, `url.full`).
+ */
+export function scrubTransaction(
+  event: TransactionEvent,
+  _hint: EventHint,
+): TransactionEvent {
+  if (event.request) scrubRequest(event.request);
+  if (event.user) {
+    event.user = event.user.id ? { id: event.user.id } : {};
+  }
+  if (event.transaction) event.transaction = redactString(event.transaction);
+  if (event.extra) {
+    event.extra = scrubValue(event.extra) as TransactionEvent["extra"];
+  }
+  if (event.contexts) {
+    event.contexts = scrubValue(event.contexts) as TransactionEvent["contexts"];
+  }
+  for (const span of event.spans ?? []) {
+    if (span.description) span.description = redactString(span.description);
+    if (span.data) span.data = scrubValue(span.data) as typeof span.data;
+  }
   return event;
 }
 
