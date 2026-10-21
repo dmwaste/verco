@@ -20,7 +20,7 @@ An ADR — "architecture decision record" — is a short record of a decision we
 | [0014](0014-client-tier-date-moves-respect-capacity.md) | Council staff can't move a booking onto a full date; D&M staff still can | 22/08/2026 | Accepted |
 | [0015](0015-nightly-dm-ops-sync-retired.md) | The nightly DM-Ops sync is retired, not fixed | 23/08/2026 | Accepted |
 | [0016](0016-legacy-surveys-without-bookings.md) | Imported Airtable surveys live in Verco without a booking | 23/08/2026 | Accepted |
-| [0017](0017-monthly-client-report-bills-attended-collections.md) | The monthly client report bills attended collections, not just clean ones | 25/08/2026 | Accepted |
+| [0017](0017-monthly-client-report-bills-attended-collections.md) | The monthly client report bills attended collections, not just clean ones | 25/08/2026 | Accepted (amended by 0039) |
 | [0018](0018-rescheduling-cancels-the-old-days-job-immediately.md) | A rescheduled booking reaches OptimoRoute before the crews get their routes at 8pm | 27/08/2026 | Accepted |
 | [0019](0019-sub-client-narrowing-lives-in-the-database.md) | Council-scoped staff are narrowed by the database, not by each page | 01/09/2026 | Accepted |
 | [0020](0020-pooled-councils-accept-mud-bookings-on-any-open-date.md) | Pooled councils accept MUD bookings on any open collection date | 01/09/2026 | Accepted |
@@ -41,3 +41,5 @@ An ADR — "architecture decision record" — is a short record of a decision we
 | [0035](0035-notifications-claimed-before-sending.md) | A notification is claimed before it is sent, so a retry can't send it twice | 20/10/2026 | Accepted |
 | [0036](0036-council-staff-see-their-own-councils-history.md) | Council staff see their own council's change history again; contact changes stay with WMRC and D&M | 21/10/2026 | Accepted |
 | [0037](0037-only-the-database-writes-the-change-history.md) | Only the database writes the change history, and staff see a record's history only if they can see the record | 21/10/2026 | Accepted |
+| [0038](0038-councils-reconcile-with-counts-not-exports.md) | Councils reconcile invoices with on-screen counts, not exports, counted exactly as the invoice is | 21/10/2026 | Accepted |
+| [0039](0039-our-fault-exceptions-are-not-billed.md) | A Nothing Presented or Non-conformance that was D&M's fault is not billed | 21/10/2026 | Accepted |
