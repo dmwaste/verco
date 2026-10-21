@@ -347,7 +347,7 @@ serve(withSentry('send-notification', async (req) => {
     // (booking_id, notification_type, channel, reference_id) WHERE status IN
     // (queued, sent), so a retried or concurrent dispatch for the same key
     // conflicts (23505) instead of sending a second copy.
-    claimSend: (row: NotificationLogRow) => claimNotificationSend(claimStore, row),
+    claimSend: (row) => claimNotificationSend(claimStore, row),
 
     writeLog: async (row: NotificationLogRow): Promise<string | null> => {
       const { data, error } = await supabaseService

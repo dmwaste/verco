@@ -208,7 +208,7 @@ serve(withSentry('notify-ticket-response', async (req) => {
       reference_id: ticket_response_id,
       to_address: contact.email || 'unknown',
     }
-    const claim = await claimNotificationSend(notificationClaimStore(supabase), { ...logRow, status: 'queued' })
+    const claim = await claimNotificationSend(notificationClaimStore(supabase), logRow)
     if (claim.outcome === 'held') {
       const reason = claim.by === 'sent' ? 'already_sent' : 'in_flight'
       log({ status: 'skipped', reason })

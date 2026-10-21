@@ -1,7 +1,7 @@
 /**
  * Ops alerts — the ONE way a watchdog Edge Function tells a human something is
- * wrong (#576). First user: notification-health-check; next: the stale-closeout
- * alert (#575).
+ * wrong (#576). Used by notification-health-check (VER-254) and
+ * stale-closeout-check (#575).
  *
  * Sink: `OPS_ALERT_WEBHOOK_URL` (EF secret). Its shape is chosen by
  * `OPS_ALERT_WEBHOOK_FORMAT`:
@@ -38,7 +38,11 @@ export type OpsAlertFormat = 'teams' | 'slack'
 
 export const DEFAULT_OPS_ALERT_FORMAT: OpsAlertFormat = 'teams'
 
-/** Admin host the alert links point at (ops alerts are production-only). */
+/**
+ * Admin host the alert links point at (ops alerts are production-only). Must
+ * match `ADMIN_HOSTNAME_PROD` in `src/lib/proxy/hostnames.ts` — the Deno
+ * boundary stops this module importing it; ops-alert.test.ts pins the two.
+ */
 export const ADMIN_ORIGIN = 'https://admin.verco.au'
 
 /** Per-request cap so a hung webhook can't hold a cron EF to the edge limit. */

@@ -1,7 +1,7 @@
 # VERCO Kwinana — City of Kwinana User Guide
 
 **For:** City of Kwinana team members trialling the VERCO Kwinana portal before go-live — both the **resident** experience (Parts A + B) and the **admin operational** workflows their staff will run after launch (Part C).
-**Version:** 1.1 — 2026-06-05 _(rebranded from the WMRC / Verge Valet guide v1.2; resident screenshots (Parts A + B) captured live from `kwntest.verco.au`; admin screens in Part C are described but not yet captured — see banner below)_
+**Version:** 1.3 — 2026-10-20 _(rebranded from the WMRC / Verge Valet guide v1.2; resident screenshots (Parts A + B) captured live from `kwntest.verco.au`; admin screens in Part C are described but not yet captured — see banner below)_
 **Audience:** City of Kwinana team members and customer service staff — covering resident-side testing AND client-staff back-office training.
 
 ---
@@ -273,7 +273,9 @@ Four required fields:
 - **First Name*** *(autocompletes from the browser)*
 - **Last Name*** *(autocompletes from the browser)*
 - **Email***
-- **Mobile*** — Australian format, auto-formats as you type to `0412 345 678`
+- **Mobile*** — Australian format, auto-formats as you type to `0412 345 678`. A number with the wrong count of digits is **rejected** (see below)
+
+> **Wrong-length phone numbers are rejected _(since 2026-10-20)_.** A number a digit short or long (`0413 12345`) used to be accepted as typed, and the resident silently got no SMS. It is now a hard error on this field: *"Check your number. Mobiles are 10 digits (04xx xxx xxx); landlines need the area code (08 xxxx xxxx)."* Enter a mobile as all 10 digits (`04xx xxx xxx`), a landline with its area code (`08 xxxx xxxx`) and a 1300 / 1800 number as all 10 digits; overseas numbers aren't length-checked. The same rule applies to the on-behalf wizard (§4.2), to a changed number in a booking's CONTACT panel (§4.3) and to a strata contact's phone (§4.6). Editing the services of a booking whose contact already holds a wrong-length number stops at this field until the number is fixed — fix it with the resident on the phone.
 
 > **Why first/last separately?** The system stores the resident's name as two fields and generates the display name from both — it's used in audit trails, NCN letters, refund emails, and so on. Single "full name" entry isn't supported.
 
@@ -328,6 +330,7 @@ Label changes depending on the booking:
 **Free booking path:** You're redirected to `/booking/<ref>?success=true` — the booking detail page with a green success banner.
 
 **Paid booking path:** You're redirected to **Stripe Checkout** (Stripe's hosted payment page).
+
 - Use the test card from §1 above.
 - After successful payment, you return to `/booking/<ref>?success=true`.
 - A green "Payment received — confirming your booking…" banner shows briefly while the system catches the Stripe webhook and flips the status to **Confirmed**.
@@ -521,12 +524,14 @@ If you're not already signed in, visit `kwntest.verco.au/auth` and complete the 
 The admin dashboard has six visible regions:
 
 **Top bar (left to right):**
+
 - **VERCO logo** — your home anchor; click to return to `/admin`
 - **Tenant selector pill** (e.g. *"VERCO Kwinana"* with a green dot) — only visible if your account has access to more than one tenant. Most City of Kwinana staff have a single tenant, so the switcher won't appear at all.
 - **Global search box** — search bookings by reference (e.g. `KWN-1-Y4XXPB`), address, or contact name. Hits any booking your role can see.
 - **Avatar initials** (top right) — your account menu
 
 **Sidebar (left), grouped into three:**
+
 - **GENERAL** — Dashboard (where you are)
 - **OPERATIONS** — Bookings, Collection Dates, Properties, MUDs, Illegal Dumping, Allocations
 - **EXCEPTIONS** — Non-Conformance, Nothing Presented
@@ -561,6 +566,7 @@ This is the workhorse screen. Click **Bookings** in the sidebar — you land on 
 <!-- SCREENSHOT: 22-admin-bookings-list.png — bookings table with KWN-1..4 mix visible (Kwinana re-shoot) -->
 
 **Filter strip** (top of the table):
+
 - Search box — by ref, address, or contact name
 - **All Statuses** dropdown — narrow to a single status (Confirmed, Pending Payment, Cancelled, Non-conformance, Nothing Presented, Scheduled, Submitted, Completed, Rebooked)
 - **All Areas** dropdown — narrow to a single collection area (KWN-1, KWN-2, KWN-3, KWN-4)
@@ -598,6 +604,7 @@ The *"Showing X of Y"* count updates live as you filter.
 | 🟣 **Rebooked** | A follow-up booking has been created after an NCN/NP |
 
 **Top-right actions:**
+
 - **Export CSV** — downloads the current filtered table as a CSV. Useful for ad-hoc reports.
 - **+ New Booking** — opens the booking wizard pre-loaded with admin context. See **§4.6 for the strata path**; otherwise the wizard is identical to the resident flow in Part A, with one difference noted in §4.4.
 
@@ -626,7 +633,7 @@ The panel has the following sections, stacked top-to-bottom:
 #### COLLECTION DETAILS (with pencil icon to edit)
 
 - **Address** — full street + suburb + postcode (resident name is *not* here; that's in CONTACT)
-- **Location** — Front Verge / Side Verge / Driveway / Laneway (whatever the resident selected at step 4 of the wizard)
+- **Location** — Front Verge / Side Verge / Driveway / Laneway (whatever the resident selected at step 4 of the wizard). On a **MUD** booking this is the building's waste-location notes instead, copied from the MUD record (§4.6)
 - **Collection Date** — formatted "Wednesday, 20 May 2026"
 - **Notes** — driver instructions the resident left, or italic *"Nothing"* if blank
 
@@ -641,6 +648,7 @@ The panel has the following sections, stacked top-to-bottom:
 #### SERVICES (with pencil icon to edit)
 
 A list of every service line, each with a **status pill**:
+
 - **Included** (green) — comes out of the resident's FY allocation, no charge
 - **$X.XX** (orange) — an "extra" line beyond the allocation, paid via Stripe
 - A "Total charged" row at the bottom sums the extras
@@ -648,6 +656,7 @@ A list of every service line, each with a **status pill**:
 #### ACTIVITY (audit timeline)
 
 Every change to this booking, oldest at the top:
+
 - "Status changed to Confirmed" — when the booking was confirmed
 - "Service item created" — when each service line was added
 - "0 fields updated" — system housekeeping events (often duplicated; safe to ignore for now)
@@ -685,6 +694,7 @@ If they don't have the reference:
 3. The list narrows live
 
 If you find nothing:
+
 - Check the **status filter** isn't accidentally set to a single status. Reset to "All Statuses".
 - Check the **area filter** isn't pinned to a single area (KWN-1 to KWN-4) — reset it to "All Areas".
 - Check whether they signed up with a **different email** than they're quoting now. Email is the identity anchor; a typo at sign-up creates a "phantom" account they can't access. Look at Service Tickets for prior history under any email.
@@ -718,6 +728,7 @@ Most bookings auto-confirm now (free path → Confirmed immediately; paid path �
 <!-- SCREENSHOT: 26-admin-cancel-dialog.png — confirmation dialog over dimmed slideover (Kwinana re-shoot) -->
 
 What happens after cancellation:
+
 - Booking status flips to **Cancelled**
 - If the resident paid for extras, a **Refund Request** is auto-created in the Refunds queue (see §4.5). The refund is **not automatic** — someone has to approve it.
 - A "booking cancelled" notification email is sent to the resident.
@@ -727,6 +738,7 @@ What happens after cancellation:
 Residents lose the ability to cancel at **3:30pm AWST the day before collection** (they are told 3:00pm — the extra 30 minutes is a grace window). After that, the cancel button is hidden from their dashboard. Field crew are already on the road or about to be.
 
 **Staff can still cancel post-cutoff**, but the policy expectation is:
+
 - **Don't cancel within 24h of collection unless there's a genuine operational reason** (e.g. weather closure, address error). Doing so doesn't refund the resident automatically — you'll need to manually approve a refund or note in the audit trail why no refund applies.
 - **Document the reason in the booking notes before cancelling** (use the pencil icon next to COLLECTION DETAILS). The audit trail captures the cancellation actor, but not the *why* — notes give the why.
 - The same Cancel Booking button works post-cutoff for staff. The DB trigger that blocks resident cancellations has a staff bypass.
@@ -751,6 +763,7 @@ Both flow into your queue if the resident **disputes** them.
 <!-- SCREENSHOT: 27-admin-ncn-list.png — non-conformance notices list (may be empty in early UAT) (Kwinana re-shoot) -->
 
 **Filter strip:**
+
 - Search box — by booking ref, address, reason
 - **All Statuses** dropdown — Issued / Disputed / Under Review / Resolved / Rescheduled / Closed
 - **All Reasons** dropdown — e.g. Oversized, Contamination, Incorrect Location, Asbestos, Hazardous
@@ -830,10 +843,13 @@ A **MUD** is any property where verge collections can't be arranged by individua
 <!-- SCREENSHOT: 30-admin-muds-list.png — MUDs table with status cards visible (Kwinana re-shoot) -->
 
 Four status cards at the top:
+
 - **Contact Made** — strata manager has been identified + contacted, but not yet onboarded
-- **Registered** — strata manager has an admin-bound account; can be booked on behalf of
+- **Registered** — fully onboarded; **this is the only status you can book on behalf of**
 - **Inactive** — strata building is flagged as not currently subscribed (e.g. opted out, demolished)
 - **Not Set** — no strata status assigned yet
+
+> **The "Registered" gate.** A MUD only becomes **Registered** — and therefore bookable — once **all of these** are on the MUD record: a recorded **unit count** and **cadence**, a **strata contact** (name + email + phone), a **signed authorisation form** uploaded, and **waste-location notes**. On a *Contact Made* building the **Mark as Registered** button stays greyed out and lists what's missing under *"Cannot mark Registered yet"*; the **Create booking** button only appears once the building is Registered. (Admin-on-behalf remains the *only* way to book a MUD — there's still no strata self-service portal.)
 
 **Filter strip:** Search by address/MUD code, All areas, All statuses.
 
@@ -847,27 +863,30 @@ Done from the **Properties** page (`/admin/properties`), not from the MUDs list.
 
 1. Open `/admin/properties` (~18,915 records across Kwinana's four areas — use the search box)
 2. Find the property by address
-3. Click the row's **kebab menu** (⋮) → **"Convert to MUD"**
-4. Enter unit count, strata contact name + email + mobile, and cadence
+3. Click the row's **kebab menu** (⋮) → **"Set MUD"**
+4. Enter unit count, cadence, the **Waste location notes** — where the building's bins or pile will be, e.g. *"Bin enclosure behind Block B — enter via the side gate"* (required before the building can be marked **Registered**; crews see these notes on every booking for the building, see c) below, so keep contact details out of them) — and the strata contact name + email + phone (mobile or landline; a wrong-length number is rejected, same rule as §2.6)
 5. Save — the property reappears in `/admin/muds`
 
 #### c) Booking on behalf of a strata building
 
 1. From the MUDs list, click a row to open its detail page
-2. Click **"Book Collection"** (the only call-to-action available on a MUD detail)
-3. The booking wizard opens, pre-loaded with:
-   - The MUD address (read-only — can't change it)
-   - **Type: MUD** (different allocation rules — unit count × per-unit allocation)
-   - Strata contact pre-filled in CONTACT (your name appears with the "(Admin)" suffix as actor)
-4. Walk through the wizard as you would for a resident: services, date, location, confirm
-5. Submit — the booking lands directly in **Confirmed** status (no OTP step required, because the strata manager has been onboarded already)
+2. Click **"Create booking"** (the only call-to-action on a **Registered** MUD detail)
+3. The MUD booking form opens, pre-loaded **from the MUD record** — all of it read-only:
+   - The MUD address and **Type: MUD** (different allocation rules — unit count × per-unit allocation)
+   - **Strata contact** (your name appears with the "(Admin)" suffix as actor)
+   - **Waste location** — the building's waste-location notes from the MUD record (§4.6b). There is **no location picker** on a MUD booking: if the crew should look somewhere else, edit the notes on the MUD record *before* you book
+4. Pick the services and the collection date, add a one-off **Notes** line for the crew if needed (optional), and click **Create MUD booking**
+5. The booking lands directly in **Confirmed** status (no OTP step required, because the strata manager has been onboarded already)
+
+> **Crews see the waste-location notes _(since 2026-10-20)_.** The notes on the MUD record travel with every booking for that building: they appear as the booking's **Location** (§4.3), as the **Location:** line on the crew's run-sheet card, and in the OptimoRoute order the day's route is planned from — alongside any **Notes** you added at booking time. Keep them current (a stale note sends the truck to the wrong spot) and keep names and phone numbers out of them, because crews read them.
 
 > **Allocation maths is different for MUDs.** A 50-unit MUD with the standard 2-Bulk-per-property allocation gets `50 × 2 = 100` Bulk units per FY (shared across General and Green), plus the per-unit Ancillary budget. The pricing engine knows this from `UNITS` × per-unit-allocation; you don't manually scale anything.
 
 #### d) PII handling on MUDs
 
 The **strata contact** name + email + mobile sit in the MUDs table because admins need them. They are **never** exposed to:
-- Field crew (`field` role) — they see only the address and items to collect
+
+- Field crew (`field` role) — they see the address, the items to collect and the waste-location notes (plus any booking notes), never the contact
 - Rangers (`ranger` role) — same restriction
 - Other residents in the building — who don't have visibility into who their strata manager is via this app
 
@@ -899,9 +918,11 @@ The Service Tickets queue is where resident-side enquiries land that aren't dire
 2. **Open** the highest-priority ticket
 3. **Read** the resident's message + any linked booking
 4. **Assign** yourself (or your colleague) so others don't double-handle
-5. **Reply** via the ticket comment thread (the resident is emailed)
+5. **Reply** via the ticket comment thread (the resident is emailed — if that email can't be sent, a banner under the reply box tells you; see below)
 6. **Change status** to "Awaiting Resident" if you're waiting on them, or "Resolved" once handled
 7. **Close** after the resident confirms or after 7 days of silence on Resolved status
+
+> **If the reply email doesn't go out _(since 2026-10-20)_.** Your reply is always saved on the ticket, whatever happens to the email. If the email to the resident fails, an amber banner appears under the reply box — *"Your reply is saved, but the email to the resident didn’t send."* — with a **Resend email** link. Click it once: it reads **Resending…** while it runs, and the banner clears when the email goes. If the resident has no email address on file, the banner says that instead (*"…this resident has no email address on file, so they weren’t emailed."*) and there is nothing to resend — phone them. A resend can never double-send: if the first email did in fact go out, the resend is skipped. The same guard sits behind **Retry** on the **Admin → Notifications** page, where retrying a message that has already gone out (or is sending right now) shows *"This notification has already gone out (or is sending now), so there is nothing to retry."* rather than an error.
 
 > **"Report a bug" floating button vs. Service Tickets.** The floating bug-report button (bottom-right of every admin page) goes to D&M's **dev team** — use it for app misbehaviour. Service Tickets is your **internal customer queue** — use it for things you need to action for a resident. Two different inboxes, two different audiences.
 
@@ -956,7 +977,7 @@ Pair these with resident scenarios above — one tester runs the resident half, 
 | A5 | Approve a refund request in `/admin/refunds` | Status → Issued; Stripe Ref column populates; your name appears in Reviewed By |
 | A6 | Triage a Disputed NCN by walking from `/admin/non-conformance` → detail → set status to Resolved | NCN status → Resolved; resident is emailed; audit log captures actor |
 | A7 | Book on behalf of a MUD by opening the MUDs list, picking a Registered MUD, and walking the wizard | Booking lands directly in Confirmed (no OTP); ref begins with the area prefix; CONTACT shows your name with "(Admin)" suffix |
-| A8 | Convert a residential property into a MUD via `/admin/properties` → kebab menu → "Convert to MUD" | Property disappears from `/admin/properties`, appears in `/admin/muds` with status "Contact Made" |
+| A8 | Convert a residential property into a MUD via `/admin/properties` → kebab menu → "Set MUD" | Property disappears from `/admin/properties`, appears in `/admin/muds` with status "Contact Made" |
 | A9 | Raise a service ticket on behalf of a resident (use the kebab menu on a booking) | Ticket appears in `/admin/service-tickets`; resident is notified; status starts as "New" |
 | A10 | Walk a colleague through the audit trail for a booking that's been edited | ACTIVITY timeline shows each change with field-level diff; you can name who made the change and when |
 
@@ -969,6 +990,7 @@ A: Don't — at least, not yourself. The bookings stay in the system as part of 
 
 **Q: I can't see my dummy booking on the dashboard.**
 A: Two common causes:
+
 - You're signed in with a different email than the one you used to book. Sign out and back in.
 - The booking is **Pending Payment** — those appear on the dashboard but in a separate section. Look for the orange banner.
 
@@ -1018,12 +1040,13 @@ Inside the admin app, the floating **"Report a bug"** button (bottom-right corne
 
 ---
 
-**Document version:** 1.1
-**Last updated:** 2026-06-08
+**Document version:** 1.3
+**Last updated:** 2026-10-20
 **Next review:** after first round of City of Kwinana dummy bookings + the Part C admin screenshot capture
 
 ### Revision log
 
+- **1.3 — 2026-10-20**: Updated for the 20 October 2026 release. **Phone entry (§2.6):** an Australian mobile or landline with the wrong number of digits is now rejected with *"Check your number. Mobiles are 10 digits (04xx xxx xxx); landlines need the area code (08 xxxx xxxx)."* — on the resident and on-behalf confirm step, a changed number in CONTACT, and the strata contact. **Strata bookings (§4.6):** the booking's waste location is the building's **waste-location notes** from the MUD record (read-only on the booking form — there is no location picker), and crews now see those notes on their run-sheet card and in the OptimoRoute order; the Set-MUD step names the notes field, and "crews see only the address and items" is corrected. Button labels corrected against the live app (**Set MUD**, **Create booking**, **Create MUD booking**). **Service tickets (§4.7):** when a reply email can't be sent the ticket shows a banner with **Resend email**; a resend never double-sends, and **Retry** on the Notifications page explains an already-sent message instead of erroring. §4.3 notes that a MUD booking's Location shows the building's notes. §4.6a's **Registered** status now states the real gate (unit count, cadence, strata contact, authorisation form, waste-location notes — **Mark as Registered** lists whatever is missing). No screenshots changed (Part C admin screens still uncaptured).
 - **1.2 — 2026-06-08**: Corrected the Ancillary service catalogue — **all three services (E-Waste, Whitegoods, Mattress) now have a per-service free limit of 3**, matching the live config (previously listed 3 / 2 / 1). The Ancillary category cap stays at 3 per FY, so residents take 3 free Ancillary collections in any mix. Updated the catalogue table, the worked example, and UAT scenario 5.
 - **1.1 — 2026-06-05**: Replaced the placeholder resident screenshots with **live Kwinana captures** (images 01–20, shot from `kwntest.verco.au` and stored under `screenshots/kwn/`). Updated the §2.1 hero description and screenshots banner to match the live site. Part C admin screens (21–32) still pending capture.
 - **1.0 — 2026-06-05**: Initial City of Kwinana release, rebranded from the WMRC / Verge Valet user guide (v1.2). Single-LGA structure (no sub-clients, no member councils — four collection areas KWN-1 to KWN-4); Kwinana service catalogue (Bulk + Ancillary, dual-limit allocation); 48-hour place-out window; `kwntest.verco.au`; VERCO Kwinana contact details. Resident screenshots shipped as reused Verge Valet placeholders (replaced in v1.1).

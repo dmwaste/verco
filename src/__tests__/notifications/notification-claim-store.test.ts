@@ -19,7 +19,6 @@ type Row = {
   channel: string
   notification_type: string
   to_address: string
-  status: string
   reference_id?: string | null
 }
 type Store = {
@@ -80,7 +79,6 @@ const TICKET_ROW: Row = {
   channel: 'email',
   notification_type: 'ticket_response',
   to_address: 'resident@example.test',
-  status: 'queued',
   reference_id: 'resp-1',
 }
 

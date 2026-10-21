@@ -2,7 +2,7 @@
 // Inert unless NEXT_PUBLIC_SENTRY_DSN is set (baked at build — see .env.example).
 import * as Sentry from "@sentry/nextjs";
 
-import { scrubBreadcrumb, scrubEvent } from "./lib/sentry/scrub";
+import { scrubBreadcrumb, scrubEvent, scrubTransaction } from "./lib/sentry/scrub";
 import { handleStaleAction } from "./lib/bundle/stale-action";
 
 Sentry.init({
@@ -30,6 +30,7 @@ Sentry.init({
     "WKWebView API client did not respond to this postMessage",
   ],
   beforeSend: scrubEvent,
+  beforeSendTransaction: scrubTransaction,
   beforeBreadcrumb: scrubBreadcrumb,
 });
 

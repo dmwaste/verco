@@ -59,7 +59,7 @@ A calendar shows the next **Tuesdays and Thursdays** with spaces remaining. Full
 
 ### 2.5 Contact, verification, terms, payment
 
-1. Name, mobile and email.
+1. Name, mobile and email. A mobile or landline with the wrong number of digits is rejected on the spot — *"Check your number. Mobiles are 10 digits (04xx xxx xxx); landlines need the area code (08 xxxx xxxx)."* — and the resident re-enters it (all 10 digits for a mobile, a landline with its area code, or a 1300/1800 number in full) before they can continue. The same rule applies when you change a number on a booking's CONTACT panel or on a strata contact.
 2. A **6-digit code** is emailed; the resident types it in. No passwords, no app.
 3. They tick the **terms and conditions**.
 4. **Free booking** → confirmed immediately. **Paid extras** → a card payment screen (Stripe); the booking confirms the moment payment succeeds.
@@ -144,7 +144,7 @@ Click any row to open the booking's page (`/admin/bookings/<id>`). You can copy 
 ![A Confirmed booking — Collection Details, Contact, Services and the Activity timeline. (Contact fields are redacted in this image only.)](screenshots/24-admin-booking-detail-confirmed.png)
 
 - **Header** — reference, status badge, *"Residential · City of Vincent"*.
-- **COLLECTION DETAILS** — address, verge location, collection date, crew notes.
+- **COLLECTION DETAILS** — address, verge location (for a strata booking, the building's waste-location notes — §3.6), collection date, crew notes.
 - **CONTACT** — name, mobile, email. A name ending **(Admin)** means staff made the booking on the resident's behalf; the resident may not remember it.
 - **SERVICES** — each line marked **Included** (from the allocation) or a **$ amount** (paid extra), with a total.
 - **ACTIVITY** — every change, oldest first, with who made it. This is how you settle *"I never added Green Waste"* — check when the line was added and by whom.
@@ -212,13 +212,13 @@ Vincent has **97** multi-unit dwellings on the list. Residents in these building
 
 ![The MUDs list — status cards, addresses, unit counts, cadence and the Auth-form column. (Contact column redacted in this image only.)](screenshots/30-admin-muds-list.png)
 
-A building is bookable only once it is **Registered**: signed authorisation form on file, a strata contact (name, email, mobile), and waste-location notes. *Contact Made* and *Not Set* buildings can't be booked yet — WMRC is working through those with the strata managers.
+A building is bookable only once it is **Registered**: signed authorisation form on file, a strata contact (name, email, phone), and **waste-location notes** — where the building's bins or pile will be. Since 20 October 2026 crews see those notes on their run sheet and in the route plan for every booking at the building, so keep them current and keep names and phone numbers out of them. *Contact Made* and *Not Set* buildings can't be booked yet — WMRC is working through those with the strata managers.
 
-**To book for a Registered building:** open it from the list → **Book Collection** → the wizard opens with the address locked, type *MUD*, and the strata contact pre-filled → services, date, location → submit. It confirms immediately (no code step). The allocation is the building's **unit count × 2**, shared across Bulk and Green.
+**To book for a Registered building:** open it from the list → **Create booking** → the form opens with the address, type *MUD*, the strata contact and the **waste location** (the building's notes) pre-filled and read-only — there is no location to pick; if the crew should look elsewhere, update the notes on the building first → services, date, an optional note for the crew → **Create MUD booking**. It confirms immediately (no code step). The allocation is the building's **unit count × 2**, shared across Bulk and Green.
 
 **Resident in a strata building phones you:** take their details, confirm which building, and refer them to their strata manager (or WMRC if the building isn't Registered yet). Don't try to book a single unit through the resident flow — the system will refuse.
 
-The strata contact details are visible to you and WMRC only — never to crews, and never to other residents. Don't include the contact column in anything you share.
+The strata contact details are visible to you and WMRC only — never to crews, and never to other residents. Don't include the contact column in anything you share. Crews see the address, the services, the waste-location notes and any booking note — nothing else.
 
 ---
 
@@ -233,7 +233,7 @@ Anything a resident needs that isn't a button on their booking: *"my address isn
 1. Filter to **New**, unassigned.
 2. Open the highest priority → read the message and any linked booking.
 3. **Assign** yourself so nobody double-handles it.
-4. **Reply** in the thread — the resident is emailed your reply.
+4. **Reply** in the thread — the resident is emailed your reply. If that email doesn't send, an amber banner under the reply box says so with a **Resend email** link: click it once (it reads *Resending…* until done). If the resident has no email on file, the banner says that instead — phone them. A resend never double-sends: if the first email did go out, the resend is skipped. (**Retry** on the Admin → Notifications page has the same guard — a message that already went out, or is sending now, is refused with a plain note, not an error.)
 5. Set **Awaiting Resident** if you're waiting on them, **Resolved** when done, **Closed** after they confirm (or after a week of silence).
 
 Tickets you can't action (a property to add, a refund, a crew query) — assign to WMRC or D&M with a note. That's the hand-off mechanism; you don't need to email separately.
@@ -309,4 +309,5 @@ No action needed — this is a listening tool, and it feeds the Reports page.
 
 ### Revision log
 
+- **1.1 — 20 October 2026.** Updated for the 20 October release: a mobile or landline with the wrong number of digits is rejected at the contact step, with the exact message (§2.5); a strata booking's waste location is the building's notes, read-only on the booking form, and crews now see those notes on the run sheet and in the route plan (§3.3, §3.6); a ticket reply whose email doesn't send shows a **Resend email** banner (§3.7). Button names corrected to the live app (**Create booking**, **Create MUD booking**). Screenshots unchanged.
 - **1.0 — 24 August 2026.** Vincent go-live edition. Derived from the Verge Valet User Guide v1.4 (Part C) with Vincent's service rules, collection days, pricing, history import and hand-off model. Screenshots are from the shared Verge Valet admin app (a Vincent login sees the same screens narrowed to `VIN`).

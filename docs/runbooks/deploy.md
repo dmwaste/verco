@@ -50,11 +50,11 @@ Manual trigger (redeploy without a new commit): Actions → Deploy → Run workf
 | `PROD_HEALTH_URL` | GitHub Actions secret | `coolify` job post-deploy verification |
 | `SUPABASE_SERVICE_ROLE_KEY` | `supabase secrets set` (EF scope only) | Edge Functions. **Never** in Next.js image or Coolify env. |
 | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` | `supabase secrets set` | `create-checkout`, `stripe-webhook` EFs |
-| `SENDGRID_API_KEY`, `SENDGRID_FROM_EMAIL` | `supabase secrets set` | `send-notification` EF |
+| `SENDGRID_API_KEY`, `DEFAULT_FROM_EMAIL` | `supabase secrets set` | `send-notification` + `notify-ticket-response` EFs (`DEFAULT_FROM_EMAIL` is the name the code reads; `SENDGRID_FROM_EMAIL` was a manifest typo) |
 | `GOOGLE_PLACES_API_KEY` | `supabase secrets set` | `google-places-proxy` EF |
 | `CRON_SECRET` | `supabase secrets set` **and** Supabase Vault as `cron_ef_secret` (same value, never in git) | Every cron-invoked EF (`_shared/cron-handler.ts`, #517). pg_cron reads the Vault copy at run time and sends it as `X-Cron-Secret`; the EF compares it to its env copy. Rotate both together or every cron 401s — a mismatch raises a Sentry warning on the first run. |
 | `SENTRY_DSN` | `supabase secrets set` | All EFs (`withSentry`) — inert when unset |
-| `OPS_ALERT_WEBHOOK_URL`, `OPS_ALERT_WEBHOOK_FORMAT` | `supabase secrets set` (URL is a signed Teams Workflows link — a password, never in git) | Watchdog EFs via `_shared/ops-alert.ts` (`notification-health-check`; #575 next). Format defaults to `teams`. Unset URL → Sentry warning every run. Setup + test: [ops-alerts.md](ops-alerts.md) |
+| `OPS_ALERT_WEBHOOK_URL`, `OPS_ALERT_WEBHOOK_FORMAT` | `supabase secrets set` (URL is a signed Teams Workflows link — a password, never in git) | Watchdog EFs via `_shared/ops-alert.ts` (`notification-health-check`, `stale-closeout-check`). Format defaults to `teams`. Unset URL → Sentry warning every run. Setup + test: [ops-alerts.md](ops-alerts.md) |
 
 Coolify runtime env is intentionally thin: `NODE_ENV=production`, `PORT=3000`, `HOSTNAME=0.0.0.0`, plus `ADMIN_SUBDOMAIN_ENFORCED=true` (server-runtime flag that 308s `{tenant}/admin/*` and `/field/*` to `admin.verco.au` / `field.verco.au`). Nothing else — `NEXT_PUBLIC_*` values are build-time only and a runtime edit is a no-op.
 
@@ -114,3 +114,4 @@ Used by: Docker HEALTHCHECK (internal 127.0.0.1), deploy.yml post-deploy poll, C
 | Coolify poll times out with `status: "degraded"` | App running but Supabase unreachable from BinaryLane | Check Supabase status, check Coolify network config, check anon key hasn't been rotated without updating GHA secret. |
 | Coolify poll times out with `sha` mismatch | Coolify didn't pick up the new image | Check Coolify UI → Deployments log. Re-trigger webhook. Verify GHCR image exists at the expected tag. |
 | `sharp` runtime error in container | Alpine musl binary missing | Fallback: switch Dockerfile `runner` base to `node:20-slim` (Debian). Image grows ~80 MB. |
+| `Lockfile Security Pins` job fails, or every install-based CI job dies with `ERR_PNPM_LOCKFILE_CONFIG_MISMATCH` | A newer pnpm (11+) regenerated `pnpm-lock.yaml` without the `pnpm.overrides` security pins — Dependabot did this until `packageManager` pinned 9.15.9 (#602) | The job's output names each dropped pin. On the pinned pnpm (`corepack enable`): `pnpm install --no-frozen-lockfile`, then commit the lockfile. |
