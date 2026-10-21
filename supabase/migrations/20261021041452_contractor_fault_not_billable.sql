@@ -1,30 +1,30 @@
--- A Nothing Presented that was D&M's fault is not billed (ADR 0039, Dan
--- 21/10/2026). Amends the counting rule set in 20260825060000 (ADR 0017).
+-- A Nothing Presented or Non-conformance that was D&M's fault is not billed
+-- (ADR 0039, Dan 21/10/2026). Amends the counting rule set in 20260825060000
+-- (ADR 0017).
 --
--- ADR 0017 bills Nothing Presented because D&M attended the property and the
--- resident put nothing out. That reasoning fails when the office, on
--- investigating a dispute, records the notice as contractor_fault: then the
--- crew missed or mis-closed a collection that was there, and the council is
--- not charged for our mistake. So:
+-- ADR 0017 bills Nothing Presented and Non-conformance because D&M attended the
+-- property: the resident put nothing out, or put out the wrong things. That
+-- reasoning fails when the office, on investigating a dispute, records the
+-- notice as contractor_fault: then the crew missed, mis-closed or wrongly
+-- refused a collection, and the council is not charged for our mistake. So:
 --
 --   * booked units drop out when the item's waste stream has a
---     nothing_presented record with contractor_fault = true. Fault is recorded
---     per stop (booking x stream), so a booking that was Nothing Presented on
---     green by our fault still bills its general items. A record with no stop
---     (legacy, booking-level) takes the whole booking out;
---   * crew-logged mattresses drop out when their stop's Nothing Presented is
---     contractor_fault (no units move today; NP stops log zero).
+--     nothing_presented OR non_conformance_notice record with
+--     contractor_fault = true. Fault is recorded per stop (booking x stream),
+--     so a booking that was our fault on green still bills its general items.
+--     A record with no stop (legacy, booking-level) takes the whole booking out;
+--   * crew-logged mattresses drop out when their stop's notice is
+--     contractor_fault.
 --
--- Unchanged: Non-conformance is billed whatever its contractor_fault flag (not
--- part of this decision). A contractor-fault NP that was rebooked was already
--- excluded (Rebooked), and its redo bills at price 0 to the resident as before.
--- Every other rule and comment in 20260825060000 and 20260806153039 still
--- applies.
+-- A contractor-fault notice that was rebooked was already excluded (Rebooked),
+-- and its redo bills at price 0 to the resident as before. Every other rule and
+-- comment in 20260825060000 and 20260806153039 still applies.
 --
--- Effect on prod data at writing: 4 Verge Valet units in July 2026, all
--- contractor-fault NPs resolved without a rebook. August-October unchanged.
--- get_booking_tally (20261021032236) applies the identical predicate, and
--- client-monthly-billable-statuses.test.ts pins the two together.
+-- Effect on prod data at writing (Jul-Sep 2026): Verge Valet July -4 units
+-- (Nothing Presented), Kwinana August -2 and Verge Valet September -1 (both
+-- Non-conformance). get_booking_tally (20261021032236) applies the identical
+-- predicates, and client-monthly-billable-statuses.test.ts pins the two
+-- together.
 
 CREATE OR REPLACE FUNCTION public.get_client_monthly_report(
   p_client_id uuid,
@@ -83,7 +83,8 @@ BEGIN
            'Nothing Presented'::booking_status
          ])
      AND NOT (s.is_mattress AND v_has_mattress_stream)
-     -- ADR 0039: our-fault Nothing Presented on this item's stream isn't billed.
+     -- ADR 0039: an our-fault Nothing Presented or Non-conformance on this
+     -- item's stream isn't billed.
      AND NOT EXISTS (
            SELECT 1
              FROM nothing_presented np
@@ -91,6 +92,13 @@ BEGIN
             WHERE np.booking_id = b.id
               AND np.contractor_fault
               AND (np.collection_stop_id IS NULL OR npcs.stream = s.waste_stream))
+     AND NOT EXISTS (
+           SELECT 1
+             FROM non_conformance_notice ncn
+             LEFT JOIN collection_stop ncncs ON ncncs.id = ncn.collection_stop_id
+            WHERE ncn.booking_id = b.id
+              AND ncn.contractor_fault
+              AND (ncn.collection_stop_id IS NULL OR ncncs.stream = s.waste_stream))
      AND cd.date >= v_from AND cd.date < v_to
    GROUP BY 2, 3, s.name, s.waste_stream, s.is_mattress, bi.is_extra
 
@@ -115,10 +123,13 @@ BEGIN
            'Non-conformance'::stop_status,
            'Nothing Presented'::stop_status
          ])
-     -- ADR 0039: our-fault Nothing Presented on this stop isn't billed.
+     -- ADR 0039: an our-fault notice on this stop isn't billed.
      AND NOT EXISTS (
            SELECT 1 FROM nothing_presented np
             WHERE np.collection_stop_id = cs.id AND np.contractor_fault)
+     AND NOT EXISTS (
+           SELECT 1 FROM non_conformance_notice ncn
+            WHERE ncn.collection_stop_id = cs.id AND ncn.contractor_fault)
      AND cd.date >= v_from AND cd.date < v_to
    GROUP BY 2, 3, c.mattress_closeout_stream;
 END;

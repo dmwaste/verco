@@ -1,7 +1,7 @@
 # 0017 — The monthly client report bills attended collections, not just clean ones
 
 - **Date:** 25/08/2026
-- **Status:** Accepted (amended by 0039: a Nothing Presented recorded as D&M's fault is not billed)
+- **Status:** Accepted (amended by 0039: a Nothing Presented or Non-conformance recorded as D&M's fault is not billed)
 
 ## Decision
 
