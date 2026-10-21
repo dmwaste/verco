@@ -9,7 +9,7 @@ vi.mock('@/lib/supabase/client', () => ({ createClient: () => ({ rpc }) }))
 import { BookingTallyPanel } from '@/app/(admin)/admin/bookings/booking-tally-panel'
 
 /**
- * The bookings-screen totals panel (VER-323, ADR 0036). Councils check D&M's
+ * The bookings-screen totals panel (VER-323, ADR 0038). Councils check D&M's
  * invoices against it: counts only, no export, Nothing Presented inside the
  * billable subtotal, and a refusal from the RPC shown as an error — never as
  * zeros, which would read as "nothing was collected".

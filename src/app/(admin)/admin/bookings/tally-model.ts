@@ -2,7 +2,7 @@ import { z } from 'zod'
 import type { Result } from '@/lib/result'
 
 /**
- * Pure pivot for the bookings-screen totals (VER-323, ADR 0036). Input is the
+ * Pure pivot for the bookings-screen totals (VER-323, ADR 0038). Input is the
  * get_booking_tally payload; output is the table the panel renders.
  *
  * Which statuses are billable comes ONLY from each row's `billable` flag. The

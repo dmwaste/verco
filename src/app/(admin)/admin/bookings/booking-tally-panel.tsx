@@ -21,7 +21,7 @@ interface BookingTallyPanelProps {
   dateFrom: string
   dateTo: string
   /** The free-text search is in use — totals hide rather than match on names
-   *  or addresses (ADR 0036). */
+   *  or addresses (ADR 0038). */
   searching: boolean
 }
 
@@ -29,7 +29,7 @@ const fmt = (n: number) => n.toLocaleString('en-AU')
 
 /**
  * Totals for the WHOLE filtered result set, not the visible page (VER-323,
- * ADR 0036). One server-side aggregate (get_booking_tally) counted exactly as
+ * ADR 0038). One server-side aggregate (get_booking_tally) counted exactly as
  * the council invoice is. Counts only: no export, no resident details.
  */
 export function BookingTallyPanel({
