@@ -26,6 +26,7 @@ interface BookingTallyPanelProps {
 }
 
 const fmt = (n: number) => n.toLocaleString('en-AU')
+const rowKey = (r: TallyRow) => `${r.status}|${r.contractorFault}`
 
 /**
  * Totals for the WHOLE filtered result set, not the visible page (VER-323,
@@ -190,14 +191,14 @@ function OutcomeTable({ caption, tally, cells, total, showBookings, keepRow }: O
           </tr>
         </thead>
         <tbody>
-          {tally.billable.filter(keepRow).map((r) => renderRow(r, { key: r.status, label: r.status }))}
+          {tally.billable.filter(keepRow).map((r) => renderRow(r, { key: rowKey(r), label: r.label }))}
           {renderRow(tally.billableTotal, { key: 'billable', label: 'Billable (attended)', emphasis: 'subtotal' })}
           {tally.other.filter(keepRow).map((r) =>
             renderRow(r, {
-              key: r.status,
+              key: rowKey(r),
               label: (
                 <>
-                  {r.status}
+                  {r.label}
                   {r.reason && <span className="ml-2 text-xs text-gray-400">{r.reason}</span>}
                 </>
               ),

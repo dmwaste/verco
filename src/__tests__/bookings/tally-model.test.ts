@@ -15,15 +15,16 @@ const booked = (
   service: string,
   units: number,
   is_extra = false,
-) => ({ source: 'booked' as const, status, billable, category, service, is_extra, units })
+  contractor_fault = false,
+) => ({ source: 'booked' as const, status, billable, contractor_fault, category, service, is_extra, units })
 
 const RAW = {
   bookings: [
-    { status: 'Cancelled', billable: false, bookings: 5 },
-    { status: 'Nothing Presented', billable: true, bookings: 2 },
-    { status: 'Completed', billable: true, bookings: 10 },
-    { status: 'Scheduled', billable: false, bookings: 1 },
-    { status: 'Non-conformance', billable: true, bookings: 3 },
+    { status: 'Cancelled', billable: false, contractor_fault: false, bookings: 5 },
+    { status: 'Nothing Presented', billable: true, contractor_fault: false, bookings: 2 },
+    { status: 'Completed', billable: true, contractor_fault: false, bookings: 10 },
+    { status: 'Scheduled', billable: false, contractor_fault: false, bookings: 1 },
+    { status: 'Non-conformance', billable: true, contractor_fault: false, bookings: 3 },
   ],
   units: [
     booked('Completed', true, 'bulk', 'Green Waste', 4),
@@ -34,7 +35,7 @@ const RAW = {
     booked('Nothing Presented', true, 'bulk', 'Green Waste', 2),
     booked('Cancelled', false, 'bulk', 'Bulk Waste', 5),
     booked('Scheduled', false, 'anc', 'E-Waste', 1),
-    { source: 'stop_mattress' as const, status: 'Completed', billable: true, units: 6 },
+    { source: 'stop_mattress' as const, status: 'Completed', billable: true, contractor_fault: false, units: 6 },
   ],
 }
 
@@ -44,7 +45,12 @@ describe('parseTally', () => {
   })
 
   it('rejects a payload missing the billable flag, rather than guessing it', () => {
-    const bad = { bookings: [{ status: 'Completed', bookings: 1 }], units: [] }
+    const bad = { bookings: [{ status: 'Completed', contractor_fault: false, bookings: 1 }], units: [] }
+    expect(parseTally(bad).ok).toBe(false)
+  })
+
+  it('rejects a payload missing the contractor-fault flag', () => {
+    const bad = { bookings: [{ status: 'Completed', billable: true, bookings: 1 }], units: [] }
     expect(parseTally(bad).ok).toBe(false)
   })
 })
@@ -99,7 +105,7 @@ describe('buildTally', () => {
     // If the SQL ever moved a status in or out of the billable set, the screen
     // follows the SQL — it has no copy of its own to drift.
     const p = parseTally({
-      bookings: [{ status: 'Scheduled', billable: true, bookings: 1 }],
+      bookings: [{ status: 'Scheduled', billable: true, contractor_fault: false, bookings: 1 }],
       units: [booked('Scheduled', true, 'bulk', 'Bulk Waste', 1)],
     })
     if (!p.ok) throw new Error(p.error)
@@ -111,12 +117,41 @@ describe('buildTally', () => {
   it('keeps a status that has units but no booking count (a mattress stop on a moved date)', () => {
     const p = parseTally({
       bookings: [],
-      units: [{ source: 'stop_mattress', status: 'Completed', billable: true, units: 2 }],
+      units: [{ source: 'stop_mattress', status: 'Completed', billable: true, contractor_fault: false, units: 2 }],
     })
     if (!p.ok) throw new Error(p.error)
     const only = buildTally(p.data)
     expect(only.billable).toHaveLength(1)
     expect(only.billable[0]).toMatchObject({ status: 'Completed', bookings: 0, includedTotal: 2 })
+  })
+
+  it("lists an our-fault Nothing Presented on its own line outside the billable total (ADR 0039)", () => {
+    const p = parseTally({
+      bookings: [
+        { status: 'Nothing Presented', billable: true, contractor_fault: false, bookings: 4 },
+        { status: 'Nothing Presented', billable: false, contractor_fault: true, bookings: 1 },
+      ],
+      units: [
+        booked('Nothing Presented', true, 'bulk', 'Bulk Waste', 4),
+        booked('Nothing Presented', false, 'bulk', 'Green Waste', 2, false, true),
+      ],
+    })
+    if (!p.ok) throw new Error(p.error)
+    const t = buildTally(p.data)
+
+    // The billable NP line keeps only the resident-caused ones...
+    expect(t.billable).toHaveLength(1)
+    expect(t.billable[0]).toMatchObject({ label: 'Nothing Presented', bookings: 4, includedTotal: 4 })
+    // ...and ours sits outside the total, named for what it is.
+    expect(t.other).toHaveLength(1)
+    expect(t.other[0]).toMatchObject({
+      label: "Nothing Presented — D&M's fault",
+      reason: "not billed: D&M's fault",
+      bookings: 1,
+      includedTotal: 2,
+    })
+    expect(t.billableTotal.includedTotal).toBe(4)
+    expect(t.total.includedTotal).toBe(6)
   })
 
   it('is empty for an empty result', () => {

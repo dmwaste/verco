@@ -17,15 +17,17 @@ import { BookingTallyPanel } from '@/app/(admin)/admin/bookings/booking-tally-pa
 
 const PAYLOAD = {
   bookings: [
-    { status: 'Completed', billable: true, bookings: 10 },
-    { status: 'Nothing Presented', billable: true, bookings: 2 },
-    { status: 'Cancelled', billable: false, bookings: 4 },
+    { status: 'Completed', billable: true, contractor_fault: false, bookings: 10 },
+    { status: 'Nothing Presented', billable: true, contractor_fault: false, bookings: 2 },
+    { status: 'Cancelled', billable: false, contractor_fault: false, bookings: 4 },
+    { status: 'Nothing Presented', billable: false, contractor_fault: true, bookings: 1 },
   ],
   units: [
-    { source: 'booked', status: 'Completed', billable: true, category: 'bulk', service: 'Bulk Waste', is_extra: false, units: 12 },
-    { source: 'booked', status: 'Nothing Presented', billable: true, category: 'bulk', service: 'Bulk Waste', is_extra: false, units: 2 },
-    { source: 'booked', status: 'Cancelled', billable: false, category: 'bulk', service: 'Bulk Waste', is_extra: false, units: 4 },
-    { source: 'stop_mattress', status: 'Completed', billable: true, units: 3 },
+    { source: 'booked', status: 'Completed', billable: true, contractor_fault: false, category: 'bulk', service: 'Bulk Waste', is_extra: false, units: 12 },
+    { source: 'booked', status: 'Nothing Presented', billable: true, contractor_fault: false, category: 'bulk', service: 'Bulk Waste', is_extra: false, units: 2 },
+    { source: 'booked', status: 'Cancelled', billable: false, contractor_fault: false, category: 'bulk', service: 'Bulk Waste', is_extra: false, units: 4 },
+    { source: 'booked', status: 'Nothing Presented', billable: false, contractor_fault: true, category: 'bulk', service: 'Bulk Waste', is_extra: false, units: 1 },
+    { source: 'stop_mattress', status: 'Completed', billable: true, contractor_fault: false, units: 3 },
   ],
 }
 
@@ -86,6 +88,10 @@ describe('BookingTallyPanel', () => {
     expect(np.closest('tr')!.compareDocumentPosition(row) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
 
     expect(screen.getByRole('rowheader', { name: /Cancelled/ })).toHaveTextContent('not attended')
+    // ADR 0039: our-fault Nothing Presented sits outside the billable total, named as ours.
+    const fault = screen.getByRole('rowheader', { name: /Nothing Presented — D&M's fault/ })
+    expect(fault).toHaveTextContent("not billed: D&M's fault")
+    expect(fault.closest('tr')).toHaveTextContent(/1\s*1\s*0\s*1$/)
     expect(document.body.textContent).not.toMatch(/non-?chargeable/i)
     expect(screen.getByText(/Mattress is the crew's count at closeout/)).toBeInTheDocument()
   })

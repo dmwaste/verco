@@ -9,17 +9,22 @@ import type { Result } from '@/lib/result'
  * SQL is the single place that set lives (pinned to the invoice RPC by
  * client-monthly-billable-statuses.test.ts), so this file has no copy to drift.
  * Crew-logged mattresses (`stop_mattress`) fill the Mattress column; they are
- * always council-included, as on the invoice.
+ * always council-included, as on the invoice. A Nothing Presented the office
+ * recorded as D&M's fault (`contractor_fault`, ADR 0039) gets its own line
+ * outside the billable total, so its units are shown, not lost.
  */
 
 const tallySchema = z.object({
-  bookings: z.array(z.object({ status: z.string(), billable: z.boolean(), bookings: z.number() })),
+  bookings: z.array(
+    z.object({ status: z.string(), billable: z.boolean(), contractor_fault: z.boolean(), bookings: z.number() }),
+  ),
   units: z.array(
     z.discriminatedUnion('source', [
       z.object({
         source: z.literal('booked'),
         status: z.string(),
         billable: z.boolean(),
+        contractor_fault: z.boolean(),
         category: z.string(),
         service: z.string(),
         is_extra: z.boolean(),
@@ -29,6 +34,7 @@ const tallySchema = z.object({
         source: z.literal('stop_mattress'),
         status: z.string(),
         billable: z.boolean(),
+        contractor_fault: z.boolean(),
         units: z.number(),
       }),
     ]),
@@ -46,6 +52,10 @@ export function parseTally(raw: unknown): Result<TallyPayload> {
 
 export interface TallyRow {
   status: string
+  /** What the row is called on screen (the status, or "… — D&M's fault"). */
+  label: string
+  /** The office recorded this Nothing Presented as D&M's fault (ADR 0039). */
+  contractorFault: boolean
   bookings: number
   /** Council-included units per service column. */
   included: Record<string, number>
@@ -97,10 +107,21 @@ const OUTSIDE_REASON: Record<string, string> = {
   'Missed Collection': 'billed once, on the redo',
 }
 
+const FAULT_REASON = "not billed: D&M's fault"
+
 const CATEGORY_RANK: Record<string, number> = { bulk: 0, anc: 1, id: 2 }
 
-function emptyRow(status: string): TallyRow {
-  return { status, bookings: 0, included: {}, extras: {}, includedTotal: 0, extrasTotal: 0 }
+function emptyRow(status: string, contractorFault = false): TallyRow {
+  return {
+    status,
+    label: contractorFault ? `${status} — D&M's fault` : status,
+    contractorFault,
+    bookings: 0,
+    included: {},
+    extras: {},
+    includedTotal: 0,
+    extrasTotal: 0,
+  }
 }
 
 function addUnits(row: TallyRow, column: string, units: number, extra: boolean) {
@@ -126,27 +147,31 @@ const rank = (status: string) => {
 }
 
 export function buildTally(payload: TallyPayload): Tally {
+  // One row per (status, our fault?): an our-fault Nothing Presented is a
+  // different line from the resident-caused ones.
   const rows = new Map<string, TallyRow>()
   const billableFlag = new Map<string, boolean>()
-  const row = (status: string, billable: boolean) => {
-    // A status is billable if the RPC flagged it so on any row.
-    billableFlag.set(status, (billableFlag.get(status) ?? false) || billable)
-    const existing = rows.get(status)
+  const row = (status: string, billable: boolean, contractorFault: boolean) => {
+    const key = `${status}|${contractorFault}`
+    // A row is billable if the RPC flagged it so on any of its entries.
+    billableFlag.set(key, (billableFlag.get(key) ?? false) || billable)
+    const existing = rows.get(key)
     if (existing) return existing
-    const created = emptyRow(status)
-    rows.set(status, created)
+    const created = emptyRow(status, contractorFault)
+    rows.set(key, created)
     return created
   }
+  const isBillable = (r: TallyRow) => billableFlag.get(`${r.status}|${r.contractorFault}`) ?? false
 
-  for (const b of payload.bookings) row(b.status, b.billable).bookings += b.bookings
+  for (const b of payload.bookings) row(b.status, b.billable, b.contractor_fault).bookings += b.bookings
 
   const columnRank = new Map<string, number>()
   for (const u of payload.units) {
     if (u.source === 'stop_mattress') {
-      addUnits(row(u.status, u.billable), MATTRESS, u.units, false)
+      addUnits(row(u.status, u.billable, u.contractor_fault), MATTRESS, u.units, false)
       columnRank.set(MATTRESS, CATEGORY_RANK.anc!)
     } else {
-      addUnits(row(u.status, u.billable), u.service, u.units, u.is_extra)
+      addUnits(row(u.status, u.billable, u.contractor_fault), u.service, u.units, u.is_extra)
       columnRank.set(u.service, Math.min(columnRank.get(u.service) ?? 9, CATEGORY_RANK[u.category] ?? 1))
     }
   }
@@ -155,11 +180,16 @@ export function buildTally(payload: TallyPayload): Tally {
     .sort(([a, ra], [b, rb]) => ra - rb || a.localeCompare(b))
     .map(([name]) => name)
 
-  const ordered = [...rows.values()].sort((a, b) => rank(a.status) - rank(b.status) || a.status.localeCompare(b.status))
-  const billable = ordered.filter((r) => billableFlag.get(r.status))
+  const ordered = [...rows.values()].sort(
+    (a, b) =>
+      Number(a.contractorFault) - Number(b.contractorFault) ||
+      rank(a.status) - rank(b.status) ||
+      a.status.localeCompare(b.status),
+  )
+  const billable = ordered.filter(isBillable)
   const other = ordered
-    .filter((r) => !billableFlag.get(r.status))
-    .map((r) => ({ ...r, reason: OUTSIDE_REASON[r.status] ?? '' }))
+    .filter((r) => !isBillable(r))
+    .map((r) => ({ ...r, reason: r.contractorFault ? FAULT_REASON : (OUTSIDE_REASON[r.status] ?? '') }))
 
   const total = sumRows('All', ordered)
   return {
