@@ -29,10 +29,13 @@ type SentryRequest = NonNullable<ErrorEvent["request"]>;
 
 const EMAIL_RE = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
 const UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
-const ISO_DATE = "\\d{4}-\\d{2}-\\d{2}(?:T[\\d:.]+(?:Z|[+-]\\d{2}:?\\d{2})?)?";
+// A real calendar date, not followed by another digit or hyphen, so a phone
+// grouped like `0412-34-5678` or `0894-11-1234` isn't mistaken for one.
+const DATE = "\\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\\d|3[01])";
+const ISO_DATE = `${DATE}(?:T[\\d:.]+(?:Z|[+-]\\d{2}:?\\d{2})?)?(?![\\d-])`;
 // +61…, 04xx…, or any run of 8+ phone-shaped characters. UUIDs and ISO dates
 // are matched first (group 1) and kept, so their digit runs aren't read as
-// phone numbers (property ids arrived as `9941569f-[phone]-…`).
+// phone numbers (ids arrived as `xxxxxxxx-[phone]-…`).
 const PHONE_RE = new RegExp(`(${UUID}|${ISO_DATE})|\\+?\\d[\\d ()-]{7,}\\d`, "gi");
 
 // URL query values are default-deny: only id-, number-, date- and flag-shaped
@@ -41,11 +44,17 @@ const PHONE_RE = new RegExp(`(${UUID}|${ISO_DATE})|\\+?\\d[\\d ()-]{7,}\\d`, "gi
 // query string, and a list of PII param names would miss the next one added.
 const QUERY_PAIR_RE = /([?&])([^=&#\s?]+)=([^&#\s]*)/g;
 const SAFE_QUERY_VALUE_RE = new RegExp(
-  `^(?:${UUID}(?::\\d{1,3})?(?:,${UUID}(?::\\d{1,3})?)*|\\d{1,6}|\\d{4}-\\d{2}-\\d{2}|true|false)?$`,
+  `^(?:${UUID}(?::\\d{1,3})?(?:,${UUID}(?::\\d{1,3})?)*|\\d{1,6}|${DATE}|true|false)?$`,
   "i",
 );
 // Keys whose string value is a bare query string (no leading `?`).
 const QUERY_KEYS = new Set(["query_string", "url.query", "http.query"]);
+
+// Sentry builds ui.* breadcrumb messages from the clicked element and copies
+// its aria-label / title / alt values in: free text, e.g. a table cell's
+// `title={address}`. Matched to end of string too, in case the message was
+// truncated before the closing `"]`. Code-defined `type` / `name` stay.
+const UI_ATTR_TEXT_RE = /\[(aria-label|title|alt)="[\s\S]*?(?:"\]|$)/g;
 
 // Object keys whose values are redacted wholesale regardless of content.
 const PII_KEYS = new Set([
@@ -204,7 +213,12 @@ export function scrubBreadcrumb(
   breadcrumb: Breadcrumb,
   _hint?: BreadcrumbHint,
 ): Breadcrumb {
-  if (breadcrumb.message) breadcrumb.message = redactString(breadcrumb.message);
+  if (breadcrumb.message) {
+    const message = breadcrumb.category?.startsWith("ui.")
+      ? breadcrumb.message.replace(UI_ATTR_TEXT_RE, '[$1="[redacted]"]')
+      : breadcrumb.message;
+    breadcrumb.message = redactString(message);
+  }
   if (breadcrumb.data) {
     breadcrumb.data = scrubValue(breadcrumb.data) as Breadcrumb["data"];
   }
