@@ -1,7 +1,7 @@
 # 0024 — Council staff see only their own council's notifications and tickets, and no audit log until it is tagged by council
 
 - **Date:** 30/09/2026
-- **Status:** Accepted
+- **Status:** Accepted (audit-log stopgap superseded by 0036)
 
 ## Decision
 

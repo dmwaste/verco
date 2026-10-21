@@ -1,4 +1,4 @@
-# 0036 — Councils reconcile invoices with on-screen counts, not exports, counted exactly as the invoice is
+# 0038 — Councils reconcile invoices with on-screen counts, not exports, counted exactly as the invoice is
 
 - **Date:** 21/10/2026
 - **Status:** Accepted

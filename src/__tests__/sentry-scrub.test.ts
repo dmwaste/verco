@@ -12,9 +12,9 @@ import {
 // their name, email, mobile and driver notes) in the URL query at every step.
 // Those URLs reach Sentry in breadcrumbs, `request.url` and span attributes —
 // none of these fixture values may survive the scrub.
-const PROPERTY_ID = '9941569f-1234-4567-b2f6-c19816661e5e'
-const AREA_ID = '1ba489fc-d50a-4f87-9c0a-4518b4260c2d'
-const SERVICE_ID = '888fd3d5-64db-43f8-b849-f37579612345'
+const PROPERTY_ID = 'aaaaaaaa-1234-4567-8901-bbbbbbbbbbbb'
+const AREA_ID = 'cccccccc-2345-4678-9012-dddddddddddd'
+const SERVICE_ID = 'eeeeeeee-3456-4789-0123-ffffffffffff'
 const PII = [
   '7 Fixture Way',
   'Fixture',
@@ -39,7 +39,7 @@ function wizardQuery(): string {
     contact_email: 'pat@example.com',
     contact_mobile: '+61400000000',
     notes: 'Gate code 4321 behind the shed',
-    date_from: '2026-10-20',
+    date_from: '2030-01-02',
   }).toString()
 }
 
@@ -54,7 +54,7 @@ function expectStructureKept(value: unknown) {
   expect(json).toContain(`collection_area_id=${AREA_ID}`)
   expect(json).toContain('on_behalf=true')
   expect(json).toContain('total_cents=4500')
-  expect(json).toContain('date_from=2026-10-20')
+  expect(json).toContain('date_from=2030-01-02')
   expect(json).toContain('address=[redacted]')
 }
 
@@ -202,12 +202,12 @@ describe('redaction no longer mangles ids and dates', () => {
     const event = scrubEvent(
       {
         type: undefined,
-        message: `booking ${PROPERTY_ID} on 2026-10-20T09:00:57.136Z — call +61 400 000 000`,
+        message: `booking ${PROPERTY_ID} on 2030-01-02T03:04:05.000Z — call +61 400 000 000`,
       } as ErrorEvent,
       {},
     )
     expect(event.message).toBe(
-      `booking ${PROPERTY_ID} on 2026-10-20T09:00:57.136Z — call [phone]`,
+      `booking ${PROPERTY_ID} on 2030-01-02T03:04:05.000Z — call [phone]`,
     )
   })
 
@@ -217,5 +217,56 @@ describe('redaction no longer mangles ids and dates', () => {
       data: { to: '/admin/caller-lookup?phone=0400000000&ref=12' },
     })
     expect(crumb.data?.to).toBe('/admin/caller-lookup?phone=[redacted]&ref=12')
+  })
+})
+
+describe('date guard does not shelter phone numbers', () => {
+  it.each(['0412-34-5678', '1300-12-3456', '0894-11-1234', '0412-34-56789', '0412-12-12-34'])(
+    'redacts %s',
+    (phone) => {
+      const event = scrubEvent(
+        { type: undefined, message: `call ${phone} today` } as ErrorEvent,
+        {},
+      )
+      expect(event.message).toBe('call [phone] today')
+    },
+  )
+
+  it('keeps real dates and timestamps', () => {
+    const event = scrubEvent(
+      {
+        type: undefined,
+        message: 'due 2030-12-31, sent 2030-01-02T03:04:05.000Z',
+      } as ErrorEvent,
+      {},
+    )
+    expect(event.message).toBe('due 2030-12-31, sent 2030-01-02T03:04:05.000Z')
+  })
+})
+
+// Sentry builds ui.* breadcrumb messages with htmlTreeAsString, which copies
+// the aria-label / title / alt attribute values of the clicked element (e.g. a
+// table cell with `title={address}`). Those are free text — redact them; keep
+// code-defined `type` / `name`.
+describe('scrubBreadcrumb — ui attribute text', () => {
+  it('redacts title / aria-label / alt values, keeps type and name', () => {
+    const crumb = scrubBreadcrumb({
+      category: 'ui.click',
+      message:
+        'tr.border-b > td.px-4.py-2[title="7 Fixture Way, Testville WA 6000"] > button[aria-label="Call Pat Fixture"][type="button"][name="call"] > img[alt="Pat"]',
+    })
+    expectNoPii(crumb)
+    expect(crumb.message).toBe(
+      'tr.border-b > td.px-4.py-2[title="[redacted]"] > button[aria-label="[redacted]"][type="button"][name="call"] > img[alt="[redacted]"]',
+    )
+  })
+
+  it('redacts an attribute value left unterminated by a truncated message', () => {
+    const crumb = scrubBreadcrumb({
+      category: 'ui.input',
+      message: 'div.flex > td.max-w-[320px].truncate[title="7 Fixture Wa',
+    })
+    expectNoPii(crumb)
+    expect(crumb.message).toBe('div.flex > td.max-w-[320px].truncate[title="[redacted]"]')
   })
 })
