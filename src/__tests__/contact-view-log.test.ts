@@ -13,9 +13,10 @@ vi.mock('@sentry/nextjs', () => ({ captureMessage }))
 import { logContactViews } from '@/lib/contacts/view-log'
 
 function makeFake(error: { message: string; code?: string } | null = null) {
-  const insert = vi.fn(async () => ({ error }))
+  const abortSignal = vi.fn<(signal: AbortSignal) => Promise<{ error: typeof error }>>(async () => ({ error }))
+  const insert = vi.fn(() => ({ abortSignal }))
   const from = vi.fn(() => ({ insert }))
-  return { client: { from } as unknown as Parameters<typeof logContactViews>[0], from, insert }
+  return { client: { from } as unknown as Parameters<typeof logContactViews>[0], from, insert, abortSignal }
 }
 
 describe('logContactViews', () => {
@@ -32,6 +33,15 @@ describe('logContactViews', () => {
       { contact_id: 'c-b', surface: 'caller_lookup' },
     ])
     expect(captureMessage).not.toHaveBeenCalled()
+  })
+
+  // A stalled write must not hold the call pop; an abort returns as an error.
+  it('bounds the write with a timeout', async () => {
+    const { client, abortSignal } = makeFake()
+
+    await logContactViews(client, ['c-a'], 'caller_lookup')
+
+    expect(abortSignal).toHaveBeenCalledWith(expect.any(AbortSignal))
   })
 
   it('writes nothing when no contact was shown', async () => {

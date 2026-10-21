@@ -4369,6 +4369,45 @@ if (!haveDb) {
       }
     })
 
+    // 20261021085854: a refresh or action re-render of the same screen isn't a
+    // new view, so the same person + contact + surface within 5 minutes is skipped.
+    it('a repeat view within five minutes is skipped; a later one is logged', async (ctx) => {
+      if (!(await deployed())) return ctx.skip()
+      const f = await fixture()
+      const earlier = (age: string): [string, unknown[]] => [
+        `INSERT INTO contact_view_log (contact_id, viewed_by, surface, viewed_at) VALUES ($1, $2, 'caller_lookup', now() - $3::interval)`,
+        [f.kwn, USERS['contractor-admin'], age],
+      ]
+      const insertCount = `WITH ins AS (INSERT INTO contact_view_log (contact_id, surface) VALUES ($1, 'caller_lookup') RETURNING 1)
+                           SELECT count(*)::int AS inserted FROM ins`
+      expect((await runAs(USERS['contractor-admin'], [earlier('1 minute')], insertCount, [f.kwn])).rows[0]).toEqual({ inserted: 0 })
+      expect((await runAs(USERS['contractor-admin'], [earlier('6 minutes')], insertCount, [f.kwn])).rows[0]).toEqual({ inserted: 1 })
+    })
+
+    it('the skip never reveals someone else’s views or hides a refusal', async (ctx) => {
+      if (!(await deployed())) return ctx.skip()
+      const f = await fixture()
+      const viewedNow = (user: string): [string, unknown[]] => [
+        `INSERT INTO contact_view_log (contact_id, viewed_by, surface) VALUES ($1, $2, 'caller_lookup')`,
+        [f.kwn, user],
+      ]
+      const forged = await runAs(
+        USERS['contractor-staff'],
+        [viewedNow(USERS['contractor-admin'])],
+        `INSERT INTO contact_view_log (contact_id, surface, viewed_by) VALUES ($1, 'caller_lookup', $2)`,
+        [f.kwn, USERS['contractor-admin']],
+      )
+      expect(forged.error).toMatch(/row-level security/)
+      // A backdated row is refused even when the caller has a recent view to match.
+      const backdated = await runAs(
+        USERS['contractor-staff'],
+        [viewedNow(USERS['contractor-staff'])],
+        `INSERT INTO contact_view_log (contact_id, surface, viewed_at) VALUES ($1, 'caller_lookup', now() - interval '1 day')`,
+        [f.kwn],
+      )
+      expect(backdated.error).toMatch(/row-level security/)
+    })
+
     it('nobody can edit or delete a row from the app', async (ctx) => {
       if (!(await deployed())) return ctx.skip()
       const f = await fixture()
