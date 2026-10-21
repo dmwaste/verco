@@ -10,6 +10,7 @@ Every entry in the change history (the audit log) now records which council it b
 Some entries belong to no single council. They stay hidden from council officers and visible to WMRC-wide and D&M staff:
 - changes to a **contact record** (name, email, mobile);
 - general enquiries that aren't tied to a booking, and replies to them;
+- the office's corrections to a crew's closeout, which carry D&M's internal reason (that record is D&M-only already);
 - bug reports, the client record itself, and old staff-account entries.
 
 Entries written before this change are tagged by a one-off script run after the release. Until it has run, council officers see only new history. An untagged entry is always hidden from them, never shown to the wrong council.

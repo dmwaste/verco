@@ -43,8 +43,7 @@
 --                  allocation_rules, service_rules, booking_survey (older
 --                  survey entries fall back to their booking)
 --   booking link   booking_item, collection_stop, non_conformance_notice,
---                  nothing_presented, refund_request, service_ticket,
---                  stop_outcome_correction
+--                  nothing_presented, refund_request, service_ticket
 --   property link  allocation_override, property_note, strata_user_properties
 --   ticket link    ticket_response (→ service_ticket → booking)
 -- Left NULL, so hidden from council-scoped staff (everyone else unchanged):
@@ -55,6 +54,9 @@
 --                  before/after copies are what leaked (ADR 0024).
 --   service_ticket / ticket_response with no booking: general enquiries have
 --                  no council, the same rule as service_ticket RLS (ADR 0024).
+--   stop_outcome_correction: the office's closeout corrections carry D&M's
+--                  internal reason; the table itself is contractor-only
+--                  (20261013160000), so its history stays off council screens.
 --   bug_report, bug_report_attachment, bug_report_comment: support records
 --                  about Verco itself, not one council's operations.
 --   client         The whole client.
@@ -124,7 +126,7 @@ BEGIN
       (p_row->>'collection_area_id')::uuid,
       (SELECT collection_area_id FROM booking WHERE id = (p_row->>'booking_id')::uuid)
     );
-  ELSIF p_table IN ('booking_item', 'collection_stop', 'non_conformance_notice', 'nothing_presented', 'refund_request', 'service_ticket', 'stop_outcome_correction') THEN
+  ELSIF p_table IN ('booking_item', 'collection_stop', 'non_conformance_notice', 'nothing_presented', 'refund_request', 'service_ticket') THEN
     SELECT collection_area_id INTO v_area_id FROM booking WHERE id = (p_row->>'booking_id')::uuid;
   ELSIF p_table IN ('allocation_override', 'property_note', 'strata_user_properties') THEN
     SELECT collection_area_id INTO v_area_id FROM eligible_properties WHERE id = (p_row->>'property_id')::uuid;
@@ -133,7 +135,8 @@ BEGIN
       FROM service_ticket t JOIN booking b ON b.id = t.booking_id
      WHERE t.id = (p_row->>'ticket_id')::uuid;
   END IF;
-  -- contacts, client, bug_report* and unmapped tables fall through as NULL.
+  -- contacts, client, stop_outcome_correction, bug_report* and unmapped
+  -- tables fall through as NULL.
   RETURN (SELECT sub_client_id FROM collection_area WHERE id = v_area_id);
 END;
 $function$;

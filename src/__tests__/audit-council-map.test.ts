@@ -15,7 +15,14 @@ import { join } from 'node:path'
 const MIGRATIONS = join(__dirname, '../../supabase/migrations')
 
 // Deliberately never tagged (see 20261021023000's header for why).
-const UNTAGGED = new Set(['contacts', 'client', 'bug_report', 'bug_report_attachment', 'bug_report_comment'])
+const UNTAGGED = new Set([
+  'contacts',
+  'client',
+  'stop_outcome_correction',
+  'bug_report',
+  'bug_report_attachment',
+  'bug_report_comment',
+])
 
 const files = readdirSync(MIGRATIONS)
   .filter((f) => f.endsWith('.sql'))

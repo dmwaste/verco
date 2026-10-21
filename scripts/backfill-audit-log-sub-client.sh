@@ -52,7 +52,7 @@ while [ $# -gt 0 ]; do
 done
 
 [[ "$AFTER" =~ ^[0-9a-f-]{36}$ ]] || { echo "--after must be a uuid" >&2; exit 2; }
-[[ "$BATCH" =~ ^[0-9]+$ ]] || { echo "BATCH must be a number" >&2; exit 2; }
+[[ "$BATCH" =~ ^[1-9][0-9]*$ ]] || { echo "BATCH must be a positive number" >&2; exit 2; }
 
 ERR=$(mktemp)
 trap 'rm -f "$ERR"' EXIT
@@ -123,4 +123,5 @@ if $APPLY; then
       FROM audit_log
      WHERE sub_client_id IS NULL AND client_id IN (SELECT client_id FROM sub_client)
      GROUP BY 1 ORDER BY 2 DESC" 2>/dev/null
+  echo "Optional: run VACUUM (ANALYZE) public.audit_log; in the dashboard SQL editor so the Audit Log count is index-only again now."
 fi
