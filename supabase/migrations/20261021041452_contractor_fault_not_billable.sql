@@ -20,11 +20,12 @@
 -- and its redo bills at price 0 to the resident as before. Every other rule and
 -- comment in 20260825060000 and 20260806153039 still applies.
 --
--- Effect on prod data at writing (Jul-Sep 2026): Verge Valet July -4 units
--- (Nothing Presented), Kwinana August -2 and Verge Valet September -1 (both
--- Non-conformance). get_booking_tally (20261021032236) applies the identical
--- predicates, and client-monthly-billable-statuses.test.ts pins the two
--- together.
+-- Effective from collection dates on/after 01/10/2026, the first month not yet
+-- invoiced: July-September were billed under ADR 0017 and their reports must
+-- keep matching the issued invoices (without the date, the rule would have
+-- moved Verge Valet July -4, Kwinana August -2 and Verge Valet September -1).
+-- get_booking_tally (20261021032236) applies the identical predicates and date,
+-- and client-monthly-billable-statuses.test.ts pins the two together.
 
 CREATE OR REPLACE FUNCTION public.get_client_monthly_report(
   p_client_id uuid,
@@ -84,21 +85,22 @@ BEGIN
          ])
      AND NOT (s.is_mattress AND v_has_mattress_stream)
      -- ADR 0039: an our-fault Nothing Presented or Non-conformance on this
-     -- item's stream isn't billed.
-     AND NOT EXISTS (
-           SELECT 1
-             FROM nothing_presented np
-             LEFT JOIN collection_stop npcs ON npcs.id = np.collection_stop_id
-            WHERE np.booking_id = b.id
-              AND np.contractor_fault
-              AND (np.collection_stop_id IS NULL OR npcs.stream = s.waste_stream))
-     AND NOT EXISTS (
-           SELECT 1
-             FROM non_conformance_notice ncn
-             LEFT JOIN collection_stop ncncs ON ncncs.id = ncn.collection_stop_id
-            WHERE ncn.booking_id = b.id
-              AND ncn.contractor_fault
-              AND (ncn.collection_stop_id IS NULL OR ncncs.stream = s.waste_stream))
+     -- item's stream isn't billed, from 01/10/2026 (invoiced months unchanged).
+     AND (cd.date < DATE '2026-10-01' OR (
+           NOT EXISTS (
+             SELECT 1
+               FROM nothing_presented np
+               LEFT JOIN collection_stop npcs ON npcs.id = np.collection_stop_id
+              WHERE np.booking_id = b.id
+                AND np.contractor_fault
+                AND (np.collection_stop_id IS NULL OR npcs.stream = s.waste_stream))
+       AND NOT EXISTS (
+             SELECT 1
+               FROM non_conformance_notice ncn
+               LEFT JOIN collection_stop ncncs ON ncncs.id = ncn.collection_stop_id
+              WHERE ncn.booking_id = b.id
+                AND ncn.contractor_fault
+                AND (ncn.collection_stop_id IS NULL OR ncncs.stream = s.waste_stream))))
      AND cd.date >= v_from AND cd.date < v_to
    GROUP BY 2, 3, s.name, s.waste_stream, s.is_mattress, bi.is_extra
 
@@ -123,13 +125,15 @@ BEGIN
            'Non-conformance'::stop_status,
            'Nothing Presented'::stop_status
          ])
-     -- ADR 0039: an our-fault notice on this stop isn't billed.
-     AND NOT EXISTS (
-           SELECT 1 FROM nothing_presented np
-            WHERE np.collection_stop_id = cs.id AND np.contractor_fault)
-     AND NOT EXISTS (
-           SELECT 1 FROM non_conformance_notice ncn
-            WHERE ncn.collection_stop_id = cs.id AND ncn.contractor_fault)
+     -- ADR 0039: an our-fault notice on this stop isn't billed, from
+     -- 01/10/2026 (invoiced months unchanged).
+     AND (cd.date < DATE '2026-10-01' OR (
+           NOT EXISTS (
+             SELECT 1 FROM nothing_presented np
+              WHERE np.collection_stop_id = cs.id AND np.contractor_fault)
+       AND NOT EXISTS (
+             SELECT 1 FROM non_conformance_notice ncn
+              WHERE ncn.collection_stop_id = cs.id AND ncn.contractor_fault)))
      AND cd.date >= v_from AND cd.date < v_to
    GROUP BY 2, 3, c.mattress_closeout_stream;
 END;

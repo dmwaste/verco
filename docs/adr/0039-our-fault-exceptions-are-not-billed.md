@@ -21,7 +21,7 @@ On the day this was decided, the rule moved these units, all bulk or green:
 | August 2026 | Kwinana Area 2 | 2 bulk | Non-conformance |
 | September 2026 | Verge Valet: Cottesloe | 1 bulk | Non-conformance |
 
-Nothing else moved. Those months were already invoiced, so their invoices were over by these amounts under this rule. Whether to issue credit notes is Dan's call.
+Nothing else moved. Those months were already invoiced, so the rule applies only from **collection dates on/after 01/10/2026** (pre-release review, 21/10/2026). Re-downloading July–September still gives the invoiced numbers, so a council reconciling an issued invoice sees no difference. Whether to credit those 7 units anyway is Dan's call.
 
 ## What this changed from the original plan
 

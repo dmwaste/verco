@@ -17,7 +17,8 @@
 --   * EXCEPT a Nothing Presented or Non-conformance the office recorded as
 --     D&M's fault (contractor_fault on the notice, ADR 0039): the items on that
 --     stop's waste stream are not billable, and nor is that stop's crew
---     mattress count;
+--     mattress count. Only from collection dates on/after 01/10/2026: the
+--     months invoiced before the rule keep ADR 0017's count;
 --   * soft-deleted bookings never count;
 --   * a tenant that logs mattresses at closeout (mattress_closeout_stream) has
 --     its is_mattress items dropped and the crew's collection_stop.mattress_count
@@ -130,14 +131,14 @@ BEGIN
     SELECT bi.booking_id, b.status, b.attended, cat.code AS category,
            s.name AS service, bi.is_extra,
            coalesce(bi.actual_services, bi.no_services) AS units,
-           b.attended AND EXISTS (
+           b.attended AND cd.date >= DATE '2026-10-01' AND EXISTS (
              SELECT 1
                FROM nothing_presented np
                LEFT JOIN collection_stop npcs ON npcs.id = np.collection_stop_id
               WHERE np.booking_id = b.id
                 AND np.contractor_fault
                 AND (np.collection_stop_id IS NULL OR npcs.stream = s.waste_stream)) AS np_fault,
-           b.attended AND EXISTS (
+           b.attended AND cd.date >= DATE '2026-10-01' AND EXISTS (
              SELECT 1
                FROM non_conformance_notice ncn
                LEFT JOIN collection_stop ncncs ON ncncs.id = ncn.collection_stop_id
@@ -196,12 +197,12 @@ BEGIN
            sum(cs.mattress_count)::bigint AS units
       FROM (
         SELECT cs.status::text AS status, cs.mattress_count,
-               EXISTS (
+               cd.date >= DATE '2026-10-01' AND (EXISTS (
                  SELECT 1 FROM nothing_presented np
                   WHERE np.collection_stop_id = cs.id AND np.contractor_fault)
                  OR EXISTS (
                  SELECT 1 FROM non_conformance_notice ncn
-                  WHERE ncn.collection_stop_id = cs.id AND ncn.contractor_fault) AS our_fault
+                  WHERE ncn.collection_stop_id = cs.id AND ncn.contractor_fault)) AS our_fault
           FROM bk
           JOIN collection_stop cs ON cs.booking_id = bk.id
           JOIN collection_date cd ON cd.id = cs.collection_date_id
