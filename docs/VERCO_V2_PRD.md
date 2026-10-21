@@ -281,7 +281,7 @@ Capacity check and booking insert are wrapped in a serialisable transaction in t
 
 ### 6.4 Attended Collections (for the DM-Ops feed)
 
-For DM-Ops CPPH analytics, "attended" = bookings where `status IN ('Completed', 'Non-conformance', 'Nothing Presented')`. DM-Ops reads this through the read-only `dmops_export.collection_daily_v1` / `stop_daily_v1` views (migration `20261014010000`), pulled over `postgres_fdw` on DM-Ops' own schedule — attended units per day × job × area × council × OptimoRoute run, counts and codes only, no resident PII. The views copy `get_client_monthly_report`'s counting rules so the feed and the monthly invoice statement tie by construction. The original nightly aggregate push (`nightly-sync-to-dm-ops`) never completed a run and was retired on 23/08/2026 (ADR 0015).
+For DM-Ops CPPH analytics, "attended" = bookings where `status IN ('Completed', 'Non-conformance', 'Nothing Presented')`. DM-Ops reads this through the read-only `dmops_export.collection_daily_v1` / `stop_daily_v1` views (migration `20261014010000`), pulled over `postgres_fdw` on DM-Ops' own schedule — attended units per day × job × area × council × OptimoRoute run, counts and codes only, no resident PII. The views copy `get_client_monthly_report`'s counting rules, so the feed and the monthly invoice statement tie, with one deliberate exception. From 01/10/2026 the invoice drops Nothing Presented / Non-conformance outcomes recorded as D&M's fault (ADR 0039), while the feed still counts them as attended for CPPH. Invoices come from the statement, never the feed. The original nightly aggregate push (`nightly-sync-to-dm-ops`) never completed a run and was retired on 23/08/2026 (ADR 0015).
 
 ---
 
