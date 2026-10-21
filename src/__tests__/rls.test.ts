@@ -3547,6 +3547,15 @@ if (!haveDb) {
       return (r.rows[0]?.qual ?? '').includes('sub_client_id = ( SELECT current_user_sub_client_id()')
     }
 
+    // ADR 0037 (same migration): no API role can write the log, and client tiers
+    // don't see the history of contractor-only tables.
+    async function auditLockedDown(): Promise<boolean> {
+      const r = await pg.query<{ n: number }>(
+        `SELECT count(*)::int AS n FROM pg_policies WHERE tablename = 'audit_log' AND policyname = 'audit_log_insert'`,
+      )
+      return r.rows[0]!.n === 0
+    }
+
     // One audited write in the scoped user's council (by AUDIT_ACTORS.own) and
     // one in another Verge Valet council (by AUDIT_ACTORS.other), so both
     // assertions below hold whether or not the backfill has run.
@@ -3623,6 +3632,29 @@ if (!haveDb) {
       const sql = (id: string) => `SELECT user_id FROM resolve_actor_names(ARRAY['${AUDIT_ACTORS.own}', '${AUDIT_ACTORS.other}']::uuid[]) WHERE user_id = '${id}'`
       expect(await countAsWithSeed(USERS['client-staff'], seed, sql(AUDIT_ACTORS.own))).toBe(1)
       expect(await countAsWithSeed(USERS['client-staff'], seed, sql(AUDIT_ACTORS.other))).toBe(0)
+    })
+
+    it('nobody can forge an audit_log entry through the API (ADR 0037)', async (ctx) => {
+      if (!(await auditLockedDown())) return ctx.skip()
+      const forge = `INSERT INTO audit_log (table_name, record_id, action, client_id) VALUES ('booking', gen_random_uuid(), 'UPDATE', '${CLIENT_ID}')`
+      await expect(updateAs(USERS['contractor-admin'], forge)).rejects.toThrow(/permission denied/)
+      await pg.query('BEGIN')
+      try {
+        await pg.query('SET LOCAL ROLE anon')
+        await expect(pg.query(forge)).rejects.toThrow(/permission denied/)
+      } finally {
+        await pg.query('ROLLBACK')
+      }
+    })
+
+    it('client-tier staff see no history of D&M-only tables; D&M does (ADR 0037)', async (ctx) => {
+      if (!(await auditLockedDown())) return ctx.skip()
+      const seed: Array<[string, unknown[]]> = [
+        [`INSERT INTO audit_log (table_name, record_id, action, client_id) VALUES ('stop_outcome_correction', gen_random_uuid(), 'INSERT', $1)`, [CLIENT_ID]],
+      ]
+      const sql = `SELECT id FROM audit_log WHERE table_name = 'stop_outcome_correction'`
+      expect(await countAsWithSeed(USERS['client-admin'], seed, sql)).toBe(0)
+      expect(await countAsWithSeed(USERS['contractor-admin'], seed, sql)).toBeGreaterThan(0)
     })
 
     it('client-tier staff see zero resident profiles', async (ctx) => {

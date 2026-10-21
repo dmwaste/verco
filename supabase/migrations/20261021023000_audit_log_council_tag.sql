@@ -1,14 +1,18 @@
 -- ============================================================================
--- Council tag on audit_log: council-scoped staff get their History back (#614)
+-- audit_log: council tag (#614) + only the database writes it, and D&M-only
+-- tables' history stays with D&M
 -- ============================================================================
 -- Hotfix 20260930030000 (ADR 0024) hid the whole audit log from council-scoped
 -- staff (user_roles.sub_client_id set), because it held other councils'
 -- contact history. This tags each entry with the council it belongs to, so a
 -- council officer sees their own council's history again and nothing else.
 -- WMRC-wide, Kwinana and D&M staff are unchanged (their sub-client is NULL).
+-- Two older gaps found on the way are closed too (ADR 0037): anyone holding
+-- the public anon key could INSERT forged history entries, and client-tier
+-- staff could read the history of a table they can't read themselves.
 --
 --   1. audit_log.sub_client_id (nullable, FK → sub_client) + an index on
---      (client_id, created_at DESC) INCLUDE (sub_client_id), replacing
+--      (client_id, created_at DESC) INCLUDE (sub_client_id, table_name), replacing
 --      idx_audit_log_client. Why that shape, measured on prod 21/10 (rolled
 --      back) under staff JWTs:
 --        * The policy's `(SELECT …) IS NULL OR sub_client_id = (SELECT …)`
@@ -25,6 +29,8 @@
 --          (it sorted all 420k entries); an index ordered by created_at
 --          within the client returns it in milliseconds, and a council
 --          officer's read walks it newest-first, keeping their council's rows.
+--        * table_name rides along because the policy's D&M-only clause (6)
+--          reads it; without it the count leaves the index again.
 --   2. audit_log_sub_client_id(table, row): the ONE table → council map.
 --      audit_trigger_fn() calls it for every new entry, and the backfill
 --      (scripts/backfill-audit-log-sub-client.sh, run once after this deploys)
@@ -35,7 +41,18 @@
 --      (SELECT …)-wrapped into an InitPlan; the per-row work is a plain column
 --      compare. No per-row helper call on this table (CLAUDE.md §21).
 --   5. resolve_actor_names (the History panel's "changed by" lookup) mirrors
---      the same council scope.
+--      the same council scope, and the D&M-only clause.
+--   6. Only the database writes the log (ADR 0037). audit_log_insert was
+--      WITH CHECK (true) for PUBLIC and anon + authenticated held INSERT, so a
+--      POST to /rest/v1/audit_log with the public key forged an entry that
+--      staff then read as real history. The writers are audit_trigger_fn
+--      (DEFINER, owned by postgres, the table owner: bypasses RLS) and the
+--      create-user EF (service role: BYPASSRLS), so neither needs the grant.
+--      Client-tier staff no longer see entries of tables whose own SELECT
+--      policy is contractor-only: today stop_outcome_correction, whose reason
+--      is internal D&M context (20261013160000). The list lives in the policy
+--      and in resolve_actor_names; audit-council-map.test.ts keeps both in
+--      step with its classification of every audited table.
 --
 -- Mapping: every table with an audit trigger on prod (21/10/2026).
 --   own column     collection_area (its sub_client_id)
@@ -78,7 +95,7 @@
 -- `lock_timeout` turns contention into a fast, re-runnable failure instead of
 -- a queue of stalled writers behind the ALTER (as 20260709030000).
 --
--- Idempotent: IF NOT EXISTS, CREATE OR REPLACE, DROP POLICY IF EXISTS.
+-- Idempotent: IF NOT EXISTS, CREATE OR REPLACE, DROP … IF EXISTS, REVOKE.
 -- ============================================================================
 
 SET LOCAL lock_timeout = '5s';
@@ -89,7 +106,7 @@ ALTER TABLE public.audit_log
   ADD COLUMN IF NOT EXISTS sub_client_id uuid REFERENCES public.sub_client(id);
 
 CREATE INDEX IF NOT EXISTS idx_audit_log_client_created
-  ON public.audit_log (client_id, created_at DESC) INCLUDE (sub_client_id);
+  ON public.audit_log (client_id, created_at DESC) INCLUDE (sub_client_id, table_name);
 
 -- The new index leads with client_id, so it serves every use of the old one
 -- (the client_id FK included). Keeping both lets the planner pick the old
@@ -189,7 +206,9 @@ $function$;
 -- ── 4. audit_log_select: own council's entries for council-scoped staff ──
 -- Was `AND (SELECT current_user_sub_client_id()) IS NULL` (20260930030000).
 -- An untagged entry (NULL) never equals a council, so it stays hidden from
--- council staff, including any entry the backfill hasn't reached yet.
+-- council staff, including any entry the backfill hasn't reached yet. The
+-- last clause is section 6's D&M-only list: client tiers never see those
+-- tables' entries, whatever their council.
 
 DROP POLICY IF EXISTS audit_log_select ON public.audit_log;
 CREATE POLICY audit_log_select ON public.audit_log
@@ -200,6 +219,10 @@ FOR SELECT USING (
     (SELECT current_user_sub_client_id()) IS NULL
     OR sub_client_id = (SELECT current_user_sub_client_id())
   )
+  AND (
+    table_name <> ALL (ARRAY['stop_outcome_correction'])
+    OR (SELECT current_user_role()) = ANY (ARRAY['contractor-admin'::app_role, 'contractor-staff'::app_role])
+  )
 );
 
 -- ── 5. resolve_actor_names follows the same council scope ───────────────
@@ -207,8 +230,9 @@ FOR SELECT USING (
 -- RPC, whose tenant guard mirrors audit_log_select. Without the council
 -- clause a council officer could resolve the name of anyone who acted only
 -- in another council (resident names included). Full re-emit of the live
--- prod definition (20260702100000, checksum matched 21/10) with that one
--- clause added; CREATE OR REPLACE keeps its grants, the pin is re-declared.
+-- prod definition (20260702100000, checksum matched 21/10) with the council
+-- and D&M-only clauses added; CREATE OR REPLACE keeps its grants, the pin is
+-- re-declared.
 
 CREATE OR REPLACE FUNCTION public.resolve_actor_names(p_user_ids uuid[])
 RETURNS TABLE(user_id uuid, name text)
@@ -243,5 +267,18 @@ AS $fn$
           (SELECT current_user_sub_client_id()) IS NULL
           OR al.sub_client_id = (SELECT current_user_sub_client_id())
         )
+        AND (
+          al.table_name <> ALL (ARRAY['stop_outcome_correction'])
+          OR (SELECT current_user_role()) IN ('contractor-admin', 'contractor-staff')
+        )
     );
 $fn$;
+
+-- ── 6. Only the database writes the log ─────────────────────────────────
+-- No INSERT/UPDATE/DELETE policy remains, and the API roles lose every write
+-- privilege (TRUNCATE ignores RLS altogether). Staff keep SELECT under
+-- audit_log_select; anon had nothing to read and now holds nothing.
+
+DROP POLICY IF EXISTS audit_log_insert ON public.audit_log;
+REVOKE ALL ON public.audit_log FROM anon;
+REVOKE INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER ON public.audit_log FROM authenticated;

@@ -40,3 +40,4 @@ An ADR — "architecture decision record" — is a short record of a decision we
 | [0034](0034-stale-closeouts-named-once-backlog-restated-mondays.md) | Stale closeouts are named once; the open backlog is restated on Mondays | 20/10/2026 | Accepted |
 | [0035](0035-notifications-claimed-before-sending.md) | A notification is claimed before it is sent, so a retry can't send it twice | 20/10/2026 | Accepted |
 | [0036](0036-council-staff-see-their-own-councils-history.md) | Council staff see their own council's change history again; contact changes stay with WMRC and D&M | 21/10/2026 | Accepted |
+| [0037](0037-only-the-database-writes-the-change-history.md) | Only the database writes the change history, and staff see a record's history only if they can see the record | 21/10/2026 | Accepted |
