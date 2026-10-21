@@ -43,18 +43,35 @@ function createdRelations(sql: string): Array<{ kind: 'table' | 'view'; name: st
 
 function grantsOn(sql: string, name: string): boolean {
   const re = new RegExp(
-    `\\bgrant\\s[^;]*?\\bon\\s+(?:table\\s+)?(?:"?public"?\\.)?"?${name}"?\\b[^;]*?\\bto\\b`,
+    `\\bgrant\\s[^;]*?\\bon\\s+(?:table\\s+|sequence\\s+)?(?:"?public"?\\.)?"?${name}"?\\b[^;]*?\\bto\\b`,
     'i',
   )
   return re.test(stripComments(sql))
 }
 
-/** Relations this migration creates without granting on them. */
+// A serial or identity column (not a GENERATED ... STORED one) creates a sequence.
+const SEQUENCE_COL_RE =
+  /(?:^|[(,])\s*"?([a-z_][a-z0-9_]*)"?\s+(?:(?:big|small)?serial\b|[a-z0-9_ ]*?\bgenerated\s+(?:always|by\s+default)\s+as\s+identity\b)/gi
+
+/** Sequences a migration's new public tables create: Postgres names them <table>_<column>_seq. */
+function createdSequences(sql: string): string[] {
+  return stripComments(sql)
+    .split(';')
+    .flatMap((stmt) =>
+      createdRelations(stmt)
+        .filter((r) => r.kind === 'table')
+        .flatMap((r) => [...stmt.matchAll(SEQUENCE_COL_RE)].map((m) => `${r.name}_${m[1]!.toLowerCase()}_seq`)),
+    )
+}
+
+/** Relations (and their sequences) this migration creates without granting on them. */
 function missingGrants(sql: string, earlier: Set<string>): string[] {
-  return createdRelations(sql)
-    .filter((r) => r.kind === 'table' || !earlier.has(r.name))
-    .filter((r) => !grantsOn(sql, r.name))
-    .map((r) => r.name)
+  return [
+    ...createdRelations(sql)
+      .filter((r) => r.kind === 'table' || !earlier.has(r.name))
+      .map((r) => r.name),
+    ...createdSequences(sql),
+  ].filter((name) => !grantsOn(sql, name))
 }
 
 describe('missingGrants', () => {
@@ -72,6 +89,19 @@ describe('missingGrants', () => {
     const sql = `CREATE TABLE thing (id uuid);
       -- GRANT SELECT ON public.thing TO authenticated;`
     expect(missingGrants(sql, new Set())).toEqual(['thing'])
+  })
+
+  it('flags the sequence of a serial or identity column granted only on the table', () => {
+    const sql = `CREATE TABLE public.thing (id bigserial PRIMARY KEY, n bigint GENERATED ALWAYS AS IDENTITY);
+      GRANT SELECT, INSERT ON public.thing TO authenticated;`
+    expect(missingGrants(sql, new Set())).toEqual(['thing_id_seq', 'thing_n_seq'])
+  })
+
+  it('accepts sequences granted in the same migration, and ignores GENERATED ... STORED', () => {
+    const sql = `CREATE TABLE public.thing (id serial, full_name text GENERATED ALWAYS AS (a || b) STORED);
+      GRANT SELECT, INSERT ON public.thing TO authenticated;
+      GRANT USAGE, SELECT ON SEQUENCE public.thing_id_seq TO authenticated, service_role;`
+    expect(missingGrants(sql, new Set())).toEqual([])
   })
 
   it('does not take a grant on a longer name for this one', () => {
