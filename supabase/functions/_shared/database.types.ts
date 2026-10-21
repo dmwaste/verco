@@ -1591,6 +1591,38 @@ export type Database = {
           },
         ]
       }
+      contact_view_log: {
+        Row: {
+          contact_id: string
+          id: string
+          surface: string
+          viewed_at: string
+          viewed_by: string
+        }
+        Insert: {
+          contact_id: string
+          id?: string
+          surface: string
+          viewed_at?: string
+          viewed_by?: string
+        }
+        Update: {
+          contact_id?: string
+          id?: string
+          surface?: string
+          viewed_at?: string
+          viewed_by?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "contact_view_log_contact_id_fkey"
+            columns: ["contact_id"]
+            isOneToOne: false
+            referencedRelation: "contacts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       contacts: {
         Row: {
           created_at: string

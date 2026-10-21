@@ -5,7 +5,7 @@
 
 ## Decision
 
-Each time the caller lookup shows a resident's contact record, Verco records who opened it, when, and on which screen (VER-322). The records can't be edited or deleted from the app. D&M admins can read every record. A council admin can read the records for that council's residents only, including the views made by D&M staff. Recording a view never stops the page from showing: if the record can't be written, the page still opens and the failure goes to Sentry.
+Each time the caller lookup shows a resident's contact record, Verco records who opened it, when, and on which screen (VER-322). The records can't be edited or deleted from the app. D&M admins can read every record. A council admin can read the records for that council's residents only, including the views made by D&M staff. Recording a view never stops the page from showing: if the record can't be written within 2 seconds, the page still opens and the failure goes to Sentry. The same staff member re-opening the same resident on the same screen within 5 minutes (a refresh, or the council switch behind "Add a note") counts as one view, so the log doesn't overstate how often a record was opened.
 
 ## Why
 
