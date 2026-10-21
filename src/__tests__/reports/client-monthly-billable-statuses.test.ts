@@ -22,7 +22,8 @@ import path from 'path'
  * the invoice does: if the two ever disagree the tally has made reconciliation
  * worse, not better. It is held to the same status set AND to the invoice's
  * counting rules (unit expression, mattress handling, date anchors, soft
- * deletes) — change one function and this fails until the other matches.
+ * deletes, the our-fault Nothing Presented exclusion of ADR 0039) — change one
+ * function and this fails until the other matches.
  */
 
 const MIGRATIONS_DIR = path.resolve(__dirname, '../../../supabase/migrations')
@@ -38,7 +39,12 @@ const NOT_BILLABLE = ['Scheduled', 'Cancelled', 'Rebooked', 'Missed Collection']
  */
 const SHARED_RULES = [
   // Units billed per booking item: the crew's actual count, else the booked count.
-  'sum(coalesce(bi.actual_services, bi.no_services))',
+  'coalesce(bi.actual_services, bi.no_services)',
+  // ADR 0039: a Nothing Presented the office recorded as D&M's fault is not
+  // billed — per waste stream for booked items (a stop-less legacy record takes
+  // the whole booking), per stop for crew-logged mattresses.
+  'from nothing_presented np left join collection_stop npcs on npcs.id = np.collection_stop_id where np.booking_id = b.id and np.contractor_fault and (np.collection_stop_id is null or npcs.stream = s.waste_stream)',
+  'from nothing_presented np where np.collection_stop_id = cs.id and np.contractor_fault',
   // Crew-logged mattresses (VV-style tenants) are summed from the stop...
   'sum(cs.mattress_count)',
   'cs.mattress_count is not null',

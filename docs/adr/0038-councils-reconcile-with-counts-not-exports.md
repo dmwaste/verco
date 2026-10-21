@@ -15,7 +15,7 @@ The tally is only useful if it agrees with the invoice. If WMRC's on-screen numb
 
 Three things follow from counting the invoice's way:
 
-- **Nothing Presented and Non-conformance sit inside the billable subtotal**, each as its own line. D&M attended the property, and both contracts pay for the attendance (ADR 0017). The screen never calls them "non-chargeable". How that is explained to a council is a conversation for Dan, not something the screen decides.
+- **Nothing Presented and Non-conformance sit inside the billable subtotal**, each as its own line. D&M attended the property, and both contracts pay for the attendance (ADR 0017). The screen never calls them "non-chargeable". How that is explained to a council is a conversation for Dan, not something the screen decides. The one exception is a Nothing Presented the office has recorded as D&M's fault (ADR 0039). It is listed outside the billable total as "Nothing Presented — D&M's fault", exactly as the invoice leaves it out.
 - **Scheduled bookings past their date show outside the billable total**, labelled "outcome not recorded". That gap is unfinished closeout work. It is not folded in to make the numbers look tidy.
 - **Crew-logged mattresses (Verge Valet) are counted from the crew's closeout of each stop**, on that stop's date, as on the invoice, not from what the resident booked.
 

@@ -6,15 +6,17 @@
 -- was timing out).
 --
 -- Counting rules are the invoice's, not a second opinion. Every rule below is
--- copied from get_client_monthly_report (20260825060000, ADR 0017) and
--- src/__tests__/reports/client-monthly-billable-statuses.test.ts fails if this
--- body drifts from that one:
+-- copied from get_client_monthly_report (20261021041452; ADR 0017 as amended by
+-- ADR 0039) and src/__tests__/reports/client-monthly-billable-statuses.test.ts
+-- fails if this body drifts from that one:
 --   * units = coalesce(actual_services, no_services) per booking_item, bucketed
 --     by the ITEM's collection date (the invoice month; a plain AWST date);
---   * billable = Completed | Non-conformance | Nothing Presented. Nothing
---     Presented and Non-conformance are attended collections and bill at the
---     normal rate. Cancelled, Scheduled, Rebooked and Missed Collection are
---     outside the billable total for the reasons in ADR 0017;
+--   * billable = Completed | Non-conformance | Nothing Presented: attended
+--     collections, billed at the normal rate. Cancelled, Scheduled, Rebooked
+--     and Missed Collection are outside the billable total (ADR 0017);
+--   * EXCEPT a Nothing Presented the office recorded as D&M's fault
+--     (nothing_presented.contractor_fault, ADR 0039): the items on that stop's
+--     waste stream are not billable, and nor is that stop's crew mattress count;
 --   * soft-deleted bookings never count;
 --   * a tenant that logs mattresses at closeout (mattress_closeout_stream) has
 --     its is_mattress items dropped and the crew's collection_stop.mattress_count
@@ -25,8 +27,12 @@
 -- Unlike the invoice, the tally returns EVERY status in the filtered set, each
 -- row flagged `billable`, so the screen can show the billable subtotal and the
 -- rest beside it. The flag is the only place the billable set lives for the UI
--- (no TypeScript copy). Mattress rows only exist on attended stops, so they are
--- always billable.
+-- (no TypeScript copy). Our-fault Nothing Presented rows come back as status
+-- 'Nothing Presented' with contractor_fault = true and billable = false, so the
+-- screen lists them outside the billable total instead of losing them. A
+-- booking counts as our-fault only when ALL its items are on our-fault streams;
+-- a booking with one faulted stream still counts as billable, and only that
+-- stream's units move.
 --
 -- Filters mirror the bookings list (empty array = no filter): statuses (booking
 -- status; for crew-logged mattresses, the stop status, which uses the same
@@ -45,10 +51,11 @@
 -- "zero bookings", which is a wrong number, not a refusal.
 --
 -- Returns counts and codes only, no resident PII:
---   { "bookings": [ { status, billable, bookings } ],
---     "units":    [ { source: 'booked', status, billable, category, service,
---                     is_extra, units }
---                 | { source: 'stop_mattress', status, billable, units } ] }
+--   { "bookings": [ { status, billable, contractor_fault, bookings } ],
+--     "units":    [ { source: 'booked', status, billable, contractor_fault,
+--                     category, service, is_extra, units }
+--                 | { source: 'stop_mattress', status, billable,
+--                     contractor_fault, units } ] }
 
 CREATE OR REPLACE FUNCTION public.get_booking_tally(
   p_client_id   uuid,
@@ -105,15 +112,43 @@ BEGIN
              'Completed'::booking_status,
              'Non-conformance'::booking_status,
              'Nothing Presented'::booking_status
-           ]) AS billable
+           ]) AS attended
       FROM booking b
       JOIN area ON area.id = b.collection_area_id
      WHERE b.client_id = p_client_id
        AND b.deleted_at IS NULL
        AND (v_types IS NULL OR b.type = ANY (v_types))
   ),
-  counts AS (
-    SELECT bk.status::text AS status, bk.billable, count(*)::bigint AS bookings
+  -- One row per booking_item in scope, flagged when its waste stream had an
+  -- our-fault Nothing Presented (ADR 0039; same predicate as the invoice RPC).
+  items AS (
+    SELECT bi.booking_id, b.status, b.attended, cat.code AS category,
+           s.name AS service, bi.is_extra,
+           coalesce(bi.actual_services, bi.no_services) AS units,
+           EXISTS (
+             SELECT 1
+               FROM nothing_presented np
+               LEFT JOIN collection_stop npcs ON npcs.id = np.collection_stop_id
+              WHERE np.booking_id = b.id
+                AND np.contractor_fault
+                AND (np.collection_stop_id IS NULL OR npcs.stream = s.waste_stream)) AS np_fault
+      FROM bk b
+      JOIN booking_item bi    ON bi.booking_id = b.id
+      JOIN service s          ON s.id  = bi.service_id
+      JOIN category cat       ON cat.id = s.category_id
+      JOIN collection_date cd ON cd.id = bi.collection_date_id
+     WHERE (v_statuses IS NULL OR b.status = ANY (v_statuses))
+       AND NOT (s.is_mattress AND v_has_mattress_stream)
+       AND (p_date_from IS NULL OR cd.date >= p_date_from)
+       AND (p_date_to   IS NULL OR cd.date <= p_date_to)
+       AND (v_service_ids IS NULL OR bi.service_id = ANY (v_service_ids))
+  ),
+  counted AS (
+    SELECT bk.status, bk.attended,
+           -- Our fault as a whole only when no item sits outside a faulted stream.
+           EXISTS (SELECT 1 FROM items it WHERE it.booking_id = bk.id AND it.np_fault)
+             AND NOT EXISTS (SELECT 1 FROM items it WHERE it.booking_id = bk.id AND NOT it.np_fault)
+             AS np_fault
       FROM bk
      WHERE (v_statuses IS NULL OR bk.status = ANY (v_statuses))
        AND (NOT v_item_filter OR EXISTS (
@@ -124,60 +159,69 @@ BEGIN
                 AND (p_date_from IS NULL OR cd.date >= p_date_from)
                 AND (p_date_to   IS NULL OR cd.date <= p_date_to)
                 AND (v_service_ids IS NULL OR bi.service_id = ANY (v_service_ids))))
-     GROUP BY bk.status, bk.billable
+  ),
+  counts AS (
+    SELECT CASE WHEN c.np_fault THEN 'Nothing Presented' ELSE c.status::text END AS status,
+           c.attended AND NOT c.np_fault AS billable,
+           c.np_fault AS contractor_fault,
+           count(*)::bigint AS bookings
+      FROM counted c
+     GROUP BY 1, 2, 3
   ),
   booked AS (
-    SELECT bk.status::text AS status, bk.billable,
-           cat.code AS category, s.name AS service, bi.is_extra,
-           sum(coalesce(bi.actual_services, bi.no_services))::bigint AS units
-      FROM bk
-      JOIN booking_item bi    ON bi.booking_id = bk.id
-      JOIN service s          ON s.id  = bi.service_id
-      JOIN category cat       ON cat.id = s.category_id
-      JOIN collection_date cd ON cd.id = bi.collection_date_id
-     WHERE (v_statuses IS NULL OR bk.status = ANY (v_statuses))
-       AND NOT (s.is_mattress AND v_has_mattress_stream)
-       AND (p_date_from IS NULL OR cd.date >= p_date_from)
-       AND (p_date_to   IS NULL OR cd.date <= p_date_to)
-       AND (v_service_ids IS NULL OR bi.service_id = ANY (v_service_ids))
-     GROUP BY bk.status, bk.billable, cat.code, s.name, bi.is_extra
+    SELECT CASE WHEN it.np_fault THEN 'Nothing Presented' ELSE it.status::text END AS status,
+           it.attended AND NOT it.np_fault AS billable,
+           it.np_fault AS contractor_fault,
+           it.category, it.service, it.is_extra,
+           sum(it.units)::bigint AS units
+      FROM items it
+     GROUP BY 1, 2, 3, it.category, it.service, it.is_extra
   ),
   stop_mattress AS (
-    SELECT cs.status::text AS status, sum(cs.mattress_count)::bigint AS units
-      FROM bk
-      JOIN collection_stop cs ON cs.booking_id = bk.id
-      JOIN collection_date cd ON cd.id = cs.collection_date_id
-     WHERE v_has_mattress_stream
-       AND v_mattress_selected
-       AND cs.client_id = p_client_id
-       AND cs.mattress_count IS NOT NULL
-       AND cs.status = ANY (ARRAY[
-             'Completed'::stop_status,
-             'Non-conformance'::stop_status,
-             'Nothing Presented'::stop_status
-           ])
-       AND (v_statuses IS NULL OR cs.status::text = ANY (v_statuses::text[]))
-       AND (p_date_from IS NULL OR cd.date >= p_date_from)
-       AND (p_date_to   IS NULL OR cd.date <= p_date_to)
-     GROUP BY cs.status
+    SELECT cs.status, NOT cs.np_fault AS billable, cs.np_fault AS contractor_fault,
+           sum(cs.mattress_count)::bigint AS units
+      FROM (
+        SELECT cs.status::text AS status, cs.mattress_count,
+               EXISTS (
+                 SELECT 1 FROM nothing_presented np
+                  WHERE np.collection_stop_id = cs.id AND np.contractor_fault) AS np_fault
+          FROM bk
+          JOIN collection_stop cs ON cs.booking_id = bk.id
+          JOIN collection_date cd ON cd.id = cs.collection_date_id
+         WHERE v_has_mattress_stream
+           AND v_mattress_selected
+           AND cs.client_id = p_client_id
+           AND cs.mattress_count IS NOT NULL
+           AND cs.status = ANY (ARRAY[
+                 'Completed'::stop_status,
+                 'Non-conformance'::stop_status,
+                 'Nothing Presented'::stop_status
+               ])
+           AND (v_statuses IS NULL OR cs.status::text = ANY (v_statuses::text[]))
+           AND (p_date_from IS NULL OR cd.date >= p_date_from)
+           AND (p_date_to   IS NULL OR cd.date <= p_date_to)
+      ) cs
+     GROUP BY cs.status, cs.np_fault
   )
   SELECT jsonb_build_object(
     'bookings', coalesce((
       SELECT jsonb_agg(jsonb_build_object(
-               'status', c.status, 'billable', c.billable, 'bookings', c.bookings))
+               'status', c.status, 'billable', c.billable,
+               'contractor_fault', c.contractor_fault, 'bookings', c.bookings))
         FROM counts c), '[]'::jsonb),
     'units', coalesce((
       SELECT jsonb_agg(u.obj)
         FROM (
           SELECT jsonb_build_object(
                    'source', 'booked', 'status', bd.status, 'billable', bd.billable,
+                   'contractor_fault', bd.contractor_fault,
                    'category', bd.category, 'service', bd.service,
                    'is_extra', bd.is_extra, 'units', bd.units) AS obj
             FROM booked bd
           UNION ALL
           SELECT jsonb_build_object(
-                   'source', 'stop_mattress', 'status', sm.status, 'billable', true,
-                   'units', sm.units)
+                   'source', 'stop_mattress', 'status', sm.status, 'billable', sm.billable,
+                   'contractor_fault', sm.contractor_fault, 'units', sm.units)
             FROM stop_mattress sm
         ) u), '[]'::jsonb)
   ) INTO v_result;
@@ -187,7 +231,7 @@ END;
 $function$;
 
 COMMENT ON FUNCTION public.get_booking_tally(uuid, public.booking_status[], uuid[], public.booking_type[], uuid[], date, date) IS
-  'Admin bookings screen totals (VER-323): bookings + units for the whole filtered set, billable flag per row. Counting rules = get_client_monthly_report (ADR 0017), pinned by client-monthly-billable-statuses.test.ts. Staff roles, tenant- and sub-client-gated; counts only, no PII.';
+  'Admin bookings screen totals (VER-323): bookings + units for the whole filtered set, billable + contractor_fault flags per row. Counting rules = get_client_monthly_report (ADR 0017, amended by ADR 0039), pinned by client-monthly-billable-statuses.test.ts. Staff roles, tenant- and sub-client-gated; counts only, no PII.';
 
 -- Staff-only DEFINER RPC (§21): no anon/PUBLIC execute. Not granted to
 -- service_role either: current_user_role() is NULL there, so the gate raises.
