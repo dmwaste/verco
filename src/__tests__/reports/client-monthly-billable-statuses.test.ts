@@ -47,6 +47,8 @@ const SHARED_RULES = [
   'from non_conformance_notice ncn left join collection_stop ncncs on ncncs.id = ncn.collection_stop_id where ncn.booking_id = b.id and ncn.contractor_fault and (ncn.collection_stop_id is null or ncncs.stream = s.waste_stream)',
   'from nothing_presented np where np.collection_stop_id = cs.id and np.contractor_fault',
   'from non_conformance_notice ncn where ncn.collection_stop_id = cs.id and ncn.contractor_fault',
+  // ...from the same effective date (01/10/2026), so invoiced months stay as billed.
+  "date '2026-10-01'",
   // Crew-logged mattresses (VV-style tenants) are summed from the stop...
   'sum(cs.mattress_count)',
   'cs.mattress_count is not null',

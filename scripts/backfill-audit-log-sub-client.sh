@@ -30,10 +30,10 @@
 #
 # Run it out of hours (~85 batches, ~7 min on prod). Rewriting ~420k entries
 # leaves the Audit Log page's index-only count reading the table until a vacuum
-# has run (~6 s instead of ~0.2 s). Autovacuum picks it up on its own; to settle
-# it at once, run `VACUUM (ANALYZE) public.audit_log;` in the dashboard SQL
-# editor afterwards (this CLI wraps queries in a transaction, where VACUUM
-# can't run).
+# has run (~6 s instead of ~0.2 s, near the ~8 s staff statement timeout), so
+# straight afterwards you MUST run `VACUUM (ANALYZE) public.audit_log;` in the
+# dashboard SQL editor or via the Supabase MCP execute_sql (this CLI wraps
+# queries in a transaction, where VACUUM can't run). Don't wait for autovacuum.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -123,5 +123,5 @@ if $APPLY; then
       FROM audit_log
      WHERE sub_client_id IS NULL AND client_id IN (SELECT client_id FROM sub_client)
      GROUP BY 1 ORDER BY 2 DESC" 2>/dev/null
-  echo "Optional: run VACUUM (ANALYZE) public.audit_log; in the dashboard SQL editor so the Audit Log count is index-only again now."
+  echo "REQUIRED now: run VACUUM (ANALYZE) public.audit_log; in the dashboard SQL editor (or Supabase MCP execute_sql), or every staff Audit Log count reads the heap near the 8 s timeout."
 fi
