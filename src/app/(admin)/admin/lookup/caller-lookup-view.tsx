@@ -6,8 +6,10 @@ import { Input } from '@/components/admin/form'
 import { StatusBadge } from '@/components/status-badge'
 import { awstDateFromUtc } from '@/lib/booking/schedule-transition'
 import type { Result } from '@/lib/result'
+import type { PropertyNoteView } from '@/lib/property-notes/load'
+import { PropertyNoteList } from '../properties/[id]/property-note-list'
 import { formatPhoneDisplay } from './phone-lookup'
-import type { CallerMatch } from './caller-matches'
+import type { CallerBooking, CallerMatch } from './caller-matches'
 
 interface CallerLookupViewProps {
   /** The number as it reached the page; empty when none was given. */
@@ -18,12 +20,20 @@ interface CallerLookupViewProps {
   result: Result<CallerMatch[]> | null
   /** The switcher's council. /book books under it, whatever the caller's council is. */
   newBookingClientName?: string | null
+  /** Notes on the properties of the callers' bookings (VER-321); null = the read failed. */
+  propertyNotes?: PropertyNoteView[] | null
 }
 
 const dayLabel = (yyyymmdd: string) => format(new Date(`${yyyymmdd}T00:00:00`), 'EEE d MMM yyyy')
 
 /** Caller lookup (VER-316) — read-only; the page the Teams call pop opens. */
-export function CallerLookupView({ query, candidates, result, newBookingClientName }: CallerLookupViewProps) {
+export function CallerLookupView({
+  query,
+  candidates,
+  result,
+  newBookingClientName,
+  propertyNotes = [],
+}: CallerLookupViewProps) {
   const display = candidates[0] ? formatPhoneDisplay(candidates[0]) : null
   const matches = result?.ok ? result.data : []
 
@@ -79,14 +89,20 @@ export function CallerLookupView({ query, candidates, result, newBookingClientNa
         )}
 
         {matches.map((match) => (
-          <ContactCard key={match.contact.id} match={match} />
+          <ContactCard key={match.contact.id} match={match} propertyNotes={propertyNotes} />
         ))}
       </div>
     </>
   )
 }
 
-function ContactCard({ match: { contact, bookings, tickets } }: { match: CallerMatch }) {
+function ContactCard({
+  match: { contact, bookings, tickets },
+  propertyNotes,
+}: {
+  match: CallerMatch
+  propertyNotes: PropertyNoteView[] | null
+}) {
   return (
     <section className="flex flex-col gap-4 rounded-xl bg-white p-5 shadow-sm">
       <div>
@@ -147,6 +163,8 @@ function ContactCard({ match: { contact, bookings, tickets } }: { match: CallerM
         )}
       </div>
 
+      <PropertyNotes contactId={contact.id} bookings={bookings} notes={propertyNotes} />
+
       <div>
         <h3 className="mb-2 text-caption font-semibold uppercase tracking-wide text-gray-500">
           Service Tickets ({tickets.length})
@@ -174,6 +192,66 @@ function ContactCard({ match: { contact, bookings, tickets } }: { match: CallerM
           </div>
         )}
       </div>
+    </section>
+  )
+}
+
+/**
+ * Access notes (gate code, dog, call ahead) on each property the caller has
+ * booked (VER-321, ADR 0031). Read-only: adding or removing one happens on the
+ * property page.
+ */
+function PropertyNotes({
+  contactId,
+  bookings,
+  notes,
+}: {
+  contactId: string
+  bookings: CallerBooking[]
+  notes: PropertyNoteView[] | null
+}) {
+  const properties = [
+    ...new Map(bookings.flatMap((b) => (b.propertyId ? [[b.propertyId, b.address] as const] : []))),
+  ]
+  if (properties.length === 0) return null
+
+  const headingId = `property-notes-${contactId}`
+  return (
+    <section aria-labelledby={headingId}>
+      <h3 id={headingId} className="mb-2 text-caption font-semibold uppercase tracking-wide text-gray-500">
+        Property Notes
+      </h3>
+      {notes === null ? (
+        <p role="status" className="rounded-lg bg-status-warn-bg px-4 py-3 text-body-sm text-status-warn">
+          Couldn&rsquo;t load property notes — refresh the page to try again.
+        </p>
+      ) : (
+        <div className="flex flex-col gap-2">
+          {properties.map(([propertyId, address]) => {
+            const entries = notes.filter((n) => n.property_id === propertyId)
+            return (
+              <div key={propertyId} className="rounded-lg border border-gray-100">
+                <div className="flex items-center justify-between gap-3 px-5 py-2.5">
+                  <span className="min-w-0 truncate text-body-sm font-medium text-gray-900" title={address ?? undefined}>
+                    {address ?? 'Property'}
+                  </span>
+                  <Link
+                    href={`/admin/properties/${propertyId}`}
+                    className="shrink-0 text-body-sm font-semibold text-[#293F52] hover:underline"
+                  >
+                    Add a note
+                  </Link>
+                </div>
+                {entries.length === 0 ? (
+                  <p className="border-t border-gray-100 px-5 py-2.5 text-body-sm text-gray-400">No notes</p>
+                ) : (
+                  <PropertyNoteList notes={entries} />
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
     </section>
   )
 }

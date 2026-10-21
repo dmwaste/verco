@@ -4226,4 +4226,156 @@ if (!haveDb) {
       }
     })
   })
+
+  // ---------------------------------------------------------------------------
+  // VER-322 / ADR 0040 — contact_view_log (20261021073312). Staff append their
+  // own views; admins read views of contacts their contacts RLS shows them, so
+  // council A's admins never see council B's residents' views. Nobody edits or
+  // deletes a row.
+  // ---------------------------------------------------------------------------
+  describe('contact_view_log (VER-322, ADR 0040)', () => {
+    async function deployed(): Promise<boolean> {
+      const r = await pg.query(`SELECT to_regclass('public.contact_view_log') IS NOT NULL AS ok`)
+      return Boolean(r.rows[0]?.ok)
+    }
+
+    // A KWN-only contact, plus VV-only contacts in two different sub-clients.
+    // Ticket-less, so only their bookings decide who can see them.
+    async function fixture() {
+      const pick = await pg.query<{ contact_id: string; client_id: string; sub_client_id: string | null }>(
+        `WITH one_council AS (
+           SELECT b.contact_id, min(b.client_id::text)::uuid AS client_id, min(ca.sub_client_id::text)::uuid AS sub_client_id
+             FROM booking b JOIN collection_area ca ON ca.id = b.collection_area_id
+            WHERE b.contact_id IS NOT NULL AND b.deleted_at IS NULL
+              AND NOT EXISTS (SELECT 1 FROM service_ticket st WHERE st.contact_id = b.contact_id)
+            GROUP BY b.contact_id
+           HAVING count(DISTINCT b.client_id) = 1 AND count(DISTINCT ca.sub_client_id) <= 1
+         )
+         (SELECT * FROM one_council WHERE client_id = $1 LIMIT 1)
+         UNION ALL
+         (SELECT DISTINCT ON (sub_client_id) * FROM one_council
+           WHERE client_id = $2 AND sub_client_id IS NOT NULL ORDER BY sub_client_id, contact_id LIMIT 2)`,
+        [CLIENT_ID, VV_CLIENT_ID],
+      )
+      const [kwn, vvA, vvB] = pick.rows as [(typeof pick.rows)[0], (typeof pick.rows)[0], (typeof pick.rows)[0]]
+      const seed: Array<[string, unknown[]]> = [
+        [
+          `INSERT INTO contact_view_log (contact_id, viewed_by, surface) VALUES
+             ($1, $4, 'caller_lookup'), ($2, $4, 'caller_lookup'), ($3, $4, 'caller_lookup')`,
+          [kwn.contact_id, vvA.contact_id, vvB.contact_id, USERS['contractor-staff']],
+        ],
+      ]
+      // client-admin moved to VV, narrowed to sub-client A (rolled back with the rest).
+      const adminToVvA: [string, unknown[]] = [
+        `UPDATE user_roles SET client_id = $1, sub_client_id = $2 WHERE user_id = $3`,
+        [VV_CLIENT_ID, vvA.sub_client_id, USERS['client-admin']],
+      ]
+      return { seed, adminToVvA, kwn: kwn.contact_id, vvA: vvA.contact_id, vvB: vvB.contact_id }
+    }
+
+    /** Run `sql` as `userId` after `seed`, in a rolled-back tx; returns rows or the error. */
+    async function runAs(
+      userId: string | null,
+      seed: Array<[string, unknown[]]>,
+      sql: string,
+      params: unknown[] = [],
+    ): Promise<{ rows: Record<string, unknown>[]; error: string | null }> {
+      await pg.query('BEGIN')
+      try {
+        for (const [text, values] of seed) await pg.query(text, values)
+        await pg.query(userId ? `SET LOCAL ROLE authenticated` : `SET LOCAL ROLE anon`)
+        await pg.query(`SELECT set_config('request.jwt.claims', $1, true)`, [
+          JSON.stringify(userId ? { sub: userId, role: 'authenticated' } : { role: 'anon' }),
+        ])
+        const r = await pg.query(sql, params)
+        return { rows: r.rows, error: null }
+      } catch (e) {
+        return { rows: [], error: e instanceof Error ? e.message : String(e) }
+      } finally {
+        await pg.query('ROLLBACK')
+      }
+    }
+
+    const visible = (f: { kwn: string; vvA: string; vvB: string }) =>
+      `SELECT DISTINCT CASE contact_id WHEN '${f.kwn}' THEN 'kwn' WHEN '${f.vvA}' THEN 'vvA' WHEN '${f.vvB}' THEN 'vvB' END AS c
+         FROM contact_view_log WHERE contact_id IN ('${f.kwn}', '${f.vvA}', '${f.vvB}') ORDER BY 1`
+    const names = (rows: Record<string, unknown>[]) => rows.map((r) => r.c)
+
+    it('any staff role logs its own view, stamped with who and when', async (ctx) => {
+      if (!(await deployed())) return ctx.skip()
+      const f = await fixture()
+      for (const role of ['contractor-admin', 'contractor-staff', 'client-admin', 'client-staff'] as const) {
+        const r = await runAs(USERS[role], [], `INSERT INTO contact_view_log (contact_id, surface) VALUES ($1, 'caller_lookup')`, [f.kwn])
+        expect(r.error).toBeNull()
+      }
+      const stamped = await runAs(
+        USERS['contractor-admin'],
+        [],
+        `INSERT INTO contact_view_log (contact_id, surface) VALUES ($1, 'caller_lookup')
+         RETURNING viewed_by, viewed_at = now() AS stamped_now`,
+        [f.kwn],
+      )
+      expect(stamped.rows[0]).toEqual({ viewed_by: USERS['contractor-admin'], stamped_now: true })
+    })
+
+    it('no one can log a view in someone else’s name or backdate one', async (ctx) => {
+      if (!(await deployed())) return ctx.skip()
+      const f = await fixture()
+      const forged = await runAs(
+        USERS['contractor-staff'],
+        [],
+        `INSERT INTO contact_view_log (contact_id, surface, viewed_by) VALUES ($1, 'caller_lookup', $2)`,
+        [f.kwn, USERS['contractor-admin']],
+      )
+      expect(forged.error).toMatch(/row-level security/)
+      const backdated = await runAs(
+        USERS['contractor-staff'],
+        [],
+        `INSERT INTO contact_view_log (contact_id, surface, viewed_at) VALUES ($1, 'caller_lookup', now() - interval '1 day')`,
+        [f.kwn],
+      )
+      expect(backdated.error).toMatch(/row-level security/)
+    })
+
+    it('field, ranger, resident and anon can never write', async (ctx) => {
+      if (!(await deployed())) return ctx.skip()
+      const f = await fixture()
+      const insert = `INSERT INTO contact_view_log (contact_id, surface) VALUES ($1, 'caller_lookup')`
+      for (const user of [USERS.field, USERS.ranger, USERS.resident]) {
+        expect((await runAs(user, [], insert, [f.kwn])).error).toMatch(/row-level security/)
+      }
+      expect((await runAs(null, [], insert, [f.kwn])).error).toMatch(/permission denied/)
+    })
+
+    it('contractor-admin reads every council’s views', async (ctx) => {
+      if (!(await deployed())) return ctx.skip()
+      const f = await fixture()
+      expect(names((await runAs(USERS['contractor-admin'], f.seed, visible(f))).rows)).toEqual(['kwn', 'vvA', 'vvB'])
+    })
+
+    it('a council admin reads only their own council’s residents’ views', async (ctx) => {
+      if (!(await deployed())) return ctx.skip()
+      const f = await fixture()
+      expect(names((await runAs(USERS['client-admin'], f.seed, visible(f))).rows)).toEqual(['kwn'])
+      // Narrowed to VV sub-client A: A's resident only, not B's, not KWN's.
+      expect(names((await runAs(USERS['client-admin'], [...f.seed, f.adminToVvA], visible(f))).rows)).toEqual(['vvA'])
+    })
+
+    it('non-admin staff, field, ranger and resident read nothing', async (ctx) => {
+      if (!(await deployed())) return ctx.skip()
+      const f = await fixture()
+      for (const user of [USERS['client-staff'], USERS['contractor-staff'], USERS.field, USERS.ranger, USERS.resident]) {
+        expect((await runAs(user, f.seed, visible(f))).rows).toEqual([])
+      }
+    })
+
+    it('nobody can edit or delete a row from the app', async (ctx) => {
+      if (!(await deployed())) return ctx.skip()
+      const f = await fixture()
+      const edit = await runAs(USERS['contractor-admin'], f.seed, `UPDATE contact_view_log SET surface = 'caller_lookup'`)
+      expect(edit.error).toMatch(/permission denied/)
+      const del = await runAs(USERS['contractor-admin'], f.seed, `DELETE FROM contact_view_log`)
+      expect(del.error).toMatch(/permission denied/)
+    })
+  })
 })
