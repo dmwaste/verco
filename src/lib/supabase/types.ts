@@ -293,6 +293,7 @@ export type Database = {
           new_data: Json | null
           old_data: Json | null
           record_id: string
+          sub_client_id: string | null
           table_name: string
         }
         Insert: {
@@ -305,6 +306,7 @@ export type Database = {
           new_data?: Json | null
           old_data?: Json | null
           record_id: string
+          sub_client_id?: string | null
           table_name: string
         }
         Update: {
@@ -317,6 +319,7 @@ export type Database = {
           new_data?: Json | null
           old_data?: Json | null
           record_id?: string
+          sub_client_id?: string | null
           table_name?: string
         }
         Relationships: [
@@ -339,6 +342,13 @@ export type Database = {
             columns: ["contractor_id"]
             isOneToOne: false
             referencedRelation: "contractor"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "audit_log_sub_client_id_fkey"
+            columns: ["sub_client_id"]
+            isOneToOne: false
+            referencedRelation: "sub_client"
             referencedColumns: ["id"]
           },
         ]
@@ -2868,6 +2878,10 @@ export type Database = {
           role: Database["public"]["Enums"]["app_role"]
           user_id: string
         }[]
+      }
+      audit_log_sub_client_id: {
+        Args: { p_row: Json; p_table: string }
+        Returns: string
       }
       bulk_update_booking_item_actuals: {
         Args: { p_booking_id: string; p_updates: Json }
