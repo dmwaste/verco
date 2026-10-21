@@ -27,7 +27,7 @@ An ADR — "architecture decision record" — is a short record of a decision we
 | [0021](0021-geocoder-refuses-a-match-in-the-wrong-suburb.md) | The geocoder refuses a match in the wrong suburb rather than storing it | 02/09/2026 | Accepted |
 | [0022](0022-mattress-counts-crew-logged-at-closeout-one-daily-series.md) | Mattress counts: crews log at bulk closeout; one daily series feeds every report | 01/08/2026 | Accepted (mandatory-count clause superseded by 0011) |
 | [0023](0023-stale-build-reloads-on-first-failed-save.md) | A stale app build reloads itself the first time a save fails, on every screen | 13/09/2026 | Accepted |
-| [0024](0024-council-staff-see-only-their-councils-notifications-tickets-and-no-audit-log.md) | Council staff see only their own council's notifications and tickets, and no audit log until it's tagged by council | 30/09/2026 | Accepted |
+| [0024](0024-council-staff-see-only-their-councils-notifications-tickets-and-no-audit-log.md) | Council staff see only their own council's notifications and tickets, and no audit log until it's tagged by council | 30/09/2026 | Accepted (audit-log stopgap superseded by 0036) |
 | [0025](0025-residents-told-3pm-cutoff-system-allows-until-330.md) | Residents are told the cutoff is 3:00pm; the system still allows changes until 3:30pm | 30/09/2026 | Accepted |
 | [0026](0026-staff-can-act-inside-the-three-day-lock-while-spots-remain.md) | Staff can book ID collections and ad-hoc redos (non-conformance + nothing presented) inside the 3-day lock while spots remain | 23/09/2026 | Accepted |
 | [0027](0027-an-email-is-not-always-one-person.md) | An email address is not always one person: editing a contact can never change someone else's booking | 12/10/2026 | Accepted |
@@ -39,3 +39,5 @@ An ADR — "architecture decision record" — is a short record of a decision we
 | [0033](0033-ops-alerts-land-in-one-teams-channel.md) | Ops alerts land in one Teams channel, and a missing channel is itself an alert | 20/10/2026 | Accepted |
 | [0034](0034-stale-closeouts-named-once-backlog-restated-mondays.md) | Stale closeouts are named once; the open backlog is restated on Mondays | 20/10/2026 | Accepted |
 | [0035](0035-notifications-claimed-before-sending.md) | A notification is claimed before it is sent, so a retry can't send it twice | 20/10/2026 | Accepted |
+| [0036](0036-council-staff-see-their-own-councils-history.md) | Council staff see their own council's change history again; contact changes stay with WMRC and D&M | 21/10/2026 | Accepted |
+| [0037](0037-only-the-database-writes-the-change-history.md) | Only the database writes the change history, and staff see a record's history only if they can see the record | 21/10/2026 | Accepted |
