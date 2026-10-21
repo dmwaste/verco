@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { STAFF_ROLES } from '@/lib/auth/roles'
 import { getCurrentAdminClient } from '@/lib/admin/current-client'
+import { loadPropertyNotes } from '@/lib/property-notes/load'
 import { CallerLookupView } from './caller-lookup-view'
 import { loadCallerMatches } from './caller-matches'
 import { phoneLookupCandidates } from './phone-lookup'
@@ -28,8 +29,16 @@ export default async function CallerLookupPage({ searchParams }: CallerLookupPag
   const query = (Array.isArray(phone) ? phone[0] : phone) ?? ''
   const candidates = phoneLookupCandidates(query)
   const result = candidates.length > 0 ? await loadCallerMatches(supabase, candidates) : null
-  // Only a miss offers "+ New Booking", and only it needs the switcher's council.
-  const newBookingClient = result?.ok && result.data.length === 0 ? await getCurrentAdminClient() : null
+  const matches = result?.ok ? result.data : []
+  const propertyIds = [
+    ...new Set(matches.flatMap((m) => m.bookings.flatMap((b) => (b.propertyId ? [b.propertyId] : [])))),
+  ]
+  const [newBookingClient, propertyNotes] = await Promise.all([
+    // Only a miss offers "+ New Booking", and only it needs the switcher's council.
+    result?.ok && matches.length === 0 ? getCurrentAdminClient() : null,
+    // Access notes on the callers' properties (VER-321), across councils by RLS.
+    loadPropertyNotes(supabase, propertyIds),
+  ])
 
   return (
     <CallerLookupView
@@ -37,6 +46,7 @@ export default async function CallerLookupPage({ searchParams }: CallerLookupPag
       candidates={candidates}
       result={result}
       newBookingClientName={newBookingClient?.name ?? null}
+      propertyNotes={propertyNotes}
     />
   )
 }

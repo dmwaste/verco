@@ -43,3 +43,4 @@ An ADR — "architecture decision record" — is a short record of a decision we
 | [0037](0037-only-the-database-writes-the-change-history.md) | Only the database writes the change history, and staff see a record's history only if they can see the record | 21/10/2026 | Accepted |
 | [0038](0038-councils-reconcile-with-counts-not-exports.md) | Councils reconcile invoices with on-screen counts, not exports, counted exactly as the invoice is | 21/10/2026 | Accepted |
 | [0039](0039-our-fault-exceptions-are-not-billed.md) | A Nothing Presented or Non-conformance that was D&M's fault is not billed | 21/10/2026 | Accepted |
+| [0040](0040-contact-views-are-logged-and-councils-see-their-own.md) | Every view of a resident's contact record is logged, and each council sees the views of its own residents | 21/10/2026 | Accepted |

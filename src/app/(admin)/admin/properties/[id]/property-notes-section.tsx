@@ -4,19 +4,18 @@ import { useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { staleActionMessage } from '@/lib/bundle/stale-action'
-import { Pill } from '@/components/status-badge'
 import { FieldLabel, Select, Textarea } from '@/components/admin/form'
 import {
   PROPERTY_DOCUMENTS_BUCKET,
   PROPERTY_NOTE_ACCEPT,
   PROPERTY_NOTE_BODY_MAX,
-  PROPERTY_NOTE_KIND_LABELS,
   checkDocumentFile,
-  formatFileSize,
   resolveFileType,
   type PropertyNoteKind,
 } from '@/lib/property-notes/validation'
+import type { PropertyNoteView } from '@/lib/property-notes/load'
 import { addPropertyNote, createPropertyDocumentUploadUrl, removePropertyNote } from './property-notes-actions'
+import { PropertyNoteList } from './property-note-list'
 
 /**
  * Staff notes and signed permission-to-enter forms on a property (ADR 0031).
@@ -24,27 +23,7 @@ import { addPropertyNote, createPropertyDocumentUploadUrl, removePropertyNote } 
  * edited; "Remove" hides one but keeps it on record.
  */
 
-export interface PropertyNoteView {
-  id: string
-  kind: string
-  body: string | null
-  file_name: string | null
-  file_size: number | null
-  file_url: string | null
-  created_at: string
-  author_name: string | null
-}
-
-const AWST_DATE = new Intl.DateTimeFormat('en-AU', {
-  timeZone: 'Australia/Perth',
-  day: '2-digit',
-  month: '2-digit',
-  year: 'numeric',
-})
-
-function kindLabel(kind: string): string {
-  return PROPERTY_NOTE_KIND_LABELS[kind as PropertyNoteKind] ?? kind
-}
+export type { PropertyNoteView }
 
 export function PropertyNotesSection({
   propertyId,
@@ -219,6 +198,10 @@ export function PropertyNotesSection({
                   : 'e.g. Dog on property — call ahead'
               }
             />
+            <p className="mt-1 text-xs text-gray-500">
+              Keep it to access details — gate codes, dogs, side access. Don&rsquo;t record health or other
+              sensitive information unless it&rsquo;s genuinely needed.
+            </p>
           </div>
           <div>
             <FieldLabel htmlFor="property-note-file">
@@ -270,47 +253,19 @@ export function PropertyNotesSection({
       ) : notes.length === 0 ? (
         !adding && <p className="px-5 pb-5 text-body-sm text-gray-500">No notes or documents yet.</p>
       ) : (
-        <ul className="divide-y divide-gray-100 border-t border-gray-100">
-          {notes.map((note) => (
-            <li key={note.id} className="flex items-start justify-between gap-4 px-5 py-3">
-              <div className="min-w-0 space-y-1.5">
-                <Pill tone={note.kind === 'access_form' ? 'info' : 'neutral'}>{kindLabel(note.kind)}</Pill>
-                {note.body && (
-                  <p className="whitespace-pre-wrap break-words text-body-sm text-gray-900">{note.body}</p>
-                )}
-                {note.file_name &&
-                  (note.file_url ? (
-                    <a
-                      href={note.file_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex max-w-full items-center gap-1.5 text-body-sm font-medium text-[#293F52] underline-offset-2 hover:underline"
-                    >
-                      <span className="truncate">{note.file_name}</span>
-                      {note.file_size != null && (
-                        <span className="shrink-0 text-xs font-normal text-gray-500">
-                          {formatFileSize(note.file_size)}
-                        </span>
-                      )}
-                    </a>
-                  ) : (
-                    <p className="text-body-sm text-status-warn">{note.file_name} (file unavailable)</p>
-                  ))}
-                <p className="text-xs text-gray-500">
-                  Added by {note.author_name ?? 'staff'} · {AWST_DATE.format(new Date(note.created_at))}
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => remove(note)}
-                disabled={removingId === note.id}
-                className="shrink-0 text-xs font-medium text-status-error hover:underline disabled:opacity-50"
-              >
-                {removingId === note.id ? 'Removing…' : 'Remove'}
-              </button>
-            </li>
-          ))}
-        </ul>
+        <PropertyNoteList
+          notes={notes}
+          renderAction={(note) => (
+            <button
+              type="button"
+              onClick={() => remove(note)}
+              disabled={removingId === note.id}
+              className="shrink-0 text-xs font-medium text-status-error hover:underline disabled:opacity-50"
+            >
+              {removingId === note.id ? 'Removing…' : 'Remove'}
+            </button>
+          )}
+        />
       )}
     </div>
   )
