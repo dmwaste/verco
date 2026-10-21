@@ -1,9 +1,14 @@
 // @vitest-environment jsdom
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { render, screen, within } from '@testing-library/react'
 import { CallerLookupView } from '@/app/(admin)/admin/lookup/caller-lookup-view'
 import type { CallerMatch } from '@/app/(admin)/admin/lookup/caller-matches'
 import type { PropertyNoteView } from '@/lib/property-notes/load'
+
+// The cross-council "Add a note" is a client component calling a server action.
+vi.mock('@/app/(admin)/admin/lookup/add-note-in-council', () => ({
+  AddNoteInCouncil: ({ clientName }: { clientName: string }) => <button type="button">Add a note in {clientName}</button>,
+}))
 
 /**
  * What Kim sees when a Teams call pops /admin/lookup (VER-316): the caller's
@@ -13,7 +18,7 @@ import type { PropertyNoteView } from '@/lib/property-notes/load'
 const alex: CallerMatch = {
   contact: { id: 'c-a', fullName: 'Alex Able', mobile: '+61412345678', email: 'a@example.com' },
   bookings: [
-    { id: 'b-uuid', ref: 'VV-COT-2', status: 'Confirmed', areaCode: 'VV-COT', collectionDates: ['2026-11-02'], address: '1 Test St, Cottesloe', propertyId: 'p-1' },
+    { id: 'b-uuid', ref: 'VV-COT-2', status: 'Confirmed', areaCode: 'VV-COT', collectionDates: ['2026-11-02'], address: '1 Test St, Cottesloe', propertyId: 'p-1', clientId: 'vv' },
   ],
   tickets: [
     { id: 't-uuid', displayId: 'TKT-1001', subject: 'Missed pickup', status: 'open', createdAt: '2026-10-01T02:00:00Z' },
@@ -108,13 +113,19 @@ describe('CallerLookupView', () => {
   // VER-321: access notes (gate code, dog, call ahead) under the caller, per
   // property on their bookings, with a way to add one.
   describe('property notes', () => {
-    const render1 = (propertyNotes: PropertyNoteView[] | null, match: CallerMatch = alex) =>
+    const render1 = (
+      propertyNotes: PropertyNoteView[] | null,
+      match: CallerMatch = alex,
+      currentClientId: string | null = 'vv',
+    ) =>
       render(
         <CallerLookupView
           query="+61412345678"
           candidates={['+61412345678']}
           result={{ ok: true, data: [match] }}
           propertyNotes={propertyNotes}
+          currentClientId={currentClientId}
+          clientNames={{ vv: 'Verge Valet', kwn: 'City of Kwinana' }}
         />,
       )
 
@@ -128,6 +139,15 @@ describe('CallerLookupView', () => {
       expect(within(notes).getByRole('link', { name: /add a note/i }).getAttribute('href')).toBe('/admin/properties/p-1')
       // Read-only here: removing an entry stays on the property page.
       expect(within(notes).queryByRole('button', { name: /remove/i })).toBeNull()
+    })
+
+    // The property page opens only properties in the switcher's council.
+    it('in another council, offers to switch there instead of a dead link', () => {
+      render1([gateNote], alex, 'kwn')
+
+      const notes = screen.getByRole('region', { name: /property notes/i })
+      expect(within(notes).queryByRole('link', { name: /add a note/i })).toBeNull()
+      expect(within(notes).getByRole('button', { name: /add a note in verge valet/i })).toBeTruthy()
     })
 
     it('says when a property has no notes, and still links to add one', () => {
