@@ -6,6 +6,8 @@ import { useQuery } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
 import { BookingStepper } from '@/components/booking/booking-stepper'
 import { BookingCancelLink } from '@/components/booking/booking-cancel-link'
+import { VergeScene } from '@/components/booking/verge-scene/verge-scene'
+import { pickScenePile, type WasteStream } from '@/components/booking/verge-scene/pile'
 import { VercoButton } from '@/components/ui/verco-button'
 import { Spinner } from '@/components/ui/spinner'
 import { encodeItems, decodeItems } from '@/lib/booking/search-params'
@@ -32,6 +34,7 @@ interface ServiceRuleRow {
     id: string
     name: string
     category_id: string
+    waste_stream: WasteStream
     category: {
       id: string
       name: string
@@ -69,7 +72,7 @@ export function ServicesForm({ clientSlug }: { clientSlug: string }) {
       const { data } = await supabase
         .from('service_rules')
         .select(
-          '*, service!inner(id, name, category_id, category!inner(id, name, code))'
+          '*, service!inner(id, name, category_id, waste_stream, category!inner(id, name, code))'
         )
         .eq('collection_area_id', collectionAreaId)
 
@@ -354,6 +357,18 @@ export function ServicesForm({ clientSlug }: { clientSlug: string }) {
     0
   )
 
+  // The verge scene draws one pile: the stream with the most units in the cart.
+  const scenePile = useMemo(
+    () =>
+      pickScenePile(
+        (serviceRules ?? []).map((r) => ({
+          stream: r.service.waste_stream,
+          quantity: quantities.get(r.service_id) ?? 0,
+        }))
+      ),
+    [serviceRules, quantities]
+  )
+
   function updateQty(serviceId: string, delta: number) {
     setQuantities((prev) => {
       const next = new Map(prev)
@@ -530,6 +545,8 @@ export function ServicesForm({ clientSlug }: { clientSlug: string }) {
             Choose items for collection. You may combine multiple service types.
           </p>
         </div>
+
+        <VergeScene stream={scenePile.stream} size={scenePile.size} />
 
         {/* Loading state */}
         {isLoadingData && (

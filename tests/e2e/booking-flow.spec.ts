@@ -40,17 +40,17 @@ const TEST_SERVICE_RULES_NESTED = [
   {
     id: 'sr-1', service_id: 'svc-general', max_collections: 3, extra_unit_price: 50,
     collection_area_id: TEST_PROPERTY.collection_area_id,
-    service: { id: 'svc-general', name: 'General Waste', category_id: 'cat-bulk', category: { id: 'cat-bulk', name: 'Bulk Collection', code: 'bulk' } },
+    service: { id: 'svc-general', name: 'General Waste', category_id: 'cat-bulk', waste_stream: 'general', category: { id: 'cat-bulk', name: 'Bulk Collection', code: 'bulk' } },
   },
   {
     id: 'sr-2', service_id: 'svc-green', max_collections: 3, extra_unit_price: 40,
     collection_area_id: TEST_PROPERTY.collection_area_id,
-    service: { id: 'svc-green', name: 'Green Waste', category_id: 'cat-bulk', category: { id: 'cat-bulk', name: 'Bulk Collection', code: 'bulk' } },
+    service: { id: 'svc-green', name: 'Green Waste', category_id: 'cat-bulk', waste_stream: 'green', category: { id: 'cat-bulk', name: 'Bulk Collection', code: 'bulk' } },
   },
   {
     id: 'sr-3', service_id: 'svc-mattress', max_collections: 2, extra_unit_price: 60,
     collection_area_id: TEST_PROPERTY.collection_area_id,
-    service: { id: 'svc-mattress', name: 'Mattress', category_id: 'cat-anc', category: { id: 'cat-anc', name: 'Ancillary', code: 'anc' } },
+    service: { id: 'svc-mattress', name: 'Mattress', category_id: 'cat-anc', waste_stream: 'ancillary', category: { id: 'cat-anc', name: 'Ancillary', code: 'anc' } },
   },
 ]
 
@@ -379,10 +379,14 @@ test.describe('Booking Flow', () => {
     // Step 2: Services
     await expect(page).toHaveURL(/\/book\/services/)
     await expect(page.getByText('Select services')).toBeVisible()
+    await expect(page.getByRole('img', { name: /house with an empty verge/ })).toBeVisible()
 
     // Increment General Waste to 1
     const incrementButtons = page.locator('button:has-text("+")').first()
     await incrementButtons.click()
+
+    // The verge scene follows the cart; its booking controls stay in the page.
+    await expect(page.getByRole('img', { name: /general waste on the verge, 1 booked/ })).toBeVisible()
 
     // Click Next Step
     await page.getByRole('button', { name: /Next step/i }).click()
