@@ -4,6 +4,7 @@ import { z } from 'https://esm.sh/zod@3.23.8'
 import { calculatePrice, type ActiveConversion } from '../_shared/pricing.ts'
 import { isAreaBookableServer } from '../_shared/area-gate-server.ts'
 import { isPropertyEligibleServer } from '../_shared/property-gate-server.ts'
+import { SERVICE_NOT_OFFERED_MESSAGE, unofferedServiceIds } from '../_shared/service-gate-server.ts'
 import { type TermsAcceptanceChannel } from '../_shared/terms.ts'
 import { classifyCreator, CREATOR_STAFF_ROLES } from '../_shared/classify-creator.ts'
 import { evaluateEditGuard, mayKeepClosedHeldDate } from '../_shared/edit-guard.ts'
@@ -353,6 +354,25 @@ serve(withSentry('create-booking', async (req) => {
       swapRuleId = rule.id
     }
 
+    // ── 5b. Only services this area offers ───────────────────────────────────
+    // Pricing reads a service with no rule for the area as 0 free units at a
+    // $0 extra price, so an un-offered service must be refused, not priced.
+    // Early, friendly 400; the booking RPCs enforce it (migration
+    // 20261027030000). Edits are checked in 6a against the booking's current
+    // items. Shared seam: unofferedServiceIds.
+    const { data: offeredRules, error: offeredError } = await supabaseAnon
+      .from('service_rules')
+      .select('service_id')
+      .eq('collection_area_id', collection_area_id)
+    if (offeredError) {
+      return jsonResponse({ error: `Failed to load services for this area: ${offeredError.message}` }, 500)
+    }
+    const offeredServiceIds = (offeredRules ?? []).map((r) => r.service_id)
+    const requestedServices = items.map((i) => ({ service_id: i.service_id, quantity: i.no_services }))
+    if (!replaces && unofferedServiceIds(requestedServices, offeredServiceIds).length > 0) {
+      return jsonResponse({ error: SERVICE_NOT_OFFERED_MESSAGE }, 400)
+    }
+
     // ── 6. Re-run pricing engine server-side (NEVER trust client prices) ─────
 
     // MUD properties: allocations scale by unit count
@@ -418,6 +438,16 @@ serve(withSentry('create-booking', async (req) => {
       })
       if (!guard.ok) {
         return jsonResponse({ error: guard.error }, guard.status)
+      }
+
+      // 5b for edits: keeping or reducing an item whose rule was since removed
+      // stays allowed; adding or growing an un-offered one does not.
+      const currentQuantities = new Map<string, number>()
+      for (const bi of (ownedBooking?.booking_item ?? []) as Array<{ service_id: string; no_services: number }>) {
+        currentQuantities.set(bi.service_id, (currentQuantities.get(bi.service_id) ?? 0) + bi.no_services)
+      }
+      if (unofferedServiceIds(requestedServices, offeredServiceIds, currentQuantities).length > 0) {
+        return jsonResponse({ error: SERVICE_NOT_OFFERED_MESSAGE }, 400)
       }
 
       // Delta + drift money model — gated on inline_edit so the shared wizard
