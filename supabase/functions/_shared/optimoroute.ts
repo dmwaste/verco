@@ -56,6 +56,15 @@ export interface OrOrderResult {
   orderNo: string
   success: boolean
   error?: string
+  /** OR's per-order error code when it gave one, e.g. ERR_MULTIPLE_ORD_FOUND. */
+  code?: string
+  /**
+   * Where a failure came from. 'order' = OR gave a verdict on this order alone
+   * (it keeps failing until someone fixes that order). 'request' = the whole
+   * call failed (HTTP error, or no per-order results), which is an outage, not
+   * this order's fault.
+   */
+  failedAt?: 'order' | 'request'
 }
 
 export interface OrRouteStop {
@@ -155,27 +164,47 @@ export async function createOrUpdateOrders(
     if (!res.ok) {
       const text = await res.text()
       for (const o of batch) {
-        results.push({ orderNo: o.orderNo, success: false, error: `HTTP ${res.status}: ${text}` })
+        results.push({ orderNo: o.orderNo, success: false, error: `HTTP ${res.status}: ${text}`, failedAt: 'request' })
       }
       continue
     }
 
     const data = (await res.json()) as OrBulkResponse
-    if (!data.success || !data.orders) {
+    const verdicts = data.orders
+    if (!Array.isArray(verdicts)) {
       const error = data.message ?? data.code ?? 'create_or_update_orders failed'
       for (const o of batch) {
-        results.push({ orderNo: o.orderNo, success: false, error })
+        results.push({ orderNo: o.orderNo, success: false, error, failedAt: 'request' })
       }
       continue
     }
 
+    // Per-order verdicts win even when the top-level success is false. OR sets
+    // it false when EVERY order failed (API docs), so a request carrying only
+    // one rejected order has no top-level message. Reading the envelope alone
+    // turned "Multiple orders with the matching orderNo were found." into
+    // "create_or_update_orders failed" on every run where that order rode
+    // alone (SOP-VHPDL0-G, 24–27/10/2026).
     batch.forEach((o, i) => {
-      const r = data.orders![i]
-      results.push({
-        orderNo: o.orderNo,
-        success: r?.success ?? false,
-        error: r?.success ? undefined : (r?.message ?? r?.code ?? 'rejected'),
-      })
+      const r = verdicts[i]
+      if (r?.success) {
+        results.push({ orderNo: o.orderNo, success: true })
+      } else if (r) {
+        results.push({
+          orderNo: o.orderNo,
+          success: false,
+          error: r.message ?? r.code ?? 'rejected',
+          code: r.code,
+          failedAt: 'order',
+        })
+      } else {
+        results.push({
+          orderNo: o.orderNo,
+          success: false,
+          error: data.message ?? data.code ?? 'no result returned',
+          failedAt: 'request',
+        })
+      }
     })
   }
 
