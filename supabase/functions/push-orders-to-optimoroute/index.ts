@@ -1,22 +1,27 @@
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts'
 import { cronHandler } from '../_shared/cron-handler.ts'
+import { captureWarning } from '../_shared/sentry.ts'
 import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2.100.0'
 import type { Database, Json, TablesInsert } from '../_shared/database.types.ts'
 import { awstDateFromUtc } from '../_shared/schedule-transition.ts'
 import {
   bookingTypeTag,
   buildOrderNo,
+  buildPushRejectionAlert,
   buildOrderNotes,
   buildServicesSummary,
   groupItemsByStream,
   idAncillaryTypes,
   idWasteItemsLine,
   itemStopKeys,
+  newPushRejections,
   orderEmail,
   orderTypeLine,
   withIdAncillaryStop,
   partitionPushResults,
   planStopChanges,
+  PUSH_ALERT_MAX_LISTED,
+  pushRunOutcome,
   shouldCancelOrphanStop,
   splitPushableStops,
   STOP_DURATION_MINUTES,
@@ -25,6 +30,7 @@ import {
   stopWasteLocation,
   vehicleFeaturesForStream,
   type PushFailure,
+  type PushRejection,
   type ServiceSummaryEntry,
   type StopItem,
   type WasteStream,
@@ -37,6 +43,9 @@ import {
   type OrOrderInput,
 } from '../_shared/optimoroute.ts'
 import { logSyncRun } from '../_shared/sync-run-log.ts'
+import { opsAlertText, sendOpsAlert, type OpsAlertConfig } from '../_shared/ops-alert.ts'
+
+const SOURCE = 'push-orders-to-optimoroute'
 
 /**
  * push-orders-to-optimoroute cron Edge Function
@@ -60,9 +69,14 @@ import { logSyncRun } from '../_shared/sync-run-log.ts'
  *  2. Push — Pending stops with pushed_at IS NULL are pushed (SYNC). Already
  *     -pushed unchanged stops are NOT re-pushed: a SYNC replace could
  *     unschedule an order ops already planned, so re-pushes happen only when
- *     pass 1 detected a real change. Per-order failures stamp
- *     last_push_error and the run returns HTTP 500 (pg_cron only sees the
- *     HTTP status).
+ *     pass 1 detected a real change. Every failure stamps last_push_error.
+ *  3. Outcome (pushRunOutcome, ADR 0041). An order OptimoRoute refuses on its
+ *     own (or one with no map pin) is a per-order outcome: sync_log 'partial',
+ *     HTTP 207, retried next hour, and named to ops ONCE per stop and error
+ *     via sendOpsAlert (newPushRejections compares with the stop's stored
+ *     last_push_error). A run-level failure (a push call or database write
+ *     failing, or a mass refusal with nothing pushed) is 'failed' / HTTP 500,
+ *     which Sentry reports every run.
  */
 
 interface BookingItemRow extends StopItem {
@@ -118,6 +132,7 @@ interface PendingStopRow {
   services_summary: ServiceSummaryEntry[]
   waste_location: string | null
   driver_notes: string | null
+  last_push_error: string | null
   collection_date: { date: string }
 }
 
@@ -172,7 +187,32 @@ serve(cronHandler('push-orders-to-optimoroute', async (_req) => {
     stops_revived: 0,
     stops_cancelled: 0,
     orders_pushed: 0,
+    /** Every failure: pass-1 writes, push-call failures and refused orders. */
     failed: 0,
+    /** Of `failed`, the orders refused on their own (ADR 0041). */
+    rejected: 0,
+    /** Newly refused orders named to ops this run. */
+    alerted: 0,
+    /** Refused orders by ref (first PUSH_ALERT_MAX_LISTED), for the daily brief. */
+    rejections: [] as Array<{ ref: string; date: string; error: string }>,
+  }
+  const newRejections: PushRejection[] = []
+  const sinkConfig: OpsAlertConfig = {
+    webhookUrl: Deno.env.get('OPS_ALERT_WEBHOOK_URL'),
+    format: Deno.env.get('OPS_ALERT_WEBHOOK_FORMAT'),
+  }
+
+  // Names newly refused orders once (see newPushRejections). Runs on the
+  // catch path too: their errors are already stamped, so a later run would
+  // not name them. A failed delivery raises its own Sentry warning in
+  // sendOpsAlert and never fails the run.
+  async function alertNewRejections(): Promise<void> {
+    const content = buildPushRejectionAlert(newRejections)
+    if (!content) return
+    const alert = { source: SOURCE, ...content }
+    const sent = await sendOpsAlert(alert, sinkConfig, { captureWarning })
+    if (sent.delivered) results.alerted = newRejections.length
+    else console.warn(`${SOURCE}: alert NOT sent — ${sent.error}\n${opsAlertText(alert)}`)
   }
 
   try {
@@ -471,7 +511,7 @@ serve(cronHandler('push-orders-to-optimoroute', async (_req) => {
           .from('collection_stop')
           .select(
             `id, booking_id, stream, external_order_ref, address, latitude, longitude,
-             services_summary, waste_location, driver_notes, collection_date!inner(date)`,
+             services_summary, waste_location, driver_notes, last_push_error, collection_date!inner(date)`,
           )
           .eq('status', 'Pending')
           .is('pushed_at', null)
@@ -574,6 +614,27 @@ serve(cronHandler('push-orders-to-optimoroute', async (_req) => {
 
         if (failures.length > 0) {
           results.failed += failures.length
+          const stopById = new Map(batch.map((s) => [s.id, s]))
+          for (const f of failures) {
+            if (f.level !== 'order') continue
+            results.rejected++
+            if (results.rejections.length < PUSH_ALERT_MAX_LISTED) {
+              results.rejections.push({
+                ref: f.orderRef,
+                date: stopById.get(f.id)!.collection_date.date,
+                error: f.error,
+              })
+            }
+          }
+          const previousErrorById = new Map(batch.map((s) => [s.id, s.last_push_error]))
+          for (const f of newPushRejections(failures, previousErrorById)) {
+            newRejections.push({
+              orderRef: f.orderRef,
+              date: stopById.get(f.id)!.collection_date.date,
+              error: f.error,
+              ...(f.code ? { code: f.code } : {}),
+            })
+          }
           // Batch last_push_error by identical message: a wholesale OR
           // rejection (HTTP error, envelope failure) shares one error across a
           // whole batch, so grouping collapses N per-order round-trips — which
@@ -604,26 +665,27 @@ serve(cronHandler('push-orders-to-optimoroute', async (_req) => {
       }
     }
 
-    console.log(JSON.stringify({ event: 'push_orders_to_optimoroute', ...results }))
+    await alertNewRejections()
+    const outcome = pushRunOutcome({
+      runErrors: results.failed - results.rejected,
+      rejected: results.rejected,
+      pushed: results.orders_pushed,
+    })
+    console.log(JSON.stringify({ event: 'push_orders_to_optimoroute', run_status: outcome.status, ...results }))
 
     // Durable per-run outcome: one row per nightly run, so a missing row is
     // itself the alarm (a run that died overnight leaves no other durable
     // trace — see logSyncRun).
-    await logSyncRun(
-      supabase,
-      'push-orders-to-optimoroute',
-      results.failed > 0 ? 'failed' : 'success',
-      results,
-    )
+    await logSyncRun(supabase, SOURCE, outcome.status, results)
 
-    // 500 on any per-order failure so pg_cron monitoring sees it.
-    const status = results.failed > 0 ? 500 : 200
-    return new Response(JSON.stringify({ ok: results.failed === 0, ...results }), {
-      status,
+    // 500 only for a run-level failure; a refused order alone is 207 (ADR 0041).
+    return new Response(JSON.stringify({ ok: results.failed === 0, run_status: outcome.status, ...results }), {
+      status: outcome.http,
       headers: { 'Content-Type': 'application/json' },
     })
   } catch (err) {
     console.error('push-orders-to-optimoroute error:', err)
+    await alertNewRejections()
     // Partial counters show how far the run got before it died.
     await logSyncRun(
       supabase,
