@@ -127,7 +127,7 @@ paid_units         = requested_qty - free_units
 
 **Only free_units consume category budget** — paid units do not reduce the remaining count.
 
-Authoritative implementation: `supabase/functions/_shared/pricing.ts`. Node extraction: `src/lib/pricing/calculate.ts` (tested with Vitest, keep in sync). Client preview in `services-form.tsx` mirrors for display only. Pricing lookup maps (service→category, usage) must cover EVERY service, never just the cart — overrides and prior usage on non-cart services still count (cart-only category map charged reinstated residents, #625; `service-category-scope.test.ts` guards both paths).
+Authoritative implementation: `supabase/functions/_shared/pricing.ts`. Node extraction: `src/lib/pricing/calculate.ts` (tested with Vitest, keep in sync). Client preview in `services-form.tsx` mirrors for display only. Pricing lookup maps (service→category, usage) must cover EVERY service, never just the cart — overrides and prior usage on non-cart services still count (cart-only category map charged reinstated residents, #625; `service-category-scope.test.ts` guards both paths). A missing `service_rules` row prices as $0, so every booking item must be a service its area offers: gated in all three booking RPCs (an edit may keep/reduce an existing item) + create-booking's early 400 (`unofferedServiceIds`, migration `20261027030000`; `service-offered-gate.test.ts` pins the SQL).
 
 ## 7. Booking State Machine — Hard Rules
 
