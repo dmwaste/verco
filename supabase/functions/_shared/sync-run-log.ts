@@ -16,6 +16,11 @@ const RUN_LEVEL_ENTITY_ID = '00000000-0000-0000-0000-000000000000'
  *
  * Never throws: observability must not fail the run it is observing.
  *
+ * Status: 'success', 'failed', or 'partial' — the push EF's "only individual
+ * orders were refused" outcome (see pushRunOutcome in stops.ts, ADR 0041).
+ * Readers that only know success/failed (the PA's /daily-brief) must treat
+ * 'partial' as amber, not healthy.
+ *
  * Stale-run check for a daily cron (stale = the run died or never fired).
  * Count-based on purpose: a max()/HAVING form returns no row when the table
  * has no matching rows at all, so "never fired" reads as healthy.
@@ -26,7 +31,7 @@ const RUN_LEVEL_ENTITY_ID = '00000000-0000-0000-0000-000000000000'
 export async function logSyncRun(
   supabase: SupabaseClient<Database>,
   entityType: string,
-  status: 'success' | 'failed',
+  status: 'success' | 'partial' | 'failed',
   payload: Json,
   errorMessage?: string,
 ): Promise<void> {

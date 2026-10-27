@@ -565,7 +565,7 @@ describe('partitionPushResults — positional match of OR results to stops', () 
       [{ success: true }, { success: false, error: 'rejected' }, { success: true }],
     )
     expect(okIds).toEqual(['s1', 's3'])
-    expect(failures).toEqual([{ id: 's2', orderRef: 'KWN-1-B', error: 'rejected' }])
+    expect(failures).toEqual([{ id: 's2', orderRef: 'KWN-1-B', error: 'rejected', level: 'request' }])
   })
 
   it('a missing result (short/dropped results array) is a failure, never a silent push', () => {
@@ -576,7 +576,7 @@ describe('partitionPushResults — positional match of OR results to stops', () 
       [{ success: true }], // s2 has no matching result
     )
     expect(okIds).toEqual(['s1'])
-    expect(failures).toEqual([{ id: 's2', orderRef: 'KWN-1-B', error: 'no result returned' }])
+    expect(failures).toEqual([{ id: 's2', orderRef: 'KWN-1-B', error: 'no result returned', level: 'request' }])
   })
 
   it('defaults the message when a failure result carries no error string', () => {
@@ -584,7 +584,7 @@ describe('partitionPushResults — positional match of OR results to stops', () 
       [stop('s1', 'KWN-1-A')],
       [{ success: false }],
     )
-    expect(failures).toEqual([{ id: 's1', orderRef: 'KWN-1-A', error: 'no result returned' }])
+    expect(failures).toEqual([{ id: 's1', orderRef: 'KWN-1-A', error: 'no result returned', level: 'request' }])
   })
 
   it('handles all-success and all-fail cleanly', () => {
@@ -593,11 +593,27 @@ describe('partitionPushResults — positional match of OR results to stops', () 
     ).toEqual({ okIds: ['s1'], failures: [] })
     expect(
       partitionPushResults([stop('s1', 'r1')], [{ success: false, error: 'HTTP 500' }]),
-    ).toEqual({ okIds: [], failures: [{ id: 's1', orderRef: 'r1', error: 'HTTP 500' }] })
+    ).toEqual({ okIds: [], failures: [{ id: 's1', orderRef: 'r1', error: 'HTTP 500', level: 'request' }] })
   })
 
   it('is empty-safe', () => {
     expect(partitionPushResults([], [])).toEqual({ okIds: [], failures: [] })
+  })
+
+  it("keeps OR's own verdict: failedAt and code carry through, so a refused order is the order's outcome", () => {
+    const { failures } = partitionPushResults(
+      [stop('s1', 'SOP-TEST01-G')],
+      [{ success: false, error: 'Multiple orders with the matching orderNo were found.', code: 'ERR_MULTIPLE_ORD_FOUND', failedAt: 'order' }],
+    )
+    expect(failures).toEqual([
+      {
+        id: 's1',
+        orderRef: 'SOP-TEST01-G',
+        error: 'Multiple orders with the matching orderNo were found.',
+        level: 'order',
+        code: 'ERR_MULTIPLE_ORD_FOUND',
+      },
+    ])
   })
 })
 
@@ -656,7 +672,7 @@ describe('splitPushableStops — one un-pinned stop must not sink the batch', ()
     ])
     expect(pushable.map((p) => p.stop.id)).toEqual(['s1', 's3'])
     expect(pushable[1]!.location).toEqual({ latitude: -32.2, longitude: 115.9, locationName: 's3 Example St' })
-    expect(unpinned).toEqual([{ id: 's2', orderRef: 'REF-s2', error: NO_PIN_PUSH_ERROR }])
+    expect(unpinned).toEqual([{ id: 's2', orderRef: 'REF-s2', error: NO_PIN_PUSH_ERROR, level: 'order' }])
   })
 
 

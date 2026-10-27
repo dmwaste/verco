@@ -605,10 +605,20 @@ export function computeRollup(
   return 'Completed'
 }
 
+/**
+ * 'order' — this order alone was refused (an OptimoRoute verdict on it, or no
+ * map pin). It keeps failing until someone fixes that order, and the rest of
+ * the run is fine. 'request' — the whole push call failed: an outage.
+ */
+export type PushFailureLevel = 'order' | 'request'
+
 export interface PushFailure {
   id: string
   orderRef: string
   error: string
+  level: PushFailureLevel
+  /** OptimoRoute's per-order error code, when it gave one. */
+  code?: string
 }
 
 export interface PushResultPartition {
@@ -624,11 +634,15 @@ export interface PushResultPartition {
  * missing or falsy result is a FAILURE, never a silent success: a short or
  * dropped results array must never let an unconfirmed stop be stamped
  * pushed_at (which would suppress its re-push forever). Message default
- * matches the historical inline behaviour.
+ * matches the historical inline behaviour. A failure only counts as the
+ * order's own (`level: 'order'`) when OR said so; anything else is treated as
+ * a request failure, so an unexplained gap is loud rather than quiet.
  */
 export function partitionPushResults(
   stops: ReadonlyArray<{ id: string; external_order_ref: string }>,
-  results: ReadonlyArray<{ success: boolean; error?: string } | undefined>,
+  results: ReadonlyArray<
+    { success: boolean; error?: string; code?: string; failedAt?: PushFailureLevel } | undefined
+  >,
 ): PushResultPartition {
   const okIds: string[] = []
   const failures: PushFailure[] = []
@@ -641,10 +655,122 @@ export function partitionPushResults(
         id: stops[i]!.id,
         orderRef: stops[i]!.external_order_ref,
         error: result?.error ?? 'no result returned',
+        level: result?.failedAt ?? 'request',
+        ...(result?.code ? { code: result.code } : {}),
       })
     }
   }
   return { okIds, failures }
+}
+
+/**
+ * The order-level failures worth telling ops about: those whose error differs
+ * from the one the stop already carries in last_push_error. The push retries
+ * a refused order every hour, so without this one stuck order raised an alarm
+ * every hour (SOP-VHPDL0-G, ~80 runs from 24/10/2026). A stop is named again
+ * only when its error changes. Request-level failures are an outage and stay
+ * loud (HTTP 500) every run instead.
+ */
+export function newPushRejections(
+  failures: ReadonlyArray<PushFailure>,
+  previousErrorById: ReadonlyMap<string, string | null>,
+): PushFailure[] {
+  return failures.filter((f) => f.level === 'order' && previousErrorById.get(f.id) !== f.error)
+}
+
+/**
+ * This many order-level refusals with nothing pushed reads as an outage, not
+ * a few bad orders: a whole-request rejection reported order by order must
+ * not go quiet.
+ */
+export const MASS_REJECTION_MIN = 10
+
+export type PushRunStatus = 'success' | 'partial' | 'failed'
+
+/**
+ * Run outcome for push-orders-to-optimoroute, written to sync_log.status and
+ * returned as the HTTP status (Sentry reports 5xx only):
+ *   success / 200 — nothing failed.
+ *   partial / 207 — only individual orders were refused. Each is stamped on
+ *                   its stop, named once to ops, and retried next hour.
+ *   failed  / 500 — something run-level failed (a push call, a database
+ *                   write), or MASS_REJECTION_MIN+ refusals with nothing pushed.
+ */
+export function pushRunOutcome(run: {
+  /** Failures not attributable to one order (request-level + pass-1 writes). */
+  runErrors: number
+  /** Order-level refusals. */
+  rejected: number
+  pushed: number
+}): { status: PushRunStatus; http: 200 | 207 | 500 } {
+  if (run.runErrors > 0) return { status: 'failed', http: 500 }
+  if (run.rejected === 0) return { status: 'success', http: 200 }
+  if (run.pushed === 0 && run.rejected >= MASS_REJECTION_MIN) return { status: 'failed', http: 500 }
+  return { status: 'partial', http: 207 }
+}
+
+/** OptimoRoute's code when it holds more than one order with an orderNo. */
+export const DUPLICATE_ORDER_NO_CODE = 'ERR_MULTIPLE_ORD_FOUND'
+
+export function isDuplicateOrderNoError(failure: { error: string; code?: string }): boolean {
+  return (
+    failure.code === DUPLICATE_ORDER_NO_CODE ||
+    /multiple orders with the matching orderNo/i.test(failure.error)
+  )
+}
+
+/** One refused order, as named in the ops alert and the sync_log payload. */
+export interface PushRejection {
+  orderRef: string
+  /** Collection date, YYYY-MM-DD. */
+  date: string
+  error: string
+  code?: string
+}
+
+/** Refusals listed by name in one alert; the rest are counted. */
+export const PUSH_ALERT_MAX_LISTED = 20
+
+/**
+ * The ops alert for newly refused orders (see newPushRejections), or null when
+ * there are none. Refs and dates only, no resident details. Duplicate orderNos
+ * get the fix spelled out: ops delete the extra copy in OptimoRoute. Verco
+ * never deletes OptimoRoute orders itself.
+ */
+export function buildPushRejectionAlert(
+  rejections: ReadonlyArray<PushRejection>,
+): { title: string; lines: string[] } | null {
+  if (rejections.length === 0) return null
+  const first = rejections[0]!
+  const title =
+    rejections.length === 1
+      ? `⚠️ OptimoRoute refused order ${first.orderRef}`
+      : `⚠️ OptimoRoute refused ${rejections.length} orders`
+  const lines = [
+    rejections.length === 1
+      ? 'OptimoRoute refused this order. Other orders are unaffected, and Verco retries it every hour:'
+      : 'OptimoRoute refused these orders. Other orders are unaffected, and Verco retries them every hour:',
+  ]
+  for (const r of rejections.slice(0, PUSH_ALERT_MAX_LISTED)) {
+    lines.push(`• ${r.orderRef}, collection ${dayMonthYear(r.date)}: ${r.error}`)
+  }
+  if (rejections.length > PUSH_ALERT_MAX_LISTED) {
+    lines.push(`…and ${rejections.length - PUSH_ALERT_MAX_LISTED} more.`)
+  }
+  if (rejections.some(isDuplicateOrderNoError)) {
+    lines.push(
+      '',
+      'Duplicate orderNo: OptimoRoute holds more than one order with that number (usually a copy made inside OptimoRoute). Delete the extra copy in OptimoRoute. Verco never deletes OptimoRoute orders, and the next hourly push then goes through.',
+    )
+  }
+  lines.push('', "Each order is named once per error. This alert won't repeat while the error stays the same.")
+  return { title, lines }
+}
+
+/** YYYY-MM-DD → DD/MM/YYYY. */
+function dayMonthYear(date: string): string {
+  const [y, m, d] = date.split('-')
+  return y && m && d ? `${d}/${m}/${y}` : date
 }
 
 /** The OptimoRoute order location the bulk push sends. */
@@ -694,7 +820,7 @@ export function splitPushableStops<
   for (const stop of stops) {
     const location = orderLocation(stop)
     if (location) pushable.push({ stop, location })
-    else unpinned.push({ id: stop.id, orderRef: stop.external_order_ref, error: NO_PIN_PUSH_ERROR })
+    else unpinned.push({ id: stop.id, orderRef: stop.external_order_ref, error: NO_PIN_PUSH_ERROR, level: 'order' })
   }
   return { pushable, unpinned }
 }
