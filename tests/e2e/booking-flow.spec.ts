@@ -79,6 +79,12 @@ async function setupMocks(page: Page, options?: {
   priorBookings?: Array<{ ref: string; status: string; created_at: string }>
   createBookingResult?: Record<string, unknown>
   inactiveArea?: boolean
+  /**
+   * The address resolves (by place_id) to an admin-retired unit row
+   * "4/23 Leda Blvd". 'mud' = the building lookup behind it finds a MUD row;
+   * 'none' = it finds nothing.
+   */
+  retiredUnit?: 'mud' | 'none'
   /** When set, the client's terms_markdown — drives the T&Cs acceptance gate. */
   clientTerms?: string
 }) {
@@ -105,6 +111,31 @@ async function setupMocks(page: Page, options?: {
     }
 
     // eligible_properties — embed the area's go-live flag so the WS-A gate can read it
+    if (url.includes('eligible_properties') && options?.retiredUnit) {
+      const area = { client_id: TEST_CLIENT_ID, is_active: true }
+      let rows: unknown[]
+      if (url.includes('google_place_id')) {
+        rows = [{
+          ...TEST_PROPERTY,
+          id: '11111111-1111-1111-1111-111111111112',
+          address: '4/23 Leda Blvd',
+          formatted_address: '4/23 Leda Blvd, Wellard WA 6170',
+          is_eligible: false,
+          is_mud: false,
+          collection_area: area,
+        }]
+      } else if (options.retiredUnit === 'mud') {
+        rows = [{ ...TEST_PROPERTY, is_eligible: true, is_mud: true, collection_area: area }]
+      } else {
+        rows = []
+      }
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(rows),
+      })
+    }
+
     if (url.includes('eligible_properties')) {
       const property = {
         ...TEST_PROPERTY,
@@ -680,6 +711,44 @@ test.describe('Booking Flow', () => {
     await expect(page.getByText('Not yet available online')).toBeVisible()
     await expect(page.getByText('Property found!')).toHaveCount(0)
     await expect(page.getByRole('button', { name: /Book new collection/i })).toHaveCount(0)
+  })
+
+  async function lookUpRetiredUnit(page: Page) {
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? 'http://localhost:54321'
+    await page.route(`${supabaseUrl}/functions/v1/google-places-proxy**`, async (route: Route) => {
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          predictions: [{ place_id: 'place-1', description: '4/23 Leda Blvd, Wellard WA 6170' }],
+        }),
+      })
+    })
+    await page.goto('/book')
+    await page.getByPlaceholder('Start typing your address...').fill('4/23 Leda')
+    await page.getByText('4/23 Leda Blvd, Wellard WA 6170').click()
+  }
+
+  test('retired unit of a MUD complex — resident is sent to the strata manager', async ({ page }) => {
+    // A council moved its 10+ unit complexes to strata booking: the unit rows
+    // were retired and a MUD row created at the building address. The resident
+    // must see the strata message, not "not eligible – contact your council".
+    await setupMocks(page, { retiredUnit: 'mud' })
+    await lookUpRetiredUnit(page)
+
+    await expect(page.getByText('Multi-unit property')).toBeVisible()
+    await expect(page.getByText('23 Leda Blvd, Wellard WA 6170', { exact: true })).toBeVisible()
+    await expect(page.getByText('Address not eligible')).toHaveCount(0)
+    await expect(page.getByText('Property found!')).toHaveCount(0)
+  })
+
+  test('retired unit with no MUD behind it — still "not eligible"', async ({ page }) => {
+    await setupMocks(page, { retiredUnit: 'none' })
+    await lookUpRetiredUnit(page)
+
+    await expect(page.getByText('Address not eligible')).toBeVisible()
+    await expect(page.getByText('Multi-unit property')).toHaveCount(0)
+    await expect(page.getByText('Property found!')).toHaveCount(0)
   })
 
   test('address lookup — allocation panel honours admin top-ups and RPC usage', async ({ page }) => {

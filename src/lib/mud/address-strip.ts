@@ -28,3 +28,17 @@ export function stripAddressPrefix(addr: string): string {
   if (!addr) return addr
   return addr.replace(PREFIX_REGEX, '')
 }
+
+const UNIT_NUMBER_REGEX = /^\s*\d+[a-z]?\s*\/\s*/i
+
+/**
+ * Strips a bare unit number ("4/12 Broome St" → "12 Broome St") — the form
+ * stripAddressPrefix deliberately leaves alone. Used only to find the MUD
+ * building behind an admin-retired unit row (address-form.tsx), never to
+ * widen a resident's own search: "4/12" and "12" are different properties
+ * until an admin retires the unit.
+ */
+export function stripUnitNumber(addr: string): string {
+  if (!addr) return addr
+  return addr.replace(UNIT_NUMBER_REGEX, '')
+}
