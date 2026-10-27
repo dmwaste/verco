@@ -21,6 +21,7 @@ import {
   type ConversionRuleRow,
   type RawConversionRuleRow,
 } from '@/lib/pricing/swap'
+import { serviceSectionLabels } from './section-labels'
 
 interface ServiceRuleRow {
   id: string
@@ -41,6 +42,7 @@ interface ServiceRuleRow {
 }
 
 export function ServicesForm({ clientSlug }: { clientSlug: string }) {
+  const sectionLabels = serviceSectionLabels(clientSlug)
   const router = useRouter()
   const searchParams = useSearchParams()
   const propertyId = searchParams.get('property_id') ?? ''
@@ -419,7 +421,8 @@ export function ServicesForm({ clientSlug }: { clientSlug: string }) {
     title: string,
     categoryCode: string,
     rules: ServiceRuleRow[],
-    disabled = false
+    disabled = false,
+    labels: { note?: string | null; itemLabel?: string | null } = {}
   ) {
     const max = effectiveCategoryMax(categoryCode)
     const remaining = getLiveRemaining(categoryCode)
@@ -449,6 +452,9 @@ export function ServicesForm({ clientSlug }: { clientSlug: string }) {
             {remaining} of {max} remaining
           </span>
         </div>
+        {labels.note && (
+          <p className="-mt-1 mb-2.5 text-body-sm text-gray-500">{labels.note}</p>
+        )}
         <div className="flex flex-col gap-2">
           {rules.map((rule) => {
             const qty = quantities.get(rule.service_id) ?? 0
@@ -466,7 +472,7 @@ export function ServicesForm({ clientSlug }: { clientSlug: string }) {
                       {rule.service.name}
                     </span>
                     <span className="text-xs text-gray-500">
-                      {rule.service.category.name}
+                      {labels.itemLabel ?? rule.service.category.name}
                     </span>
                   </div>
                 </div>
@@ -543,14 +549,13 @@ export function ServicesForm({ clientSlug }: { clientSlug: string }) {
         {!isLoadingData && (
           <>
             {grouped.bulk.length > 0 &&
-              renderServiceSection(
-                clientSlug === 'vergevalet' ? 'Collection' : 'Bulk collection',
-                'bulk',
-                grouped.bulk
-              )}
+              renderServiceSection(sectionLabels.bulk, 'bulk', grouped.bulk)}
 
             {grouped.anc.length > 0 &&
-              renderServiceSection('Ancillary collection', 'anc', grouped.anc, swapApplied)}
+              renderServiceSection(sectionLabels.anc, 'anc', grouped.anc, swapApplied, {
+                note: sectionLabels.ancNote,
+                itemLabel: sectionLabels.ancItemLabel,
+              })}
 
             {/* Already swapped this FY — the forfeiture stands for the rest of
                 the year, so no checkbox: just say what happened (the ancillary
