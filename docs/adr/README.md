@@ -45,3 +45,5 @@ An ADR — "architecture decision record" — is a short record of a decision we
 | [0039](0039-our-fault-exceptions-are-not-billed.md) | A Nothing Presented or Non-conformance that was D&M's fault is not billed | 21/10/2026 | Accepted |
 | [0040](0040-contact-views-are-logged-and-councils-see-their-own.md) | Every view of a resident's contact record is logged, and each council sees the views of its own residents | 21/10/2026 | Accepted |
 | [0041](0041-one-refused-optimoroute-order-is-not-a-failed-run.md) | One refused OptimoRoute order is that order's problem, not a failed run: named once, logged partial | 27/10/2026 | Accepted |
+| [0042](0042-a-soft-deleted-booking-still-uses-its-allocation.md) | A soft-deleted booking still uses its allocation; a missed collection is given back with an allocation override | 27/10/2026 | Accepted |
+| [0043](0043-the-property-register-is-not-public.md) | The property register is not public; the booking page looks up one address at a time | 29/10/2026 | Accepted |
