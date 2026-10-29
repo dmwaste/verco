@@ -171,10 +171,50 @@ const haveAnon = Boolean(SUPABASE_URL && ANON_KEY)
     expect(data!.length).toBeGreaterThanOrEqual(1)
   })
 
-  it('eligible_properties is readable', async () => {
-    const { data, error } = await anon.from('eligible_properties').select('id, address').limit(5)
+  // ADR 0043 (20261029081600): the property register is closed to anon — it
+  // used to hand all ~110k rows, notes included, to anyone with the anon key.
+  it('eligible_properties is NOT readable (lookups go through the RPCs)', async () => {
+    const { data, error } = await anon.from('eligible_properties').select('id').limit(5)
     expect(error).toBeNull()
-    expect(data!.length).toBeGreaterThanOrEqual(1)
+    expect(data).toEqual([])
+  })
+
+  // error === null below also pins anon EXECUTE on the two /book RPCs: a
+  // clean-up revoking it (CLAUDE.md §21's staff-only rule) would 42501 here
+  // instead of silently breaking every address lookup.
+  it('lookup_eligible_properties escapes LIKE metacharacters (no wildcard dump)', async () => {
+    const { data: clients } = await anon.from('client').select('id').limit(1)
+    const { data, error } = await anon.rpc('lookup_eligible_properties', {
+      p_client_id: clients![0]!.id,
+      p_formatted_key: '%%%%%%',
+      p_address_key: '______',
+    })
+    expect(error).toBeNull()
+    expect(data).toEqual([])
+  })
+
+  it('lookup_eligible_properties ignores keys under 6 characters', async () => {
+    const { data: clients } = await anon.from('client').select('id').limit(1)
+    const { data, error } = await anon.rpc('lookup_eligible_properties', {
+      p_client_id: clients![0]!.id,
+      p_formatted_key: '1',
+      p_address_key: '1',
+    })
+    expect(error).toBeNull()
+    expect(data).toEqual([])
+  })
+
+  it('get_property_for_booking is callable by anon (calculate-price / create-booking)', async () => {
+    const { data, error } = await anon.rpc('get_property_for_booking', {
+      p_property_id: '00000000-0000-4000-8000-000000000000',
+    })
+    expect(error).toBeNull()
+    expect(data).toEqual([])
+  })
+
+  it('current_user_property_ids is NOT callable by anon', async () => {
+    const { error } = await anon.rpc('current_user_property_ids')
+    expect(error?.code).toBe('42501')
   })
 
   it('service table is readable', async () => {
@@ -1108,6 +1148,34 @@ if (!haveDb) {
       const n = await countAs(USERS['contractor-admin'], 'SELECT user_id FROM user_roles')
       expect(n).toBeGreaterThanOrEqual(1)
     })
+  })
+
+  // ADR 0043 (20261029081600): staff/field/ranger by tenant, residents only the
+  // properties on their own bookings — never the whole register.
+  describe('eligible_properties scope (ADR 0043)', () => {
+    it('resident sees exactly the properties on their own bookings', async () => {
+      const visible = await countAs(USERS.resident, 'SELECT id FROM eligible_properties')
+      const own = await countAs(
+        USERS.resident,
+        'SELECT DISTINCT property_id FROM booking WHERE property_id IS NOT NULL',
+      )
+      expect(visible).toBe(own)
+    })
+
+    it.each(['field', 'ranger', 'client-admin', 'contractor-admin'] as const)(
+      '%s sees its own tenant’s properties and none outside it',
+      async (role) => {
+        const visible = await countAs(USERS[role], 'SELECT id FROM eligible_properties')
+        const outside = await countAs(
+          USERS[role],
+          `SELECT ep.id FROM eligible_properties ep
+             JOIN collection_area ca ON ca.id = ep.collection_area_id
+            WHERE ca.client_id NOT IN (SELECT accessible_client_ids())`,
+        )
+        expect(visible).toBeGreaterThan(0)
+        expect(outside).toBe(0)
+      },
+    )
   })
 
   // ---------------------------------------------------------------------------
