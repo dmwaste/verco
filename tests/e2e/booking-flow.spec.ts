@@ -104,11 +104,17 @@ async function setupMocks(page: Page, options?: {
       })
     }
 
-    // eligible_properties — embed the area's go-live flag so the WS-A gate can read it
-    if (url.includes('eligible_properties')) {
+    // Address lookup RPC (ADR 0043: /book never reads eligible_properties
+    // directly). Flat row; area_is_active drives the WS-A gate.
+    if (url.includes('/rpc/lookup_eligible_properties')) {
       const property = {
         ...TEST_PROPERTY,
-        collection_area: { client_id: TEST_CLIENT_ID, is_active: !options?.inactiveArea },
+        google_place_id: null,
+        is_eligible: true,
+        is_mud: false,
+        created_at: '2026-01-01T00:00:00Z',
+        area_client_id: TEST_CLIENT_ID,
+        area_is_active: !options?.inactiveArea,
       }
       return route.fulfill({
         status: 200,
@@ -736,6 +742,31 @@ test.describe('Booking Flow', () => {
     await expect(page.getByText('KWN-2-HIST01')).toBeVisible()
     await expect(page.getByText('Completed', { exact: true })).toBeVisible()
     await expect(page.getByText('No bookings yet for this financial year.')).toHaveCount(0)
+  })
+
+  test('address lookup — goes through the lookup RPC, never a direct read of the property register', async ({ page }) => {
+    // Regression (ADR 0043): a direct eligible_properties read let anyone page
+    // through the whole register. The table is closed to anon and residents,
+    // so a direct read would also come back empty and every address would show
+    // as "not eligible".
+    const directReads: string[] = []
+    page.on('request', (req) => {
+      if (req.url().includes('/rest/v1/eligible_properties')) directReads.push(req.url())
+    })
+    await setupMocks(page)
+
+    await page.goto('/book')
+    await page.getByPlaceholder('Start typing your address...').fill('23 Leda')
+    const lookup = page.waitForRequest((req) => req.url().includes('/rpc/lookup_eligible_properties'))
+    await page.getByText('23 Leda Blvd, Wellard WA 6170').click()
+    const body = (await lookup).postDataJSON() as Record<string, unknown>
+    await expect(page.getByText('Property found!')).toBeVisible()
+
+    // Tenant-pinned to the portal's client (resolved server-side by the proxy,
+    // so not the mocked id); keys are passed, never LIKE patterns.
+    expect(body.p_client_id).toMatch(/^[0-9a-f-]{36}$/)
+    expect(JSON.stringify(body)).not.toContain('%')
+    expect(directReads).toEqual([])
   })
 
   test('address lookup — every autocomplete suggestion is visible, none clipped below the search card', async ({ page }) => {

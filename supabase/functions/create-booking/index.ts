@@ -158,10 +158,10 @@ serve(withSentry('create-booking', async (req) => {
 
     // ── 3. Verify property belongs to this collection area ───────────────────
 
+    // Through the DEFINER RPC, not the table: the caller is anon or the
+    // resident, and eligible_properties is closed to both (ADR 0043).
     const { data: property, error: propError } = await supabaseAnon
-      .from('eligible_properties')
-      .select('id, collection_area_id, is_mud, unit_count, is_eligible')
-      .eq('id', property_id)
+      .rpc('get_property_for_booking', { p_property_id: property_id })
       .single()
 
     if (propError || !property) {

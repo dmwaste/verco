@@ -54,11 +54,11 @@ serve(async (req) => {
 
     const { property_id, fy_id, items, replaces } = parsed.data
 
-    // Resolve property → collection_area_id + MUD unit count
+    // Resolve property → collection_area_id + MUD unit count. Through the
+    // DEFINER RPC, not the table: callers are anon / residents, and
+    // eligible_properties is closed to both (ADR 0043).
     const { data: property, error: propError } = await supabase
-      .from('eligible_properties')
-      .select('collection_area_id, is_mud, unit_count')
-      .eq('id', property_id)
+      .rpc('get_property_for_booking', { p_property_id: property_id })
       .single()
 
     // collection_area_id is nullable in the schema; a property with no area can't
