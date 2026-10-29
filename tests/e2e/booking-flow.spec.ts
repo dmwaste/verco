@@ -81,6 +81,8 @@ async function setupMocks(page: Page, options?: {
   inactiveArea?: boolean
   /** When set, the client's terms_markdown — drives the T&Cs acceptance gate. */
   clientTerms?: string
+  /** Lookup RPC misses the place-id call, so the address-key lookup runs too. */
+  placeIdMiss?: boolean
 }) {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? 'http://localhost:54321'
 
@@ -116,10 +118,12 @@ async function setupMocks(page: Page, options?: {
         area_client_id: TEST_CLIENT_ID,
         area_is_active: !options?.inactiveArea,
       }
+      const args = (route.request().postDataJSON() ?? {}) as { p_place_id?: string }
+      const miss = options?.placeIdMiss && args.p_place_id
       return route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify([property]),
+        body: JSON.stringify(miss ? [] : [property]),
       })
     }
 
@@ -750,22 +754,31 @@ test.describe('Booking Flow', () => {
     // so a direct read would also come back empty and every address would show
     // as "not eligible".
     const directReads: string[] = []
+    const lookups: Array<Record<string, unknown>> = []
     page.on('request', (req) => {
       if (req.url().includes('/rest/v1/eligible_properties')) directReads.push(req.url())
+      if (req.url().includes('/rpc/lookup_eligible_properties')) {
+        lookups.push(req.postDataJSON() as Record<string, unknown>)
+      }
     })
-    await setupMocks(page)
+    // The place-id call misses, so the address-key lookup (the path that used
+    // to build LIKE patterns client-side) runs and resolves the property.
+    await setupMocks(page, { placeIdMiss: true })
 
     await page.goto('/book')
     await page.getByPlaceholder('Start typing your address...').fill('23 Leda')
-    const lookup = page.waitForRequest((req) => req.url().includes('/rpc/lookup_eligible_properties'))
     await page.getByText('23 Leda Blvd, Wellard WA 6170').click()
-    const body = (await lookup).postDataJSON() as Record<string, unknown>
     await expect(page.getByText('Property found!')).toBeVisible()
 
-    // Tenant-pinned to the portal's client (resolved server-side by the proxy,
-    // so not the mocked id); keys are passed, never LIKE patterns.
-    expect(body.p_client_id).toMatch(/^[0-9a-f-]{36}$/)
-    expect(JSON.stringify(body)).not.toContain('%')
+    // Place id first, then the keys. Every call is tenant-pinned to the
+    // portal's client (resolved server-side by the proxy, so not the mocked
+    // id), and carries keys, never LIKE patterns.
+    expect(lookups[0]).toMatchObject({ p_place_id: 'place-1' })
+    const keyed = lookups.find((b) => 'p_formatted_key' in b)
+    expect(String(keyed?.p_formatted_key)).toMatch(/^23 Leda Blvd/)
+    expect(String(keyed?.p_address_key)).toMatch(/^23 Leda Blvd/)
+    for (const b of lookups) expect(b.p_client_id).toMatch(/^[0-9a-f-]{36}$/)
+    expect(JSON.stringify(lookups)).not.toContain('%')
     expect(directReads).toEqual([])
   })
 

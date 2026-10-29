@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
 import dynamic from 'next/dynamic'
+import * as Sentry from '@sentry/nextjs'
 import { createClient } from '@/lib/supabase/client'
 import { BookingStepper } from '@/components/booking/booking-stepper'
 import { AddressAutocomplete } from '@/components/booking/address-autocomplete'
@@ -58,6 +59,16 @@ type LookupRow = Database['public']['Functions']['lookup_eligible_properties']['
 
 function toPropertyRow({ area_client_id, area_is_active, ...property }: LookupRow): EligiblePropertyRow {
   return { ...property, collection_area: { client_id: area_client_id, is_active: area_is_active } }
+}
+
+// A failed lookup reads to the resident as "not eligible" — every address,
+// silently. Report it (no address: PII stays out of Sentry).
+function reportLookupError(error: { code: string; message: string } | null) {
+  if (!error) return
+  Sentry.captureMessage('Address lookup RPC failed', {
+    level: 'warning',
+    extra: { code: error.code, error: error.message },
+  })
 }
 
 interface MudRedirectState {
@@ -118,10 +129,11 @@ export function AddressForm({
           // row and report an eligible address as "not eligible", so take the
           // earliest deterministically instead — they are the same property.
           // The RPC orders by created_at, so the first row is the earliest.
-          const { data } = await supabase.rpc('lookup_eligible_properties', {
+          const { data, error } = await supabase.rpc('lookup_eligible_properties', {
             p_client_id: clientId,
             p_place_id: pid,
           })
+          reportLookupError(error)
           const row = data?.[0]
           if (row) return toPropertyRow(row)
         }
@@ -140,11 +152,12 @@ export function AddressForm({
         // rowsAreSameProperty keeps the VER-214 protection: genuinely different
         // houses still bail to "not found" rather than silently resolving to the
         // wrong one.
-        const { data } = await supabase.rpc('lookup_eligible_properties', {
+        const { data, error } = await supabase.rpc('lookup_eligible_properties', {
           p_client_id: clientId,
           p_formatted_key: key,
           p_address_key: addressMatchKey(streetSegment),
         })
+        reportLookupError(error)
         // Reject same-street namesakes in a DIFFERENT suburb before resolving.
         // The street-segment `address` branch above intentionally drops the
         // suburb, so a "23 Glyde St, Mosman Park" search can match "23 Glyde St,
