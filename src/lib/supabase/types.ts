@@ -2994,6 +2994,7 @@ export type Database = {
       current_user_contact_id: { Args: never; Returns: string }
       current_user_contact_id_by_email: { Args: never; Returns: string }
       current_user_contractor_id: { Args: never; Returns: string }
+      current_user_property_ids: { Args: never; Returns: string[] }
       current_user_role: {
         Args: never
         Returns: Database["public"]["Enums"]["app_role"]
@@ -3089,6 +3090,16 @@ export type Database = {
           service_id: string
         }[]
       }
+      get_property_for_booking: {
+        Args: { p_property_id: string }
+        Returns: {
+          collection_area_id: string
+          id: string
+          is_eligible: boolean
+          is_mud: boolean
+          unit_count: number
+        }[]
+      }
       get_property_fy_booking_history: {
         Args: { p_fy_id?: string; p_property_id: string }
         Returns: {
@@ -3156,6 +3167,29 @@ export type Database = {
       is_contractor_user: { Args: never; Returns: boolean }
       is_field_user: { Args: never; Returns: boolean }
       is_staff_role: { Args: never; Returns: boolean }
+      lookup_eligible_properties: {
+        Args: {
+          p_address_key?: string
+          p_client_id: string
+          p_formatted_key?: string
+          p_place_id?: string
+        }
+        Returns: {
+          address: string
+          area_client_id: string
+          area_is_active: boolean
+          collection_area_id: string
+          created_at: string
+          formatted_address: string
+          google_place_id: string
+          has_geocode: boolean
+          id: string
+          is_eligible: boolean
+          is_mud: boolean
+          latitude: number
+          longitude: number
+        }[]
+      }
       resolve_actor_names: {
         Args: { p_user_ids: string[] }
         Returns: {

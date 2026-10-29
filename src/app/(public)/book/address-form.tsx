@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
 import dynamic from 'next/dynamic'
+import * as Sentry from '@sentry/nextjs'
 import { createClient } from '@/lib/supabase/client'
 import { BookingStepper } from '@/components/booking/booking-stepper'
 import { AddressAutocomplete } from '@/components/booking/address-autocomplete'
@@ -16,8 +17,6 @@ import { isAreaBookable } from '@/lib/booking/area-gate'
 import { isPropertyBookable } from '@/lib/booking/property-gate'
 import {
   addressMatchKey as buildAddressMatchKey,
-  buildAddressIlikePattern,
-  buildEligibleOrFilter,
   buildLookupCandidates,
   rowsAreSameProperty,
   extractSuburb,
@@ -32,11 +31,44 @@ import {
 } from '@/lib/pricing/swap'
 import type { Database } from '@/lib/supabase/types'
 
-type EligibleProperty = Database['public']['Tables']['eligible_properties']['Row']
+// The columns lookup_eligible_properties returns, typed from the table so
+// nullable columns stay nullable (generated RPC return types drop nullability).
+// /book never reads eligible_properties directly: the table is closed to anon
+// and residents (ADR 0043), the RPC returns at most 5 rows of these columns.
+type EligibleProperty = Pick<
+  Database['public']['Tables']['eligible_properties']['Row'],
+  | 'id'
+  | 'address'
+  | 'formatted_address'
+  | 'google_place_id'
+  | 'has_geocode'
+  | 'is_eligible'
+  | 'is_mud'
+  | 'latitude'
+  | 'longitude'
+  | 'collection_area_id'
+  | 'created_at'
+>
 
-// Lookup rows embed the area's go-live flag so the gate can read it (WS-A / VER-269).
+// Lookup rows carry the area's go-live flag so the gate can read it (WS-A / VER-269).
 type EligiblePropertyRow = EligibleProperty & {
   collection_area: { client_id: string; is_active: boolean } | null
+}
+
+type LookupRow = Database['public']['Functions']['lookup_eligible_properties']['Returns'][number]
+
+function toPropertyRow({ area_client_id, area_is_active, ...property }: LookupRow): EligiblePropertyRow {
+  return { ...property, collection_area: { client_id: area_client_id, is_active: area_is_active } }
+}
+
+// A failed lookup reads to the resident as "not eligible" — every address,
+// silently. Report it (no address: PII stays out of Sentry).
+function reportLookupError(error: { code: string; message: string } | null) {
+  if (!error) return
+  Sentry.captureMessage('Address lookup RPC failed', {
+    level: 'warning',
+    extra: { code: error.code, error: error.message },
+  })
 }
 
 interface MudRedirectState {
@@ -96,15 +128,14 @@ export function AddressForm({
           // client (same physical property). `.maybeSingle()` would error on >1
           // row and report an eligible address as "not eligible", so take the
           // earliest deterministically instead — they are the same property.
-          const { data } = await supabase
-            .from('eligible_properties')
-            .select('*, collection_area!inner(client_id, is_active)')
-            .eq('google_place_id', pid)
-            .eq('collection_area.client_id', clientId)
-            .order('created_at', { ascending: true })
-            .limit(1)
+          // The RPC orders by created_at, so the first row is the earliest.
+          const { data, error } = await supabase.rpc('lookup_eligible_properties', {
+            p_client_id: clientId,
+            p_place_id: pid,
+          })
+          reportLookupError(error)
           const row = data?.[0]
-          if (row) return row as unknown as EligiblePropertyRow
+          if (row) return toPropertyRow(row)
         }
 
         const key = addressMatchKey(s)
@@ -112,33 +143,28 @@ export function AddressForm({
 
         // Search both formatted_address (geocoded rows) and address (un-geocoded rows
         // such as newly imported MUDs). Use the street-segment only for the address
-        // column because Airtable values often lack the suburb/state suffix. Both
-        // patterns can carry a comma, so buildEligibleOrFilter double-quotes each
-        // value — a bare comma would otherwise split the PostgREST .or() condition.
-        const fmtPattern = buildAddressIlikePattern(key)
+        // column because Airtable values often lack the suburb/state suffix. The
+        // RPC prefix-matches each key (VER-214: never a contains) and escapes LIKE
+        // metacharacters itself, so we pass keys, not patterns.
         const streetSegment = s.split(',')[0]?.trim() ?? s
-        const addrPattern = buildAddressIlikePattern(addressMatchKey(streetSegment))
-        // Fetch a small window and auto-resolve only when every match is the
-        // SAME physical property (duplicate import). rowsAreSameProperty keeps
-        // the VER-214 protection: genuinely different houses still bail to "not
-        // found" rather than silently resolving to the wrong one.
-        const { data } = await supabase
-          .from('eligible_properties')
-          .select('*, collection_area!inner(client_id, is_active)')
-          .or(buildEligibleOrFilter(fmtPattern, addrPattern))
-          .eq('collection_area.client_id', clientId)
-          .order('created_at', { ascending: true })
-          .limit(5)
+        // Fetch a small window (the RPC caps it at 5) and auto-resolve only when
+        // every match is the SAME physical property (duplicate import).
+        // rowsAreSameProperty keeps the VER-214 protection: genuinely different
+        // houses still bail to "not found" rather than silently resolving to the
+        // wrong one.
+        const { data, error } = await supabase.rpc('lookup_eligible_properties', {
+          p_client_id: clientId,
+          p_formatted_key: key,
+          p_address_key: addressMatchKey(streetSegment),
+        })
+        reportLookupError(error)
         // Reject same-street namesakes in a DIFFERENT suburb before resolving.
         // The street-segment `address` branch above intentionally drops the
         // suburb, so a "23 Glyde St, Mosman Park" search can match "23 Glyde St,
         // East Fremantle" (a sibling Verge Valet sub-client); a lone match would
         // then auto-resolve to the wrong council's area. Only geocoded rows with
         // a positively-conflicting suburb are dropped — un-geocoded imports stay.
-        const scoped = filterBySuburbAgreement(
-          (data ?? []) as unknown as EligiblePropertyRow[],
-          extractSuburb(s)
-        )
+        const scoped = filterBySuburbAgreement((data ?? []).map(toPropertyRow), extractSuburb(s))
         if (scoped.length > 0 && rowsAreSameProperty(scoped)) {
           return scoped[0]!
         }
