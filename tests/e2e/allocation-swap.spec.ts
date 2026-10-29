@@ -119,11 +119,14 @@ test.describe('Allocation swap — wizard flow', () => {
       `/book/services?property_id=${PROPERTY.id}&collection_area_id=${AREA}&address=${encodeURIComponent(PROPERTY.formatted_address)}`
     )
 
-    // Both category sections render. The bulk section label is tenant-dependent
-    // ('Bulk collection' for most tenants, 'Collection' for Verge Valet) — match
-    // either, anchored so it doesn't catch 'Ancillary collection' or checkbox copy.
+    // Both category sections render. Section labels are tenant-dependent
+    // (section-labels.ts) and the dev server renders whichever tenant
+    // LOCAL_DEV_CLIENT_SLUG pins (CI: the first active client): bulk is
+    // 'Bulk collection' or 'Collection' (Verge Valet); ancillary is 'Ancillary
+    // collection' or 'Verge Valet™ Extra' (#721 — VV repeats it under each
+    // ancillary item, hence .first()). Anchored so neither catches checkbox copy.
     await expect(page.getByText(/^(Bulk collection|Collection)$/)).toBeVisible()
-    await expect(page.getByText('Ancillary collection', { exact: true })).toBeVisible()
+    await expect(page.getByText(/^(Ancillary collection|Verge Valet™ Extra)$/).first()).toBeVisible()
 
     // The swap checkbox is offered (eligible: rule + 0 ancillary used + no swap).
     await expect(page.getByText(/Swap your 3 ancillary collections/i)).toBeVisible()
