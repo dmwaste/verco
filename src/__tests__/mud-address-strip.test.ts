@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { stripAddressPrefix } from '@/lib/mud/address-strip'
+import { stripAddressPrefix, stripUnitNumber } from '@/lib/mud/address-strip'
 
 describe('stripAddressPrefix', () => {
   it('strips Unit X / prefix', () => {
@@ -82,5 +82,39 @@ describe('stripAddressPrefix', () => {
 
   it('handles whitespace-only input', () => {
     expect(stripAddressPrefix('   ')).toBe('   ')
+  })
+})
+
+describe('stripUnitNumber', () => {
+  it('strips a bare unit number from a geocoded address', () => {
+    expect(stripUnitNumber('4/12 Broome St, Cottesloe WA 6011, Australia')).toBe(
+      '12 Broome St, Cottesloe WA 6011, Australia'
+    )
+  })
+
+  it('strips a unit number with a letter suffix', () => {
+    expect(stripUnitNumber('12A/633 Fixture Street JOLIMONT')).toBe(
+      '633 Fixture Street JOLIMONT'
+    )
+  })
+
+  it('strips spacing around the slash', () => {
+    expect(stripUnitNumber('  3 / 12 Broome St')).toBe('12 Broome St')
+  })
+
+  it('leaves a plain address unchanged', () => {
+    expect(stripUnitNumber('12 Broome St')).toBe('12 Broome St')
+  })
+
+  it('leaves a street-number range unchanged', () => {
+    expect(stripUnitNumber('12-14 Broome St')).toBe('12-14 Broome St')
+  })
+
+  it('leaves the keyword form to stripAddressPrefix', () => {
+    expect(stripUnitNumber('Unit 5 / 123 Broome St')).toBe('Unit 5 / 123 Broome St')
+  })
+
+  it('handles empty string', () => {
+    expect(stripUnitNumber('')).toBe('')
   })
 })

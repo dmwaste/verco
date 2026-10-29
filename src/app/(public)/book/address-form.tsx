@@ -10,7 +10,7 @@ import { BookingStepper } from '@/components/booking/booking-stepper'
 import { AddressAutocomplete } from '@/components/booking/address-autocomplete'
 import { Spinner } from '@/components/ui/spinner'
 import { VercoButton } from '@/components/ui/verco-button'
-import { stripAddressPrefix } from '@/lib/mud/address-strip'
+import { stripAddressPrefix, stripUnitNumber } from '@/lib/mud/address-strip'
 import { formatFinancialYearLabel } from '@/lib/booking/financial-year'
 import { finiteCoord } from '@/lib/booking/finite-coord'
 import { isAreaBookable } from '@/lib/booking/area-gate'
@@ -203,7 +203,25 @@ export function AddressForm({
       // eligible" banner already carries the right resident guidance (contact
       // your council), so reuse it. create-booking, the capacity RPCs and the
       // booking_resident_insert RLS policy enforce the same gate fail-closed.
+      // Exception: a unit retired because its complex moved to strata booking
+      // (e.g. Subiaco's 10+ unit complexes) has a MUD row at the building
+      // address — send that resident to their strata manager instead.
       if (!isPropertyBookable(property)) {
+        const unitAddress = property.formatted_address ?? property.address
+        const buildingAddress = stripUnitNumber(unitAddress)
+        const building =
+          !property.is_mud && buildingAddress !== unitAddress
+            ? await tryLookup(buildingAddress)
+            : null
+        if (building) {
+          const decision = decideMudRedirect([building])
+          if (decision.redirect) {
+            setMudRedirect({
+              building_address: decision.building_address ?? building.address,
+            })
+            return
+          }
+        }
         setNotFound(true)
         return
       }
