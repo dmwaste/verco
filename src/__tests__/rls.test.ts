@@ -179,6 +179,9 @@ const haveAnon = Boolean(SUPABASE_URL && ANON_KEY)
     expect(data).toEqual([])
   })
 
+  // error === null below also pins anon EXECUTE on the two /book RPCs: a
+  // clean-up revoking it (CLAUDE.md §21's staff-only rule) would 42501 here
+  // instead of silently breaking every address lookup.
   it('lookup_eligible_properties escapes LIKE metacharacters (no wildcard dump)', async () => {
     const { data: clients } = await anon.from('client').select('id').limit(1)
     const { data, error } = await anon.rpc('lookup_eligible_properties', {
@@ -188,6 +191,30 @@ const haveAnon = Boolean(SUPABASE_URL && ANON_KEY)
     })
     expect(error).toBeNull()
     expect(data).toEqual([])
+  })
+
+  it('lookup_eligible_properties ignores keys under 6 characters', async () => {
+    const { data: clients } = await anon.from('client').select('id').limit(1)
+    const { data, error } = await anon.rpc('lookup_eligible_properties', {
+      p_client_id: clients![0]!.id,
+      p_formatted_key: '1',
+      p_address_key: '1',
+    })
+    expect(error).toBeNull()
+    expect(data).toEqual([])
+  })
+
+  it('get_property_for_booking is callable by anon (calculate-price / create-booking)', async () => {
+    const { data, error } = await anon.rpc('get_property_for_booking', {
+      p_property_id: '00000000-0000-4000-8000-000000000000',
+    })
+    expect(error).toBeNull()
+    expect(data).toEqual([])
+  })
+
+  it('current_user_property_ids is NOT callable by anon', async () => {
+    const { error } = await anon.rpc('current_user_property_ids')
+    expect(error?.code).toBe('42501')
   })
 
   it('service table is readable', async () => {
